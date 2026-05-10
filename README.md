@@ -253,6 +253,12 @@ bounded candidate batch is checked, even if the official PDFs are not published
 yet, but metadata persistence keeps the maximum existing watermark so replay
 or manually bounded runs cannot move it backward. The replay window still
 refetches recent report dates for late updates.
+The official NBA PDF endpoint can return parser text as one token per line, so
+the ingestion normalizes tokenized PDF output back into logical injury-report
+rows before DQ and merge. Player-name matching strips diacritics from NBA static
+lookup names so official report spellings like ASCII transliterations still
+resolve to player IDs, and `PLAYER_ID` is serialized as a nullable integer for
+BigQuery CSV loads.
 When injury reports are the only changed domain, the DAG runs a targeted dbt
 build for injury availability models instead of rebuilding the full warehouse.
 `gold.player_availability_current` includes `is_report_stale` so consumers can
@@ -319,8 +325,10 @@ Current local validation caveats:
 - `dbt test` requires a real BigQuery-enabled project and valid GCP auth; it will fail against placeholder projects such as `local-project`.
 - The targeted workbench-model `dbt test --select ...` command has the same BigQuery auth requirement.
 - In the latest local validation run for this branch, `python -m compileall dags scripts tests`, `PYTHONPATH=. pytest`, `dbt parse`, `make airflow-parse`, and targeted dbt tests for `dim_game`, `fct_team_game_scores`, `player_fantasy_rankings`, and `stg_schedule_clean` all pass.
-- In the latest live validation run for this branch, the configured BigQuery project `nba-data-485505` is reachable and the minimum core chain builds successfully:
+- In the latest live validation run for this branch, the configured BigQuery project is reachable and the minimum core chain builds successfully:
   `dim_player dim_team dim_game fct_player_game_stats fct_team_game_scores fct_player_scoring_contribution player_recent_form player_similarity_feature_input`.
+- The injury availability production path has been validated with the targeted dbt selector:
+  `stg_player_injury_reports_clean player_availability_current`.
 - Live Airflow orchestration still needs a scheduler-backed validation run. Local `make airflow-trigger` now registers the DAG before triggering, and NBA API calls now use bounded timeout/retry settings. The prior warehouse validation was repaired directly in BigQuery.
 
 ## Security Hygiene

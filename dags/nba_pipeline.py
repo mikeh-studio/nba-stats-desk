@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+import unicodedata
 from datetime import date, datetime, timedelta
 from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -31,6 +32,14 @@ INJURY_REPORT_SOURCE_SYSTEM = "nba_official_injury_report"
 OFFICIAL_INJURY_REPORT_BASE_URL = "https://ak-static.cms.nba.com/referee/injury"
 DEFAULT_INJURY_REPORT_TIME_ET = "05_00PM"
 DEFAULT_PLAYOFF_BACKFILL_START = date(2026, 4, 18)
+OFFICIAL_INJURY_REPORT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/pdf,application/octet-stream,*/*",
+}
 SUPPORTED_SEASON = "2025-26"
 SUPPORTED_SEASON_START = date(2025, 7, 1)
 SUPPORTED_SEASON_END = date(2026, 6, 30)
@@ -1049,13 +1058,36 @@ _INJURY_DATE_TIME_MATCHUP_RE = re.compile(
 _INJURY_TIME_MATCHUP_RE = re.compile(
     r"^(\d{1,2}:\d{2}\s*\([A-Za-z]{2,}\))\s+" r"([A-Z]{2,3}@[A-Z]{2,3})\s+(.+)$"
 )
+_INJURY_DATE_TOKEN_RE = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
+_INJURY_TIME_TOKEN_RE = re.compile(r"^\d{1,2}:\d{2}$")
+_INJURY_MATCHUP_TOKEN_RE = re.compile(r"^[A-Z]{2,3}@[A-Z]{2,3}$")
+_INJURY_REPORT_TOKEN_HEADER_WORDS = {
+    "Injury",
+    "Report:",
+    "Page",
+    "of",
+    "Game",
+    "Date",
+    "Time",
+    "Matchup",
+    "Team",
+    "Player",
+    "Name",
+    "Current",
+    "Status",
+    "Reason",
+}
 
 
 def normalize_player_name_key(name: Any) -> str:
     """Normalize a public NBA player name for deterministic local matching."""
     if name is None:
         return ""
-    normalized = re.sub(r"[^a-z0-9]+", " ", str(name).lower()).strip()
+    ascii_name = unicodedata.normalize("NFKD", str(name))
+    ascii_name = "".join(
+        character for character in ascii_name if not unicodedata.combining(character)
+    )
+    normalized = re.sub(r"[^a-z0-9]+", " ", ascii_name.lower()).strip()
     return re.sub(r"\s+", " ", normalized)
 
 
@@ -1211,6 +1243,201 @@ def _split_injury_report_team_prefix(value: str) -> tuple[Optional[str], str]:
     return None, value
 
 
+def _consume_injury_report_team_name(
+    tokens: list[str], start_index: int
+) -> tuple[Optional[str], int]:
+    for team_name in sorted(
+        NBA_TEAM_NAME_TO_ABBR, key=lambda value: len(value.split()), reverse=True
+    ):
+        team_tokens = team_name.split()
+        end_index = start_index + len(team_tokens)
+        if [token.upper() for token in tokens[start_index:end_index]] == team_tokens:
+            return (
+                NBA_TEAM_NAME_CANONICAL.get(team_name, team_name.title()),
+                end_index,
+            )
+    return None, start_index
+
+
+def _is_tokenized_injury_report(lines: list[str]) -> bool:
+    meaningful = [line for line in lines if line]
+    if not meaningful:
+        return False
+    sample = meaningful[:80]
+    single_token_count = sum(1 for line in sample if " " not in line)
+    return single_token_count / len(sample) >= 0.8 and any(
+        _INJURY_DATE_TOKEN_RE.match(line) for line in meaningful
+    )
+
+
+def _is_injury_game_context_start(tokens: list[str], index: int) -> bool:
+    if index >= len(tokens):
+        return False
+    if _INJURY_DATE_TOKEN_RE.match(tokens[index]):
+        return (
+            index + 3 < len(tokens)
+            and _INJURY_TIME_TOKEN_RE.match(tokens[index + 1]) is not None
+            and tokens[index + 2].startswith("(")
+            and _INJURY_MATCHUP_TOKEN_RE.match(tokens[index + 3].upper()) is not None
+        )
+    return (
+        index + 2 < len(tokens)
+        and _INJURY_TIME_TOKEN_RE.match(tokens[index]) is not None
+        and tokens[index + 1].startswith("(")
+        and _INJURY_MATCHUP_TOKEN_RE.match(tokens[index + 2].upper()) is not None
+    )
+
+
+def _is_injury_status_token(token: Any) -> bool:
+    value = str(token or "").strip().lower()
+    return any(value == allowed.lower() for allowed in INJURY_REPORT_STATUSES)
+
+
+def _looks_like_injury_player_start(
+    tokens: list[str],
+    index: int,
+    *,
+    player_lookup: Optional[dict[str, int]] = None,
+) -> bool:
+    if index >= len(tokens):
+        return False
+    for status_index in range(index, min(index + 7, len(tokens))):
+        if _is_injury_game_context_start(tokens, status_index):
+            return False
+        team_name, _ = _consume_injury_report_team_name(tokens, status_index)
+        if team_name:
+            return False
+        if _is_injury_status_token(tokens[status_index]):
+            player_source = " ".join(tokens[index:status_index]).strip()
+            if player_lookup is not None:
+                player_key = normalize_player_name_key(
+                    normalize_official_player_name(player_source)
+                )
+                if player_key in player_lookup:
+                    return True
+            comma_offsets = [
+                offset
+                for offset, token in enumerate(tokens[index:status_index])
+                if token.endswith(",")
+            ]
+            return bool(comma_offsets and min(comma_offsets) == 0)
+    return False
+
+
+def _normalize_injury_report_lines(
+    text: str,
+    *,
+    player_lookup: Optional[dict[str, int]] = None,
+) -> list[str]:
+    lines = [
+        re.sub(r"\s+", " ", raw_line.strip())
+        for raw_line in str(text or "").splitlines()
+    ]
+    lines = [line for line in lines if line]
+    if not _is_tokenized_injury_report(lines):
+        return lines
+
+    tokens = lines
+    logical_lines: list[str] = []
+    context: dict[str, Any] = {
+        "game_date": None,
+        "game_time_et": "",
+        "matchup": "",
+        "team_name": "",
+    }
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        if token in _INJURY_REPORT_TOKEN_HEADER_WORDS or re.match(r"^\d+$", token):
+            index += 1
+            continue
+
+        if _INJURY_DATE_TOKEN_RE.match(token) and index + 3 < len(tokens):
+            context["game_date"] = coerce_to_date(token)
+            context["game_time_et"] = f"{tokens[index + 1]} {tokens[index + 2]}"
+            context["matchup"] = tokens[index + 3].upper()
+            index += 4
+        elif (
+            _INJURY_TIME_TOKEN_RE.match(token)
+            and index + 2 < len(tokens)
+            and tokens[index + 1].startswith("(")
+            and _INJURY_MATCHUP_TOKEN_RE.match(tokens[index + 2].upper())
+        ):
+            context["game_time_et"] = f"{tokens[index]} {tokens[index + 1]}"
+            context["matchup"] = tokens[index + 2].upper()
+            index += 3
+
+        team_name, next_index = _consume_injury_report_team_name(tokens, index)
+        if team_name:
+            context["team_name"] = team_name
+            index = next_index
+
+        if [token.upper() for token in tokens[index : index + 3]] == [
+            "NOT",
+            "YET",
+            "SUBMITTED",
+        ]:
+            index += 3
+            continue
+
+        status_index: Optional[int] = None
+        for candidate_index in range(index, len(tokens)):
+            if candidate_index > index and (
+                _is_injury_game_context_start(tokens, candidate_index)
+                or _consume_injury_report_team_name(tokens, candidate_index)[0]
+            ):
+                break
+            if _is_injury_status_token(tokens[candidate_index]):
+                status_index = candidate_index
+                break
+        if status_index is None or status_index == index:
+            index += 1
+            continue
+
+        player_source = " ".join(tokens[index:status_index]).strip()
+        status = normalize_injury_report_status(tokens[status_index])
+        reason_tokens: list[str] = []
+        next_index = status_index + 1
+        while next_index < len(tokens):
+            if (
+                _is_injury_game_context_start(tokens, next_index)
+                or _consume_injury_report_team_name(tokens, next_index)[0]
+                or _looks_like_injury_player_start(
+                    tokens, next_index, player_lookup=player_lookup
+                )
+            ):
+                break
+            reason_tokens.append(tokens[next_index])
+            next_index += 1
+
+        if all(
+            [
+                context["game_date"],
+                context["game_time_et"],
+                context["matchup"],
+                context["team_name"],
+                player_source,
+                status,
+            ]
+        ):
+            logical_lines.append(
+                " ".join(
+                    [
+                        context["game_date"].strftime("%m/%d/%Y"),
+                        context["game_time_et"],
+                        context["matchup"],
+                        context["team_name"],
+                        player_source,
+                        status,
+                        " ".join(reason_tokens).strip(),
+                    ]
+                ).strip()
+            )
+        index = max(next_index, status_index + 1)
+
+    return logical_lines
+
+
 def parse_injury_report_text(
     text: str,
     *,
@@ -1239,10 +1466,7 @@ def parse_injury_report_text(
     }
     last_row: Optional[dict[str, Any]] = None
 
-    for raw_line in str(text or "").splitlines():
-        line = re.sub(r"\s+", " ", raw_line.strip())
-        if not line:
-            continue
+    for line in _normalize_injury_report_lines(text, player_lookup=lookup):
         if "Injury Report:" in line or line.startswith("Page "):
             continue
         if line.startswith("Game Date Game Time Matchup"):
@@ -1336,6 +1560,7 @@ def parse_injury_report_text(
             "PLAYER_NAME_SOURCE",
         ]
     ).copy()
+    df["PLAYER_ID"] = pd.to_numeric(df["PLAYER_ID"], errors="coerce").astype("Int64")
     return df[[field.name for field in get_injury_report_schema()]]
 
 
@@ -1359,7 +1584,11 @@ def fetch_official_injury_report_pdf(
     try:
         for attempt in range(1, retries + 1):
             try:
-                response = client.get(source_url, timeout=timeout)
+                response = client.get(
+                    source_url,
+                    timeout=timeout,
+                    headers=OFFICIAL_INJURY_REPORT_HEADERS,
+                )
                 if getattr(response, "status_code", None) == 404:
                     logger.info("Official injury report not found: %s", source_url)
                     return None

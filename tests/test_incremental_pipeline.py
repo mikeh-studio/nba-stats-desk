@@ -129,6 +129,11 @@ def test_filter_incremental_game_logs_keeps_only_2025_26_rows():
     assert result.iloc[0]["SEASON"] == "2025-26"
 
 
+def test_normalize_player_name_key_strips_diacritics():
+    assert pipeline.normalize_player_name_key("Luka Dončić") == "luka doncic"
+    assert pipeline.normalize_player_name_key("Luka Doncic") == "luka doncic"
+
+
 def test_filter_incremental_game_logs_rejects_rows_outside_2025_26_window():
     df = pd.DataFrame(
         [
@@ -360,6 +365,151 @@ def test_parse_injury_report_text_extracts_rows_and_reason_continuations():
     assert "NOT YET SUBMITTED" not in result["PLAYER_NAME_SOURCE"].tolist()
 
 
+def test_parse_injury_report_text_handles_tokenized_pdf_extraction():
+    text = """
+    Injury
+    Report:
+    05/09/26
+    05:00
+    PM
+    Page
+    1
+    of
+    1
+    Game
+    Date
+    Game
+    Time
+    Matchup
+    Team
+    Player
+    Name
+    Current
+    Status
+    Reason
+    05/09/2026
+    03:00
+    (ET)
+    DET@CLE
+    Detroit
+    Pistons
+    Huerter,
+    Kevin
+    Out
+    Injury/Illness
+    -
+    Left
+    Adductor;
+    Strain
+    Cleveland
+    Cavaliers
+    Merrill,
+    Sam
+    Available
+    Injury/Illness
+    -
+    Left
+    Hamstring;
+    Strain
+    08:30
+    (ET)
+    OKC@LAL
+    Oklahoma
+    City
+    Thunder
+    Sorber,
+    Thomas
+    Out
+    Injury/Illness
+    -
+    Right
+    ACL;
+    Surgical
+    Recovery
+    Williams,
+    Jalen
+    Out
+    Injury/Illness
+    -
+    Left
+    Hamstring;
+    Strain
+    Los
+    Angeles
+    Lakers
+    Doncic,
+    Luka
+    Out
+    Injury/Illness
+    -
+    Left
+    Hamstring;
+    Strain
+    Vanderbilt,
+    Jarred
+    Questionable
+    Injury/Illness
+    -
+    Right
+    Finger;
+    Dislocation
+    """
+    lookup = {
+        "kevin huerter": 1628989,
+        "sam merrill": 1630241,
+        "thomas sorber": 1641767,
+        "jalen williams": 1631114,
+        "luka doncic": 1629029,
+        "jarred vanderbilt": 1629020,
+    }
+
+    result = pipeline.parse_injury_report_text(
+        text,
+        report_date="2026-05-09",
+        report_time_et="05_00PM",
+        source_url="https://example.test/injury.pdf",
+        player_lookup=lookup,
+        ingested_at_utc="2026-05-09T21:00:00+00:00",
+    )
+
+    assert result["PLAYER_NAME"].tolist() == [
+        "Kevin Huerter",
+        "Sam Merrill",
+        "Thomas Sorber",
+        "Jalen Williams",
+        "Luka Doncic",
+        "Jarred Vanderbilt",
+    ]
+    assert result["TEAM_ABBR"].tolist() == ["DET", "CLE", "OKC", "OKC", "LAL", "LAL"]
+    assert result["INJURY_STATUS"].tolist()[-1] == "Questionable"
+    assert "Surgical Recovery" in result.iloc[2]["REASON"]
+
+
+def test_parse_injury_report_text_serializes_player_id_as_nullable_integer():
+    text = """
+    Injury Report: 05/06/26 05:00 PM
+    Game Date Game Time Matchup Team Player Name Current Status Reason
+    05/06/2026 07:00 (ET) PHI@NYK Philadelphia 76ers Embiid, Joel Out Injury/Illness - Right Ankle; Sprain
+    New York Knicks Robinson, Mitchell Questionable Injury/Illness - Illness; Illness
+    """
+
+    result = pipeline.parse_injury_report_text(
+        text,
+        report_date="2026-05-06",
+        report_time_et="5:00 PM",
+        source_url="https://example.test/injury.pdf",
+        player_lookup={"joel embiid": 203954},
+        ingested_at_utc="2026-05-06T22:00:00+00:00",
+    )
+
+    csv_output = result.to_csv(index=False)
+
+    assert str(result["PLAYER_ID"].dtype) == "Int64"
+    assert "203954.0" not in csv_output
+    assert "203954" in csv_output
+    assert pd.isna(result.iloc[1]["PLAYER_ID"])
+
+
 def test_fetch_official_injury_report_pdf_passes_timeout_to_client():
     captured = {}
 
@@ -371,9 +521,10 @@ def test_fetch_official_injury_report_pdf_passes_timeout_to_client():
             return None
 
     class FakeClient:
-        def get(self, url, timeout):
+        def get(self, url, timeout, headers):
             captured["url"] = url
             captured["timeout"] = timeout
+            captured["headers"] = headers
             return FakeResponse()
 
     content = pipeline.fetch_official_injury_report_pdf(
@@ -384,7 +535,10 @@ def test_fetch_official_injury_report_pdf_passes_timeout_to_client():
     )
 
     assert content == b"%PDF-1.4"
-    assert captured == {"url": "https://example.test/report.pdf", "timeout": 4.5}
+    assert captured["url"] == "https://example.test/report.pdf"
+    assert captured["timeout"] == 4.5
+    assert captured["headers"]["Accept"].startswith("application/pdf")
+    assert "Mozilla/5.0" in captured["headers"]["User-Agent"]
 
 
 def test_fetch_official_injury_report_pdf_soft_fails_after_retries(monkeypatch):
@@ -392,7 +546,7 @@ def test_fetch_official_injury_report_pdf_soft_fails_after_retries(monkeypatch):
     sleeps = []
 
     class FailingClient:
-        def get(self, url, timeout):
+        def get(self, url, timeout, headers):
             calls.append((url, timeout))
             raise TimeoutError("injury report timeout")
 
