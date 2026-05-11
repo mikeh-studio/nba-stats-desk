@@ -66,6 +66,14 @@ The source contract layer protects the ingestion boundary. The existing BigQuery
 staging DQ checks and dbt tests still run after landing to protect warehouse
 state and modeled outputs.
 
+Each non-empty extract also writes a pre-validation source audit snapshot to GCS
+under `nba_data/<season>/source_audit/raw_extract/source=<domain>/run_id=<run>/`.
+Rows removed by `quarantine` rules are written under
+`nba_data/<season>/source_audit/quarantine/source=<domain>/run_id=<run>/`.
+Contract outcomes are upserted to `nba_metadata.source_contract_results` with
+row counts, failure counts, GCS audit URIs, landing URI, and serialized violation
+details.
+
 ## Optional Redshift Secondary Warehouse
 
 The pipeline optionally syncs bronze tables to AWS Redshift Serverless as a secondary warehouse (cross-cloud learning/portfolio feature). Set `ENABLE_REDSHIFT=true` to enable — the DAG appends a Redshift sync task after the BigQuery bronze merge.
