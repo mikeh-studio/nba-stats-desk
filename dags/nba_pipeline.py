@@ -8,6 +8,7 @@ analysis snapshot generation, and idempotent warehouse loads.
 from __future__ import annotations
 
 import logging
+import json
 import re
 import time
 import unicodedata
@@ -348,6 +349,185 @@ def record_pipeline_run(
     errors = bq_client.insert_rows_json(run_metadata_table, [record])
     if errors:
         raise RuntimeError(f"Failed to record pipeline run: {errors}")
+
+
+def create_source_contract_metadata_tables(
+    bq_client: bigquery.Client,
+    source_contract_results_table: str,
+) -> None:
+    """Create metadata tables used for source contract audit results."""
+    results_sql = f"""
+    CREATE TABLE IF NOT EXISTS `{source_contract_results_table}` (
+      dag_run_id STRING,
+      domain STRING,
+      source_name STRING,
+      contract_version STRING,
+      status STRING,
+      reason STRING,
+      rows_checked INT64,
+      rows_failed INT64,
+      rows_quarantined INT64,
+      fatal_count INT64,
+      warning_count INT64,
+      quarantine_count INT64,
+      raw_snapshot_uri STRING,
+      quarantine_uri STRING,
+      landing_uri STRING,
+      validated_at_utc TIMESTAMP,
+      details_json STRING
+    )
+    PARTITION BY DATE(validated_at_utc)
+    CLUSTER BY domain, status
+    """
+    bq_client.query(results_sql).result()
+
+
+def build_source_contract_result_record(
+    *,
+    dag_run_id: str,
+    result: Dict[str, Any],
+    raw_snapshot_uri: str = "",
+    quarantine_uri: str = "",
+    landing_uri: str = "",
+    validated_at_utc: Any = None,
+) -> Dict[str, Any]:
+    """Build a BigQuery-friendly source contract audit record."""
+    validated_at = pd.to_datetime(
+        validated_at_utc or pd.Timestamp.now(tz="UTC"), utc=True
+    )
+    details = dict(result)
+    details["raw_snapshot_uri"] = raw_snapshot_uri
+    details["quarantine_uri"] = quarantine_uri
+    details["landing_uri"] = landing_uri
+    return {
+        "dag_run_id": dag_run_id,
+        "domain": str(result.get("domain", "")),
+        "source_name": str(result.get("source_name", "")),
+        "contract_version": str(result.get("contract_version", "")),
+        "status": str(result.get("status", "")),
+        "reason": str(result.get("reason", "")),
+        "rows_checked": int(result.get("rows_checked", 0) or 0),
+        "rows_failed": int(result.get("rows_failed", 0) or 0),
+        "rows_quarantined": int(result.get("rows_quarantined", 0) or 0),
+        "fatal_count": int(result.get("fatal_count", 0) or 0),
+        "warning_count": int(result.get("warning_count", 0) or 0),
+        "quarantine_count": int(result.get("quarantine_count", 0) or 0),
+        "raw_snapshot_uri": raw_snapshot_uri,
+        "quarantine_uri": quarantine_uri,
+        "landing_uri": landing_uri,
+        "validated_at_utc": validated_at.isoformat(),
+        "details_json": json.dumps(details, sort_keys=True, default=str),
+    }
+
+
+def record_source_contract_result(
+    bq_client: bigquery.Client,
+    source_contract_results_table: str,
+    record: Dict[str, Any],
+) -> None:
+    """Upsert a source contract audit record for a DAG run/domain pair."""
+    merge_sql = f"""
+    MERGE `{source_contract_results_table}` T
+    USING (
+      SELECT
+        @dag_run_id AS dag_run_id,
+        @domain AS domain,
+        @source_name AS source_name,
+        @contract_version AS contract_version,
+        @status AS status,
+        @reason AS reason,
+        @rows_checked AS rows_checked,
+        @rows_failed AS rows_failed,
+        @rows_quarantined AS rows_quarantined,
+        @fatal_count AS fatal_count,
+        @warning_count AS warning_count,
+        @quarantine_count AS quarantine_count,
+        @raw_snapshot_uri AS raw_snapshot_uri,
+        @quarantine_uri AS quarantine_uri,
+        @landing_uri AS landing_uri,
+        @validated_at_utc AS validated_at_utc,
+        @details_json AS details_json
+    ) S
+    ON T.dag_run_id = S.dag_run_id
+    AND T.domain = S.domain
+    AND T.contract_version = S.contract_version
+    WHEN MATCHED THEN UPDATE SET
+      source_name = S.source_name,
+      status = S.status,
+      reason = S.reason,
+      rows_checked = S.rows_checked,
+      rows_failed = S.rows_failed,
+      rows_quarantined = S.rows_quarantined,
+      fatal_count = S.fatal_count,
+      warning_count = S.warning_count,
+      quarantine_count = S.quarantine_count,
+      raw_snapshot_uri = S.raw_snapshot_uri,
+      quarantine_uri = S.quarantine_uri,
+      landing_uri = S.landing_uri,
+      validated_at_utc = S.validated_at_utc,
+      details_json = S.details_json
+    WHEN NOT MATCHED THEN
+      INSERT (
+        dag_run_id, domain, source_name, contract_version, status, reason,
+        rows_checked, rows_failed, rows_quarantined, fatal_count, warning_count,
+        quarantine_count, raw_snapshot_uri, quarantine_uri, landing_uri,
+        validated_at_utc, details_json
+      )
+      VALUES (
+        S.dag_run_id, S.domain, S.source_name, S.contract_version, S.status, S.reason,
+        S.rows_checked, S.rows_failed, S.rows_quarantined, S.fatal_count,
+        S.warning_count, S.quarantine_count, S.raw_snapshot_uri, S.quarantine_uri,
+        S.landing_uri, S.validated_at_utc, S.details_json
+      )
+    """
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("dag_run_id", "STRING", record["dag_run_id"]),
+            bigquery.ScalarQueryParameter("domain", "STRING", record["domain"]),
+            bigquery.ScalarQueryParameter(
+                "source_name", "STRING", record["source_name"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "contract_version", "STRING", record["contract_version"]
+            ),
+            bigquery.ScalarQueryParameter("status", "STRING", record["status"]),
+            bigquery.ScalarQueryParameter("reason", "STRING", record["reason"]),
+            bigquery.ScalarQueryParameter(
+                "rows_checked", "INT64", record["rows_checked"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "rows_failed", "INT64", record["rows_failed"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "rows_quarantined", "INT64", record["rows_quarantined"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "fatal_count", "INT64", record["fatal_count"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "warning_count", "INT64", record["warning_count"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "quarantine_count", "INT64", record["quarantine_count"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "raw_snapshot_uri", "STRING", record["raw_snapshot_uri"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "quarantine_uri", "STRING", record["quarantine_uri"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "landing_uri", "STRING", record["landing_uri"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "validated_at_utc", "TIMESTAMP", record["validated_at_utc"]
+            ),
+            bigquery.ScalarQueryParameter(
+                "details_json", "STRING", record["details_json"]
+            ),
+        ]
+    )
+    bq_client.query(merge_sql, job_config=job_config).result()
 
 
 def get_active_players() -> list:
@@ -908,7 +1088,12 @@ def get_all_player_references(
 
 
 def upload_df_to_gcs(
-    df: pd.DataFrame, project_id: str, bucket_name: str, destination_blob_name: str
+    df: pd.DataFrame,
+    project_id: str,
+    bucket_name: str,
+    destination_blob_name: str,
+    *,
+    if_generation_match: int | None = None,
 ) -> str:
     """Upload a DataFrame as CSV to Google Cloud Storage and return gs:// URI."""
     if df.empty:
@@ -921,7 +1106,10 @@ def upload_df_to_gcs(
     blob = bucket.blob(destination_blob_name)
 
     csv_data = df.to_csv(index=False)
-    blob.upload_from_string(csv_data, content_type="text/csv")
+    upload_kwargs: Dict[str, Any] = {}
+    if if_generation_match is not None:
+        upload_kwargs["if_generation_match"] = if_generation_match
+    blob.upload_from_string(csv_data, content_type="text/csv", **upload_kwargs)
     uri = f"gs://{bucket_name}/{destination_blob_name}"
     logger.info("Uploaded %s rows to %s", len(df), uri)
     return uri

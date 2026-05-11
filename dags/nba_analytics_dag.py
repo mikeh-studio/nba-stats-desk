@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import subprocess
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -77,7 +79,93 @@ def get_nba_api_request_config() -> dict:
     }
 
 
-def validate_source_contract_frame(contract_name: str, frame):
+def _safe_storage_token(value: str) -> str:
+    """Make Airflow run IDs safe for object storage paths."""
+    return re.sub(r"[^A-Za-z0-9_.=-]+", "_", value).strip("_") or "unknown"
+
+
+def persist_source_extract_snapshot(
+    *,
+    contract_name: str,
+    frame,
+    project_id: str,
+    bucket_name: str,
+    season: str,
+    snapshot_type: str,
+) -> str:
+    """Persist pre-validation or quarantined extract rows to GCS."""
+    if frame.empty:
+        return ""
+
+    from airflow.operators.python import get_current_context
+    import pandas as pd
+    import nba_pipeline as pipeline
+
+    context = get_current_context()
+    run_id = _safe_storage_token(context["run_id"])
+    run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+    snapshot_id = uuid.uuid4().hex
+    blob_path = (
+        f"nba_data/{season}/source_audit/{snapshot_type}/"
+        f"source={contract_name}/run_id={run_id}/"
+        f"{run_stamp}_{snapshot_id}_{contract_name}.csv"
+    )
+    return pipeline.upload_df_to_gcs(
+        frame,
+        project_id,
+        bucket_name,
+        blob_path,
+        if_generation_match=0,
+    )
+
+
+def record_source_contract_audit(
+    *,
+    project_id: str,
+    metadata_dataset: str,
+    location: str,
+    result: dict,
+    raw_snapshot_uri: str = "",
+    quarantine_uri: str = "",
+    landing_uri: str = "",
+) -> dict:
+    """Persist a source contract result and return the enriched result payload."""
+    from airflow.operators.python import get_current_context
+    from google.cloud import bigquery as bq
+    import nba_pipeline as pipeline
+
+    context = get_current_context()
+    client = bq.Client(project=project_id)
+    pipeline.ensure_dataset(client, f"{project_id}.{metadata_dataset}", location)
+    result_table = f"{project_id}.{metadata_dataset}.source_contract_results"
+    pipeline.create_source_contract_metadata_tables(client, result_table)
+
+    enriched = dict(result)
+    enriched["raw_snapshot_uri"] = raw_snapshot_uri
+    enriched["quarantine_uri"] = quarantine_uri
+    enriched["landing_uri"] = landing_uri
+    record = pipeline.build_source_contract_result_record(
+        dag_run_id=context["run_id"],
+        result=enriched,
+        raw_snapshot_uri=raw_snapshot_uri,
+        quarantine_uri=quarantine_uri,
+        landing_uri=landing_uri,
+    )
+    pipeline.record_source_contract_result(client, result_table, record)
+    return enriched
+
+
+def validate_source_contract_frame(
+    contract_name: str,
+    frame,
+    *,
+    project_id: str,
+    metadata_dataset: str,
+    location: str,
+    bucket_name: str,
+    season: str,
+    raw_snapshot_uri: str,
+):
     """Validate and optionally quarantine rows before GCS landing."""
     from airflow.exceptions import AirflowFailException
     import nba_source_contracts as source_contracts
@@ -85,15 +173,61 @@ def validate_source_contract_frame(contract_name: str, frame):
     try:
         validation = source_contracts.validate_source_contract(contract_name, frame)
     except source_contracts.SourceContractError as exc:
+        quarantine_uri = persist_source_extract_snapshot(
+            contract_name=contract_name,
+            frame=exc.quarantine_frame,
+            project_id=project_id,
+            bucket_name=bucket_name,
+            season=season,
+            snapshot_type="quarantine",
+        )
+        record_source_contract_audit(
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            result=exc.result,
+            raw_snapshot_uri=raw_snapshot_uri,
+            quarantine_uri=quarantine_uri,
+        )
         raise AirflowFailException(str(exc)) from exc
-    return validation.frame, validation.result
+
+    quarantine_uri = persist_source_extract_snapshot(
+        contract_name=contract_name,
+        frame=validation.quarantine_frame,
+        project_id=project_id,
+        bucket_name=bucket_name,
+        season=season,
+        snapshot_type="quarantine",
+    )
+    source_contract = record_source_contract_audit(
+        project_id=project_id,
+        metadata_dataset=metadata_dataset,
+        location=location,
+        result=validation.result,
+        raw_snapshot_uri=raw_snapshot_uri,
+        quarantine_uri=quarantine_uri,
+    )
+    return validation.frame, source_contract
 
 
-def skipped_source_contract_result(contract_name: str, reason: str) -> dict:
+def skipped_source_contract_result(
+    contract_name: str,
+    reason: str,
+    *,
+    project_id: str,
+    metadata_dataset: str,
+    location: str,
+) -> dict:
     """Build a no-op source contract result for empty extract paths."""
     import nba_source_contracts as source_contracts
 
-    return source_contracts.skipped_contract_result(contract_name, reason=reason)
+    result = source_contracts.skipped_contract_result(contract_name, reason=reason)
+    return record_source_contract_audit(
+        project_id=project_id,
+        metadata_dataset=metadata_dataset,
+        location=location,
+        result=result,
+    )
 
 
 def get_dbt_repo_root() -> Path:
@@ -190,7 +324,11 @@ def nba_analytics_pipeline():
                 "game_ids": [],
                 "season": season,
                 "source_contract": skipped_source_contract_result(
-                    "game_logs", "empty_after_incremental_filter"
+                    "game_logs",
+                    "empty_after_incremental_filter",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
                 "watermark_before": state["watermark_date"].isoformat()
                 if state["watermark_date"]
@@ -200,8 +338,23 @@ def nba_analytics_pipeline():
                 else None,
             }
 
+        raw_snapshot_uri = persist_source_extract_snapshot(
+            contract_name="game_logs",
+            frame=incremental_df,
+            project_id=project_id,
+            bucket_name=bucket_name,
+            season=season,
+            snapshot_type="raw_extract",
+        )
         incremental_df, source_contract = validate_source_contract_frame(
-            "game_logs", incremental_df
+            "game_logs",
+            incremental_df,
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            bucket_name=bucket_name,
+            season=season,
+            raw_snapshot_uri=raw_snapshot_uri,
         )
         watermark_after = pipeline.coerce_to_date(incremental_df["GAME_DATE"].max())
         run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
@@ -212,6 +365,15 @@ def nba_analytics_pipeline():
         )
         gcs_uri = pipeline.upload_df_to_gcs(
             incremental_df, project_id, bucket_name, blob_path
+        )
+        source_contract = record_source_contract_audit(
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            result=source_contract,
+            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
+            quarantine_uri=source_contract.get("quarantine_uri", ""),
+            landing_uri=gcs_uri,
         )
 
         return {
@@ -246,6 +408,8 @@ def nba_analytics_pipeline():
         game_ids = game_log_result.get("game_ids", [])
         project_id = get_project_id()
         bucket_name = get_config("GCS_BUCKET_NAME")
+        location = get_config("BQ_LOCATION", "US")
+        metadata_dataset = get_dataset("BQ_METADATA_DATASET", "nba_metadata")
 
         if not game_ids:
             return {
@@ -254,7 +418,11 @@ def nba_analytics_pipeline():
                 "row_count": 0,
                 "season": season,
                 "source_contract": skipped_source_contract_result(
-                    "game_line_scores", "empty_changed_game_set"
+                    "game_line_scores",
+                    "empty_changed_game_set",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
             }
 
@@ -271,12 +439,31 @@ def nba_analytics_pipeline():
                 "row_count": 0,
                 "season": season,
                 "source_contract": skipped_source_contract_result(
-                    "game_line_scores", "empty_source_response"
+                    "game_line_scores",
+                    "empty_source_response",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
             }
 
+        raw_snapshot_uri = persist_source_extract_snapshot(
+            contract_name="game_line_scores",
+            frame=line_scores,
+            project_id=project_id,
+            bucket_name=bucket_name,
+            season=season,
+            snapshot_type="raw_extract",
+        )
         line_scores, source_contract = validate_source_contract_frame(
-            "game_line_scores", line_scores
+            "game_line_scores",
+            line_scores,
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            bucket_name=bucket_name,
+            season=season,
+            raw_snapshot_uri=raw_snapshot_uri,
         )
         run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
         min_date = pd.to_datetime(line_scores["GAME_DATE"]).min().strftime("%Y%m%d")
@@ -284,6 +471,15 @@ def nba_analytics_pipeline():
         blob_path = f"nba_data/{season}/landing/{run_stamp}_{min_date}_{max_date}_game_line_scores.csv"
         gcs_uri = pipeline.upload_df_to_gcs(
             line_scores, project_id, bucket_name, blob_path
+        )
+        source_contract = record_source_contract_audit(
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            result=source_contract,
+            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
+            quarantine_uri=source_contract.get("quarantine_uri", ""),
+            landing_uri=gcs_uri,
         )
         return {
             "domain": "game_line_scores",
@@ -301,6 +497,8 @@ def nba_analytics_pipeline():
 
         project_id = get_project_id()
         bucket_name = get_config("GCS_BUCKET_NAME")
+        location = get_config("BQ_LOCATION", "US")
+        metadata_dataset = get_dataset("BQ_METADATA_DATASET", "nba_metadata")
         max_players = int(get_config("NBA_MAX_PLAYERS", "0"))
 
         active = pipeline.get_active_players()
@@ -316,17 +514,45 @@ def nba_analytics_pipeline():
                 "gcs_uri": "",
                 "row_count": 0,
                 "source_contract": skipped_source_contract_result(
-                    "player_reference", "empty_source_response"
+                    "player_reference",
+                    "empty_source_response",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
             }
 
+        raw_snapshot_uri = persist_source_extract_snapshot(
+            contract_name="player_reference",
+            frame=reference_df,
+            project_id=project_id,
+            bucket_name=bucket_name,
+            season=SUPPORTED_SEASON,
+            snapshot_type="raw_extract",
+        )
         reference_df, source_contract = validate_source_contract_frame(
-            "player_reference", reference_df
+            "player_reference",
+            reference_df,
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            bucket_name=bucket_name,
+            season=SUPPORTED_SEASON,
+            raw_snapshot_uri=raw_snapshot_uri,
         )
         run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
         blob_path = f"nba_data/reference/landing/{run_stamp}_player_reference.csv"
         gcs_uri = pipeline.upload_df_to_gcs(
             reference_df, project_id, bucket_name, blob_path
+        )
+        source_contract = record_source_contract_audit(
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            result=source_contract,
+            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
+            quarantine_uri=source_contract.get("quarantine_uri", ""),
+            landing_uri=gcs_uri,
         )
         return {
             "domain": "player_reference",
@@ -345,6 +571,8 @@ def nba_analytics_pipeline():
         horizon_days = int(get_config("NBA_SCHEDULE_LOOKAHEAD_DAYS", "7"))
         project_id = get_project_id()
         bucket_name = get_config("GCS_BUCKET_NAME")
+        location = get_config("BQ_LOCATION", "US")
+        metadata_dataset = get_dataset("BQ_METADATA_DATASET", "nba_metadata")
         schedule_df = pipeline.get_upcoming_schedule(
             season=season,
             horizon_days=horizon_days,
@@ -360,12 +588,31 @@ def nba_analytics_pipeline():
                 "row_count": 0,
                 "season": season,
                 "source_contract": skipped_source_contract_result(
-                    "schedule", "empty_lookahead_window"
+                    "schedule",
+                    "empty_lookahead_window",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
             }
 
+        raw_snapshot_uri = persist_source_extract_snapshot(
+            contract_name="schedule",
+            frame=schedule_df,
+            project_id=project_id,
+            bucket_name=bucket_name,
+            season=season,
+            snapshot_type="raw_extract",
+        )
         schedule_df, source_contract = validate_source_contract_frame(
-            "schedule", schedule_df
+            "schedule",
+            schedule_df,
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            bucket_name=bucket_name,
+            season=season,
+            raw_snapshot_uri=raw_snapshot_uri,
         )
         run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
         min_date = schedule_df["SCHEDULE_DATE"].min().strftime("%Y%m%d")
@@ -375,6 +622,15 @@ def nba_analytics_pipeline():
         )
         gcs_uri = pipeline.upload_df_to_gcs(
             schedule_df, project_id, bucket_name, blob_path
+        )
+        source_contract = record_source_contract_audit(
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            result=source_contract,
+            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
+            quarantine_uri=source_contract.get("quarantine_uri", ""),
+            landing_uri=gcs_uri,
         )
         return {
             "domain": "schedule",
@@ -424,7 +680,11 @@ def nba_analytics_pipeline():
                 "candidate_count": 0,
                 "season": season,
                 "source_contract": skipped_source_contract_result(
-                    "injury_reports", "disabled"
+                    "injury_reports",
+                    "disabled",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
                 "watermark_before": watermark_before,
                 "watermark_after": watermark_before,
@@ -470,7 +730,11 @@ def nba_analytics_pipeline():
                 "candidate_count": 0,
                 "season": season,
                 "source_contract": skipped_source_contract_result(
-                    "injury_reports", "no_candidates"
+                    "injury_reports",
+                    "no_candidates",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
                 "watermark_before": watermark_before,
                 "watermark_after": watermark_before,
@@ -498,14 +762,33 @@ def nba_analytics_pipeline():
                 "candidate_count": len(candidates),
                 "season": season,
                 "source_contract": skipped_source_contract_result(
-                    "injury_reports", "empty_source_response"
+                    "injury_reports",
+                    "empty_source_response",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
                 ),
                 "watermark_before": watermark_before,
                 "watermark_after": candidate_watermark,
             }
 
+        raw_snapshot_uri = persist_source_extract_snapshot(
+            contract_name="injury_reports",
+            frame=injury_df,
+            project_id=project_id,
+            bucket_name=bucket_name,
+            season=season,
+            snapshot_type="raw_extract",
+        )
         injury_df, source_contract = validate_source_contract_frame(
-            "injury_reports", injury_df
+            "injury_reports",
+            injury_df,
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            bucket_name=bucket_name,
+            season=season,
+            raw_snapshot_uri=raw_snapshot_uri,
         )
         watermark_after = pipeline.coerce_to_date(injury_df["REPORT_DATE"].max())
         run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
@@ -517,6 +800,15 @@ def nba_analytics_pipeline():
         )
         gcs_uri = pipeline.upload_df_to_gcs(
             injury_df, project_id, bucket_name, blob_path
+        )
+        source_contract = record_source_contract_audit(
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            result=source_contract,
+            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
+            quarantine_uri=source_contract.get("quarantine_uri", ""),
+            landing_uri=gcs_uri,
         )
         return {
             "domain": "injury_reports",

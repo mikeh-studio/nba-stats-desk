@@ -242,6 +242,23 @@ def test_quarantine_rule_removes_bad_rows():
     assert validation.result["status"] == "quarantine"
     assert validation.result["rows_quarantined"] == 1
     assert validation.frame["PLAYER_ID"].tolist() == [1]
+    assert validation.quarantine_frame["PLAYER_ID"].tolist() == [2]
+    assert validation.quarantine_frame["_source_row_index"].tolist() == [1]
+
+
+def test_fatal_contract_error_preserves_quarantined_rows():
+    frame = pd.DataFrame([_game_log_row(PLAYER_ID=2, MATCHUP="NYK @ MIA", PTS=120)])
+
+    with pytest.raises(contracts.SourceContractError) as exc:
+        contracts.validate_source_contract("game_logs", frame)
+
+    assert exc.value.result["status"] == "fatal"
+    assert exc.value.result["rows_quarantined"] == 1
+    assert exc.value.quarantine_frame["PLAYER_ID"].tolist() == [2]
+    assert any(
+        violation["rule"] == "quarantine_exhausted_frame"
+        for violation in exc.value.result["violations"]
+    )
 
 
 def test_warning_rule_does_not_drop_rows():

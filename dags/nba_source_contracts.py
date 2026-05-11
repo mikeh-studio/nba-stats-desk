@@ -35,8 +35,14 @@ SUPPORTED_CHECKS = {
 class SourceContractError(ValueError):
     """Raised when a source contract has fatal violations."""
 
-    def __init__(self, result: dict[str, Any]):
+    def __init__(
+        self,
+        result: dict[str, Any],
+        *,
+        quarantine_frame: pd.DataFrame | None = None,
+    ):
         self.result = result
+        self.quarantine_frame = quarantine_frame if quarantine_frame is not None else pd.DataFrame()
         source = result.get("source_name", "unknown_source")
         summary = (
             f"{source} source contract failed: "
@@ -49,6 +55,7 @@ class SourceContractError(ValueError):
 @dataclass(frozen=True)
 class SourceContractValidation:
     frame: pd.DataFrame
+    quarantine_frame: pd.DataFrame
     result: dict[str, Any]
 
 
@@ -239,6 +246,7 @@ def validate_source_contract(
                 )
             )
 
+    quarantine_frame = _build_quarantine_frame(working, quarantine_indices)
     fatal_count = _count_violations(violations, "fatal")
     warning_count = _count_violations(violations, "warning")
     quarantine_count = _count_violations(violations, "quarantine")
@@ -262,7 +270,7 @@ def validate_source_contract(
     if fatal_count:
         result["status"] = "fatal"
         logger.error("Source contract failed: %s", result)
-        raise SourceContractError(result)
+        raise SourceContractError(result, quarantine_frame=quarantine_frame)
 
     filtered = working.drop(index=list(quarantine_indices)).reset_index(drop=True)
     if rows_checked > 0 and filtered.empty:
@@ -280,7 +288,7 @@ def validate_source_contract(
         )
         result["rows_failed"] = max(result["rows_failed"], rows_checked)
         logger.error("Source contract quarantined every row: %s", result)
-        raise SourceContractError(result)
+        raise SourceContractError(result, quarantine_frame=quarantine_frame)
 
     if quarantine_indices:
         result["status"] = "quarantine"
@@ -294,7 +302,11 @@ def validate_source_contract(
         rows_checked,
         result["rows_quarantined"],
     )
-    return SourceContractValidation(frame=filtered, result=result)
+    return SourceContractValidation(
+        frame=filtered,
+        quarantine_frame=quarantine_frame,
+        result=result,
+    )
 
 
 def validate_contract_files(contract_dir: Path | None = None) -> list[dict[str, Any]]:
@@ -434,6 +446,19 @@ def _record_mask_violation(
         )
     )
     return failed_index_values
+
+
+def _build_quarantine_frame(
+    frame: pd.DataFrame, quarantine_indices: set[Any]
+) -> pd.DataFrame:
+    if not quarantine_indices:
+        return pd.DataFrame(columns=["_source_row_index", *frame.columns])
+    return (
+        frame.loc[list(quarantine_indices)]
+        .copy()
+        .reset_index(drop=False)
+        .rename(columns={"index": "_source_row_index"})
+    )
 
 
 def _violation(

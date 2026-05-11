@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -201,6 +202,131 @@ def test_build_run_metadata_record_serializes_dates():
     assert record["watermark_before"] == "2025-02-08"
     assert record["watermark_after"] == "2025-02-10"
     assert record["rows_updated"] == 6
+
+
+def test_build_source_contract_result_record_serializes_details():
+    result = {
+        "domain": "game_logs",
+        "source_name": "nba_api_player_game_logs",
+        "contract_version": "1",
+        "status": "quarantine",
+        "rows_checked": 2,
+        "rows_failed": 1,
+        "rows_quarantined": 1,
+        "fatal_count": 0,
+        "warning_count": 0,
+        "quarantine_count": 1,
+        "violations": [{"rule": "scoring_bounds", "failed_rows": 1}],
+    }
+
+    record = pipeline.build_source_contract_result_record(
+        dag_run_id="manual__2026-01-10T00:00:00+00:00",
+        result=result,
+        raw_snapshot_uri="gs://bucket/raw.csv",
+        quarantine_uri="gs://bucket/quarantine.csv",
+        landing_uri="gs://bucket/landing.csv",
+        validated_at_utc="2026-01-10T00:00:00Z",
+    )
+
+    assert record["status"] == "quarantine"
+    assert record["rows_quarantined"] == 1
+    assert record["raw_snapshot_uri"] == "gs://bucket/raw.csv"
+    details = json.loads(record["details_json"])
+    assert details["violations"][0]["rule"] == "scoring_bounds"
+    assert details["landing_uri"] == "gs://bucket/landing.csv"
+
+
+def test_record_source_contract_result_uses_idempotent_merge():
+    class DummyJob:
+        def result(self):
+            return None
+
+    class DummyClient:
+        def __init__(self):
+            self.statements = []
+            self.job_configs = []
+
+        def query(self, statement, job_config=None):
+            self.statements.append(statement)
+            self.job_configs.append(job_config)
+            return DummyJob()
+
+    client = DummyClient()
+    record = pipeline.build_source_contract_result_record(
+        dag_run_id="manual__2026-01-10T00:00:00+00:00",
+        result={
+            "domain": "schedule",
+            "source_name": "nba_api_schedule",
+            "contract_version": "1",
+            "status": "passed",
+        },
+    )
+
+    pipeline.record_source_contract_result(
+        client,
+        "project.dataset.source_contract_results",
+        record,
+    )
+
+    assert "MERGE `project.dataset.source_contract_results`" in client.statements[0]
+    assert "WHEN MATCHED THEN UPDATE SET" in client.statements[0]
+    parameter_names = {
+        parameter.name
+        for parameter in client.job_configs[0].query_parameters
+    }
+    assert {"dag_run_id", "domain", "status", "details_json"} <= parameter_names
+
+
+def test_upload_df_to_gcs_can_use_create_only_precondition(monkeypatch):
+    class DummyBlob:
+        def __init__(self):
+            self.upload_kwargs = None
+
+        def upload_from_string(self, data, content_type=None, **kwargs):
+            self.upload_kwargs = {
+                "data": data,
+                "content_type": content_type,
+                **kwargs,
+            }
+
+    class DummyBucket:
+        def __init__(self):
+            self.created_blob = DummyBlob()
+
+        def blob(self, name):
+            self.blob_name = name
+            return self.created_blob
+
+    class DummyStorageClient:
+        def __init__(self, project=None):
+            self.project = project
+            self.created_bucket = DummyBucket()
+
+        def bucket(self, name):
+            self.bucket_name = name
+            return self.created_bucket
+
+    created_clients = []
+
+    def fake_storage_client(project=None):
+        client = DummyStorageClient(project=project)
+        created_clients.append(client)
+        return client
+
+    monkeypatch.setattr(pipeline.storage, "Client", fake_storage_client)
+
+    uri = pipeline.upload_df_to_gcs(
+        pd.DataFrame([{"a": 1}]),
+        "project-id",
+        "bucket-name",
+        "path/file.csv",
+        if_generation_match=0,
+    )
+
+    blob = created_clients[0].created_bucket.created_blob
+    assert uri == "gs://bucket-name/path/file.csv"
+    assert blob.upload_kwargs["content_type"] == "text/csv"
+    assert blob.upload_kwargs["if_generation_match"] == 0
 
 
 def test_upsert_ingestion_state_preserves_existing_newer_watermark():
