@@ -63,7 +63,7 @@ select
     i.source_url,
     i.ingested_at_utc
 from current_injury i
-left join {{ ref('dim_player') }} p
+inner join {{ ref('dim_player') }} p
     on i.player_id = p.player_id
 left join {{ ref('player_opportunity_outlook') }} o
     on i.player_id = o.player_id
