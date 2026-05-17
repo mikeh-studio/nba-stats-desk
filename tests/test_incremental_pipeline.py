@@ -1332,6 +1332,7 @@ def test_get_all_player_game_logs_still_raises_when_all_players_fail(monkeypatch
     try:
         pipeline.get_all_player_game_logs(
             [{"id": 7, "full_name": "Test Player"}],
+            extract_mode="players",
             delay=0,
             retry_base_delay=0,
             retry_max_delay=0,
