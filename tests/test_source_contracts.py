@@ -112,6 +112,42 @@ def _line_score_row(**overrides):
     return row
 
 
+def _shot_location_row(**overrides):
+    row = {
+        "PLAYER_ID": 2544,
+        "PLAYER_NAME": "LeBron James",
+        "TEAM_ID": 1610612747,
+        "TEAM_ABBR": "LAL",
+        "AGE": 41.0,
+        "SEASON": "2025-26",
+        "SEASON_TYPE": "Regular Season",
+        "RESTRICTED_AREA_FGM": 260.0,
+        "RESTRICTED_AREA_FGA": 390.0,
+        "RESTRICTED_AREA_FG_PCT": 0.667,
+        "PAINT_NON_RA_FGM": 80.0,
+        "PAINT_NON_RA_FGA": 160.0,
+        "PAINT_NON_RA_FG_PCT": 0.5,
+        "MID_RANGE_FGM": 65.0,
+        "MID_RANGE_FGA": 150.0,
+        "MID_RANGE_FG_PCT": 0.433,
+        "LEFT_CORNER3_FGM": 20.0,
+        "LEFT_CORNER3_FGA": 50.0,
+        "LEFT_CORNER3_FG_PCT": 0.4,
+        "RIGHT_CORNER3_FGM": 18.0,
+        "RIGHT_CORNER3_FGA": 45.0,
+        "RIGHT_CORNER3_FG_PCT": 0.4,
+        "ABOVE_BREAK3_FGM": 90.0,
+        "ABOVE_BREAK3_FGA": 260.0,
+        "ABOVE_BREAK3_FG_PCT": 0.346,
+        "BACKCOURT_FGM": 0.0,
+        "BACKCOURT_FGA": 2.0,
+        "BACKCOURT_FG_PCT": 0.0,
+        "INGESTED_AT_UTC": "2026-01-10T12:00:00Z",
+    }
+    row.update(overrides)
+    return row
+
+
 def _schedule_rows():
     return [
         {
@@ -172,6 +208,7 @@ def test_contract_files_load():
         "game_logs",
         "game_line_scores",
         "player_reference",
+        "player_shot_locations",
         "schedule",
         "injury_reports",
     }
@@ -294,6 +331,16 @@ def test_valid_schedule_frame_passes_and_result_is_json_serializable():
     assert validation.result["status"] == "passed"
     assert len(validation.frame) == 2
     json.dumps(validation.result)
+
+
+def test_valid_player_shot_locations_frame_passes():
+    frame = pd.DataFrame([_shot_location_row()])
+
+    validation = contracts.validate_source_contract("player_shot_locations", frame)
+
+    assert validation.result["status"] == "passed"
+    assert validation.result["rows_checked"] == 1
+    assert len(validation.frame) == 1
 
 
 def test_injury_report_blank_player_name_source_is_fatal():

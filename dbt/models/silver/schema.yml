@@ -97,6 +97,24 @@ models:
                 values: *nba_team_abbrs
       - name: pts
         tests: [not_null]
+  - name: stg_player_shot_locations_clean
+    columns:
+      - name: player_id
+        tests: [not_null]
+      - name: team_id
+        tests: [not_null]
+      - name: season
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['2025-26']
+      - name: season_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Regular Season', 'Playoffs']
   - name: stg_player_reference_clean
     columns:
       - name: player_id

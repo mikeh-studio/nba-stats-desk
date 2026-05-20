@@ -43,6 +43,7 @@ Bronze raw tables:
 - `nba_bronze.raw_game_line_scores`
 - `nba_bronze.raw_player_reference`
 - `nba_bronze.raw_schedule`
+- `nba_bronze.raw_player_shot_locations`
 - `nba_bronze.raw_player_injury_reports`
 
 Silver models:
@@ -50,6 +51,7 @@ Silver models:
 - `stg_game_logs_clean`
 - `stg_game_line_scores_clean`
 - `stg_player_reference_clean`
+- `stg_player_shot_locations_clean`
 - `stg_schedule_clean`
 - `stg_player_injury_reports_clean`
 - `int_player_game_enriched`
@@ -69,6 +71,7 @@ Gold serving models:
 - `player_trends`
 - `player_recent_form`
 - `player_category_profile`
+- `player_shot_location_profile`
 - `player_fantasy_rankings`
 - `fantasy_insights`
 - `player_opportunity_outlook`
@@ -89,6 +92,11 @@ Similarity outputs:
 - `player_similarity_feature_input`
 - `player_similarity_features`
 - `player_archetypes`
+
+The public baseline and publish contract are documented in
+[`docs/player-similarity-model.md`](player-similarity-model.md). Tuned
+personal-model work should stay outside the public repo; see
+[`docs/public-private-boundary.md`](public-private-boundary.md).
 
 Metadata tables:
 

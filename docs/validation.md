@@ -19,6 +19,30 @@ make airflow-parse
 These require a real BigQuery-enabled project, valid GCP auth, and project
 values in `.env`.
 
+After a one-time season replay, validate the core models with:
+
+```bash
+make airflow-backfill-season
+dbt build --project-dir . --profiles-dir dbt/profiles --target dev \
+  --select dim_player dim_team dim_game fct_player_game_stats fct_team_game_scores \
+    fct_player_scoring_contribution player_recent_form player_shot_location_profile
+```
+
+For the targeted official injury-report backfill, start with a local candidate
+plan and then run the live backfill only when GCP credentials and the target
+project are available:
+
+```bash
+python -m dotenv run --no-override -- .venv-airflow/bin/python scripts/backfill_injury_reports.py \
+  --start-date 2025-10-21 \
+  --end-date 2026-05-13 \
+  --dry-run
+
+python -m dotenv run --no-override -- .venv-airflow/bin/python scripts/backfill_injury_reports.py \
+  --start-date 2025-10-21 \
+  --end-date 2026-05-13
+```
+
 ```bash
 dbt test --project-dir . --profiles-dir dbt/profiles --target dev \
   --exclude source:gold_runtime.analysis_snapshots path:dbt/tests/no_duplicate_analysis_snapshots.sql
@@ -29,8 +53,14 @@ Validate core serving dependencies:
 ```bash
 dbt build --project-dir . --profiles-dir dbt/profiles --target dev \
   --select dim_player dim_team dim_game fct_player_game_stats fct_team_game_scores \
-    fct_player_scoring_contribution player_recent_form player_similarity_feature_input \
-    agent_player_search
+    fct_player_scoring_contribution player_recent_form player_shot_location_profile \
+    player_similarity_feature_input agent_player_search
+```
+
+Validate public player similarity baseline training without live BigQuery:
+
+```bash
+pytest tests/test_player_similarity_model.py tests/test_incremental_pipeline.py -q
 ```
 
 Validate workbench read models:

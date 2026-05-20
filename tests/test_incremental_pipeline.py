@@ -708,31 +708,36 @@ def test_fetch_official_injury_report_pdf_soft_fails_after_retries(monkeypatch):
 
 def test_fetch_official_injury_report_pdf_treats_403_as_missing(monkeypatch):
     calls = []
-    sleeps = []
 
     class ForbiddenResponse:
         status_code = 403
+        content = b""
 
         def raise_for_status(self):
-            raise AssertionError("403 should be handled before raise_for_status")
+            raise RuntimeError("forbidden")
 
     class ForbiddenClient:
         def get(self, url, timeout, headers):
-            calls.append((url, timeout))
+            calls.append((url, timeout, headers))
             return ForbiddenResponse()
 
-    monkeypatch.setattr(pipeline.time, "sleep", lambda seconds: sleeps.append(seconds))
+    monkeypatch.setattr(
+        pipeline.time,
+        "sleep",
+        lambda _seconds: (_ for _ in ()).throw(
+            AssertionError("403 should not retry")
+        ),
+    )
 
     result = pipeline.fetch_official_injury_report_pdf(
-        "https://example.test/missing-report.pdf",
+        "https://example.test/missing.pdf",
         timeout=2,
         retries=3,
         client=ForbiddenClient(),
     )
 
     assert result is None
-    assert calls == [("https://example.test/missing-report.pdf", 2)]
-    assert sleeps == []
+    assert len(calls) == 1
 
 
 def test_ensure_table_has_columns_adds_expected_columns():
@@ -1084,6 +1089,136 @@ def test_get_cdn_player_game_logs_parses_live_boxscore(monkeypatch):
     assert row["FG3M"] == 3.0
     assert row["PTS"] == 16
     assert row["PLAYER_NAME"] == "Cade Cunningham"
+
+
+def _shot_location_api_frame():
+    columns = pd.MultiIndex.from_arrays(
+        [
+            [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Restricted Area",
+                "Restricted Area",
+                "Restricted Area",
+                "In The Paint (Non-RA)",
+                "In The Paint (Non-RA)",
+                "In The Paint (Non-RA)",
+                "Mid-Range",
+                "Mid-Range",
+                "Mid-Range",
+                "Left Corner 3",
+                "Left Corner 3",
+                "Left Corner 3",
+                "Right Corner 3",
+                "Right Corner 3",
+                "Right Corner 3",
+                "Above the Break 3",
+                "Above the Break 3",
+                "Above the Break 3",
+                "Backcourt",
+                "Backcourt",
+                "Backcourt",
+            ],
+            [
+                "PLAYER_ID",
+                "PLAYER_NAME",
+                "TEAM_ID",
+                "TEAM_ABBREVIATION",
+                "AGE",
+                "FGM",
+                "FGA",
+                "FG_PCT",
+                "FGM",
+                "FGA",
+                "FG_PCT",
+                "FGM",
+                "FGA",
+                "FG_PCT",
+                "FGM",
+                "FGA",
+                "FG_PCT",
+                "FGM",
+                "FGA",
+                "FG_PCT",
+                "FGM",
+                "FGA",
+                "FG_PCT",
+                "FGM",
+                "FGA",
+                "FG_PCT",
+            ],
+        ],
+        names=["SHOT_CATEGORY", "columns"],
+    )
+    return pd.DataFrame(
+        [
+            [
+                2544,
+                "LeBron James",
+                1610612747,
+                "LAL",
+                41.0,
+                260,
+                390,
+                0.667,
+                80,
+                160,
+                0.5,
+                65,
+                150,
+                0.433,
+                20,
+                50,
+                0.4,
+                18,
+                45,
+                0.4,
+                90,
+                260,
+                0.346,
+                0,
+                2,
+                0.0,
+            ]
+        ],
+        columns=columns,
+    )
+
+
+def test_get_player_shot_locations_flattens_aggregate_endpoint(monkeypatch):
+    captured = {}
+
+    class FakeShotLocations:
+        def __init__(self, *, season, season_type_all_star, timeout):
+            captured["season"] = season
+            captured["season_type_all_star"] = season_type_all_star
+            captured["timeout"] = timeout
+
+        def get_data_frames(self):
+            return [_shot_location_api_frame()]
+
+    monkeypatch.setattr(
+        pipeline.leaguedashplayershotlocations,
+        "LeagueDashPlayerShotLocations",
+        FakeShotLocations,
+    )
+
+    result = pipeline.get_player_shot_locations(timeout=4.5, retries=1)
+
+    assert captured == {
+        "season": "2025-26",
+        "season_type_all_star": "Regular Season",
+        "timeout": 4.5,
+    }
+    assert result.iloc[0]["PLAYER_ID"] == 2544
+    assert result.iloc[0]["TEAM_ABBR"] == "LAL"
+    assert result.iloc[0]["RESTRICTED_AREA_FGA"] == 390
+    assert result.iloc[0]["PAINT_NON_RA_FGM"] == 80
+    assert result.iloc[0]["ABOVE_BREAK3_FG_PCT"] == 0.346
+    assert result.iloc[0]["SEASON"] == "2025-26"
 
 
 def _line_score_api_frame():
@@ -2076,8 +2211,12 @@ def test_build_player_similarity_outputs_returns_normalized_feature_tables():
     assert len(outputs["features"]) == 6
     assert len(outputs["archetypes"]) == 6
     assert not outputs["features"].duplicated(subset=["season", "player_id"]).any()
-    assert set(outputs["archetypes"]["archetype_label"]).issubset(
-        pipeline.ALLOWED_ARCHETYPE_LABELS
+    assert "team_offense_contribution_rank" in outputs["features"].columns
+    assert "team_defense_contribution_rank" in outputs["archetypes"].columns
+    assert set(
+        outputs["archetypes"]["archetype_label"].str.split(" - ", n=1).str[0]
+    ).issubset(
+        pipeline.BASE_ARCHETYPE_LABELS
     )
     for feature_name in pipeline.SIMILARITY_FEATURE_COLUMNS:
         assert f"norm_{feature_name}" in outputs["features"].columns

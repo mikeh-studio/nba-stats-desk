@@ -9,6 +9,7 @@ before non-empty dataframes are uploaded to GCS.
 - `game_line_scores`
 - `schedule`
 - `player_reference`
+- `player_shot_locations`
 - `injury_reports`
 
 Contracts define required columns, expected types, business keys, season/date

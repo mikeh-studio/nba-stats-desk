@@ -1,0 +1,94 @@
+domain: player_shot_locations
+source: nba_api_leaguedashplayershotlocations
+version: 1
+grain: one row per player/team/season/season type aggregate shot-location profile
+business_key:
+  - PLAYER_ID
+  - TEAM_ID
+  - SEASON
+  - SEASON_TYPE
+type_validation_severity: quarantine
+columns:
+  PLAYER_ID: int64
+  PLAYER_NAME: string
+  TEAM_ID: int64
+  TEAM_ABBR: string
+  AGE: float64
+  SEASON: string
+  SEASON_TYPE: string
+  RESTRICTED_AREA_FGM: float64
+  RESTRICTED_AREA_FGA: float64
+  RESTRICTED_AREA_FG_PCT: float64
+  PAINT_NON_RA_FGM: float64
+  PAINT_NON_RA_FGA: float64
+  PAINT_NON_RA_FG_PCT: float64
+  MID_RANGE_FGM: float64
+  MID_RANGE_FGA: float64
+  MID_RANGE_FG_PCT: float64
+  LEFT_CORNER3_FGM: float64
+  LEFT_CORNER3_FGA: float64
+  LEFT_CORNER3_FG_PCT: float64
+  RIGHT_CORNER3_FGM: float64
+  RIGHT_CORNER3_FGA: float64
+  RIGHT_CORNER3_FG_PCT: float64
+  ABOVE_BREAK3_FGM: float64
+  ABOVE_BREAK3_FGA: float64
+  ABOVE_BREAK3_FG_PCT: float64
+  BACKCOURT_FGM: float64
+  BACKCOURT_FGA: float64
+  BACKCOURT_FG_PCT: float64
+  INGESTED_AT_UTC: timestamp
+rules:
+  - name: business_key_not_null
+    check: not_null
+    columns: [PLAYER_ID, TEAM_ID, SEASON, SEASON_TYPE]
+    severity: fatal
+  - name: business_key_unique
+    check: unique_key
+    columns: [PLAYER_ID, TEAM_ID, SEASON, SEASON_TYPE]
+    severity: fatal
+  - name: season_scope
+    check: equals
+    column: SEASON
+    value: "2025-26"
+    severity: fatal
+  - name: season_type_values
+    check: in_set
+    column: SEASON_TYPE
+    values: ["Regular Season", "Playoffs"]
+    severity: fatal
+  - name: shot_count_bounds
+    check: between
+    columns:
+      - RESTRICTED_AREA_FGM
+      - RESTRICTED_AREA_FGA
+      - PAINT_NON_RA_FGM
+      - PAINT_NON_RA_FGA
+      - MID_RANGE_FGM
+      - MID_RANGE_FGA
+      - LEFT_CORNER3_FGM
+      - LEFT_CORNER3_FGA
+      - RIGHT_CORNER3_FGM
+      - RIGHT_CORNER3_FGA
+      - ABOVE_BREAK3_FGM
+      - ABOVE_BREAK3_FGA
+      - BACKCOURT_FGM
+      - BACKCOURT_FGA
+    min: 0
+    max: 3000
+    allow_null: false
+    severity: quarantine
+  - name: shot_pct_bounds
+    check: between
+    columns:
+      - RESTRICTED_AREA_FG_PCT
+      - PAINT_NON_RA_FG_PCT
+      - MID_RANGE_FG_PCT
+      - LEFT_CORNER3_FG_PCT
+      - RIGHT_CORNER3_FG_PCT
+      - ABOVE_BREAK3_FG_PCT
+      - BACKCOURT_FG_PCT
+    min: 0
+    max: 1
+    allow_null: true
+    severity: quarantine

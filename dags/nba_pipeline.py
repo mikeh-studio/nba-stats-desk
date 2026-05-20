@@ -24,9 +24,12 @@ from google.cloud import bigquery, storage
 from nba_api.stats.endpoints import boxscoresummaryv2
 from nba_api.stats.endpoints import commonplayerinfo
 from nba_api.stats.endpoints import leaguegamelog
+from nba_api.stats.endpoints import leaguedashplayershotlocations
 from nba_api.stats.endpoints import playergamelog
 from nba_api.stats.endpoints import scheduleleaguev2
 from nba_api.stats.static import players
+
+import player_similarity_model
 
 logger = logging.getLogger("nba_pipeline")
 
@@ -71,6 +74,31 @@ NBA_API_RETRIES = 3
 NBA_API_RETRY_BASE_DELAY_SECONDS = 1.0
 NBA_API_RETRY_BACKOFF_MULTIPLIER = 2.0
 NBA_API_RETRY_MAX_DELAY_SECONDS = 8.0
+DEFAULT_SHOT_LOCATION_SEASON_TYPE = "Regular Season"
+
+SHOT_LOCATION_ZONE_PREFIXES: Dict[str, str] = {
+    "Restricted Area": "RESTRICTED_AREA",
+    "In The Paint (Non-RA)": "PAINT_NON_RA",
+    "Mid-Range": "MID_RANGE",
+    "Left Corner 3": "LEFT_CORNER3",
+    "Right Corner 3": "RIGHT_CORNER3",
+    "Above the Break 3": "ABOVE_BREAK3",
+    "Backcourt": "BACKCOURT",
+}
+SHOT_LOCATION_BASE_COLUMNS: Tuple[str, ...] = (
+    "PLAYER_ID",
+    "PLAYER_NAME",
+    "TEAM_ID",
+    "TEAM_ABBR",
+    "AGE",
+    "SEASON",
+    "SEASON_TYPE",
+)
+SHOT_LOCATION_ZONE_COLUMNS: Tuple[str, ...] = tuple(
+    f"{prefix}_{stat}"
+    for prefix in SHOT_LOCATION_ZONE_PREFIXES.values()
+    for stat in ("FGM", "FGA", "FG_PCT")
+)
 
 NBA_TEAM_LOOKUP_ROWS: Tuple[Tuple[str, int, str, str], ...] = (
     ("ATL", 1610612737, "Atlanta", "Hawks"),
@@ -1264,6 +1292,144 @@ def get_all_player_game_logs(
     return all_game_logs.reset_index(drop=True)
 
 
+def _empty_player_shot_locations_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[field.name for field in get_player_shot_locations_schema()]
+    )
+
+
+def _slug_shot_location_zone(value: Any) -> str:
+    zone = str(value or "").strip()
+    if zone in SHOT_LOCATION_ZONE_PREFIXES:
+        return SHOT_LOCATION_ZONE_PREFIXES[zone]
+    return re.sub(r"[^A-Z0-9]+", "_", zone.upper()).strip("_")
+
+
+def _flatten_shot_location_columns(frame: pd.DataFrame) -> pd.DataFrame:
+    """Flatten NBA API multi-header shot-location columns to contract names."""
+    if frame.empty:
+        return frame.copy()
+
+    flattened = frame.copy()
+    if isinstance(flattened.columns, pd.MultiIndex):
+        names: list[str] = []
+        for column in flattened.columns:
+            category = str(column[0] or "").strip()
+            metric = str(column[-1] or "").strip()
+            if not category:
+                names.append(
+                    "TEAM_ABBR" if metric == "TEAM_ABBREVIATION" else metric.upper()
+                )
+                continue
+            names.append(f"{_slug_shot_location_zone(category)}_{metric.upper()}")
+        flattened.columns = names
+    else:
+        flattened.columns = [
+            "TEAM_ABBR" if str(column).upper() == "TEAM_ABBREVIATION" else str(column).upper()
+            for column in flattened.columns
+        ]
+
+    return flattened
+
+
+def _normalize_player_shot_locations_frame(
+    frame: pd.DataFrame,
+    *,
+    season: str,
+    season_type: str,
+) -> pd.DataFrame:
+    flattened = _flatten_shot_location_columns(frame)
+    if flattened.empty:
+        return _empty_player_shot_locations_frame()
+
+    output = flattened.copy()
+    output["SEASON"] = season
+    output["SEASON_TYPE"] = season_type
+    output["INGESTED_AT_UTC"] = pd.Timestamp.now(tz="UTC")
+
+    required = ["PLAYER_ID", "PLAYER_NAME", "TEAM_ID", "TEAM_ABBR"]
+    missing = [column for column in required if column not in output.columns]
+    if missing:
+        raise ValueError(f"Missing expected shot-location columns: {missing}")
+
+    for column in ["PLAYER_ID", "TEAM_ID"]:
+        output[column] = pd.to_numeric(output[column], errors="coerce")
+    output = output.dropna(subset=["PLAYER_ID", "TEAM_ID"]).copy()
+    output["PLAYER_ID"] = output["PLAYER_ID"].astype(int)
+    output["TEAM_ID"] = output["TEAM_ID"].astype(int)
+    output["PLAYER_NAME"] = output["PLAYER_NAME"].fillna("").astype("string")
+    output["TEAM_ABBR"] = output["TEAM_ABBR"].fillna("").astype("string").str.upper()
+    output["AGE"] = pd.to_numeric(output.get("AGE"), errors="coerce")
+
+    for column in SHOT_LOCATION_ZONE_COLUMNS:
+        if column not in output:
+            output[column] = 0.0
+        output[column] = pd.to_numeric(output[column], errors="coerce").fillna(0.0)
+
+    output = output.drop_duplicates(
+        subset=["SEASON", "SEASON_TYPE", "PLAYER_ID", "TEAM_ID"], keep="last"
+    ).copy()
+    output = output.sort_values(["PLAYER_ID", "TEAM_ID"]).reset_index(drop=True)
+    return output[[field.name for field in get_player_shot_locations_schema()]]
+
+
+def get_player_shot_locations(
+    *,
+    season: str = SUPPORTED_SEASON,
+    season_type: str = DEFAULT_SHOT_LOCATION_SEASON_TYPE,
+    retries: int = NBA_API_RETRIES,
+    delay: Optional[float] = None,
+    timeout: float = NBA_API_TIMEOUT_SECONDS,
+    retry_base_delay: float = NBA_API_RETRY_BASE_DELAY_SECONDS,
+    retry_backoff_multiplier: float = NBA_API_RETRY_BACKOFF_MULTIPLIER,
+    retry_max_delay: float = NBA_API_RETRY_MAX_DELAY_SECONDS,
+) -> pd.DataFrame:
+    """Fetch league-wide aggregate player shot-location splits for one season."""
+    retries = normalize_nba_api_retries(retries)
+    if delay is not None:
+        retry_base_delay = delay
+
+    for attempt in range(1, retries + 1):
+        try:
+            shot_locations = (
+                leaguedashplayershotlocations.LeagueDashPlayerShotLocations(
+                    season=season,
+                    season_type_all_star=season_type,
+                    timeout=timeout,
+                )
+            )
+            frames = shot_locations.get_data_frames()
+            if not frames:
+                return _empty_player_shot_locations_frame()
+            return _normalize_player_shot_locations_frame(
+                frames[0],
+                season=season,
+                season_type=season_type,
+            )
+        except Exception:
+            if attempt == retries:
+                logger.exception(
+                    "Failed NBA API player shot locations season=%s season_type=%s after %s attempts timeout=%.1fs",
+                    season,
+                    season_type,
+                    retries,
+                    timeout,
+                )
+                return _empty_player_shot_locations_frame()
+            _sleep_before_nba_api_retry(
+                domain="player_shot_locations",
+                identifier=f"{season}:{season_type}",
+                attempt=attempt,
+                retries=retries,
+                timeout=timeout,
+                retry_base_delay=retry_base_delay,
+                retry_backoff_multiplier=retry_backoff_multiplier,
+                retry_max_delay=retry_max_delay,
+            )
+
+    return _empty_player_shot_locations_frame()
+
+
 def get_game_line_scores(
     game_id: str,
     *,
@@ -1654,6 +1820,24 @@ def get_game_logs_schema() -> List[bigquery.SchemaField]:
         bigquery.SchemaField("PLAYER_ID", "INTEGER"),
         bigquery.SchemaField("PLAYER_NAME", "STRING"),
     ]
+
+
+def get_player_shot_locations_schema() -> List[bigquery.SchemaField]:
+    """Return the BigQuery schema for aggregate player shot locations."""
+    fields = [
+        bigquery.SchemaField("PLAYER_ID", "INTEGER"),
+        bigquery.SchemaField("PLAYER_NAME", "STRING"),
+        bigquery.SchemaField("TEAM_ID", "INTEGER"),
+        bigquery.SchemaField("TEAM_ABBR", "STRING"),
+        bigquery.SchemaField("AGE", "FLOAT"),
+        bigquery.SchemaField("SEASON", "STRING"),
+        bigquery.SchemaField("SEASON_TYPE", "STRING"),
+    ]
+    fields.extend(
+        bigquery.SchemaField(column, "FLOAT") for column in SHOT_LOCATION_ZONE_COLUMNS
+    )
+    fields.append(bigquery.SchemaField("INGESTED_AT_UTC", "TIMESTAMP"))
+    return fields
 
 
 def get_game_line_scores_schema() -> List[bigquery.SchemaField]:
@@ -3480,6 +3664,89 @@ def run_game_line_score_quality_checks(
     return dq
 
 
+def run_player_shot_location_quality_checks(
+    bq_client: bigquery.Client,
+    staging_table: str,
+    *,
+    season: str = SUPPORTED_SEASON,
+) -> dict:
+    """Run data quality checks on aggregate player shot-location staging rows."""
+    attempt_columns = [
+        column for column in SHOT_LOCATION_ZONE_COLUMNS if column.endswith("_FGA")
+    ]
+    made_columns = [
+        column for column in SHOT_LOCATION_ZONE_COLUMNS if column.endswith("_FGM")
+    ]
+    pct_columns = [
+        column for column in SHOT_LOCATION_ZONE_COLUMNS if column.endswith("_FG_PCT")
+    ]
+    invalid_attempt_terms = [
+        f"{column.lower()} IS NULL OR {column.lower()} < 0" for column in attempt_columns
+    ]
+    invalid_made_terms = [
+        f"{column.lower()} IS NULL OR {column.lower()} < 0" for column in made_columns
+    ]
+    invalid_pct_terms = [
+        f"{column.lower()} IS NOT NULL AND ({column.lower()} < 0 OR {column.lower()} > 1)"
+        for column in pct_columns
+    ]
+    dq_query = f"""
+    WITH base AS (
+      SELECT *
+      FROM `{staging_table}`
+    ),
+    dups AS (
+      SELECT COUNT(*) AS duplicate_keys
+      FROM (
+        SELECT season, season_type, player_id, team_id, COUNT(*) AS cnt
+        FROM base
+        GROUP BY season, season_type, player_id, team_id
+        HAVING COUNT(*) > 1
+      )
+    )
+    SELECT
+      (SELECT COUNT(*) FROM base) AS total_rows,
+      (SELECT COUNT(*) FROM base WHERE player_id IS NULL OR team_id IS NULL OR season IS NULL OR season_type IS NULL) AS null_key_rows,
+      (SELECT duplicate_keys FROM dups) AS duplicate_key_rows,
+      (SELECT COUNT(*) FROM base WHERE season != @season OR season IS NULL) AS invalid_season_rows,
+      (SELECT COUNT(*) FROM base WHERE {" OR ".join(invalid_attempt_terms)}) AS invalid_attempt_rows,
+      (SELECT COUNT(*) FROM base WHERE {" OR ".join(invalid_made_terms)}) AS invalid_made_rows,
+      (SELECT COUNT(*) FROM base WHERE {" OR ".join(invalid_pct_terms)}) AS invalid_pct_rows
+    """
+    dq = (
+        bq_client.query(
+            dq_query,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("season", "STRING", season),
+                ]
+            ),
+        )
+        .to_dataframe()
+        .iloc[0]
+        .to_dict()
+    )
+    if dq["total_rows"] == 0:
+        raise ValueError("DQ failed: shot-location staging table has zero rows")
+    if dq["null_key_rows"] > 0:
+        raise ValueError(
+            f"DQ failed: found {dq['null_key_rows']} shot-location rows with null keys"
+        )
+    if dq["duplicate_key_rows"] > 0:
+        raise ValueError(
+            f"DQ failed: found {dq['duplicate_key_rows']} duplicate shot-location rows"
+        )
+    if dq["invalid_season_rows"] > 0:
+        raise ValueError(
+            f"DQ failed: found {dq['invalid_season_rows']} shot-location rows outside season {season}"
+        )
+    if dq["invalid_attempt_rows"] > 0 or dq["invalid_made_rows"] > 0:
+        raise ValueError("DQ failed: found negative or null shot-location counts")
+    if dq["invalid_pct_rows"] > 0:
+        raise ValueError("DQ failed: found shot-location percentages outside [0, 1]")
+    return dq
+
+
 def run_player_reference_quality_checks(
     bq_client: bigquery.Client,
     staging_table: str,
@@ -3857,6 +4124,112 @@ def create_and_merge_game_line_scores_table(
 
     bq_client.query(create_ddl).result()
     ensure_table_has_columns(bq_client, raw_table, get_game_line_scores_schema())
+    pre_count = (
+        bq_client.query(f"SELECT COUNT(*) AS c FROM `{raw_table}`")
+        .to_dataframe()
+        .iloc[0]["c"]
+    )
+    stats = bq_client.query(stats_sql).to_dataframe().iloc[0].to_dict()
+    bq_client.query(merge_sql).result()
+    post_count = (
+        bq_client.query(f"SELECT COUNT(*) AS c FROM `{raw_table}`")
+        .to_dataframe()
+        .iloc[0]["c"]
+    )
+    return {
+        "pre_count": int(pre_count),
+        "post_count": int(post_count),
+        "inserted": int(stats["inserted"]),
+        "updated": int(stats["updated"]),
+    }
+
+
+def create_and_merge_player_shot_locations_table(
+    bq_client: bigquery.Client, staging_table: str, raw_table: str
+) -> Dict[str, int]:
+    """Create player shot-location raw table if needed and MERGE staging data."""
+    create_columns = [
+        "player_id INT64",
+        "player_name STRING",
+        "team_id INT64",
+        "team_abbr STRING",
+        "age FLOAT64",
+        "season STRING",
+        "season_type STRING",
+        *[f"{column.lower()} FLOAT64" for column in SHOT_LOCATION_ZONE_COLUMNS],
+        "ingested_at_utc TIMESTAMP",
+    ]
+    create_ddl = f"""
+    CREATE TABLE IF NOT EXISTS `{raw_table}` (
+      {", ".join(create_columns)}
+    )
+    CLUSTER BY season, player_id, team_id
+    """
+
+    string_columns = ["player_name", "team_abbr", "season", "season_type"]
+    numeric_columns = ["age", *[column.lower() for column in SHOT_LOCATION_ZONE_COLUMNS]]
+    change_terms = [
+        f"COALESCE(T.{column}, '') != COALESCE(S.{column}, '')"
+        for column in string_columns
+        if column not in {"season", "season_type"}
+    ]
+    change_terms.extend(
+        f"COALESCE(T.{column}, 0) != COALESCE(S.{column}, 0)"
+        for column in numeric_columns
+    )
+    change_predicate = "\n      OR ".join(change_terms)
+
+    stats_sql = f"""
+    SELECT
+      COUNTIF(t.player_id IS NULL) AS inserted,
+      COUNTIF(t.player_id IS NOT NULL AND ({change_predicate.replace('T.', 't.').replace('S.', 's.')})) AS updated
+    FROM `{staging_table}` s
+    LEFT JOIN `{raw_table}` t
+      ON t.season = s.season
+     AND t.season_type = s.season_type
+     AND t.player_id = s.player_id
+     AND t.team_id = s.team_id
+    """
+
+    update_columns = [
+        "player_name",
+        "team_abbr",
+        "age",
+        *[column.lower() for column in SHOT_LOCATION_ZONE_COLUMNS],
+        "ingested_at_utc",
+    ]
+    update_assignments = ",\n        ".join(
+        f"{column} = S.{column}" for column in update_columns
+    )
+    insert_columns = [
+        "player_id",
+        "player_name",
+        "team_id",
+        "team_abbr",
+        "age",
+        "season",
+        "season_type",
+        *[column.lower() for column in SHOT_LOCATION_ZONE_COLUMNS],
+        "ingested_at_utc",
+    ]
+    insert_values = ", ".join(f"S.{column}" for column in insert_columns)
+    merge_sql = f"""
+    MERGE `{raw_table}` T
+    USING `{staging_table}` S
+    ON T.season = S.season
+    AND T.season_type = S.season_type
+    AND T.player_id = S.player_id
+    AND T.team_id = S.team_id
+    WHEN MATCHED AND ({change_predicate}) THEN
+      UPDATE SET
+        {update_assignments}
+    WHEN NOT MATCHED THEN
+      INSERT ({", ".join(insert_columns)})
+      VALUES ({insert_values})
+    """
+
+    bq_client.query(create_ddl).result()
+    ensure_table_has_columns(bq_client, raw_table, get_player_shot_locations_schema())
     pre_count = (
         bq_client.query(f"SELECT COUNT(*) AS c FROM `{raw_table}`")
         .to_dataframe()
@@ -5252,49 +5625,11 @@ def upsert_analysis_snapshot(
     bq_client.query(merge_sql, job_config=job_config).result()
 
 
-SIMILARITY_FEATURE_COLUMNS = [
-    "season_avg_pts",
-    "season_avg_reb",
-    "season_avg_ast",
-    "season_avg_stl",
-    "season_avg_blk",
-    "season_avg_fg3m",
-    "season_avg_tov",
-    "season_avg_min",
-    "recent_pts",
-    "recent_reb",
-    "recent_ast",
-    "recent_stl",
-    "recent_blk",
-    "recent_fg3m",
-    "recent_tov",
-    "recent_min",
-    "recent_points_share_of_team",
-    "recent_points_share_of_game",
-    "minutes_delta_vs_season",
-]
-
-SIMILARITY_TRAIT_LABELS = {
-    "season_avg_pts": "scoring volume",
-    "season_avg_reb": "rebounding",
-    "season_avg_ast": "playmaking",
-    "season_avg_stl": "steals pressure",
-    "season_avg_blk": "rim protection",
-    "season_avg_fg3m": "three-point volume",
-    "season_avg_min": "minutes load",
-    "recent_points_share_of_team": "usage share",
-    "recent_points_share_of_game": "game scoring share",
-    "minutes_delta_vs_season": "minutes trend",
-}
-
-ALLOWED_ARCHETYPE_LABELS = {
-    "Primary Creator",
-    "Scoring Guard",
-    "Two-Way Wing",
-    "Connector Wing",
-    "Stretch Big",
-    "Interior Big",
-}
+SIMILARITY_FEATURE_COLUMNS = player_similarity_model.SIMILARITY_FEATURE_COLUMNS
+SIMILARITY_CONTEXT_COLUMNS = player_similarity_model.TEAM_CONTEXT_COLUMNS
+SIMILARITY_TRAIT_LABELS = player_similarity_model.SIMILARITY_TRAIT_LABELS
+BASE_ARCHETYPE_LABELS = player_similarity_model.BASE_ARCHETYPE_LABELS
+ALLOWED_ARCHETYPE_LABELS = player_similarity_model.ALLOWED_ARCHETYPE_LABELS
 
 
 def _coerce_similarity_feature_frame(feature_df: pd.DataFrame) -> pd.DataFrame:
@@ -5409,157 +5744,38 @@ def _validate_similarity_output_frames(
     if features_df["player_id"].isna().any() or archetypes_df["player_id"].isna().any():
         raise ValueError("player_id must not be null in similarity outputs")
 
-    invalid_labels = (
-        set(archetypes_df["archetype_label"].dropna()) - ALLOWED_ARCHETYPE_LABELS
-    )
+    base_labels = {
+        str(value).split(" - ", maxsplit=1)[0]
+        for value in archetypes_df["archetype_label"].dropna()
+    }
+    invalid_labels = base_labels - BASE_ARCHETYPE_LABELS
     if invalid_labels:
         raise ValueError(
             f"Unexpected archetype labels detected: {sorted(invalid_labels)}"
         )
 
+    cluster_labels = archetypes_df[
+        ["season", "archetype_id", "archetype_label"]
+    ].drop_duplicates()
+    duplicate_labels = cluster_labels.duplicated(
+        subset=["season", "archetype_label"],
+        keep=False,
+    )
+    if duplicate_labels.any():
+        duplicated = sorted(cluster_labels.loc[duplicate_labels, "archetype_label"])
+        raise ValueError(f"Duplicate archetype labels detected: {duplicated}")
+
 
 def build_player_similarity_outputs(
     feature_df: pd.DataFrame,
     *,
-    cluster_count: int = 6,
+    cluster_count: int = 10,
 ) -> Dict[str, pd.DataFrame]:
     """Cluster players into archetypes and publish normalized similarity vectors."""
-    import numpy as np
-    from sklearn.cluster import KMeans
-    from sklearn.impute import SimpleImputer
-    from sklearn.preprocessing import StandardScaler
-
-    working = _coerce_similarity_feature_frame(feature_df)
-    if working.empty:
-        raise ValueError("Cannot build similarity outputs from an empty feature frame")
-
-    modeling = working[working["sample_status"] != "insufficient_sample"].copy()
-    if modeling.empty:
-        raise ValueError("No players meet the minimum sample threshold for similarity")
-
-    imputer = SimpleImputer(strategy="median")
-    imputed_values = imputer.fit_transform(modeling[SIMILARITY_FEATURE_COLUMNS])
-    scaler = StandardScaler()
-    scaled_values = scaler.fit_transform(imputed_values)
-
-    effective_clusters = max(1, min(int(cluster_count), len(modeling)))
-    kmeans = KMeans(n_clusters=effective_clusters, n_init=20, random_state=42)
-    cluster_ids = kmeans.fit_predict(scaled_values)
-    distances = np.linalg.norm(
-        scaled_values - kmeans.cluster_centers_[cluster_ids], axis=1
+    return player_similarity_model.build_player_similarity_outputs(
+        feature_df,
+        cluster_count=cluster_count,
     )
-
-    modeling = modeling.reset_index(drop=True)
-    modeling["cluster_index"] = cluster_ids
-
-    cluster_summaries: Dict[int, Dict[str, Any]] = {}
-    for cluster_index in sorted(modeling["cluster_index"].unique()):
-        center = {
-            feature_name: float(value)
-            for feature_name, value in zip(
-                SIMILARITY_FEATURE_COLUMNS,
-                kmeans.cluster_centers_[cluster_index],
-            )
-        }
-        top_traits = _rank_similarity_traits(center, limit=3, positive_only=True)
-        archetype_label = _label_cluster(center)
-        cluster_summaries[int(cluster_index)] = {
-            "archetype_id": f"cluster_{int(cluster_index)}",
-            "archetype_label": archetype_label,
-            "top_traits": ", ".join(top_traits),
-            "archetype_summary": _build_cluster_summary(archetype_label, top_traits),
-        }
-
-    confidence_by_row: List[float] = []
-    for row_index, cluster_index in enumerate(cluster_ids):
-        cluster_mask = cluster_ids == cluster_index
-        cluster_distances = distances[cluster_mask]
-        max_distance = float(cluster_distances.max()) if len(cluster_distances) else 0.0
-        if max_distance <= 1e-9:
-            confidence = 1.0
-        else:
-            confidence = 1.0 - float(distances[row_index]) / max_distance
-        confidence_by_row.append(round(max(0.0, min(confidence, 1.0)), 4))
-
-    normalized_columns = {
-        f"norm_{feature_name}": scaled_values[:, index]
-        for index, feature_name in enumerate(SIMILARITY_FEATURE_COLUMNS)
-    }
-    modeling = modeling.assign(**normalized_columns)
-    modeling["cluster_confidence"] = confidence_by_row
-
-    player_top_traits: List[str] = []
-    player_bottom_traits: List[str] = []
-    archetype_ids: List[str] = []
-    archetype_labels: List[str] = []
-    archetype_summaries: List[str] = []
-    for _, row in modeling.iterrows():
-        normalized_values = {
-            feature_name: float(row[f"norm_{feature_name}"])
-            for feature_name in SIMILARITY_FEATURE_COLUMNS
-        }
-        player_top_traits.append(
-            ", ".join(
-                _rank_similarity_traits(normalized_values, limit=3, positive_only=True)
-            )
-        )
-        player_bottom_traits.append(
-            ", ".join(
-                _rank_similarity_traits(normalized_values, limit=2, negative_only=True)
-            )
-        )
-        cluster_summary = cluster_summaries[int(row["cluster_index"])]
-        archetype_ids.append(cluster_summary["archetype_id"])
-        archetype_labels.append(cluster_summary["archetype_label"])
-        archetype_summaries.append(cluster_summary["archetype_summary"])
-
-    modeling["top_traits"] = player_top_traits
-    modeling["contrasting_traits"] = player_bottom_traits
-    modeling["archetype_id"] = archetype_ids
-    modeling["archetype_label"] = archetype_labels
-    modeling["archetype_summary"] = archetype_summaries
-
-    features_df = modeling[
-        [
-            "season",
-            "as_of_date",
-            "player_id",
-            "player_name",
-            "team_abbr",
-            "position",
-            "games_sampled",
-            "sample_status",
-            "archetype_id",
-            "archetype_label",
-            "cluster_confidence",
-            "top_traits",
-            "contrasting_traits",
-            "archetype_summary",
-            *SIMILARITY_FEATURE_COLUMNS,
-            *[f"norm_{feature_name}" for feature_name in SIMILARITY_FEATURE_COLUMNS],
-        ]
-    ].copy()
-
-    archetypes_df = modeling[
-        [
-            "season",
-            "as_of_date",
-            "player_id",
-            "player_name",
-            "team_abbr",
-            "position",
-            "games_sampled",
-            "sample_status",
-            "archetype_id",
-            "archetype_label",
-            "cluster_confidence",
-            "top_traits",
-            "archetype_summary",
-        ]
-    ].copy()
-
-    _validate_similarity_output_frames(features_df, archetypes_df)
-    return {"features": features_df, "archetypes": archetypes_df}
 
 
 def _player_similarity_feature_schema() -> List[bigquery.SchemaField]:
@@ -5572,13 +5788,19 @@ def _player_similarity_feature_schema() -> List[bigquery.SchemaField]:
         bigquery.SchemaField("position", "STRING"),
         bigquery.SchemaField("games_sampled", "INT64"),
         bigquery.SchemaField("sample_status", "STRING"),
-        bigquery.SchemaField("archetype_id", "STRING"),
-        bigquery.SchemaField("archetype_label", "STRING"),
-        bigquery.SchemaField("cluster_confidence", "FLOAT64"),
-        bigquery.SchemaField("top_traits", "STRING"),
-        bigquery.SchemaField("contrasting_traits", "STRING"),
-        bigquery.SchemaField("archetype_summary", "STRING"),
     ]
+    for context_name in SIMILARITY_CONTEXT_COLUMNS:
+        fields.append(bigquery.SchemaField(context_name, "INT64"))
+    fields.extend(
+        [
+            bigquery.SchemaField("archetype_id", "STRING"),
+            bigquery.SchemaField("archetype_label", "STRING"),
+            bigquery.SchemaField("cluster_confidence", "FLOAT64"),
+            bigquery.SchemaField("top_traits", "STRING"),
+            bigquery.SchemaField("contrasting_traits", "STRING"),
+            bigquery.SchemaField("archetype_summary", "STRING"),
+        ]
+    )
     for feature_name in SIMILARITY_FEATURE_COLUMNS:
         fields.append(bigquery.SchemaField(feature_name, "FLOAT64"))
     for feature_name in SIMILARITY_FEATURE_COLUMNS:
@@ -5596,6 +5818,10 @@ def _player_archetype_schema() -> List[bigquery.SchemaField]:
         bigquery.SchemaField("position", "STRING"),
         bigquery.SchemaField("games_sampled", "INT64"),
         bigquery.SchemaField("sample_status", "STRING"),
+        *[
+            bigquery.SchemaField(context_name, "INT64")
+            for context_name in SIMILARITY_CONTEXT_COLUMNS
+        ],
         bigquery.SchemaField("archetype_id", "STRING"),
         bigquery.SchemaField("archetype_label", "STRING"),
         bigquery.SchemaField("cluster_confidence", "FLOAT64"),
@@ -5640,6 +5866,7 @@ def write_player_similarity_tables(
     feature_job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
         schema=_player_similarity_feature_schema(),
+        schema_update_options=[bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION],
     )
     archetype_job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,

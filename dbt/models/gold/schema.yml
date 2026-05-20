@@ -80,6 +80,29 @@ models:
                 values: ['W', 'L']
       - name: fantasy_points_simple
         tests: [not_null]
+  - name: player_shot_location_profile
+    columns:
+      - name: player_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_player')
+                field: player_id
+      - name: season
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['2025-26']
+      - name: shot_location_fga
+      - name: shot_rim_rate
+      - name: shot_paint_non_ra_rate
+      - name: shot_midrange_rate
+      - name: shot_corner3_rate
+      - name: shot_above_break3_rate
+      - name: shot_rim_fg_pct
+      - name: shot_corner3_fg_pct
   - name: dim_player
     columns:
       - name: player_id
@@ -377,6 +400,45 @@ models:
           - accepted_values:
               arguments:
                 values: ['ready', 'limited_sample', 'insufficient_sample']
+      - name: season_avg_fga
+      - name: season_fg_pct
+      - name: season_ts_pct
+      - name: season_fg3a_rate
+      - name: season_fta_rate
+      - name: season_ast_to_tov
+      - name: team_points_contribution_rate
+      - name: team_fga_contribution_rate
+      - name: team_ast_contribution_rate
+      - name: team_tov_contribution_rate
+      - name: team_offense_contribution_rate
+      - name: team_offense_contribution_rank
+      - name: team_reb_contribution_rate
+      - name: team_stl_contribution_rate
+      - name: team_blk_contribution_rate
+      - name: team_defense_contribution_rate
+      - name: team_defense_contribution_rank
+      - name: shot_location_fga
+      - name: shot_rim_rate
+      - name: shot_paint_non_ra_rate
+      - name: shot_midrange_rate
+      - name: shot_corner3_rate
+      - name: shot_above_break3_rate
+      - name: shot_rim_fg_pct
+      - name: shot_corner3_fg_pct
+      - name: height_inches
+      - name: weight_lbs
+      - name: season_exp
+      - name: first_half_games
+      - name: second_half_games
+      - name: first_half_avg_pts
+      - name: second_half_avg_pts
+      - name: first_half_avg_min
+      - name: second_half_avg_min
+      - name: first_half_ts_pct
+      - name: second_half_ts_pct
+      - name: second_half_pts_delta
+      - name: second_half_min_delta
+      - name: second_half_ts_delta
   - name: player_fantasy_rankings
     columns:
       - name: player_id

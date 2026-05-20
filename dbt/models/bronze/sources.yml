@@ -72,6 +72,24 @@ sources:
               - accepted_values:
                   arguments:
                     values: ['2025-26']
+      - name: raw_player_shot_locations
+        columns:
+          - name: player_id
+            tests: [not_null]
+          - name: team_id
+            tests: [not_null]
+          - name: season
+            tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['2025-26']
+          - name: season_type
+            tests:
+              - not_null
+              - accepted_values:
+                  arguments:
+                    values: ['Regular Season', 'Playoffs']
       - name: raw_player_reference
         columns:
           - name: player_id

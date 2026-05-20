@@ -505,6 +505,87 @@ def nba_analytics_pipeline():
         }
 
     @task(retries=2, retry_delay=timedelta(minutes=5))
+    def extract_player_shot_locations() -> dict:
+        """Fetch aggregate player shot-location profiles for the season."""
+        import pandas as pd
+        import nba_pipeline as pipeline
+
+        season = SUPPORTED_SEASON
+        season_type = get_config(
+            "NBA_SHOT_LOCATION_SEASON_TYPE",
+            pipeline.DEFAULT_SHOT_LOCATION_SEASON_TYPE,
+        )
+        project_id = get_project_id()
+        bucket_name = get_config("GCS_BUCKET_NAME")
+        location = get_config("BQ_LOCATION", "US")
+        metadata_dataset = get_dataset("BQ_METADATA_DATASET", "nba_metadata")
+
+        shot_locations = pipeline.get_player_shot_locations(
+            season=season,
+            season_type=season_type,
+            **get_nba_api_request_config(),
+        )
+        if shot_locations.empty:
+            logger.info("No player shot-location rows returned")
+            return {
+                "domain": "player_shot_locations",
+                "gcs_uri": "",
+                "row_count": 0,
+                "season": season,
+                "source_contract": skipped_source_contract_result(
+                    "player_shot_locations",
+                    "empty_source_response",
+                    project_id=project_id,
+                    metadata_dataset=metadata_dataset,
+                    location=location,
+                ),
+            }
+
+        raw_snapshot_uri = persist_source_extract_snapshot(
+            contract_name="player_shot_locations",
+            frame=shot_locations,
+            project_id=project_id,
+            bucket_name=bucket_name,
+            season=season,
+            snapshot_type="raw_extract",
+        )
+        shot_locations, source_contract = validate_source_contract_frame(
+            "player_shot_locations",
+            shot_locations,
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            bucket_name=bucket_name,
+            season=season,
+            raw_snapshot_uri=raw_snapshot_uri,
+        )
+        run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+        safe_season_type = _safe_storage_token(str(season_type).lower())
+        blob_path = (
+            f"nba_data/{season}/landing/"
+            f"{run_stamp}_{safe_season_type}_player_shot_locations.csv"
+        )
+        gcs_uri = pipeline.upload_df_to_gcs(
+            shot_locations, project_id, bucket_name, blob_path
+        )
+        source_contract = record_source_contract_audit(
+            project_id=project_id,
+            metadata_dataset=metadata_dataset,
+            location=location,
+            result=source_contract,
+            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
+            quarantine_uri=source_contract.get("quarantine_uri", ""),
+            landing_uri=gcs_uri,
+        )
+        return {
+            "domain": "player_shot_locations",
+            "gcs_uri": gcs_uri,
+            "row_count": len(shot_locations),
+            "season": season,
+            "source_contract": source_contract,
+        }
+
+    @task(retries=2, retry_delay=timedelta(minutes=5))
     def extract_player_reference() -> dict:
         """Fetch active-player reference attributes and roster context."""
         import pandas as pd
@@ -966,6 +1047,45 @@ def nba_analytics_pipeline():
         }
 
     @task(retries=2, retry_delay=timedelta(minutes=2))
+    def load_player_shot_location_staging(extract_result: dict) -> dict:
+        """Load landed aggregate player shot-location rows to staging."""
+        from google.cloud import bigquery as bq
+        import nba_pipeline as pipeline
+
+        project_id = get_project_id()
+        location = get_config("BQ_LOCATION", "US")
+        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
+        client = bq.Client(project=project_id)
+        pipeline.ensure_dataset(client, f"{project_id}.{bronze_dataset}", location)
+        staging_table = f"{project_id}.{bronze_dataset}.stg_player_shot_locations"
+
+        if extract_result["row_count"] == 0:
+            return {
+                "domain": "player_shot_locations",
+                "staging_table": staging_table,
+                "row_count": 0,
+                "season": extract_result["season"],
+                "gcs_uri": extract_result["gcs_uri"],
+                "source_contract": extract_result.get("source_contract", {}),
+            }
+
+        pipeline.load_gcs_to_bigquery(
+            client,
+            extract_result["gcs_uri"],
+            staging_table,
+            pipeline.get_player_shot_locations_schema(),
+            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+        )
+        return {
+            "domain": "player_shot_locations",
+            "staging_table": staging_table,
+            "row_count": extract_result["row_count"],
+            "season": extract_result["season"],
+            "gcs_uri": extract_result["gcs_uri"],
+            "source_contract": extract_result.get("source_contract", {}),
+        }
+
+    @task(retries=2, retry_delay=timedelta(minutes=2))
     def load_player_reference_staging(extract_result: dict) -> dict:
         """Load landed player reference rows to staging."""
         from google.cloud import bigquery as bq
@@ -1094,6 +1214,24 @@ def nba_analytics_pipeline():
 
         client = bq.Client(project=get_project_id())
         load_result["dq_results"] = pipeline.run_game_line_score_quality_checks(
+            client,
+            load_result["staging_table"],
+            season=SUPPORTED_SEASON,
+        )
+        return load_result
+
+    @task(retries=0)
+    def dq_player_shot_location_staging(load_result: dict) -> dict:
+        """Run DQ checks for aggregate player shot-location rows."""
+        from google.cloud import bigquery as bq
+        import nba_pipeline as pipeline
+
+        if load_result["row_count"] == 0:
+            load_result["dq_results"] = {}
+            return load_result
+
+        client = bq.Client(project=get_project_id())
+        load_result["dq_results"] = pipeline.run_player_shot_location_quality_checks(
             client,
             load_result["staging_table"],
             season=SUPPORTED_SEASON,
@@ -1287,6 +1425,55 @@ def nba_analytics_pipeline():
         }
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
+    def merge_player_shot_locations(load_result: dict) -> dict:
+        """Merge staged aggregate player shot locations into the bronze raw table."""
+        from google.cloud import bigquery as bq
+        import nba_pipeline as pipeline
+
+        project_id = get_project_id()
+        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
+        raw_table = f"{project_id}.{bronze_dataset}.raw_player_shot_locations"
+
+        if load_result["row_count"] == 0:
+            return {
+                "domain": "player_shot_locations",
+                "raw_table": raw_table,
+                "rows_loaded": 0,
+                "rows_inserted": 0,
+                "rows_updated": 0,
+                "season": load_result["season"],
+                "gcs_uri": load_result["gcs_uri"],
+                "dq_results": load_result.get("dq_results", {}),
+                "source_contract": load_result.get("source_contract", {}),
+            }
+
+        client = bq.Client(project=project_id)
+        result = pipeline.create_and_merge_player_shot_locations_table(
+            client, load_result["staging_table"], raw_table
+        )
+        reconciliation = pipeline.validate_merge_reconciliation(
+            domain="player_shot_locations",
+            rows_loaded=load_result["row_count"],
+            pre_count=result["pre_count"],
+            post_count=result["post_count"],
+            inserted=result["inserted"],
+            updated=result["updated"],
+        )
+        return {
+            "domain": "player_shot_locations",
+            "raw_table": raw_table,
+            "rows_loaded": load_result["row_count"],
+            "rows_inserted": result["inserted"],
+            "rows_updated": result["updated"],
+            "rows_unchanged": reconciliation["unchanged"],
+            "reconciliation": reconciliation,
+            "season": load_result["season"],
+            "gcs_uri": load_result["gcs_uri"],
+            "dq_results": load_result.get("dq_results", {}),
+            "source_contract": load_result.get("source_contract", {}),
+        }
+
+    @task(retries=1, retry_delay=timedelta(minutes=2))
     def merge_player_reference(load_result: dict) -> dict:
         """Merge staged player reference rows into the bronze raw table."""
         from google.cloud import bigquery as bq
@@ -1393,6 +1580,7 @@ def nba_analytics_pipeline():
         game_result: dict,
         schedule_result: dict,
         line_score_result: dict,
+        shot_location_result: dict,
         player_reference_result: dict,
         injury_report_result: dict,
         bootstrap_result: dict | None = None,
@@ -1429,6 +1617,7 @@ def nba_analytics_pipeline():
                 game_result.get("gcs_uri", ""),
                 schedule_result.get("gcs_uri", ""),
                 line_score_result.get("gcs_uri", ""),
+                shot_location_result.get("gcs_uri", ""),
                 player_reference_result.get("gcs_uri", ""),
                 injury_report_result.get("gcs_uri", ""),
             ]
@@ -1439,6 +1628,7 @@ def nba_analytics_pipeline():
                 game_result["rows_loaded"] > 0,
                 schedule_result["rows_loaded"] > 0,
                 line_score_result["rows_loaded"] > 0,
+                shot_location_result["rows_loaded"] > 0,
                 player_reference_result["rows_loaded"] > 0,
             ]
         )
@@ -1461,6 +1651,12 @@ def nba_analytics_pipeline():
             "line_score_rows_inserted": line_score_result["rows_inserted"],
             "line_score_rows_updated": line_score_result["rows_updated"],
             "line_score_rows_unchanged": line_score_result.get("rows_unchanged", 0),
+            "shot_location_rows_loaded": shot_location_result["rows_loaded"],
+            "shot_location_rows_inserted": shot_location_result["rows_inserted"],
+            "shot_location_rows_updated": shot_location_result["rows_updated"],
+            "shot_location_rows_unchanged": shot_location_result.get(
+                "rows_unchanged", 0
+            ),
             "player_reference_rows_loaded": player_reference_result["rows_loaded"],
             "player_reference_rows_inserted": player_reference_result["rows_inserted"],
             "player_reference_rows_updated": player_reference_result["rows_updated"],
@@ -1480,6 +1676,7 @@ def nba_analytics_pipeline():
                 "game_logs": game_result.get("dq_results", {}),
                 "schedule": schedule_result.get("dq_results", {}),
                 "game_line_scores": line_score_result.get("dq_results", {}),
+                "player_shot_locations": shot_location_result.get("dq_results", {}),
                 "player_reference": player_reference_result.get("dq_results", {}),
                 "injury_reports": injury_report_result.get("dq_results", {}),
             },
@@ -1487,6 +1684,9 @@ def nba_analytics_pipeline():
                 "game_logs": game_result.get("source_contract", {}),
                 "schedule": schedule_result.get("source_contract", {}),
                 "game_line_scores": line_score_result.get("source_contract", {}),
+                "player_shot_locations": shot_location_result.get(
+                    "source_contract", {}
+                ),
                 "player_reference": player_reference_result.get("source_contract", {}),
                 "injury_reports": injury_report_result.get("source_contract", {}),
             },
@@ -1494,6 +1694,9 @@ def nba_analytics_pipeline():
                 "game_logs": game_result.get("reconciliation", {}),
                 "schedule": schedule_result.get("reconciliation", {}),
                 "game_line_scores": line_score_result.get("reconciliation", {}),
+                "player_shot_locations": shot_location_result.get(
+                    "reconciliation", {}
+                ),
                 "player_reference": player_reference_result.get("reconciliation", {}),
                 "injury_reports": injury_report_result.get("reconciliation", {}),
             },
@@ -1644,7 +1847,7 @@ def nba_analytics_pipeline():
         project_id = get_project_id()
         gold_dataset = get_dataset("BQ_DATASET_GOLD", "nba_gold")
         location = get_config("BQ_LOCATION", "US")
-        cluster_count = int(get_config("NBA_ARCHETYPE_CLUSTERS", "6"))
+        cluster_count = int(get_config("NBA_ARCHETYPE_CLUSTERS", "10"))
         client = bq.Client(project=project_id)
         pipeline.ensure_dataset(client, f"{project_id}.{gold_dataset}", location)
 
@@ -1853,6 +2056,7 @@ def nba_analytics_pipeline():
                 run_result["rows_loaded"]
                 + run_result.get("schedule_rows_loaded", 0)
                 + run_result.get("line_score_rows_loaded", 0)
+                + run_result.get("shot_location_rows_loaded", 0)
                 + run_result.get("player_reference_rows_loaded", 0)
                 + run_result.get("injury_report_rows_loaded", 0)
             ),
@@ -1873,6 +2077,9 @@ def nba_analytics_pipeline():
                 f"analysis_snapshot_id={run_result.get('analysis_snapshot_id', '')};"
                 f"schedule_rows_loaded={run_result.get('schedule_rows_loaded', 0)};"
                 f"line_score_rows_loaded={run_result.get('line_score_rows_loaded', 0)};"
+                f"shot_location_rows_loaded={run_result.get('shot_location_rows_loaded', 0)};"
+                f"shot_location_rows_inserted={run_result.get('shot_location_rows_inserted', 0)};"
+                f"shot_location_rows_updated={run_result.get('shot_location_rows_updated', 0)};"
                 f"player_reference_rows_loaded={run_result.get('player_reference_rows_loaded', 0)};"
                 f"injury_report_rows_loaded={run_result.get('injury_report_rows_loaded', 0)};"
                 f"injury_report_rows_inserted={run_result.get('injury_report_rows_inserted', 0)};"
@@ -1882,6 +2089,7 @@ def nba_analytics_pipeline():
                 f"rows_unchanged={run_result.get('rows_unchanged', 0)};"
                 f"schedule_rows_unchanged={run_result.get('schedule_rows_unchanged', 0)};"
                 f"line_score_rows_unchanged={run_result.get('line_score_rows_unchanged', 0)};"
+                f"shot_location_rows_unchanged={run_result.get('shot_location_rows_unchanged', 0)};"
                 f"player_reference_rows_unchanged={run_result.get('player_reference_rows_unchanged', 0)};"
                 f"bronze_bootstrap={run_result.get('bronze_bootstrap_summary', {})};"
                 f"redshift_status={run_result.get('redshift_status', get_config('ENABLE_REDSHIFT', 'false'))};"
@@ -1896,24 +2104,30 @@ def nba_analytics_pipeline():
     extracted = extract_incremental()
     extracted_schedule = extract_schedule_context()
     extracted_line_scores = extract_game_line_scores(extracted)
+    extracted_shot_locations = extract_player_shot_locations()
     extracted_player_reference = extract_player_reference()
     extracted_injury_reports = extract_injury_reports()
 
     staged = load_game_log_staging(extracted)
     staged_schedule = load_schedule_staging(extracted_schedule)
     staged_line_scores = load_game_line_score_staging(extracted_line_scores)
+    staged_shot_locations = load_player_shot_location_staging(
+        extracted_shot_locations
+    )
     staged_player_reference = load_player_reference_staging(extracted_player_reference)
     staged_injury_reports = load_injury_report_staging(extracted_injury_reports)
 
     checked = dq_game_log_staging(staged)
     checked_schedule = dq_schedule_staging(staged_schedule)
     checked_line_scores = dq_game_line_score_staging(staged_line_scores)
+    checked_shot_locations = dq_player_shot_location_staging(staged_shot_locations)
     checked_player_reference = dq_player_reference_staging(staged_player_reference)
     checked_injury_reports = dq_injury_report_staging(staged_injury_reports)
 
     merged = merge_game_logs(checked)
     merged_schedule = merge_schedule_context(checked_schedule)
     merged_line_scores = merge_game_line_scores(checked_line_scores)
+    merged_shot_locations = merge_player_shot_locations(checked_shot_locations)
     merged_player_reference = merge_player_reference(checked_player_reference)
     merged_injury_reports = merge_injury_reports(checked_injury_reports)
 
@@ -2077,6 +2291,7 @@ def nba_analytics_pipeline():
         merged,
         merged_schedule,
         merged_line_scores,
+        merged_shot_locations,
         merged_player_reference,
         merged_injury_reports,
         bootstrapped_bronze,

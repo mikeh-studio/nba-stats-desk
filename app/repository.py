@@ -107,6 +107,28 @@ COMPARE_FOCUS_CONFIG: dict[CompareFocus, dict[str, Any]] = {
 SIMILARITY_RESULT_LIMIT = 6
 SIMILARITY_FEATURE_COLUMNS = [
     "season_avg_pts",
+    "season_avg_fga",
+    "season_fg_pct",
+    "season_ts_pct",
+    "season_fg3a_rate",
+    "season_fta_rate",
+    "season_ast_to_tov",
+    "team_points_contribution_rate",
+    "team_fga_contribution_rate",
+    "team_ast_contribution_rate",
+    "team_tov_contribution_rate",
+    "team_offense_contribution_rate",
+    "team_reb_contribution_rate",
+    "team_stl_contribution_rate",
+    "team_blk_contribution_rate",
+    "team_defense_contribution_rate",
+    "shot_rim_rate",
+    "shot_paint_non_ra_rate",
+    "shot_midrange_rate",
+    "shot_corner3_rate",
+    "shot_above_break3_rate",
+    "shot_rim_fg_pct",
+    "shot_corner3_fg_pct",
     "season_avg_reb",
     "season_avg_ast",
     "season_avg_stl",
@@ -114,6 +136,9 @@ SIMILARITY_FEATURE_COLUMNS = [
     "season_avg_fg3m",
     "season_avg_tov",
     "season_avg_min",
+    "height_inches",
+    "weight_lbs",
+    "season_exp",
     "recent_pts",
     "recent_reb",
     "recent_ast",
@@ -125,19 +150,54 @@ SIMILARITY_FEATURE_COLUMNS = [
     "recent_points_share_of_team",
     "recent_points_share_of_game",
     "minutes_delta_vs_season",
+    "second_half_pts_delta",
+    "second_half_min_delta",
+    "second_half_ts_delta",
 ]
+
+SIMILARITY_FEATURE_WEIGHTS: dict[str, float] = {
+    feature_name: 1.0 for feature_name in SIMILARITY_FEATURE_COLUMNS
+}
 
 SIMILARITY_TRAIT_LABELS: dict[str, str] = {
     "season_avg_pts": "scoring volume",
+    "season_avg_fga": "shot volume",
+    "season_fg_pct": "field-goal efficiency",
+    "season_ts_pct": "true shooting",
+    "season_fg3a_rate": "three-point diet",
+    "season_fta_rate": "rim pressure",
+    "season_ast_to_tov": "ball security",
+    "team_points_contribution_rate": "team scoring share",
+    "team_fga_contribution_rate": "team shot share",
+    "team_ast_contribution_rate": "team assist share",
+    "team_tov_contribution_rate": "team turnover load",
+    "team_offense_contribution_rate": "team offense ownership",
+    "team_reb_contribution_rate": "team rebounding share",
+    "team_stl_contribution_rate": "team steal share",
+    "team_blk_contribution_rate": "team block share",
+    "team_defense_contribution_rate": "team defensive event share",
+    "shot_rim_rate": "rim shot diet",
+    "shot_paint_non_ra_rate": "paint shot diet",
+    "shot_midrange_rate": "midrange diet",
+    "shot_corner3_rate": "corner-three diet",
+    "shot_above_break3_rate": "above-break three diet",
+    "shot_rim_fg_pct": "rim finishing",
+    "shot_corner3_fg_pct": "corner-three efficiency",
     "season_avg_reb": "rebounding",
     "season_avg_ast": "playmaking",
     "season_avg_stl": "steals pressure",
     "season_avg_blk": "rim protection",
     "season_avg_fg3m": "three-point volume",
     "season_avg_min": "minutes load",
+    "height_inches": "height",
+    "weight_lbs": "frame strength",
+    "season_exp": "experience",
     "recent_points_share_of_team": "usage share",
     "recent_points_share_of_game": "game scoring share",
     "minutes_delta_vs_season": "minutes trend",
+    "second_half_pts_delta": "second-half scoring growth",
+    "second_half_min_delta": "second-half role growth",
+    "second_half_ts_delta": "second-half efficiency growth",
 }
 
 STAT_PERCENTILE_CONFIG: tuple[dict[str, str], ...] = (
@@ -521,6 +581,25 @@ def _similarity_feature_value(row: dict[str, Any], feature_name: str) -> float |
     return _to_float(row.get(f"norm_{feature_name}"))
 
 
+def _weighted_similarity_vector(row: dict[str, Any]) -> dict[str, float]:
+    components: dict[str, float] = {}
+    squared_norm = 0.0
+    for feature_name in SIMILARITY_FEATURE_COLUMNS:
+        value = _similarity_feature_value(row, feature_name) or 0.0
+        component = value * SIMILARITY_FEATURE_WEIGHTS.get(feature_name, 1.0)
+        components[feature_name] = component
+        squared_norm += component**2
+
+    if squared_norm <= 1e-12:
+        return {feature_name: 0.0 for feature_name in SIMILARITY_FEATURE_COLUMNS}
+
+    vector_norm = sqrt(squared_norm)
+    return {
+        feature_name: component / vector_norm
+        for feature_name, component in components.items()
+    }
+
+
 def _shared_similarity_traits(
     anchor_row: dict[str, Any], candidate_row: dict[str, Any], *, limit: int = 3
 ) -> list[str]:
@@ -532,8 +611,9 @@ def _shared_similarity_traits(
             continue
         if anchor_value <= 0 or candidate_value <= 0:
             continue
-        diff = abs(anchor_value - candidate_value)
-        strength = ((anchor_value + candidate_value) / 2.0) - diff
+        weight = SIMILARITY_FEATURE_WEIGHTS.get(feature_name, 1.0)
+        diff = abs(anchor_value - candidate_value) * weight
+        strength = ((anchor_value + candidate_value) / 2.0 * weight) - diff
         if strength <= 0:
             continue
         ranked.append((label, strength, diff))
@@ -551,7 +631,9 @@ def _contrasting_similarity_traits(
         candidate_value = _similarity_feature_value(candidate_row, feature_name)
         if anchor_value is None or candidate_value is None:
             continue
-        difference = abs(anchor_value - candidate_value)
+        difference = abs(
+            anchor_value - candidate_value
+        ) * SIMILARITY_FEATURE_WEIGHTS.get(feature_name, 1.0)
         if difference < 0.75:
             continue
         ranked.append((label, difference))
@@ -1233,14 +1315,28 @@ class BigQueryWarehouseRepository:
             return []
 
     def _similarity_distance_sql(self, anchor_alias: str, candidate_alias: str) -> str:
-        terms = [
-            (
-                f"POW(COALESCE({candidate_alias}.norm_{feature_name}, 0) "
-                f"- COALESCE({anchor_alias}.norm_{feature_name}, 0), 2)"
+        terms = []
+        for feature_name in SIMILARITY_FEATURE_COLUMNS:
+            weight = SIMILARITY_FEATURE_WEIGHTS.get(feature_name, 1.0)
+            anchor_component = (
+                f"COALESCE(SAFE_DIVIDE("
+                f"COALESCE({anchor_alias}.norm_{feature_name}, 0) * {weight}, "
+                f"NULLIF({anchor_alias}.similarity_vector_norm, 0)), 0)"
             )
-            for feature_name in SIMILARITY_FEATURE_COLUMNS
-        ]
+            candidate_component = (
+                f"COALESCE(SAFE_DIVIDE("
+                f"COALESCE({candidate_alias}.norm_{feature_name}, 0) * {weight}, "
+                f"NULLIF({candidate_alias}.similarity_vector_norm, 0)), 0)"
+            )
+            terms.append(f"POW({candidate_component} - {anchor_component}, 2)")
         return " + ".join(terms)
+
+    def _similarity_vector_norm_sql(self, alias: str) -> str:
+        terms = []
+        for feature_name in SIMILARITY_FEATURE_COLUMNS:
+            weight = SIMILARITY_FEATURE_WEIGHTS.get(feature_name, 1.0)
+            terms.append(f"POW(COALESCE({alias}.norm_{feature_name}, 0) * {weight}, 2)")
+        return f"SQRT({' + '.join(terms)})"
 
     def _fetch_similarity_anchor(self, player_id: int) -> dict[str, Any] | None:
         normalized_fields = ",\n          ".join(
@@ -1308,12 +1404,26 @@ class BigQueryWarehouseRepository:
         )
         distance_sql = self._similarity_distance_sql("anchor", "candidate")
         sql = f"""
-        WITH anchor AS (
+        WITH anchor_raw AS (
           SELECT *
           FROM {self._similarity_feature_table()}
           WHERE season = @season
             AND player_id = @player_id
           LIMIT 1
+        ),
+        anchor AS (
+          SELECT
+            anchor_raw.*,
+            {self._similarity_vector_norm_sql("anchor_raw")} AS similarity_vector_norm
+          FROM anchor_raw
+        ),
+        candidate_pool AS (
+          SELECT
+            candidate.*,
+            {self._similarity_vector_norm_sql("candidate")} AS similarity_vector_norm
+          FROM {self._similarity_feature_table()} candidate
+          WHERE candidate.season = @season
+            AND candidate.sample_status IN ('ready', 'limited_sample')
         ),
         scored AS (
           SELECT
@@ -1327,11 +1437,9 @@ class BigQueryWarehouseRepository:
             candidate.sample_status,
             {normalized_fields},
             SQRT({distance_sql}) AS euclidean_distance
-          FROM {self._similarity_feature_table()} candidate
+          FROM candidate_pool candidate
           CROSS JOIN anchor
-          WHERE candidate.season = @season
-            AND candidate.player_id != anchor.player_id
-            AND candidate.sample_status IN ('ready', 'limited_sample')
+          WHERE candidate.player_id != anchor.player_id
         )
         SELECT
           *,
@@ -1408,11 +1516,13 @@ class BigQueryWarehouseRepository:
                 "contrasting_traits": [],
             }
 
+        player_a_vector = _weighted_similarity_vector(player_a)
+        player_b_vector = _weighted_similarity_vector(player_b)
         squared_distance = 0.0
         for feature_name in SIMILARITY_FEATURE_COLUMNS:
-            player_a_value = _similarity_feature_value(player_a, feature_name) or 0.0
-            player_b_value = _similarity_feature_value(player_b, feature_name) or 0.0
-            squared_distance += (player_b_value - player_a_value) ** 2
+            squared_distance += (
+                player_b_vector[feature_name] - player_a_vector[feature_name]
+            ) ** 2
         score = round(1 / (1 + sqrt(squared_distance)), 4)
         if score is None:
             return {

@@ -12,8 +12,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.config import Settings
 from app.repository import (
     BigQueryWarehouseRepository,
+    SIMILARITY_FEATURE_COLUMNS,
     build_analysis_payload,
     build_freshness_payload,
+    _weighted_similarity_vector,
 )
 
 
@@ -28,6 +30,19 @@ def _build_repository() -> BigQueryWarehouseRepository:
         ),
         client=object(),
     )
+
+
+def test_weighted_similarity_vector_l2_normalizes_components() -> None:
+    row = {f"norm_{feature_name}": 0.0 for feature_name in SIMILARITY_FEATURE_COLUMNS}
+    row["norm_season_avg_pts"] = 3.0
+    row["norm_season_avg_reb"] = 4.0
+
+    vector = _weighted_similarity_vector(row)
+
+    squared_norm = sum(component**2 for component in vector.values())
+    assert round(squared_norm, 6) == 1.0
+    assert vector["season_avg_pts"] > 0
+    assert vector["season_avg_reb"] > 0
 
 
 def test_build_freshness_payload_fresh() -> None:

@@ -69,19 +69,32 @@ The validation refuses to start if queued or running DagRuns already exist unles
 Game-log extraction defaults to:
 
 ```env
-NBA_GAME_LOG_EXTRACT_MODE=league
-NBA_GAME_LOG_SEASON_TYPES=Regular Season,Playoffs
 NBA_REPLAY_DAYS=3
+NBA_MAX_PLAYERS=0
+NBA_BRONZE_BOOTSTRAP_MODE=auto
 ```
 
-For a full `2025-26` stats backfill without resetting metadata, run with a large
-replay window:
+For a full `2025-26` stats backfill without resetting metadata, use the
+dedicated target:
 
 ```bash
-NBA_REPLAY_DAYS=365 make airflow-trigger
+make airflow-backfill-season
 ```
 
-Return `NBA_REPLAY_DAYS` to the normal daily value after the replay.
+That target runs the DAG with `NBA_REPLAY_DAYS=365` and
+`NBA_BRONZE_BOOTSTRAP_MODE=force`. The forced bootstrap matters when auxiliary
+bronze tables already have partial rows: it re-derives observed schedule,
+line-score, and player-reference rows from the full replayed `raw_game_logs`
+instead of leaving an older partial `raw_schedule` untouched.
+
+To use a different replay window:
+
+```bash
+FULL_SEASON_REPLAY_DAYS=420 make airflow-backfill-season
+```
+
+Return to the normal daily path with `NBA_REPLAY_DAYS=3` and
+`NBA_BRONZE_BOOTSTRAP_MODE=auto` after the one-time replay.
 
 ## NBA API Retry Controls
 
@@ -93,13 +106,13 @@ NBA_API_RETRIES=3
 NBA_API_RETRY_BASE_DELAY_SECONDS=1.0
 NBA_API_RETRY_BACKOFF_MULTIPLIER=2.0
 NBA_API_RETRY_MAX_DELAY_SECONDS=8.0
+NBA_SHOT_LOCATION_SEASON_TYPE=Regular Season
 ```
 
-The older per-player game-log endpoint remains available with:
-
-```env
-NBA_GAME_LOG_EXTRACT_MODE=players
-```
+Game logs are currently fetched through the active-player game-log endpoint, so
+`NBA_MAX_PLAYERS=0` should remain in place for season coverage runs.
+Aggregate shot-location data uses one league-wide player endpoint call per DAG
+run and lands in `raw_player_shot_locations`.
 
 ## Injury Reports
 
@@ -125,15 +138,27 @@ extracts, use:
 ```bash
 python -m dotenv run --no-override -- .venv-airflow/bin/python scripts/backfill_injury_reports.py \
   --start-date 2025-10-21 \
+  --end-date 2026-05-13 \
+  --dry-run
+
+python -m dotenv run --no-override -- .venv-airflow/bin/python scripts/backfill_injury_reports.py \
+  --start-date 2025-10-21 \
   --end-date 2026-05-13
 ```
 
-The utility derives project, bucket, and dataset settings from `.env`, fetches
-one official `05_00PM` report per day by default, loads bronze staging, runs the
-injury DQ checks, merges `bronze.raw_player_injury_reports`, updates the injury
-watermark, and runs the targeted dbt injury availability build.
-Official CDN `403` and `404` responses are treated as missing reports so long
-season windows can skip dates where no archived PDF is available.
+The dry run only builds the candidate plan. The live run derives project,
+bucket, and dataset settings from `.env`, fetches one official `05_00PM` report
+per day by default, validates the source contract, loads bronze staging, runs
+the injury DQ checks, merges `bronze.raw_player_injury_reports`, updates the
+injury watermark, and runs the targeted dbt injury availability build.
+
+The utility has a default `240` candidate safety cap. Raise it with
+`--max-candidates` or pass `--allow-large-window` for intentionally larger
+windows. Official CDN `403` and `404` responses are treated as missing reports
+so long season windows can skip dates where no archived PDF is available. In
+prior production runs, archived `05_00PM` report coverage for this attempted
+season window started on `2025-12-22`; earlier dates may remain unavailable
+from the source even though the code path is healthy.
 
 ## Bronze Bootstrap
 

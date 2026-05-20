@@ -59,8 +59,8 @@ The current warehouse is centered on the `2025-26` season.
   compare, dashboard, availability, recommendations, and legacy search index.
 - **Agent serving table**: `nba_agent.agent_player_search` is a dedicated
   player context table for `/ask` player resolution and answer grounding.
-- **Similarity outputs**: feature input plus published feature vectors and
-  archetypes.
+- **Similarity outputs**: feature input plus public baseline feature vectors
+  and archetypes.
 - **Runtime metadata**: ingestion state, source contract outcomes, run log, and
   deterministic analysis snapshots.
 
@@ -82,6 +82,14 @@ allowlisted app tools for player resolution, game logs, trends, percentiles,
 rankings, similarity, and metric leaderboards.
 
 See [Public Service](docs/public-service.md) for route and agent details.
+
+## Public Boundary
+
+This repo is public-safe by design: it contains the data platform, source
+contracts, dbt feature layer, public baseline similarity model, and read-only
+app. Tuned personal-model code, generated reports, notebooks, model artifacts,
+and real credentials should stay private. See
+[Public / Private Boundary](docs/public-private-boundary.md).
 
 ## Local Quickstart
 
@@ -160,6 +168,12 @@ Run the bounded live validation harness:
 
 ```bash
 make airflow-live-validate
+```
+
+Run a one-time full-season stats replay:
+
+```bash
+make airflow-backfill-season
 ```
 
 Airflow UI: `http://localhost:8080`
