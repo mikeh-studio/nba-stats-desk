@@ -27,6 +27,9 @@
         --danger: #ff6b6b;
       }
       * { box-sizing: border-box; }
+      [hidden] {
+        display: none !important;
+      }
       body {
         margin: 0;
         font-family: "Inter Tight", system-ui, sans-serif;
@@ -739,6 +742,7 @@
             <a href="/">Dashboard</a>
             <a href="/ask">Ask</a>
             <a href="/visualize">Visualize</a>
+            <a href="/performance">Performance</a>
             <a href="/compare">Compare</a>
             <span class="season-tag">Season {{ season }}</span>
             <form class="player-search-form nav-player-search" data-player-search-form role="search">

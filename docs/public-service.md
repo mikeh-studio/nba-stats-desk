@@ -9,6 +9,7 @@ same process.
 - `/players/{player_id}`
 - `/compare`
 - `/visualize`
+- `/performance`
 - `/ask`
 
 ## JSON Routes
@@ -21,6 +22,10 @@ same process.
 - `/api/players/search`
 - `/api/players/{player_id}`
 - `/api/compare`
+- `/api/performance/dates`
+- `/api/performance/games`
+- `/api/performance/players`
+- `/api/performance/players/{player_id}`
 - `/api/agent/ask`
 - `/api/health`
 
@@ -41,6 +46,11 @@ archetype context, and similar-player panels when the sample is stable.
 The compare page supports direct `player_a_id` links and first-player search
 when no initial player is provided. Compare responses can include a similarity
 block with pair score, shared traits, and contrasting traits.
+
+The performance page shows recent player game rows against each player's own
+season baseline. It exposes date and game filters, status sorting, percentile
+ranges for the selected row, and a 30-day game trend drawn from
+`gold.fct_player_game_stats`.
 
 ## OpenAI Stats Agent
 
