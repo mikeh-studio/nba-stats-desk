@@ -1,0 +1,392 @@
+{% extends "base.html" %}
+{% block content %}
+  <section class="hero">
+    <div class="hero-top">
+      <div>
+        <div class="eyebrow">Recent Games</div>
+        <h1>Game Performance</h1>
+      </div>
+      <div class="hero-actions">
+        {% if health.status == "fresh" %}
+          <span class="status">Data fresh</span>
+        {% else %}
+          <span class="status" title="{{ health.last_successful_finished_at_utc or '' }}">Last refresh {{ health.last_successful_finished_at_utc | time_ago }}</span>
+        {% endif %}
+      </div>
+    </div>
+    <p class="subhead">
+      Review players from the latest warehouse week against their own season baseline across points, rebounds, assists, steals, and blocks.
+    </p>
+  </section>
+
+  <section class="card performance-controls">
+    <div class="card-header">
+      <h2>Controls</h2>
+      <span class="meta" id="performance-window-meta">Past week</span>
+    </div>
+    <div class="performance-control-grid">
+      <label class="performance-field">
+        <span class="meta">Date</span>
+        <select class="select" id="performance-date-select">
+          <option value="">Loading dates...</option>
+        </select>
+      </label>
+      <label class="performance-field">
+        <span class="meta">Game</span>
+        <select class="select" id="performance-game-select" disabled>
+          <option value="">All games</option>
+        </select>
+      </label>
+      <label class="performance-field performance-filter-field">
+        <span class="meta">Player</span>
+        <input class="input" id="performance-player-filter" type="search" placeholder="Filter player list" disabled />
+      </label>
+    </div>
+  </section>
+
+  <section class="workspace performance-workspace">
+    <div class="main-stack">
+      <article class="card">
+        <div class="card-header">
+          <div>
+            <h2>Player List</h2>
+            <p class="meta" id="performance-list-meta">Select a date to load players.</p>
+          </div>
+          <div class="tab-list" id="performance-status-tabs" aria-label="Performance status">
+            <button class="tab-button is-active" type="button" data-status="all">All</button>
+            <button class="tab-button" type="button" data-status="above">Above</button>
+            <button class="tab-button" type="button" data-status="below">Below</button>
+          </div>
+        </div>
+
+        <div id="performance-empty" class="empty-state">
+          <p>Recent player game rows will appear here.</p>
+        </div>
+
+        <div class="table-scroll" id="performance-table-wrap" hidden>
+          <table class="data-table compact performance-table">
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Game</th>
+                <th><button class="performance-sort-button" type="button" data-sort-key="score">Score <span data-sort-indicator="score"></span></button></th>
+                <th><button class="performance-sort-button" type="button" data-sort-key="pts">PTS <span data-sort-indicator="pts"></span></button></th>
+                <th><button class="performance-sort-button" type="button" data-sort-key="reb">REB <span data-sort-indicator="reb"></span></button></th>
+                <th><button class="performance-sort-button" type="button" data-sort-key="ast">AST <span data-sort-indicator="ast"></span></button></th>
+                <th><button class="performance-sort-button" type="button" data-sort-key="stl">STL <span data-sort-indicator="stl"></span></button></th>
+                <th><button class="performance-sort-button" type="button" data-sort-key="blk">BLK <span data-sort-indicator="blk"></span></button></th>
+              </tr>
+            </thead>
+            <tbody id="performance-player-rows"></tbody>
+          </table>
+        </div>
+      </article>
+    </div>
+
+    <aside class="rail-stack">
+      <article class="card performance-detail-card">
+        <div class="card-header">
+          <div>
+            <h2 id="performance-detail-title">Player View</h2>
+            <p class="meta" id="performance-detail-meta">Pick a row from the player list.</p>
+          </div>
+        </div>
+
+        <div id="performance-detail-empty" class="empty-state">
+          <p>Percentile ranges load after selecting a player.</p>
+        </div>
+
+        <div id="performance-detail" class="performance-detail" hidden>
+          <div class="identity-row">
+            <div class="player-avatar large" aria-hidden="true" id="performance-detail-avatar"></div>
+            <div>
+              <h3 id="performance-detail-name"></h3>
+              <p class="meta" id="performance-detail-game"></p>
+            </div>
+          </div>
+          <div class="metric-grid" id="performance-detail-summary"></div>
+          <div class="performance-range-list" id="performance-range-list"></div>
+          <div class="performance-trend-panel">
+            <div class="performance-trend-header">
+              <div>
+                <h3>Last 30 Days</h3>
+                <p class="meta" id="performance-trend-meta">Game trend with season average baseline.</p>
+              </div>
+              <div class="stat-toggle-group" id="performance-trend-tabs" aria-label="Trend stat">
+                <button class="tab-button is-active" type="button" data-trend-stat="pts">PTS</button>
+                <button class="tab-button" type="button" data-trend-stat="reb">REB</button>
+                <button class="tab-button" type="button" data-trend-stat="ast">AST</button>
+                <button class="tab-button" type="button" data-trend-stat="stl">STL</button>
+                <button class="tab-button" type="button" data-trend-stat="blk">BLK</button>
+              </div>
+            </div>
+            <div class="performance-trend-chart" id="performance-trend-chart"></div>
+          </div>
+        </div>
+      </article>
+    </aside>
+  </section>
+
+  <style>
+    .performance-controls {
+      gap: 1rem;
+    }
+    .performance-control-grid {
+      display: grid;
+      grid-template-columns: minmax(12rem, 0.8fr) minmax(14rem, 1.1fr) minmax(14rem, 1fr);
+      gap: 0.8rem;
+      align-items: end;
+    }
+    .performance-field {
+      display: grid;
+      gap: 0.35rem;
+    }
+    .performance-field .select,
+    .performance-field .input {
+      width: 100%;
+      min-width: 0;
+    }
+    .performance-table {
+      min-width: 920px;
+    }
+    .performance-player-button {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 0.65rem;
+      align-items: center;
+      width: 100%;
+      border: 0;
+      padding: 0;
+      color: var(--ink);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+    }
+    .performance-player-text {
+      display: grid;
+      gap: 0.12rem;
+      min-width: 0;
+    }
+    .performance-player-name {
+      color: var(--ink);
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .performance-player-button:hover .performance-player-name,
+    .performance-player-button:focus-visible .performance-player-name {
+      color: var(--accent-hot);
+    }
+    .performance-sort-button {
+      display: inline-flex;
+      gap: 0.25rem;
+      align-items: center;
+      border: 0;
+      padding: 0;
+      color: inherit;
+      background: transparent;
+      font: inherit;
+      text-transform: inherit;
+      letter-spacing: inherit;
+      cursor: pointer;
+    }
+    .performance-sort-button:hover,
+    .performance-sort-button:focus-visible {
+      color: var(--highlight);
+    }
+    .performance-status {
+      display: inline-flex;
+      min-width: 4.5rem;
+      justify-content: center;
+      padding: 0.3rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.74rem;
+      text-transform: uppercase;
+    }
+    .performance-status.above {
+      border-color: rgba(93, 211, 158, 0.4);
+      color: var(--success);
+      background: rgba(93, 211, 158, 0.1);
+    }
+    .performance-status.below {
+      border-color: rgba(255, 107, 107, 0.4);
+      color: var(--danger);
+      background: rgba(255, 107, 107, 0.1);
+    }
+    .performance-status.near {
+      color: var(--muted);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    .performance-delta {
+      display: block;
+      margin-top: 0.15rem;
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+    }
+    .performance-detail {
+      display: grid;
+      gap: 1rem;
+    }
+    .performance-trend-panel {
+      display: grid;
+      gap: 0.8rem;
+      padding-top: 0.2rem;
+    }
+    .performance-trend-header {
+      display: grid;
+      gap: 0.75rem;
+    }
+    .performance-trend-header h3 {
+      margin-bottom: 0.1rem;
+    }
+    .performance-trend-chart {
+      min-height: 190px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 100%),
+        rgba(30, 35, 41, 0.52);
+      overflow: hidden;
+    }
+    .performance-trend-chart svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .performance-trend-line {
+      fill: none;
+      stroke: var(--accent-hot);
+      stroke-width: 3;
+    }
+    .performance-trend-baseline {
+      stroke: var(--success);
+      stroke-width: 2;
+      stroke-dasharray: 7 6;
+    }
+    .performance-trend-dot {
+      fill: var(--highlight);
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+    .performance-trend-axis,
+    .performance-trend-label {
+      fill: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+    }
+    .performance-trend-data {
+      display: grid;
+      gap: 0.45rem;
+      padding: 0 0.75rem 0.75rem;
+    }
+    .performance-trend-data-title {
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.68rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .performance-trend-data ul {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(4.8rem, 1fr));
+      gap: 0.35rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .performance-trend-point-item {
+      display: grid;
+      gap: 0.1rem;
+      padding: 0.35rem 0.45rem;
+      border: 1px solid rgba(231, 224, 212, 0.1);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+    .performance-trend-point-item span {
+      color: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.62rem;
+    }
+    .performance-trend-point-item strong {
+      color: var(--highlight);
+      font-size: 0.92rem;
+    }
+    .performance-range-list {
+      display: grid;
+      gap: 0.95rem;
+    }
+    .performance-range-row {
+      display: grid;
+      gap: 0.45rem;
+      padding-top: 0.2rem;
+    }
+    .performance-range-top,
+    .performance-range-labels {
+      display: flex;
+      gap: 0.75rem;
+      align-items: baseline;
+      justify-content: space-between;
+    }
+    .performance-range-track {
+      position: relative;
+      height: 0.8rem;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .performance-range-typical,
+    .performance-range-marker,
+    .performance-range-average {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+    }
+    .performance-range-typical {
+      border-radius: inherit;
+      background: rgba(93, 211, 158, 0.38);
+    }
+    .performance-range-marker {
+      width: 0.22rem;
+      border-radius: 999px;
+      background: var(--accent-hot);
+      transform: translateX(-50%);
+    }
+    .performance-range-average {
+      width: 0.12rem;
+      background: rgba(231, 224, 212, 0.72);
+      transform: translateX(-50%);
+    }
+    .performance-detail-card .metric-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 0.5rem;
+    }
+    .performance-detail-card .metric {
+      min-width: 0;
+      padding: 0.6rem 0.55rem;
+      gap: 0.25rem;
+    }
+    .performance-detail-card .metric-label {
+      font-size: 0.66rem;
+    }
+    .performance-detail-card .metric-value {
+      font-size: 1.05rem;
+    }
+    .performance-detail-card .metric .meta {
+      overflow-wrap: anywhere;
+      font-size: 0.66rem;
+      line-height: 1.25;
+    }
+    @media (max-width: 980px) {
+      .performance-control-grid {
+        grid-template-columns: 1fr;
+      }
+      .performance-detail-card .metric-grid {
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      }
+    }
+  </style>
+
+  <script src="/static/performance.js?v=20260523-performance-polish"></script>
+{% endblock %}

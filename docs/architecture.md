@@ -31,9 +31,10 @@ The Airflow DAG in `dags/nba_analytics_dag.py` runs this path:
 9. Run staging DQ checks.
 10. Merge into bronze raw tables with reconciliation checks.
 11. Run dbt bronze/silver/gold/agent models and tests.
-12. Publish similarity vectors and archetype clusters.
-13. Build deterministic `analysis_snapshots` output.
-14. Publish watermark and run metadata to `nba_metadata`.
+12. Publish similarity vectors and archetype clusters best-effort.
+13. Build deterministic `analysis_snapshots` output best-effort.
+14. Publish watermark and run metadata to `nba_metadata`, including any
+    non-blocking asset status.
 
 ## Warehouse Layout
 
@@ -107,8 +108,8 @@ Metadata tables:
 ## Serving Path
 
 The FastAPI service reads from gold, agent, and metadata tables. Player detail,
-compare, dashboards, freshness, and analysis snapshots use curated gold read
-models. Player resolution for search and `/ask` starts from
+compare, performance, dashboards, freshness, and analysis snapshots use curated
+gold read models. Player resolution for search and `/ask` starts from
 `nba_agent.agent_player_search`, which denormalizes qualified player identity,
 season averages, percentiles, trend state, availability, and an answer-context
 string into one agent-specific table. The OpenAI agent still reaches data only

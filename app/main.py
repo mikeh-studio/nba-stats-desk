@@ -275,6 +275,58 @@ def api_player_game_log(
     return {"season": SUPPORTED_SEASON, "item": result}
 
 
+@app.get("/api/performance/dates")
+def api_performance_dates(
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+) -> dict:
+    return {"season": SUPPORTED_SEASON, "items": repo.get_recent_performance_dates()}
+
+
+@app.get("/api/performance/games")
+def api_performance_games(
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    game_date: date | None = Query(None),
+) -> dict:
+    return {
+        "season": SUPPORTED_SEASON,
+        "game_date": game_date.isoformat() if game_date is not None else None,
+        "items": repo.get_recent_performance_games(
+            game_date=game_date.isoformat() if game_date is not None else None
+        ),
+    }
+
+
+@app.get("/api/performance/players")
+def api_performance_players(
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    game_date: date = Query(...),
+    game_id: str | None = Query(default=None, min_length=1, max_length=32),
+    limit: int = Query(240, ge=1, le=500),
+) -> dict:
+    return {
+        "season": SUPPORTED_SEASON,
+        "game_date": game_date.isoformat(),
+        "game_id": game_id,
+        "items": repo.get_recent_performance_players(
+            game_date=game_date.isoformat(),
+            game_id=game_id,
+            limit=limit,
+        ),
+    }
+
+
+@app.get("/api/performance/players/{player_id}")
+def api_performance_player_detail(
+    player_id: int,
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    game_id: str = Query(..., min_length=1, max_length=32),
+) -> dict:
+    item = repo.get_recent_performance_player(player_id, game_id=game_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Performance row not found")
+    return {"season": SUPPORTED_SEASON, "item": item}
+
+
 @app.post("/api/agent/ask")
 def api_agent_ask(
     request: Request,
@@ -335,6 +387,22 @@ def visualize_page(
         "player_id": player_id,
     }
     return templates.TemplateResponse(request, "visualize.html", context)
+
+
+@app.get("/performance", response_class=HTMLResponse)
+def performance_page(
+    request: Request,
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+) -> HTMLResponse:
+    health = repo.get_health()
+    context = {
+        "request": request,
+        "page_title": "Recent Game Performance",
+        "season": SUPPORTED_SEASON,
+        "health": health,
+        "tracking_cap": TRACKING_CAP,
+    }
+    return templates.TemplateResponse(request, "performance.html", context)
 
 
 @app.get("/compare", response_class=HTMLResponse)

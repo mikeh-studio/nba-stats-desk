@@ -362,6 +362,276 @@ def test_get_player_game_log_applies_date_range_filters(monkeypatch) -> None:
     assert payload["games"][0]["game_date"] == "2026-02-03"
 
 
+def test_get_recent_performance_dates_uses_latest_game_window(monkeypatch) -> None:
+    repo = _build_repository()
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        assert "MAX(game_date) AS max_game_date" in sql
+        assert "DATE_SUB(latest.max_game_date, INTERVAL 6 DAY)" in sql
+        assert "fct_player_game_stats" in sql
+        assert {param.name for param in params} == {"season"}
+        return [{"game_date": "2026-02-10"}]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    rows = repo.get_recent_performance_dates()
+
+    assert rows == [{"value": "2026-02-10", "label": "Tue Feb 10"}]
+
+
+def test_get_recent_performance_games_uses_dim_game_labels(monkeypatch) -> None:
+    repo = _build_repository()
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        assert "dim_game" in sql
+        assert "stats.game_date = @game_date" in sql
+        param_names = {param.name for param in params}
+        assert param_names == {"season", "game_date"}
+        return [
+            {
+                "game_id": "002250010",
+                "game_date": "2026-02-10",
+                "teams": "NYK / PHI",
+                "matchup": "NYK @ PHI",
+                "home_team_abbr": "PHI",
+                "away_team_abbr": "NYK",
+                "home_team_pts": "112",
+                "away_team_pts": "108",
+                "players_played": "20",
+            }
+        ]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    rows = repo.get_recent_performance_games(game_date="2026-02-10")
+
+    assert rows[0]["matchup"] == "NYK @ PHI"
+    assert rows[0]["home_team_pts"] == 112
+    assert rows[0]["players_played"] == 20
+
+
+def test_get_recent_performance_players_builds_baseline_payload(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        assert "STDDEV_POP(pts) AS sd_pts" in sql
+        assert "performance_score" in sql
+        assert "s.game_id = @game_id" in sql
+        assert "COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) > 0" in sql
+        param_names = {param.name for param in params}
+        assert {"season", "game_date", "game_id", "limit"} == param_names
+        return [
+            {
+                "game_id": "002250010",
+                "game_date": "2026-02-10",
+                "player_id": "7",
+                "player_name": "Tyrese Maxey",
+                "team_abbr": "PHI",
+                "opponent_abbr": "NYK",
+                "home_away": "home",
+                "matchup": "PHI vs. NYK",
+                "wl": "W",
+                "min": "36.0",
+                "pts": "31",
+                "reb": "5",
+                "ast": "7",
+                "stl": "1",
+                "blk": "0",
+                "games_sampled": "12",
+                "avg_pts": "25.8",
+                "avg_reb": "4.4",
+                "avg_ast": "6.7",
+                "avg_stl": "1.1",
+                "avg_blk": "0.2",
+                "pts_delta": "5.2",
+                "reb_delta": "0.6",
+                "ast_delta": "0.3",
+                "stl_delta": "-0.1",
+                "blk_delta": "-0.2",
+                "performance_score": "2.4",
+                "performance_status": "above",
+                "above_count": "3",
+                "below_count": "2",
+            }
+        ]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    rows = repo.get_recent_performance_players(
+        game_date="2026-02-10", game_id="002250010"
+    )
+
+    assert rows[0]["player_id"] == 7
+    assert rows[0]["performance_status"] == "above"
+    assert rows[0]["metrics"][0]["label"] == "PTS"
+    assert rows[0]["metrics"][0]["delta"] == 5.2
+
+
+def test_get_recent_performance_player_returns_percentile_ranges(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+    calls: list[str] = []
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        calls.append(sql)
+        if "trend_window AS" in sql:
+            assert "WITH selected AS" in sql
+            assert "game_id = @game_id" in sql
+            assert "DATE_SUB(selected.selected_game_date, INTERVAL 29 DAY)" in sql
+            assert "SAFE_CAST(game_date AS DATE)" in sql
+            assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0" in sql
+            param_names = {param.name for param in params}
+            assert {"season", "player_id", "game_id"} == param_names
+            return [
+                {
+                    "game_id": "002250008",
+                    "game_date": "2026-02-08",
+                    "matchup": "PHI @ BOS",
+                    "min": "35.0",
+                    "pts": "26",
+                    "reb": "4",
+                    "ast": "6",
+                    "stl": "1",
+                    "blk": "0",
+                    "avg_pts": "25.8",
+                    "avg_reb": "4.4",
+                    "avg_ast": "6.7",
+                    "avg_stl": "1.1",
+                    "avg_blk": "0.2",
+                },
+                {
+                    "game_id": "002250010",
+                    "game_date": "2026-02-10",
+                    "matchup": "PHI vs. NYK",
+                    "min": "36.0",
+                    "pts": "31",
+                    "reb": "5",
+                    "ast": "7",
+                    "stl": "1",
+                    "blk": "0",
+                    "avg_pts": "25.8",
+                    "avg_reb": "4.4",
+                    "avg_ast": "6.7",
+                    "avg_stl": "1.1",
+                    "avg_blk": "0.2",
+                },
+            ]
+        assert "APPROX_QUANTILES(r.pts, 100)[OFFSET(25)] AS pts_p25" in sql
+        assert "COUNTIF(r.pts < selected.pts)" in sql
+        assert "0.5 * COUNTIF(r.pts = selected.pts)" in sql
+        assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0" in sql
+        param_names = {param.name for param in params}
+        assert {"season", "player_id", "game_id"} == param_names
+        return [
+            {
+                "game_id": "002250010",
+                "game_date": "2026-02-10T00:00:00+00:00",
+                "player_id": "7",
+                "player_name": "Tyrese Maxey",
+                "team_abbr": "PHI",
+                "opponent_abbr": "NYK",
+                "home_away": "home",
+                "matchup": "PHI vs. NYK",
+                "wl": "W",
+                "min": "36.0",
+                "pts": "31",
+                "reb": "5",
+                "ast": "7",
+                "stl": "1",
+                "blk": "0",
+                "games_sampled": "12",
+                "avg_pts": "25.8",
+                "avg_reb": "4.4",
+                "avg_ast": "6.7",
+                "avg_stl": "1.1",
+                "avg_blk": "0.2",
+                "pts_delta": "5.2",
+                "reb_delta": "0.6",
+                "ast_delta": "0.3",
+                "stl_delta": "-0.1",
+                "blk_delta": "-0.2",
+                "pts_percentile": "82.0",
+                "pts_p10": "18",
+                "pts_p25": "22",
+                "pts_p50": "26",
+                "pts_p75": "30",
+                "pts_p90": "34",
+                "performance_score": "2.4",
+                "performance_status": "above",
+                "above_count": "3",
+                "below_count": "2",
+            }
+        ]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    payload = repo.get_recent_performance_player(7, game_id="002250010")
+
+    assert payload is not None
+    assert payload["game_date"] == "2026-02-10"
+    assert payload["metrics"][0]["percentile"] == 82.0
+    assert payload["metrics"][0]["range"]["p25"] == 22.0
+    assert payload["trend_30d"]["window_days"] == 30
+    assert payload["trend_30d"]["stats"][0]["season_average"] == 25.8
+    assert payload["trend_30d"]["points"][-1]["pts"] == 31.0
+    assert len(calls) == 2
+
+
+def test_get_recent_performance_player_does_not_synthesize_empty_trend(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        if "trend_window AS" in sql:
+            return []
+        return [
+            {
+                "game_id": "002250010",
+                "game_date": "2026-02-10T00:00:00+00:00",
+                "player_id": "7",
+                "player_name": "Tyrese Maxey",
+                "team_abbr": "PHI",
+                "opponent_abbr": "NYK",
+                "home_away": "home",
+                "matchup": "PHI vs. NYK",
+                "wl": "W",
+                "min": "36.0",
+                "pts": "31",
+                "reb": "5",
+                "ast": "7",
+                "stl": "1",
+                "blk": "0",
+                "games_sampled": "12",
+                "avg_pts": "25.8",
+                "avg_reb": "4.4",
+                "avg_ast": "6.7",
+                "avg_stl": "1.1",
+                "avg_blk": "0.2",
+                "pts_delta": "5.2",
+                "reb_delta": "0.6",
+                "ast_delta": "0.3",
+                "stl_delta": "-0.1",
+                "blk_delta": "-0.2",
+                "performance_score": "2.4",
+                "performance_status": "above",
+                "above_count": "3",
+                "below_count": "2",
+            }
+        ]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    payload = repo.get_recent_performance_player(7, game_id="002250010")
+
+    assert payload is not None
+    assert payload["trend_30d"]["points"] == []
+    assert payload["trend_30d"]["stats"][0]["season_average"] is None
+
+
 def test_get_metric_leaders_uses_allowlisted_metric_sql(monkeypatch) -> None:
     repo = _build_repository()
 
@@ -451,7 +721,13 @@ def test_get_player_metric_percentile_returns_requested_cohort_result(
         assert "avg_ast" in sql
         assert "points_created" not in sql.replace("@metric_key", "")
         param_names = {param.name for param in params}
-        assert {"season", "player_id", "metric_key", "metric_label", "min_games"} <= param_names
+        assert {
+            "season",
+            "player_id",
+            "metric_key",
+            "metric_label",
+            "min_games",
+        } <= param_names
         return [
             {
                 "season": "2025-26",

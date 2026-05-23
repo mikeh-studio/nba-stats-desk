@@ -2,7 +2,10 @@
 
 Target shape:
     extract_incremental -> load_staging -> dq_gate -> merge_raw
-        -> dbt_build -> build_analysis_snapshot -> publish_run_metrics
+        -> dbt_build -> best-effort assets -> publish_run_metrics
+
+Post-dbt similarity and snapshot assets catch data-path failures and annotate
+run metadata instead of blocking the core refresh watermark.
 """
 
 from __future__ import annotations
@@ -305,10 +308,9 @@ def nba_analytics_pipeline():
         replay_start = pipeline.compute_replay_start(
             state["watermark_date"], replay_days=replay_days
         )
-        cdn_fallback_enabled = (
-            get_config("NBA_GAME_LOG_CDN_FALLBACK_ENABLED", "true").strip().lower()
-            in {"1", "true", "t", "yes", "y", "on"}
-        )
+        cdn_fallback_enabled = get_config(
+            "NBA_GAME_LOG_CDN_FALLBACK_ENABLED", "true"
+        ).strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
         active = pipeline.get_active_players()
         selected = active if max_players <= 0 else active[:max_players]
@@ -596,7 +598,9 @@ def nba_analytics_pipeline():
         location = get_config("BQ_LOCATION", "US")
         metadata_dataset = get_dataset("BQ_METADATA_DATASET", "nba_metadata")
         max_players = int(get_config("NBA_MAX_PLAYERS", "0"))
-        max_empty_profiles = get_int_config("NBA_PLAYER_REFERENCE_MAX_EMPTY_PROFILES", "3")
+        max_empty_profiles = get_int_config(
+            "NBA_PLAYER_REFERENCE_MAX_EMPTY_PROFILES", "3"
+        )
 
         active = pipeline.get_active_players()
         selected = active if max_players <= 0 else active[:max_players]
@@ -1694,9 +1698,7 @@ def nba_analytics_pipeline():
                 "game_logs": game_result.get("reconciliation", {}),
                 "schedule": schedule_result.get("reconciliation", {}),
                 "game_line_scores": line_score_result.get("reconciliation", {}),
-                "player_shot_locations": shot_location_result.get(
-                    "reconciliation", {}
-                ),
+                "player_shot_locations": shot_location_result.get("reconciliation", {}),
                 "player_reference": player_reference_result.get("reconciliation", {}),
                 "injury_reports": injury_report_result.get("reconciliation", {}),
             },
@@ -1800,9 +1802,7 @@ def nba_analytics_pipeline():
             "BQ_DATASET_SILVER", get_dataset("BQ_DATASET_SILVER", "nba_silver")
         )
         env.setdefault("BQ_DATASET_GOLD", get_dataset("BQ_DATASET_GOLD", "nba_gold"))
-        env.setdefault(
-            "BQ_DATASET_AGENT", get_dataset("BQ_DATASET_AGENT", "nba_agent")
-        )
+        env.setdefault("BQ_DATASET_AGENT", get_dataset("BQ_DATASET_AGENT", "nba_agent"))
         env.setdefault("NBA_SEASON", SUPPORTED_SEASON)
         merge_result["dbt_command"] = " ".join(command)
         completed = subprocess.run(
@@ -1844,53 +1844,64 @@ def nba_analytics_pipeline():
             )
             return merge_result
 
-        project_id = get_project_id()
-        gold_dataset = get_dataset("BQ_DATASET_GOLD", "nba_gold")
-        location = get_config("BQ_LOCATION", "US")
-        cluster_count = int(get_config("NBA_ARCHETYPE_CLUSTERS", "10"))
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{gold_dataset}", location)
+        try:
+            project_id = get_project_id()
+            gold_dataset = get_dataset("BQ_DATASET_GOLD", "nba_gold")
+            location = get_config("BQ_LOCATION", "US")
+            cluster_count = int(get_config("NBA_ARCHETYPE_CLUSTERS", "10"))
+            client = bq.Client(project=project_id)
+            pipeline.ensure_dataset(client, f"{project_id}.{gold_dataset}", location)
 
-        feature_input_table = (
-            f"{project_id}.{gold_dataset}.player_similarity_feature_input"
-        )
-        feature_output_table = f"{project_id}.{gold_dataset}.player_similarity_features"
-        archetype_table = f"{project_id}.{gold_dataset}.player_archetypes"
-
-        feature_input = client.query(
-            f"""
-            SELECT *
-            FROM `{feature_input_table}`
-            WHERE season = @season
-            """,
-            job_config=bq.QueryJobConfig(
-                query_parameters=[
-                    bq.ScalarQueryParameter("season", "STRING", merge_result["season"]),
-                ]
-            ),
-        ).to_dataframe()
-        if feature_input.empty:
-            logger.info(
-                "No player similarity feature rows were available after dbt build"
+            feature_input_table = (
+                f"{project_id}.{gold_dataset}.player_similarity_feature_input"
             )
-            return merge_result
+            feature_output_table = (
+                f"{project_id}.{gold_dataset}.player_similarity_features"
+            )
+            archetype_table = f"{project_id}.{gold_dataset}.player_archetypes"
 
-        outputs = pipeline.build_player_similarity_outputs(
-            feature_input,
-            cluster_count=cluster_count,
-        )
-        pipeline.write_player_similarity_tables(
-            client,
-            features_table_id=feature_output_table,
-            archetypes_table_id=archetype_table,
-            features_df=outputs["features"],
-            archetypes_df=outputs["archetypes"],
-        )
-        merge_result["similarity_status"] = "success"
-        merge_result["similarity_player_count"] = len(outputs["features"])
-        merge_result["similarity_archetype_count"] = outputs["archetypes"][
-            "archetype_label"
-        ].nunique()
+            feature_input = client.query(
+                f"""
+                SELECT *
+                FROM `{feature_input_table}`
+                WHERE season = @season
+                """,
+                job_config=bq.QueryJobConfig(
+                    query_parameters=[
+                        bq.ScalarQueryParameter(
+                            "season", "STRING", merge_result["season"]
+                        ),
+                    ]
+                ),
+            ).to_dataframe()
+            if feature_input.empty:
+                logger.info(
+                    "No player similarity feature rows were available after dbt build"
+                )
+                return merge_result
+
+            outputs = pipeline.build_player_similarity_outputs(
+                feature_input,
+                cluster_count=cluster_count,
+            )
+            pipeline.write_player_similarity_tables(
+                client,
+                features_table_id=feature_output_table,
+                archetypes_table_id=archetype_table,
+                features_df=outputs["features"],
+                archetypes_df=outputs["archetypes"],
+            )
+            merge_result["similarity_status"] = "success"
+            merge_result["similarity_player_count"] = len(outputs["features"])
+            merge_result["similarity_archetype_count"] = outputs["archetypes"][
+                "archetype_label"
+            ].nunique()
+        except Exception as exc:
+            logger.exception(
+                "Player similarity publish failed; continuing core refresh"
+            )
+            merge_result["similarity_status"] = "failed_non_blocking"
+            merge_result["similarity_error"] = f"{type(exc).__name__}: {exc}"
         return merge_result
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
@@ -1908,107 +1919,120 @@ def nba_analytics_pipeline():
             logger.info("Skipping analysis snapshot because no source domain changed")
             return merge_result
 
-        context = get_current_context()
-        project_id = get_project_id()
-        gold_dataset = get_dataset("BQ_DATASET_GOLD", "nba_gold")
-        location = get_config("BQ_LOCATION", "US")
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{gold_dataset}", location)
-        snapshot_table = f"{project_id}.{gold_dataset}.analysis_snapshots"
-        pipeline.create_analysis_snapshot_table(client, snapshot_table)
+        try:
+            context = get_current_context()
+            project_id = get_project_id()
+            gold_dataset = get_dataset("BQ_DATASET_GOLD", "nba_gold")
+            location = get_config("BQ_LOCATION", "US")
+            client = bq.Client(project=project_id)
+            pipeline.ensure_dataset(client, f"{project_id}.{gold_dataset}", location)
+            snapshot_table = f"{project_id}.{gold_dataset}.analysis_snapshots"
+            pipeline.create_analysis_snapshot_table(client, snapshot_table)
 
-        daily_leaders = client.query(
-            f"""
-            SELECT *
-            FROM `{project_id}.{gold_dataset}.daily_leaderboard`
-            WHERE game_date IS NOT NULL
-            ORDER BY game_date DESC, pts DESC, pts_leader
-            LIMIT 30
-            """
-        ).to_dataframe()
-        trends = client.query(
-            f"""
-            SELECT *
-            FROM `{project_id}.{gold_dataset}.player_trends`
-            ORDER BY ABS(delta) DESC, player_name, stat
-            LIMIT 30
-            """
-        ).to_dataframe()
-        recommendations = client.query(
-            f"""
-            SELECT *
-            FROM `{project_id}.{gold_dataset}.fantasy_insights`
-            ORDER BY as_of_date DESC, priority_score DESC, confidence_score DESC, player_name
-            LIMIT 30
-            """
-        ).to_dataframe()
-        rankings = client.query(
-            f"""
-            SELECT *
-            FROM `{project_id}.{gold_dataset}.player_fantasy_rankings`
-            ORDER BY fantasy_rank_9cat_proxy ASC, recommendation_score DESC, player_name
-            LIMIT 30
-            """
-        ).to_dataframe()
-        score_contribution = client.query(
-            f"""
-            SELECT *
-            FROM `{project_id}.{gold_dataset}.fct_player_scoring_contribution`
-            WHERE season = @season
-            ORDER BY game_date DESC, player_points_share_of_team DESC, player_pts DESC, player_name
-            LIMIT 30
-            """,
-            job_config=bq.QueryJobConfig(
-                query_parameters=[
-                    bq.ScalarQueryParameter("season", "STRING", merge_result["season"]),
-                ]
-            ),
-        ).to_dataframe()
-        player_context = client.query(
-            f"""
-            SELECT *
-            FROM `{project_id}.{gold_dataset}.dim_player`
-            WHERE latest_season = @season
-            ORDER BY player_id
-            """,
-            job_config=bq.QueryJobConfig(
-                query_parameters=[
-                    bq.ScalarQueryParameter("season", "STRING", merge_result["season"]),
-                ]
-            ),
-        ).to_dataframe()
-        freshness_row = client.query(
-            f"""
-            SELECT MAX(ingested_at_utc) AS freshness_ts
-            FROM `{project_id}.{gold_dataset}.fct_player_game_stats`
-            WHERE season = @season
-            """,
-            job_config=bq.QueryJobConfig(
-                query_parameters=[
-                    bq.ScalarQueryParameter("season", "STRING", merge_result["season"]),
-                ]
-            ),
-        ).to_dataframe()
-        freshness_ts = None
-        if not freshness_row.empty:
-            freshness_ts = freshness_row.iloc[0]["freshness_ts"]
+            daily_leaders = client.query(
+                f"""
+                SELECT *
+                FROM `{project_id}.{gold_dataset}.daily_leaderboard`
+                WHERE game_date IS NOT NULL
+                ORDER BY game_date DESC, pts DESC, pts_leader
+                LIMIT 30
+                """
+            ).to_dataframe()
+            trends = client.query(
+                f"""
+                SELECT *
+                FROM `{project_id}.{gold_dataset}.player_trends`
+                ORDER BY ABS(delta) DESC, player_name, stat
+                LIMIT 30
+                """
+            ).to_dataframe()
+            recommendations = client.query(
+                f"""
+                SELECT *
+                FROM `{project_id}.{gold_dataset}.fantasy_insights`
+                ORDER BY as_of_date DESC, priority_score DESC, confidence_score DESC, player_name
+                LIMIT 30
+                """
+            ).to_dataframe()
+            rankings = client.query(
+                f"""
+                SELECT *
+                FROM `{project_id}.{gold_dataset}.player_fantasy_rankings`
+                ORDER BY fantasy_rank_9cat_proxy ASC, recommendation_score DESC, player_name
+                LIMIT 30
+                """
+            ).to_dataframe()
+            score_contribution = client.query(
+                f"""
+                SELECT *
+                FROM `{project_id}.{gold_dataset}.fct_player_scoring_contribution`
+                WHERE season = @season
+                ORDER BY game_date DESC, player_points_share_of_team DESC, player_pts DESC, player_name
+                LIMIT 30
+                """,
+                job_config=bq.QueryJobConfig(
+                    query_parameters=[
+                        bq.ScalarQueryParameter(
+                            "season", "STRING", merge_result["season"]
+                        ),
+                    ]
+                ),
+            ).to_dataframe()
+            player_context = client.query(
+                f"""
+                SELECT *
+                FROM `{project_id}.{gold_dataset}.dim_player`
+                WHERE latest_season = @season
+                ORDER BY player_id
+                """,
+                job_config=bq.QueryJobConfig(
+                    query_parameters=[
+                        bq.ScalarQueryParameter(
+                            "season", "STRING", merge_result["season"]
+                        ),
+                    ]
+                ),
+            ).to_dataframe()
+            freshness_row = client.query(
+                f"""
+                SELECT MAX(ingested_at_utc) AS freshness_ts
+                FROM `{project_id}.{gold_dataset}.fct_player_game_stats`
+                WHERE season = @season
+                """,
+                job_config=bq.QueryJobConfig(
+                    query_parameters=[
+                        bq.ScalarQueryParameter(
+                            "season", "STRING", merge_result["season"]
+                        ),
+                    ]
+                ),
+            ).to_dataframe()
+            freshness_ts = None
+            if not freshness_row.empty:
+                freshness_ts = freshness_row.iloc[0]["freshness_ts"]
 
-        snapshot = pipeline.build_analysis_snapshot_record(
-            season=merge_result["season"],
-            daily_leaders=daily_leaders,
-            trends=trends,
-            recommendations=recommendations,
-            rankings=rankings,
-            score_contribution=score_contribution,
-            player_context=player_context,
-            source_run_id=context["run_id"],
-            created_at_utc=pd.Timestamp.now(tz="UTC"),
-            snapshot_date=context["data_interval_end"],
-            freshness_ts=freshness_ts,
-        )
-        pipeline.upsert_analysis_snapshot(client, snapshot_table, snapshot)
-        merge_result["analysis_snapshot_status"] = "success"
-        merge_result["analysis_snapshot_id"] = snapshot["snapshot_id"]
+            snapshot = pipeline.build_analysis_snapshot_record(
+                season=merge_result["season"],
+                daily_leaders=daily_leaders,
+                trends=trends,
+                recommendations=recommendations,
+                rankings=rankings,
+                score_contribution=score_contribution,
+                player_context=player_context,
+                source_run_id=context["run_id"],
+                created_at_utc=pd.Timestamp.now(tz="UTC"),
+                snapshot_date=context["data_interval_end"],
+                freshness_ts=freshness_ts,
+            )
+            pipeline.upsert_analysis_snapshot(client, snapshot_table, snapshot)
+            merge_result["analysis_snapshot_status"] = "success"
+            merge_result["analysis_snapshot_id"] = snapshot["snapshot_id"]
+        except Exception as exc:
+            logger.exception(
+                "Analysis snapshot publish failed; continuing core refresh"
+            )
+            merge_result["analysis_snapshot_status"] = "failed_non_blocking"
+            merge_result["analysis_snapshot_error"] = f"{type(exc).__name__}: {exc}"
         return merge_result
 
     @task(retries=0)
@@ -2070,11 +2094,13 @@ def nba_analytics_pipeline():
             details=(
                 f"dbt_status={run_result.get('dbt_status', 'unknown')};"
                 f"dbt_build_scope={run_result.get('dbt_build_scope', 'unknown')};"
-                f"similarity_status={run_result.get('similarity_status', 'unknown')};"
+                f"similarity_status={run_result.get('similarity_status', 'deferred_non_blocking')};"
                 f"similarity_player_count={run_result.get('similarity_player_count', 0)};"
                 f"similarity_archetype_count={run_result.get('similarity_archetype_count', 0)};"
-                f"analysis_snapshot_status={run_result.get('analysis_snapshot_status', 'unknown')};"
+                f"similarity_error={run_result.get('similarity_error', '')};"
+                f"analysis_snapshot_status={run_result.get('analysis_snapshot_status', 'deferred_non_blocking')};"
                 f"analysis_snapshot_id={run_result.get('analysis_snapshot_id', '')};"
+                f"analysis_snapshot_error={run_result.get('analysis_snapshot_error', '')};"
                 f"schedule_rows_loaded={run_result.get('schedule_rows_loaded', 0)};"
                 f"line_score_rows_loaded={run_result.get('line_score_rows_loaded', 0)};"
                 f"shot_location_rows_loaded={run_result.get('shot_location_rows_loaded', 0)};"
@@ -2111,9 +2137,7 @@ def nba_analytics_pipeline():
     staged = load_game_log_staging(extracted)
     staged_schedule = load_schedule_staging(extracted_schedule)
     staged_line_scores = load_game_line_score_staging(extracted_line_scores)
-    staged_shot_locations = load_player_shot_location_staging(
-        extracted_shot_locations
-    )
+    staged_shot_locations = load_player_shot_location_staging(extracted_shot_locations)
     staged_player_reference = load_player_reference_staging(extracted_player_reference)
     staged_injury_reports = load_injury_report_staging(extracted_injury_reports)
 
@@ -2307,7 +2331,9 @@ def nba_analytics_pipeline():
 
     redshift_check >> [redshift_exported, redshift_skipped]
 
-    # Main pipeline continues regardless of Redshift outcome
+    # Asset builders catch and report their own non-critical failures so the
+    # run metadata can record their status without turning those failures into
+    # core refresh failures.
     modeled = dbt_build(combined)
     similarity_built = build_player_similarity_assets(modeled)
     snapshotted = build_analysis_snapshot(similarity_built)

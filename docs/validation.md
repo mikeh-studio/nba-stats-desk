@@ -70,6 +70,13 @@ dbt test --project-dir . --profiles-dir dbt/profiles --target dev \
   --select workbench_compare workbench_dashboard workbench_home_dashboard workbench_player_detail
 ```
 
+Validate the recent performance UI after starting a local app server with live
+warehouse access:
+
+```bash
+PERFORMANCE_BASE_URL=http://127.0.0.1:8001 scripts/check_performance_ui.sh
+```
+
 Validate injury availability models:
 
 ```bash

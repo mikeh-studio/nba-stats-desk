@@ -1110,7 +1110,9 @@ def get_league_player_game_log(
             )
             df = gamelog.get_data_frames()[0]
             if df.empty:
-                return pd.DataFrame(columns=[field.name for field in get_game_logs_schema()])
+                return pd.DataFrame(
+                    columns=[field.name for field in get_game_logs_schema()]
+                )
 
             player_cols = ["PLAYER_ID", "PLAYER_NAME"]
             missing_player_cols = [
@@ -1126,9 +1128,9 @@ def get_league_player_game_log(
                 season=season,
                 season_type=season_type,
             )
-            out["PLAYER_ID"] = pd.to_numeric(
-                df["PLAYER_ID"], errors="coerce"
-            ).astype("Int64")
+            out["PLAYER_ID"] = pd.to_numeric(df["PLAYER_ID"], errors="coerce").astype(
+                "Int64"
+            )
             out["PLAYER_NAME"] = df["PLAYER_NAME"].fillna("").astype("string")
             out = out.dropna(subset=["PLAYER_ID"]).copy()
             out["PLAYER_ID"] = out["PLAYER_ID"].astype(int)
@@ -1141,7 +1143,9 @@ def get_league_player_game_log(
                     retries,
                     timeout,
                 )
-                return pd.DataFrame(columns=[field.name for field in get_game_logs_schema()])
+                return pd.DataFrame(
+                    columns=[field.name for field in get_game_logs_schema()]
+                )
             _sleep_before_nba_api_retry(
                 domain="league_game_log",
                 identifier=season_type,
@@ -1325,7 +1329,9 @@ def _flatten_shot_location_columns(frame: pd.DataFrame) -> pd.DataFrame:
         flattened.columns = names
     else:
         flattened.columns = [
-            "TEAM_ABBR" if str(column).upper() == "TEAM_ABBREVIATION" else str(column).upper()
+            "TEAM_ABBR"
+            if str(column).upper() == "TEAM_ABBREVIATION"
+            else str(column).upper()
             for column in flattened.columns
         ]
 
@@ -3120,8 +3126,18 @@ def create_bronze_bootstrap_player_reference_staging(
     raw_game_logs_table: str,
     staging_table: str,
     season: str = SUPPORTED_SEASON,
+    existing_reference_table: Optional[str] = None,
 ) -> int:
     """Create staging player-reference rows derived from raw game logs."""
+    existing_reference_join = ""
+    existing_reference_filter = ""
+    if existing_reference_table:
+        existing_reference_join = f"""
+    LEFT JOIN {quote_bigquery_table_id(existing_reference_table)} existing_reference
+      ON existing_reference.player_id = row.player_id
+    """
+        existing_reference_filter = "WHERE existing_reference.player_id IS NULL"
+
     query = f"""
     CREATE OR REPLACE TABLE `{staging_table}` AS
     WITH team_lookup AS (
@@ -3188,6 +3204,8 @@ def create_bronze_bootstrap_player_reference_staging(
     FROM latest
     INNER JOIN team_lookup l
       ON row.team_abbr = l.team_abbr
+    {existing_reference_join}
+    {existing_reference_filter}
     """
     bq_client.query(
         query,
@@ -3198,6 +3216,42 @@ def create_bronze_bootstrap_player_reference_staging(
         ),
     ).result()
     return _count_query_rows(bq_client, staging_table)
+
+
+def count_missing_player_reference_rows(
+    bq_client: bigquery.Client,
+    *,
+    raw_game_logs_table: str,
+    raw_player_reference_table: str,
+    season: str = SUPPORTED_SEASON,
+) -> int:
+    """Count distinct game-log players missing from raw player reference."""
+    query = f"""
+    WITH game_log_players AS (
+      SELECT DISTINCT SAFE_CAST(player_id AS INT64) AS player_id
+      FROM `{raw_game_logs_table}`
+      WHERE CAST(season AS STRING) = @season
+        AND SAFE_CAST(player_id AS INT64) IS NOT NULL
+    )
+    SELECT COUNT(*) AS c
+    FROM game_log_players gl
+    LEFT JOIN `{raw_player_reference_table}` pr
+      ON pr.player_id = gl.player_id
+    WHERE pr.player_id IS NULL
+    """
+    row = (
+        bq_client.query(
+            query,
+            job_config=bigquery.QueryJobConfig(
+                query_parameters=[
+                    bigquery.ScalarQueryParameter("season", "STRING", season),
+                ]
+            ),
+        )
+        .to_dataframe()
+        .iloc[0]
+    )
+    return int(row["c"])
 
 
 def _skipped_bootstrap_domain(
@@ -3237,25 +3291,32 @@ def _bootstrap_domain(
     season: str,
     mode: str,
     raw_game_logs_rows: Optional[int],
+    should_run: Optional[bool] = None,
+    create_staging_kwargs: Optional[Dict[str, Any]] = None,
+    skip_reason: str = "bootstrap not required",
 ) -> Dict[str, Any]:
     target_rows = get_table_row_count(bq_client, raw_table)
-    if not should_bootstrap_bronze_table(
-        mode, raw_game_logs_rows=raw_game_logs_rows, target_rows=target_rows
-    ):
+    if should_run is None:
+        should_run = should_bootstrap_bronze_table(
+            mode, raw_game_logs_rows=raw_game_logs_rows, target_rows=target_rows
+        )
+    if not should_run:
         return _skipped_bootstrap_domain(
             domain=domain,
             raw_table=raw_table,
             target_rows=target_rows,
             raw_game_logs_rows=raw_game_logs_rows,
             mode=mode,
-            reason="bootstrap not required",
+            reason=skip_reason,
         )
 
+    create_staging_kwargs = create_staging_kwargs or {}
     rows_loaded = create_staging(
         bq_client,
         raw_game_logs_table=raw_game_logs_table,
         staging_table=staging_table,
         season=season,
+        **create_staging_kwargs,
     )
     if rows_loaded == 0:
         return _skipped_bootstrap_domain(
@@ -3360,11 +3421,39 @@ def run_bronze_contract_bootstrap(
         mode=normalized_mode,
         raw_game_logs_rows=raw_game_logs_rows,
     )
-    domains["player_reference"] = _bootstrap_domain(
+    player_reference_raw_table = f"{project_id}.{bronze_dataset}.raw_player_reference"
+    player_reference_should_run: Optional[bool] = None
+    player_reference_skip_reason = "bootstrap not required"
+    player_reference_staging_kwargs: Dict[str, Any] = {}
+    player_reference_missing_rows: Optional[int] = None
+    if normalized_mode != "off" and raw_game_logs_rows:
+        player_reference_target_rows = get_table_row_count(
+            bq_client, player_reference_raw_table
+        )
+        if player_reference_target_rows not in (None, 0):
+            player_reference_missing_rows = count_missing_player_reference_rows(
+                bq_client,
+                raw_game_logs_table=raw_game_logs_table,
+                raw_player_reference_table=player_reference_raw_table,
+                season=season,
+            )
+            player_reference_should_run = (
+                normalized_mode == "force" or player_reference_missing_rows > 0
+            )
+            if normalized_mode != "force":
+                player_reference_staging_kwargs[
+                    "existing_reference_table"
+                ] = player_reference_raw_table
+            if player_reference_missing_rows == 0:
+                player_reference_skip_reason = (
+                    "player reference covers all game-log players"
+                )
+
+    player_reference_bootstrap = _bootstrap_domain(
         bq_client=bq_client,
         domain="player_reference",
         raw_game_logs_table=raw_game_logs_table,
-        raw_table=f"{project_id}.{bronze_dataset}.raw_player_reference",
+        raw_table=player_reference_raw_table,
         staging_table=f"{project_id}.{bronze_dataset}.stg_bootstrap_player_reference",
         create_staging=create_bronze_bootstrap_player_reference_staging,
         run_dq=run_player_reference_quality_checks,
@@ -3372,7 +3461,15 @@ def run_bronze_contract_bootstrap(
         season=season,
         mode=normalized_mode,
         raw_game_logs_rows=raw_game_logs_rows,
+        should_run=player_reference_should_run,
+        create_staging_kwargs=player_reference_staging_kwargs,
+        skip_reason=player_reference_skip_reason,
     )
+    if player_reference_missing_rows is not None:
+        player_reference_bootstrap[
+            "missing_player_reference_rows_before"
+        ] = player_reference_missing_rows
+    domains["player_reference"] = player_reference_bootstrap
     return {
         "mode": normalized_mode,
         "raw_game_logs_table": raw_game_logs_table,
@@ -3681,7 +3778,8 @@ def run_player_shot_location_quality_checks(
         column for column in SHOT_LOCATION_ZONE_COLUMNS if column.endswith("_FG_PCT")
     ]
     invalid_attempt_terms = [
-        f"{column.lower()} IS NULL OR {column.lower()} < 0" for column in attempt_columns
+        f"{column.lower()} IS NULL OR {column.lower()} < 0"
+        for column in attempt_columns
     ]
     invalid_made_terms = [
         f"{column.lower()} IS NULL OR {column.lower()} < 0" for column in made_columns
@@ -4167,7 +4265,10 @@ def create_and_merge_player_shot_locations_table(
     """
 
     string_columns = ["player_name", "team_abbr", "season", "season_type"]
-    numeric_columns = ["age", *[column.lower() for column in SHOT_LOCATION_ZONE_COLUMNS]]
+    numeric_columns = [
+        "age",
+        *[column.lower() for column in SHOT_LOCATION_ZONE_COLUMNS],
+    ]
     change_terms = [
         f"COALESCE(T.{column}, '') != COALESCE(S.{column}, '')"
         for column in string_columns

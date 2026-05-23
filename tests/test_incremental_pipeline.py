@@ -281,8 +281,7 @@ def test_record_source_contract_result_uses_idempotent_merge():
     assert "MERGE `project.dataset.source_contract_results`" in client.statements[0]
     assert "WHEN MATCHED THEN UPDATE SET" in client.statements[0]
     parameter_names = {
-        parameter.name
-        for parameter in client.job_configs[0].query_parameters
+        parameter.name for parameter in client.job_configs[0].query_parameters
     }
     assert {"dag_run_id", "domain", "status", "details_json"} <= parameter_names
 
@@ -724,9 +723,7 @@ def test_fetch_official_injury_report_pdf_treats_403_as_missing(monkeypatch):
     monkeypatch.setattr(
         pipeline.time,
         "sleep",
-        lambda _seconds: (_ for _ in ()).throw(
-            AssertionError("403 should not retry")
-        ),
+        lambda _seconds: (_ for _ in ()).throw(AssertionError("403 should not retry")),
     )
 
     result = pipeline.fetch_official_injury_report_pdf(
@@ -941,7 +938,9 @@ def test_get_all_player_game_logs_falls_back_to_cdn_for_missing_league_rows(
 
     def fake_get_league_player_game_log(*, season, season_type, **_kwargs):
         calls.append((season, season_type))
-        return pd.DataFrame(columns=[field.name for field in pipeline.get_game_logs_schema()])
+        return pd.DataFrame(
+            columns=[field.name for field in pipeline.get_game_logs_schema()]
+        )
 
     fallback_frame = _player_game_log_api_frame().rename(columns={"Game_ID": "GAME_ID"})
     fallback_frame["GAME_ID"] = "0042500101"
@@ -1598,7 +1597,9 @@ def test_get_all_player_references_stops_after_empty_profile_limit(monkeypatch):
 
     def fake_get_player_reference(player_id: int, **_kwargs):
         calls.append(player_id)
-        return pd.DataFrame(columns=[field.name for field in pipeline.get_player_reference_schema()])
+        return pd.DataFrame(
+            columns=[field.name for field in pipeline.get_player_reference_schema()]
+        )
 
     monkeypatch.setattr(pipeline, "get_player_reference", fake_get_player_reference)
     monkeypatch.setattr(pipeline.time, "sleep", lambda _seconds: None)
@@ -1720,6 +1721,151 @@ def test_derive_player_reference_from_game_logs_uses_latest_team_context():
     assert player["TEAM_ABBR"] == "BOS"
     assert player["TEAM_ID"] == 1610612738
     assert bool(player["ROSTER_STATUS"]) is True
+
+
+def test_bootstrap_player_reference_staging_can_filter_existing_rows():
+    class FakeJob:
+        def result(self):
+            return None
+
+        def to_dataframe(self):
+            return pd.DataFrame([{"c": 2}])
+
+    class FakeClient:
+        def __init__(self):
+            self.statements = []
+
+        def query(self, statement, job_config=None):
+            self.statements.append(statement)
+            return FakeJob()
+
+    client = FakeClient()
+
+    rows = pipeline.create_bronze_bootstrap_player_reference_staging(
+        client,
+        raw_game_logs_table="project.dataset.raw_game_logs",
+        staging_table="project.dataset.stg_bootstrap_player_reference",
+        existing_reference_table="project.dataset.raw_player_reference",
+    )
+
+    assert rows == 2
+    assert (
+        "LEFT JOIN `project.dataset.raw_player_reference` existing_reference"
+        in client.statements[0]
+    )
+    assert "WHERE existing_reference.player_id IS NULL" in client.statements[0]
+
+
+def test_count_missing_player_reference_rows_uses_game_log_distinct_left_join():
+    class FakeJob:
+        def to_dataframe(self):
+            return pd.DataFrame([{"c": 56}])
+
+    class FakeClient:
+        def __init__(self):
+            self.statements = []
+
+        def query(self, statement, job_config=None):
+            self.statements.append(statement)
+            return FakeJob()
+
+    client = FakeClient()
+
+    missing = pipeline.count_missing_player_reference_rows(
+        client,
+        raw_game_logs_table="project.dataset.raw_game_logs",
+        raw_player_reference_table="project.dataset.raw_player_reference",
+    )
+
+    assert missing == 56
+    assert "SELECT DISTINCT SAFE_CAST(player_id AS INT64)" in client.statements[0]
+    assert "SAFE_CAST(player_id AS INT64) IS NOT NULL" in client.statements[0]
+    assert "LEFT JOIN `project.dataset.raw_player_reference` pr" in client.statements[0]
+
+
+def test_run_bronze_contract_bootstrap_gap_fills_player_reference(monkeypatch):
+    raw_player_reference_table = "project.dataset.raw_player_reference"
+    row_counts = {
+        "project.dataset.raw_game_logs": 100,
+        "project.dataset.raw_player_reference": 530,
+    }
+    calls = []
+
+    def fake_get_table_row_count(_client, table_id):
+        return row_counts.get(table_id, 5)
+
+    def fake_count_missing_player_reference_rows(*_args, **_kwargs):
+        return 56
+
+    def fake_bootstrap_domain(**kwargs):
+        calls.append(kwargs)
+        return {"domain": kwargs["domain"], "ran": kwargs.get("should_run") is True}
+
+    monkeypatch.setattr(pipeline, "get_table_row_count", fake_get_table_row_count)
+    monkeypatch.setattr(
+        pipeline,
+        "count_missing_player_reference_rows",
+        fake_count_missing_player_reference_rows,
+    )
+    monkeypatch.setattr(pipeline, "_bootstrap_domain", fake_bootstrap_domain)
+
+    result = pipeline.run_bronze_contract_bootstrap(
+        object(),
+        project_id="project",
+        bronze_dataset="dataset",
+        mode="auto",
+    )
+
+    player_reference_call = next(
+        call for call in calls if call["domain"] == "player_reference"
+    )
+    assert player_reference_call["should_run"] is True
+    assert player_reference_call["create_staging_kwargs"] == {
+        "existing_reference_table": raw_player_reference_table
+    }
+    assert (
+        result["domains"]["player_reference"]["missing_player_reference_rows_before"]
+        == 56
+    )
+
+
+def test_run_bronze_contract_bootstrap_force_rebuilds_player_reference(monkeypatch):
+    row_counts = {
+        "project.dataset.raw_game_logs": 100,
+        "project.dataset.raw_player_reference": 530,
+    }
+    calls = []
+
+    def fake_get_table_row_count(_client, table_id):
+        return row_counts.get(table_id, 5)
+
+    def fake_count_missing_player_reference_rows(*_args, **_kwargs):
+        return 0
+
+    def fake_bootstrap_domain(**kwargs):
+        calls.append(kwargs)
+        return {"domain": kwargs["domain"], "ran": kwargs.get("should_run") is True}
+
+    monkeypatch.setattr(pipeline, "get_table_row_count", fake_get_table_row_count)
+    monkeypatch.setattr(
+        pipeline,
+        "count_missing_player_reference_rows",
+        fake_count_missing_player_reference_rows,
+    )
+    monkeypatch.setattr(pipeline, "_bootstrap_domain", fake_bootstrap_domain)
+
+    pipeline.run_bronze_contract_bootstrap(
+        object(),
+        project_id="project",
+        bronze_dataset="dataset",
+        mode="force",
+    )
+
+    player_reference_call = next(
+        call for call in calls if call["domain"] == "player_reference"
+    )
+    assert player_reference_call["should_run"] is True
+    assert player_reference_call["create_staging_kwargs"] == {}
 
 
 def test_should_bootstrap_bronze_table_modes():
@@ -2215,9 +2361,7 @@ def test_build_player_similarity_outputs_returns_normalized_feature_tables():
     assert "team_defense_contribution_rank" in outputs["archetypes"].columns
     assert set(
         outputs["archetypes"]["archetype_label"].str.split(" - ", n=1).str[0]
-    ).issubset(
-        pipeline.BASE_ARCHETYPE_LABELS
-    )
+    ).issubset(pipeline.BASE_ARCHETYPE_LABELS)
     for feature_name in pipeline.SIMILARITY_FEATURE_COLUMNS:
         assert f"norm_{feature_name}" in outputs["features"].columns
     assert outputs["archetypes"]["top_traits"].str.len().gt(0).all()

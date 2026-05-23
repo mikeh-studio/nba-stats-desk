@@ -552,6 +552,200 @@ class FakeRepository(WarehouseRepository):
             }
         return None
 
+    def get_recent_performance_dates(self) -> list[dict]:
+        return [
+            {"value": "2026-02-10", "label": "Tue Feb 10"},
+            {"value": "2026-02-09", "label": "Mon Feb 09"},
+        ]
+
+    def get_recent_performance_games(
+        self, *, game_date: str | None = None
+    ) -> list[dict]:
+        rows = [
+            {
+                "game_id": "002250010",
+                "game_date": "2026-02-10",
+                "matchup": "NYK @ PHI",
+                "teams": "NYK / PHI",
+                "home_team_abbr": "PHI",
+                "away_team_abbr": "NYK",
+                "home_team_pts": 112,
+                "away_team_pts": 108,
+                "players_played": 20,
+            }
+        ]
+        if game_date:
+            rows = [row for row in rows if row["game_date"] == game_date]
+        return rows
+
+    def _performance_row(self) -> dict:
+        return {
+            "game_id": "002250010",
+            "game_date": "2026-02-10",
+            "player_id": 7,
+            "player_name": "Tyrese Maxey",
+            "team_abbr": "PHI",
+            "opponent_abbr": "NYK",
+            "home_away": "home",
+            "matchup": "PHI vs. NYK",
+            "wl": "W",
+            "minutes": 36.0,
+            "games_sampled": 12,
+            "performance_score": 2.4,
+            "performance_status": "above",
+            "above_count": 3,
+            "below_count": 1,
+            "headshot_url": "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png",
+            "player_initials": "TM",
+            "metrics": [
+                {
+                    "key": "pts",
+                    "label": "PTS",
+                    "value": 31,
+                    "season_average": 25.8,
+                    "delta": 5.2,
+                    "delta_pct": 20.2,
+                    "status": "above",
+                    "percentile": 82.0,
+                    "range": {
+                        "p10": 18,
+                        "p25": 22,
+                        "median": 26,
+                        "p75": 30,
+                        "p90": 34,
+                    },
+                },
+                {
+                    "key": "reb",
+                    "label": "REB",
+                    "value": 5,
+                    "season_average": 4.4,
+                    "delta": 0.6,
+                    "delta_pct": 13.6,
+                    "status": "above",
+                    "percentile": 66.7,
+                    "range": {
+                        "p10": 2,
+                        "p25": 3,
+                        "median": 4,
+                        "p75": 6,
+                        "p90": 8,
+                    },
+                },
+                {
+                    "key": "ast",
+                    "label": "AST",
+                    "value": 7,
+                    "season_average": 6.7,
+                    "delta": 0.3,
+                    "delta_pct": 4.5,
+                    "status": "above",
+                    "percentile": 58.3,
+                    "range": {
+                        "p10": 4,
+                        "p25": 5,
+                        "median": 7,
+                        "p75": 9,
+                        "p90": 11,
+                    },
+                },
+                {
+                    "key": "stl",
+                    "label": "STL",
+                    "value": 1,
+                    "season_average": 1.1,
+                    "delta": -0.1,
+                    "delta_pct": -9.1,
+                    "status": "below",
+                    "percentile": 54.0,
+                    "range": {
+                        "p10": 0,
+                        "p25": 0,
+                        "median": 1,
+                        "p75": 2,
+                        "p90": 3,
+                    },
+                },
+                {
+                    "key": "blk",
+                    "label": "BLK",
+                    "value": 0,
+                    "season_average": 0.2,
+                    "delta": -0.2,
+                    "delta_pct": -100.0,
+                    "status": "below",
+                    "percentile": 50.0,
+                    "range": {
+                        "p10": 0,
+                        "p25": 0,
+                        "median": 0,
+                        "p75": 0,
+                        "p90": 1,
+                    },
+                },
+            ],
+        }
+
+    def _performance_trend(self) -> dict:
+        return {
+            "window_days": 30,
+            "stats": [
+                {"key": "pts", "label": "PTS", "season_average": 25.8},
+                {"key": "reb", "label": "REB", "season_average": 4.4},
+                {"key": "ast", "label": "AST", "season_average": 6.7},
+                {"key": "stl", "label": "STL", "season_average": 1.1},
+                {"key": "blk", "label": "BLK", "season_average": 0.2},
+            ],
+            "points": [
+                {
+                    "game_id": "002250008",
+                    "game_date": "2026-02-08",
+                    "matchup": "PHI @ BOS",
+                    "minutes": 35.0,
+                    "pts": 26,
+                    "reb": 4,
+                    "ast": 6,
+                    "stl": 1,
+                    "blk": 0,
+                },
+                {
+                    "game_id": "002250010",
+                    "game_date": "2026-02-10",
+                    "matchup": "PHI vs. NYK",
+                    "minutes": 36.0,
+                    "pts": 31,
+                    "reb": 5,
+                    "ast": 7,
+                    "stl": 1,
+                    "blk": 0,
+                },
+            ],
+        }
+
+    def get_recent_performance_players(
+        self,
+        *,
+        game_date: str,
+        game_id: str | None = None,
+        limit: int = 240,
+    ) -> list[dict]:
+        if game_date != "2026-02-10":
+            return []
+        row = self._performance_row()
+        if game_id and game_id != row["game_id"]:
+            return []
+        return [row][:limit]
+
+    def get_recent_performance_player(
+        self, player_id: int, *, game_id: str
+    ) -> dict | None:
+        row = self._performance_row()
+        if player_id == row["player_id"] and game_id == row["game_id"]:
+            row = dict(row)
+            row["trend_30d"] = self._performance_trend()
+            return row
+        return None
+
     def get_metric_leaders(self, metric: str, limit: int = 10) -> list[dict]:
         rows = [
             {
@@ -1067,16 +1261,15 @@ def test_api_agent_ask_accepts_date_range_tool_args() -> None:
     )
     response = client.post(
         "/api/agent/ask",
-        json={
-            "question": "Show Tyrese Maxey points from 2026-02-02 to 2026-02-03."
-        },
+        json={"question": "Show Tyrese Maxey points from 2026-02-02 to 2026-02-03."},
     )
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["tool_calls"][0] == {"name": "get_player_game_log", "status": "ok"}
     game_log_schema = next(
-        tool for tool in fake_openai.responses.first_tools
+        tool
+        for tool in fake_openai.responses.first_tools
         if tool["name"] == "get_player_game_log"
     )
     properties = game_log_schema["parameters"]["properties"]
@@ -1395,6 +1588,68 @@ def test_api_player_game_log_404() -> None:
     response = client.get("/api/players/999/game-log")
 
     assert response.status_code == 404
+
+
+def test_performance_page_smoke() -> None:
+    client = build_client()
+    response = client.get("/performance")
+
+    assert response.status_code == 200
+    assert "Game Performance" in response.text
+    assert "/static/performance.js" in response.text
+    assert "performance.js?v=20260523-performance-polish" in response.text
+    assert "performance-date-select" in response.text
+    assert "Player View" in response.text
+
+
+def test_api_performance_dates() -> None:
+    client = build_client()
+    response = client.get("/api/performance/dates")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["season"] == "2025-26"
+    assert payload["items"][0]["value"] == "2026-02-10"
+
+
+def test_api_performance_games_filters_by_date() -> None:
+    client = build_client()
+    response = client.get("/api/performance/games?game_date=2026-02-10")
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["game_id"] == "002250010"
+    assert item["matchup"] == "NYK @ PHI"
+    assert item["players_played"] == 20
+
+
+def test_api_performance_players_returns_baseline_deltas() -> None:
+    client = build_client()
+    response = client.get(
+        "/api/performance/players?game_date=2026-02-10&game_id=002250010"
+    )
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["player_name"] == "Tyrese Maxey"
+    assert item["performance_status"] == "above"
+    assert item["metrics"][0]["label"] == "PTS"
+    assert item["metrics"][0]["delta"] == 5.2
+    assert "trend_30d" not in item
+
+
+def test_api_performance_player_detail_returns_percentile_ranges() -> None:
+    client = build_client()
+    response = client.get("/api/performance/players/7?game_id=002250010")
+
+    assert response.status_code == 200
+    item = response.json()["item"]
+    assert item["player_name"] == "Tyrese Maxey"
+    assert item["metrics"][0]["percentile"] == 82.0
+    assert item["metrics"][0]["range"]["p25"] == 22
+    assert item["trend_30d"]["window_days"] == 30
+    assert item["trend_30d"]["stats"][0]["season_average"] == 25.8
+    assert item["trend_30d"]["points"][-1]["game_id"] == "002250010"
 
 
 def test_visualize_page_smoke() -> None:
