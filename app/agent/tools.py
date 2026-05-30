@@ -123,11 +123,11 @@ def _build_game_log_trend_row(
     games: list[dict[str, Any]],
     metric: MetricDefinition,
 ) -> dict[str, Any] | None:
-    values = [
-        _game_metric_value(game, metric)
-        for game in games
-        if _game_metric_value(game, metric) is not None
-    ]
+    values: list[float] = []
+    for game in games:
+        value = _game_metric_value(game, metric)
+        if value is not None:
+            values.append(value)
     if not values:
         return None
     recent = values[-5:]
@@ -136,12 +136,12 @@ def _build_game_log_trend_row(
     prior_avg = _average(prior)
     delta = (
         round(recent_avg - prior_avg, 1)
-        if recent_avg is not None and prior_avg not in (None, 0)
+        if recent_avg is not None and prior_avg is not None and prior_avg != 0
         else None
     )
     pct_change = (
         round((delta / prior_avg) * 100, 1)
-        if delta is not None and prior_avg not in (None, 0)
+        if delta is not None and prior_avg is not None and prior_avg != 0
         else None
     )
     return {
@@ -247,7 +247,10 @@ def get_tool_schemas() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "name": {"type": "string", "description": "Player name query."},
-                    "limit": {"type": "integer", "description": "Maximum matches, 1-8."},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum matches, 1-8.",
+                    },
                 },
                 "required": ["name", "limit"],
                 "additionalProperties": False,
@@ -358,7 +361,10 @@ def get_tool_schemas() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "player_id": {"type": "integer", "description": "NBA player id."},
-                    "limit": {"type": "integer", "description": "Maximum matches, 1-6."},
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum matches, 1-6.",
+                    },
                 },
                 "required": ["player_id", "limit"],
                 "additionalProperties": False,
@@ -664,7 +670,9 @@ class StatsToolRunner:
             "status": "ok",
             "player": _compact_player(player),
             "percentiles": rows,
-            "charts": [_build_percentile_chart(player.get("player_name", "Player"), rows)],
+            "charts": [
+                _build_percentile_chart(player.get("player_name", "Player"), rows)
+            ],
         }
 
     def calculate_player_percentile(

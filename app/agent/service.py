@@ -217,7 +217,9 @@ class StatsAgent:
                     text=TEXT_FORMAT,
                 )
             except Exception as exc:
-                raise AgentExecutionError(f"OpenAI agent request failed: {exc}") from exc
+                raise AgentExecutionError(
+                    f"OpenAI agent request failed: {exc}"
+                ) from exc
 
             output_items = list(getattr(response, "output", []) or [])
             function_calls = [

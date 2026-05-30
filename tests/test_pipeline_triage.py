@@ -5,7 +5,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
 
-from nba_pipeline_triage import TaskHealth, classify_run_health, summarize_subprocess_failure
+from nba_pipeline_triage import (
+    TaskHealth,
+    classify_run_health,
+    summarize_subprocess_failure,
+)
 
 
 def make_task(
@@ -132,7 +136,8 @@ def test_classify_dq_failures_for_zero_null_and_duplicate_keys() -> None:
         assert artifact.impacted_stage == "dq_checks"
         assert artifact.failing_tasks == ["dq_game_log_staging"]
         assert any(
-            expected_action_fragment in action for action in artifact.recommended_actions
+            expected_action_fragment in action
+            for action in artifact.recommended_actions
         )
 
 

@@ -42,7 +42,9 @@ class SourceContractError(ValueError):
         quarantine_frame: pd.DataFrame | None = None,
     ):
         self.result = result
-        self.quarantine_frame = quarantine_frame if quarantine_frame is not None else pd.DataFrame()
+        self.quarantine_frame = (
+            quarantine_frame if quarantine_frame is not None else pd.DataFrame()
+        )
         source = result.get("source_name", "unknown_source")
         summary = (
             f"{source} source contract failed: "
@@ -59,7 +61,9 @@ class SourceContractValidation:
     result: dict[str, Any]
 
 
-def load_contract(contract_name: str, contract_dir: Path | None = None) -> dict[str, Any]:
+def load_contract(
+    contract_name: str, contract_dir: Path | None = None
+) -> dict[str, Any]:
     """Load a source contract YAML file by name."""
     base_dir = contract_dir or CONTRACT_DIR
     contract_path = base_dir / f"{contract_name}.yml"
@@ -91,7 +95,9 @@ def load_contract(contract_name: str, contract_dir: Path | None = None) -> dict[
     for rule in contract.get("rules", []):
         check = str(rule.get("check") or "")
         if check not in SUPPORTED_CHECKS:
-            raise ValueError(f"Contract {contract_path} has unsupported check {check!r}")
+            raise ValueError(
+                f"Contract {contract_path} has unsupported check {check!r}"
+            )
         _normalize_severity(rule.get("severity", "fatal"))
         referenced_columns = _rule_columns(rule)
         target_column = rule.get("target_column")
@@ -312,7 +318,10 @@ def validate_source_contract(
 def validate_contract_files(contract_dir: Path | None = None) -> list[dict[str, Any]]:
     """Load all contract files and return their parsed contents."""
     base_dir = contract_dir or CONTRACT_DIR
-    return [load_contract(path.stem, contract_dir=base_dir) for path in base_dir.glob("*.yml")]
+    return [
+        load_contract(path.stem, contract_dir=base_dir)
+        for path in base_dir.glob("*.yml")
+    ]
 
 
 def _normalize_severity(value: Any) -> str:
@@ -370,7 +379,11 @@ def _evaluate_rule(frame: pd.DataFrame, rule: dict[str, Any]) -> pd.Series:
     if check == "not_blank":
         mask = pd.Series(False, index=frame.index)
         for column in columns:
-            mask = mask | frame[column].isna() | (frame[column].astype(str).str.strip() == "")
+            mask = (
+                mask
+                | frame[column].isna()
+                | (frame[column].astype(str).str.strip() == "")
+            )
         return mask
     if check == "unique_key":
         return frame.duplicated(subset=columns, keep=False)
@@ -442,7 +455,9 @@ def _record_mask_violation(
             failed_rows=failed_rows,
             message=message,
             columns=columns,
-            sample_indices=[str(value) for value in invalid_mask[invalid_mask].index[:10]],
+            sample_indices=[
+                str(value) for value in invalid_mask[invalid_mask].index[:10]
+            ],
         )
     )
     return failed_index_values

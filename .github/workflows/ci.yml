@@ -28,7 +28,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements-dev.txt
 
       - name: Verify repo hygiene
         run: |
@@ -49,8 +49,24 @@ jobs:
             exit 1
           fi
 
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Check formatting (ruff)
+        run: ruff format --check .
+
+      - name: Type-check (mypy)
+        run: mypy
+
       - name: Run Python tests
         run: pytest -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run JS tests
+        run: npm run test:tracking
 
       - name: Parse dbt project
         run: dbt parse --project-dir . --profiles-dir dbt/profiles --target dev

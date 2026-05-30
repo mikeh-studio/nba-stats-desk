@@ -3,7 +3,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts import backfill_injury_reports as backfill
@@ -56,9 +55,7 @@ def test_candidate_summary_records_first_and_last_source_urls() -> None:
     assert summary["candidate_count"] == 2
     assert summary["first_report_date"] == "2026-05-01"
     assert summary["last_report_date"] == "2026-05-02"
-    assert summary["first_source_url"].endswith(
-        "Injury-Report_2026-05-01_05_00PM.pdf"
-    )
+    assert summary["first_source_url"].endswith("Injury-Report_2026-05-01_05_00PM.pdf")
 
 
 def test_redact_text_masks_secret_like_values() -> None:

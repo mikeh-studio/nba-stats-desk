@@ -113,7 +113,7 @@ def _check_agent_rate_limit(request: Request, settings: Settings) -> None:
 
 @app.get("/api/leaderboard")
 def api_leaderboard(
-    repo: Annotated[WarehouseRepository, Depends(get_repository)]
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
 ) -> dict:
     return {"season": SUPPORTED_SEASON, "items": repo.get_leaderboard()}
 
@@ -125,7 +125,7 @@ def api_trends(repo: Annotated[WarehouseRepository, Depends(get_repository)]) ->
 
 @app.get("/api/analysis/latest")
 def api_analysis_latest(
-    repo: Annotated[WarehouseRepository, Depends(get_repository)]
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
 ) -> dict:
     return {"season": SUPPORTED_SEASON, "item": repo.get_latest_analysis()}
 

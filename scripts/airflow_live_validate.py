@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-
 DAG_ID = "nba_analytics_pipeline"
 
 BRONZE_CONTRACT_TABLES = [
@@ -273,7 +272,7 @@ def write_airflow_cli_wrapper(root: Path, airflow_cmd: list[str]) -> Path:
     wrapper_dir = root / "reports" / "pipeline_triage" / "bin"
     wrapper_dir.mkdir(parents=True, exist_ok=True)
     wrapper_path = wrapper_dir / "airflow"
-    wrapper_path.write_text("#!/bin/sh\n" f'exec {format_command(airflow_cmd)} "$@"\n')
+    wrapper_path.write_text(f'#!/bin/sh\nexec {format_command(airflow_cmd)} "$@"\n')
     wrapper_path.chmod(0o755)
     return wrapper_dir
 
@@ -548,9 +547,7 @@ def query_bigquery_contract(env: Mapping[str, str]) -> dict[str, list[dict[str, 
             count_table(bronze_dataset, table) for table in BRONZE_CONTRACT_TABLES
         ],
         "gold": [count_table(gold_dataset, table) for table in GOLD_CONTRACT_TABLES],
-        "agent": [
-            count_table(agent_dataset, table) for table in AGENT_CONTRACT_TABLES
-        ],
+        "agent": [count_table(agent_dataset, table) for table in AGENT_CONTRACT_TABLES],
     }
 
 
@@ -664,9 +661,9 @@ def run_validation(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     env = prepare_environment(root)
     env["ENABLE_REDSHIFT"] = "true" if args.enable_redshift else "false"
     task_runner_module_dir = write_exec_task_runner_module(root)
-    env[
-        "PYTHONPATH"
-    ] = f"{task_runner_module_dir}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    env["PYTHONPATH"] = (
+        f"{task_runner_module_dir}{os.pathsep}{env.get('PYTHONPATH', '')}"
+    )
     env.setdefault(
         "AIRFLOW__CORE__TASK_RUNNER",
         "airflow_live_task_runner.ExecTaskRunner",
