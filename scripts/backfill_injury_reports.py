@@ -17,13 +17,11 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "dags"))
 
 import nba_pipeline as pipeline  # noqa: E402
 import nba_source_contracts as source_contracts  # noqa: E402
-
 
 DEFAULT_MAX_CANDIDATES = 240
 DEFAULT_DBT_SELECTOR = [
@@ -133,7 +131,9 @@ def env_float(env: Mapping[str, str], key: str, default: float) -> float:
         return default
 
 
-def load_backfill_config(env: Mapping[str, str], *, dbt_target: str | None) -> BackfillConfig:
+def load_backfill_config(
+    env: Mapping[str, str], *, dbt_target: str | None
+) -> BackfillConfig:
     project_id = env.get("BQ_PROJECT") or env.get("GCP_PROJECT_ID") or ""
     bucket_name = env.get("GCS_BUCKET_NAME") or ""
     missing = [
@@ -441,7 +441,9 @@ def run_backfill(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     )
     report["gcs_uri"] = gcs_uri
 
-    staging_table = f"{config.project_id}.{config.bronze_dataset}.stg_player_injury_reports"
+    staging_table = (
+        f"{config.project_id}.{config.bronze_dataset}.stg_player_injury_reports"
+    )
     raw_table = f"{config.project_id}.{config.bronze_dataset}.raw_player_injury_reports"
     pipeline.load_gcs_to_bigquery(
         client,
@@ -534,7 +536,9 @@ def build_arg_parser(env: Mapping[str, str]) -> argparse.ArgumentParser:
             "targeted injury availability dbt models."
         )
     )
-    parser.add_argument("--start-date", required=True, help="Inclusive report start date.")
+    parser.add_argument(
+        "--start-date", required=True, help="Inclusive report start date."
+    )
     parser.add_argument("--end-date", required=True, help="Inclusive report end date.")
     parser.add_argument(
         "--season",
@@ -551,7 +555,9 @@ def build_arg_parser(env: Mapping[str, str]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--max-candidates",
         type=int,
-        default=env_int(env, "NBA_INJURY_REPORT_BACKFILL_MAX_CANDIDATES", DEFAULT_MAX_CANDIDATES),
+        default=env_int(
+            env, "NBA_INJURY_REPORT_BACKFILL_MAX_CANDIDATES", DEFAULT_MAX_CANDIDATES
+        ),
         help="Safety cap for date/time candidates before network or warehouse work.",
     )
     parser.add_argument(
@@ -612,7 +618,9 @@ def build_arg_parser(env: Mapping[str, str]) -> argparse.ArgumentParser:
         action="store_true",
         help="Advance injury watermark even when the candidate window returns no rows.",
     )
-    parser.add_argument("--run-id", default="", help="Optional metadata run id override.")
+    parser.add_argument(
+        "--run-id", default="", help="Optional metadata run id override."
+    )
     parser.add_argument(
         "--report-path",
         default="",
@@ -627,7 +635,9 @@ def main() -> int:
     parser = build_arg_parser(env)
     args = parser.parse_args()
     timestamp = utc_timestamp_for_path()
-    output_path = Path(args.report_path) if args.report_path else report_path(root, timestamp)
+    output_path = (
+        Path(args.report_path) if args.report_path else report_path(root, timestamp)
+    )
     try:
         exit_code, report = run_backfill(args)
     except Exception as exc:

@@ -235,9 +235,9 @@ def test_train_player_similarity_model_returns_diagnostics_and_new_style_feature
     assert "team_offense_contribution_rank" in result.features.columns
     assert "team_defense_contribution_rank" in result.archetypes.columns
     assert result.features["top_traits"].str.len().gt(0).all()
-    assert set(result.archetypes["archetype_label"].str.split(" - ", n=1).str[0]).issubset(
-        model.BASE_ARCHETYPE_LABELS
-    )
+    assert set(
+        result.archetypes["archetype_label"].str.split(" - ", n=1).str[0]
+    ).issubset(model.BASE_ARCHETYPE_LABELS)
 
 
 def test_train_player_similarity_model_enforces_cluster_floor_when_supported():

@@ -11,11 +11,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import Settings
 from app.repository import (
-    BigQueryWarehouseRepository,
     SIMILARITY_FEATURE_COLUMNS,
+    BigQueryWarehouseRepository,
+    _weighted_similarity_vector,
     build_analysis_payload,
     build_freshness_payload,
-    _weighted_similarity_vector,
 )
 
 

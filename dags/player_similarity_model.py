@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
-
 MODEL_VERSION = "public_similarity_baseline_v1"
 RANDOM_STATE = 42
 MINIMUM_ARCHETYPE_CLUSTERS = 8
@@ -40,10 +39,16 @@ class SimilarityTrainingResult:
 SIMILARITY_FEATURE_SPECS: Tuple[SimilarityFeatureSpec, ...] = (
     SimilarityFeatureSpec("season_avg_pts", "scoring", trait_label="scoring volume"),
     SimilarityFeatureSpec("season_avg_fga", "scoring", trait_label="shot volume"),
-    SimilarityFeatureSpec("season_fg_pct", "efficiency", trait_label="field-goal efficiency"),
+    SimilarityFeatureSpec(
+        "season_fg_pct", "efficiency", trait_label="field-goal efficiency"
+    ),
     SimilarityFeatureSpec("season_ts_pct", "efficiency", trait_label="true shooting"),
-    SimilarityFeatureSpec("season_fg3a_rate", "shot_profile", trait_label="three-point diet"),
-    SimilarityFeatureSpec("season_fta_rate", "shot_profile", trait_label="rim pressure"),
+    SimilarityFeatureSpec(
+        "season_fg3a_rate", "shot_profile", trait_label="three-point diet"
+    ),
+    SimilarityFeatureSpec(
+        "season_fta_rate", "shot_profile", trait_label="rim pressure"
+    ),
     SimilarityFeatureSpec("season_ast_to_tov", "creation", trait_label="ball security"),
     SimilarityFeatureSpec(
         "team_points_contribution_rate",
@@ -90,7 +95,9 @@ SIMILARITY_FEATURE_SPECS: Tuple[SimilarityFeatureSpec, ...] = (
         "team_context",
         trait_label="team defensive event share",
     ),
-    SimilarityFeatureSpec("shot_rim_rate", "shot_location", trait_label="rim shot diet"),
+    SimilarityFeatureSpec(
+        "shot_rim_rate", "shot_location", trait_label="rim shot diet"
+    ),
     SimilarityFeatureSpec(
         "shot_paint_non_ra_rate",
         "shot_location",
@@ -125,11 +132,15 @@ SIMILARITY_FEATURE_SPECS: Tuple[SimilarityFeatureSpec, ...] = (
     SimilarityFeatureSpec("season_avg_ast", "box_score", trait_label="playmaking"),
     SimilarityFeatureSpec("season_avg_stl", "box_score", trait_label="steals pressure"),
     SimilarityFeatureSpec("season_avg_blk", "box_score", trait_label="rim protection"),
-    SimilarityFeatureSpec("season_avg_fg3m", "box_score", trait_label="three-point volume"),
+    SimilarityFeatureSpec(
+        "season_avg_fg3m", "box_score", trait_label="three-point volume"
+    ),
     SimilarityFeatureSpec("season_avg_tov", "box_score", trait_label="creation load"),
     SimilarityFeatureSpec("season_avg_min", "role_context", trait_label="minutes load"),
     SimilarityFeatureSpec("height_inches", "physical_profile", trait_label="height"),
-    SimilarityFeatureSpec("weight_lbs", "physical_profile", trait_label="frame strength"),
+    SimilarityFeatureSpec(
+        "weight_lbs", "physical_profile", trait_label="frame strength"
+    ),
     SimilarityFeatureSpec("season_exp", "career_context", trait_label="experience"),
     SimilarityFeatureSpec("recent_pts", "recent_form", trait_label="recent scoring"),
     SimilarityFeatureSpec("recent_reb", "recent_form", trait_label="recent rebounding"),
@@ -377,9 +388,7 @@ def _player_archetype_display(
     normalized_values: Dict[str, float],
     cluster_index: int,
 ) -> Tuple[str, str, str]:
-    top_traits = _rank_similarity_traits(
-        normalized_values, limit=3, positive_only=True
-    )
+    top_traits = _rank_similarity_traits(normalized_values, limit=3, positive_only=True)
     if top_traits:
         label = f"{base_label} - {' / '.join(trait.title() for trait in top_traits)}"
     else:
@@ -454,8 +463,7 @@ def train_player_similarity_model(
     import numpy as np
     from sklearn.cluster import KMeans
     from sklearn.impute import SimpleImputer
-    from sklearn.preprocessing import StandardScaler
-    from sklearn.preprocessing import normalize
+    from sklearn.preprocessing import StandardScaler, normalize
 
     working = _coerce_similarity_feature_frame(feature_df)
     if working.empty:

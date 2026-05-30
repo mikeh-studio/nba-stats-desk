@@ -7,8 +7,8 @@ analysis snapshot generation, and idempotent warehouse loads.
 
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import re
 import time
 import unicodedata
@@ -21,12 +21,14 @@ import pandas as pd
 import requests
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery, storage
-from nba_api.stats.endpoints import boxscoresummaryv2
-from nba_api.stats.endpoints import commonplayerinfo
-from nba_api.stats.endpoints import leaguegamelog
-from nba_api.stats.endpoints import leaguedashplayershotlocations
-from nba_api.stats.endpoints import playergamelog
-from nba_api.stats.endpoints import scheduleleaguev2
+from nba_api.stats.endpoints import (
+    boxscoresummaryv2,
+    commonplayerinfo,
+    leaguedashplayershotlocations,
+    leaguegamelog,
+    playergamelog,
+    scheduleleaguev2,
+)
 from nba_api.stats.static import players
 
 import player_similarity_model
@@ -3441,9 +3443,9 @@ def run_bronze_contract_bootstrap(
                 normalized_mode == "force" or player_reference_missing_rows > 0
             )
             if normalized_mode != "force":
-                player_reference_staging_kwargs[
-                    "existing_reference_table"
-                ] = player_reference_raw_table
+                player_reference_staging_kwargs["existing_reference_table"] = (
+                    player_reference_raw_table
+                )
             if player_reference_missing_rows == 0:
                 player_reference_skip_reason = (
                     "player reference covers all game-log players"
@@ -3466,9 +3468,9 @@ def run_bronze_contract_bootstrap(
         skip_reason=player_reference_skip_reason,
     )
     if player_reference_missing_rows is not None:
-        player_reference_bootstrap[
-            "missing_player_reference_rows_before"
-        ] = player_reference_missing_rows
+        player_reference_bootstrap["missing_player_reference_rows_before"] = (
+            player_reference_missing_rows
+        )
     domains["player_reference"] = player_reference_bootstrap
     return {
         "mode": normalized_mode,
@@ -4170,7 +4172,7 @@ def create_and_merge_game_line_scores_table(
     stats_sql = f"""
     SELECT
       COUNTIF(t.game_id IS NULL) AS inserted,
-      COUNTIF(t.game_id IS NOT NULL AND ({change_predicate.replace('T.', 't.').replace('S.', 's.')})) AS updated
+      COUNTIF(t.game_id IS NOT NULL AND ({change_predicate.replace("T.", "t.").replace("S.", "s.")})) AS updated
     FROM `{staging_table}` s
     LEFT JOIN `{raw_table}` t
       ON t.game_id = s.game_id
@@ -4283,7 +4285,7 @@ def create_and_merge_player_shot_locations_table(
     stats_sql = f"""
     SELECT
       COUNTIF(t.player_id IS NULL) AS inserted,
-      COUNTIF(t.player_id IS NOT NULL AND ({change_predicate.replace('T.', 't.').replace('S.', 's.')})) AS updated
+      COUNTIF(t.player_id IS NOT NULL AND ({change_predicate.replace("T.", "t.").replace("S.", "s.")})) AS updated
     FROM `{staging_table}` s
     LEFT JOIN `{raw_table}` t
       ON t.season = s.season
@@ -4415,7 +4417,7 @@ def create_and_merge_player_reference_table(
     stats_sql = f"""
     SELECT
       COUNTIF(t.player_id IS NULL) AS inserted,
-      COUNTIF(t.player_id IS NOT NULL AND ({change_predicate.replace('T.', 't.').replace('S.', 's.')})) AS updated
+      COUNTIF(t.player_id IS NOT NULL AND ({change_predicate.replace("T.", "t.").replace("S.", "s.")})) AS updated
     FROM `{staging_table}` s
     LEFT JOIN `{raw_table}` t
       ON t.player_id = s.player_id
@@ -4911,7 +4913,7 @@ def create_and_merge_injury_report_table(
     stats_sql = f"""
     SELECT
       COUNTIF(t.report_timestamp_utc IS NULL) AS inserted,
-      COUNTIF(t.report_timestamp_utc IS NOT NULL AND ({change_predicate.replace('T.', 't.').replace('S.', 's.')})) AS updated
+      COUNTIF(t.report_timestamp_utc IS NOT NULL AND ({change_predicate.replace("T.", "t.").replace("S.", "s.")})) AS updated
     FROM {staging_relation} s
     LEFT JOIN {raw_relation} t
       ON t.report_timestamp_utc = s.report_timestamp_utc

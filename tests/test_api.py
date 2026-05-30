@@ -836,7 +836,7 @@ class FakeRepository(WarehouseRepository):
         row_labels = focus_rows.get(focus, focus_rows["balanced"])
 
         def metric_rows(
-            metric_values: dict[str, float | None]
+            metric_values: dict[str, float | None],
         ) -> list[dict[str, object]]:
             label_to_key = {
                 "Box Score Index": "fantasy_proxy_score",

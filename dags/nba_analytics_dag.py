@@ -20,6 +20,7 @@ from pathlib import Path
 
 from airflow.decorators import dag, task
 from airflow.models import Variable
+
 from nba_pipeline_triage import (
     summarize_subprocess_failure,
     write_pipeline_triage_on_failure,
@@ -100,8 +101,9 @@ def persist_source_extract_snapshot(
     if frame.empty:
         return ""
 
-    from airflow.operators.python import get_current_context
     import pandas as pd
+    from airflow.operators.python import get_current_context
+
     import nba_pipeline as pipeline
 
     context = get_current_context()
@@ -135,6 +137,7 @@ def record_source_contract_audit(
     """Persist a source contract result and return the enriched result payload."""
     from airflow.operators.python import get_current_context
     from google.cloud import bigquery as bq
+
     import nba_pipeline as pipeline
 
     context = get_current_context()
@@ -171,6 +174,7 @@ def validate_source_contract_frame(
 ):
     """Validate and optionally quarantine rows before GCS landing."""
     from airflow.exceptions import AirflowFailException
+
     import nba_source_contracts as source_contracts
 
     try:
@@ -282,6 +286,7 @@ def nba_analytics_pipeline():
         """Fetch player game logs, apply replay-window filtering, and land a CSV in GCS."""
         import pandas as pd
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         season = SUPPORTED_SEASON
@@ -419,6 +424,7 @@ def nba_analytics_pipeline():
     def extract_game_line_scores(game_log_result: dict) -> dict:
         """Fetch team line scores for the incrementally changed game set."""
         import pandas as pd
+
         import nba_pipeline as pipeline
 
         season = game_log_result["season"]
@@ -510,6 +516,7 @@ def nba_analytics_pipeline():
     def extract_player_shot_locations() -> dict:
         """Fetch aggregate player shot-location profiles for the season."""
         import pandas as pd
+
         import nba_pipeline as pipeline
 
         season = SUPPORTED_SEASON
@@ -591,6 +598,7 @@ def nba_analytics_pipeline():
     def extract_player_reference() -> dict:
         """Fetch active-player reference attributes and roster context."""
         import pandas as pd
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -667,6 +675,7 @@ def nba_analytics_pipeline():
     def extract_schedule_context() -> dict:
         """Fetch the upcoming schedule window and land a CSV in GCS."""
         import pandas as pd
+
         import nba_pipeline as pipeline
 
         season = SUPPORTED_SEASON
@@ -747,6 +756,7 @@ def nba_analytics_pipeline():
         """Fetch bounded official NBA injury report snapshots and land a CSV."""
         import pandas as pd
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         season = SUPPORTED_SEASON
@@ -929,6 +939,7 @@ def nba_analytics_pipeline():
     def load_game_log_staging(extract_result: dict) -> dict:
         """Load landed game log rows to staging."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -976,6 +987,7 @@ def nba_analytics_pipeline():
     def load_schedule_staging(extract_result: dict) -> dict:
         """Load landed schedule rows to staging."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1015,6 +1027,7 @@ def nba_analytics_pipeline():
     def load_game_line_score_staging(extract_result: dict) -> dict:
         """Load landed game line score rows to staging."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1054,6 +1067,7 @@ def nba_analytics_pipeline():
     def load_player_shot_location_staging(extract_result: dict) -> dict:
         """Load landed aggregate player shot-location rows to staging."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1093,6 +1107,7 @@ def nba_analytics_pipeline():
     def load_player_reference_staging(extract_result: dict) -> dict:
         """Load landed player reference rows to staging."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1130,6 +1145,7 @@ def nba_analytics_pipeline():
     def load_injury_report_staging(extract_result: dict) -> dict:
         """Load landed official injury report rows to staging."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1175,6 +1191,7 @@ def nba_analytics_pipeline():
     def dq_game_log_staging(load_result: dict) -> dict:
         """Run hard DQ checks for game logs unless the run is a no-op."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         if load_result["row_count"] == 0:
@@ -1192,6 +1209,7 @@ def nba_analytics_pipeline():
     def dq_schedule_staging(load_result: dict) -> dict:
         """Run DQ checks for upcoming schedule rows."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         if load_result["row_count"] == 0:
@@ -1210,6 +1228,7 @@ def nba_analytics_pipeline():
     def dq_game_line_score_staging(load_result: dict) -> dict:
         """Run DQ checks for game line score rows."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         if load_result["row_count"] == 0:
@@ -1228,6 +1247,7 @@ def nba_analytics_pipeline():
     def dq_player_shot_location_staging(load_result: dict) -> dict:
         """Run DQ checks for aggregate player shot-location rows."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         if load_result["row_count"] == 0:
@@ -1246,6 +1266,7 @@ def nba_analytics_pipeline():
     def dq_player_reference_staging(load_result: dict) -> dict:
         """Run DQ checks for player reference rows."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         if load_result["row_count"] == 0:
@@ -1263,6 +1284,7 @@ def nba_analytics_pipeline():
     def dq_injury_report_staging(load_result: dict) -> dict:
         """Run DQ checks for official injury report rows."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         if load_result["row_count"] == 0:
@@ -1281,6 +1303,7 @@ def nba_analytics_pipeline():
     def merge_game_logs(load_result: dict) -> dict:
         """Merge staged game log rows into the bronze raw table."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1334,6 +1357,7 @@ def nba_analytics_pipeline():
     def merge_schedule_context(load_result: dict) -> dict:
         """Merge staged schedule rows into the bronze raw table."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1383,6 +1407,7 @@ def nba_analytics_pipeline():
     def merge_game_line_scores(load_result: dict) -> dict:
         """Merge staged game line score rows into the bronze raw table."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1432,6 +1457,7 @@ def nba_analytics_pipeline():
     def merge_player_shot_locations(load_result: dict) -> dict:
         """Merge staged aggregate player shot locations into the bronze raw table."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1481,6 +1507,7 @@ def nba_analytics_pipeline():
     def merge_player_reference(load_result: dict) -> dict:
         """Merge staged player reference rows into the bronze raw table."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1528,6 +1555,7 @@ def nba_analytics_pipeline():
     def merge_injury_reports(load_result: dict) -> dict:
         """Merge staged official injury report rows into the bronze raw table."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1722,6 +1750,7 @@ def nba_analytics_pipeline():
     ) -> dict:
         """Derive missing auxiliary bronze tables from raw game logs when needed."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -1829,6 +1858,7 @@ def nba_analytics_pipeline():
     def build_player_similarity_assets(merge_result: dict) -> dict:
         """Train archetype clusters and publish normalized similarity vectors."""
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         merge_result["similarity_status"] = "skipped"
@@ -1910,6 +1940,7 @@ def nba_analytics_pipeline():
         import pandas as pd
         from airflow.operators.python import get_current_context
         from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         merge_result["analysis_snapshot_status"] = "skipped"
@@ -2038,8 +2069,9 @@ def nba_analytics_pipeline():
     @task(retries=0)
     def publish_run_metrics(run_result: dict) -> dict:
         """Persist watermark state and run-level metadata."""
-        from google.cloud import bigquery as bq
         from airflow.operators.python import get_current_context
+        from google.cloud import bigquery as bq
+
         import nba_pipeline as pipeline
 
         project_id = get_project_id()
@@ -2326,7 +2358,7 @@ def nba_analytics_pipeline():
     redshift_exported = export_bigquery_bronze(combined)
     redshift_s3 = sync_to_s3(redshift_exported)
     redshift_loaded = load_redshift_bronze(redshift_s3)
-    redshift_modeled = dbt_build_redshift(redshift_loaded)
+    dbt_build_redshift(redshift_loaded)
     redshift_skipped = skip_redshift_sync(combined)
 
     redshift_check >> [redshift_exported, redshift_skipped]

@@ -539,8 +539,7 @@ def build_headshot_url(player_id: Any) -> str | None:
     if normalized_player_id is None:
         return None
     return (
-        "https://cdn.nba.com/headshots/nba/latest/1040x760/"
-        f"{normalized_player_id}.png"
+        f"https://cdn.nba.com/headshots/nba/latest/1040x760/{normalized_player_id}.png"
     )
 
 
@@ -1004,6 +1003,7 @@ def _format_recent_performance_trend(rows: list[dict[str, Any]]) -> dict[str, An
 def _format_recent_performance_game(row: dict[str, Any]) -> dict[str, Any]:
     away_team = row.get("away_team_abbr")
     home_team = row.get("home_team_abbr")
+    matchup: str | None
     if away_team and home_team:
         matchup = f"{away_team} @ {home_team}"
     else:
@@ -1090,28 +1090,21 @@ def _default_recent_form() -> list[dict[str, Any]]:
 
 
 class WarehouseRepository(Protocol):
-    def get_dashboard(self, as_of_date: str | None = None) -> dict[str, Any]:
-        ...
+    def get_dashboard(self, as_of_date: str | None = None) -> dict[str, Any]: ...
 
-    def get_leaderboard(self, limit: int = 10) -> list[dict[str, Any]]:
-        ...
+    def get_leaderboard(self, limit: int = 10) -> list[dict[str, Any]]: ...
 
-    def get_trends(self, limit: int = 10) -> list[dict[str, Any]]:
-        ...
+    def get_trends(self, limit: int = 10) -> list[dict[str, Any]]: ...
 
     def get_recommendations(
         self, limit: int = 10, insight_type: str | None = None
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
-    def get_rankings(self, limit: int = 25) -> list[dict[str, Any]]:
-        ...
+    def get_rankings(self, limit: int = 25) -> list[dict[str, Any]]: ...
 
-    def search_players(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
-        ...
+    def search_players(self, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
 
-    def get_player_detail(self, player_id: int) -> dict[str, Any] | None:
-        ...
+    def get_player_detail(self, player_id: int) -> dict[str, Any] | None: ...
 
     def get_compare(
         self,
@@ -1120,14 +1113,11 @@ class WarehouseRepository(Protocol):
         *,
         window: CompareWindow = "last_5",
         focus: CompareFocus = "balanced",
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
-    def get_latest_analysis(self) -> dict[str, Any] | None:
-        ...
+    def get_latest_analysis(self) -> dict[str, Any] | None: ...
 
-    def get_latest_successful_run(self) -> dict[str, Any] | None:
-        ...
+    def get_latest_successful_run(self) -> dict[str, Any] | None: ...
 
     def get_player_game_log(
         self,
@@ -1136,16 +1126,13 @@ class WarehouseRepository(Protocol):
         *,
         start_date: str | None = None,
         end_date: str | None = None,
-    ) -> dict[str, Any] | None:
-        ...
+    ) -> dict[str, Any] | None: ...
 
-    def get_recent_performance_dates(self) -> list[dict[str, Any]]:
-        ...
+    def get_recent_performance_dates(self) -> list[dict[str, Any]]: ...
 
     def get_recent_performance_games(
         self, *, game_date: str | None = None
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
     def get_recent_performance_players(
         self,
@@ -1153,24 +1140,21 @@ class WarehouseRepository(Protocol):
         game_date: str,
         game_id: str | None = None,
         limit: int = 240,
-    ) -> list[dict[str, Any]]:
-        ...
+    ) -> list[dict[str, Any]]: ...
 
     def get_recent_performance_player(
         self, player_id: int, *, game_id: str
-    ) -> dict[str, Any] | None:
-        ...
+    ) -> dict[str, Any] | None: ...
 
-    def get_metric_leaders(self, metric: str, limit: int = 10) -> list[dict[str, Any]]:
-        ...
+    def get_metric_leaders(
+        self, metric: str, limit: int = 10
+    ) -> list[dict[str, Any]]: ...
 
     def get_player_metric_percentile(
         self, player_id: int, metric: str, min_games: int = 5
-    ) -> dict[str, Any] | None:
-        ...
+    ) -> dict[str, Any] | None: ...
 
-    def get_health(self) -> dict[str, Any]:
-        ...
+    def get_health(self) -> dict[str, Any]: ...
 
 
 @dataclass
@@ -1188,6 +1172,8 @@ class BigQueryWarehouseRepository:
         job_config = None
         if params:
             job_config = bigquery.QueryJobConfig(query_parameters=params)
+        # __post_init__ always sets the client; assert documents the invariant.
+        assert self.client is not None
         result = self.client.query(sql, job_config=job_config).result()
         rows: list[dict[str, Any]] = []
         for row in result:
@@ -2116,7 +2102,7 @@ class BigQueryWarehouseRepository:
         chart_baselines: dict[str, dict[str, Any]],
     ) -> dict[str, Any]:
         archetype_state = STATE_UNAVAILABLE
-        archetype_payload = {
+        archetype_payload: dict[str, Any] = {
             "state": STATE_UNAVAILABLE,
             "archetype_id": None,
             "archetype_label": None,

@@ -139,9 +139,7 @@ SECRET_KEY_PATTERN = (
 SECRET_JSON_PATTERN = re.compile(
     rf"(?i)([\"'](?:{SECRET_KEY_PATTERN})[\"']\s*:\s*)[\"'][^\"']+[\"']"
 )
-SECRET_ASSIGNMENT_PATTERN = re.compile(
-    rf"(?i)\b({SECRET_KEY_PATTERN})\s*=\s*[^,\s]+"
-)
+SECRET_ASSIGNMENT_PATTERN = re.compile(rf"(?i)\b({SECRET_KEY_PATTERN})\s*=\s*[^,\s]+")
 SECRET_AUTH_PATTERN = re.compile(
     r"(?i)\b(authorization:\s*bearer\s+)[A-Za-z0-9._~+/=-]+"
 )
@@ -199,7 +197,9 @@ def _sanitize_error(message: Any) -> str | None:
     if message in (None, ""):
         return None
     cleaned = " ".join(str(message).strip().split())
-    cleaned = SECRET_JSON_PATTERN.sub(lambda match: f'{match.group(1)}"[REDACTED]"', cleaned)
+    cleaned = SECRET_JSON_PATTERN.sub(
+        lambda match: f'{match.group(1)}"[REDACTED]"', cleaned
+    )
     cleaned = SECRET_ASSIGNMENT_PATTERN.sub(
         lambda match: f"{match.group(1)}=[REDACTED]",
         cleaned,
@@ -351,7 +351,9 @@ def _find_primary_failed_task(tasks: Iterable[TaskHealth]) -> TaskHealth | None:
     return failed[0]
 
 
-def _first_dq_issue(tasks: Iterable[TaskHealth]) -> tuple[str, dict[str, Any], TaskHealth] | None:
+def _first_dq_issue(
+    tasks: Iterable[TaskHealth],
+) -> tuple[str, dict[str, Any], TaskHealth] | None:
     for task in tasks:
         dq_results = task.metrics.get("dq_results")
         if not isinstance(dq_results, dict):
@@ -379,8 +381,12 @@ def _first_dq_issue(tasks: Iterable[TaskHealth]) -> tuple[str, dict[str, Any], T
     return None
 
 
-def _classify_failure_type(tasks: list[TaskHealth], overall_state: str) -> tuple[str, str]:
-    if overall_state == "success" and not any(task.state in FAILED_STATES for task in tasks):
+def _classify_failure_type(
+    tasks: list[TaskHealth], overall_state: str
+) -> tuple[str, str]:
+    if overall_state == "success" and not any(
+        task.state in FAILED_STATES for task in tasks
+    ):
         return "healthy", "none"
 
     dq_issue = _first_dq_issue(tasks)
@@ -389,7 +395,9 @@ def _classify_failure_type(tasks: list[TaskHealth], overall_state: str) -> tuple
 
     primary_failed = _find_primary_failed_task(tasks)
     if primary_failed:
-        failure_type = FAILURE_TYPE_BY_STAGE.get(primary_failed.stage, "unknown_failure")
+        failure_type = FAILURE_TYPE_BY_STAGE.get(
+            primary_failed.stage, "unknown_failure"
+        )
         if "reconciliation failed" in (primary_failed.error or "").lower():
             failure_type = "merge_reconciliation_failure"
         return failure_type, primary_failed.stage
@@ -439,7 +447,9 @@ def _recommended_actions(
         dq_issue = _first_dq_issue(tasks)
         if dq_issue:
             metric, _, task = dq_issue
-            staging_table = task.metrics.get("staging_table", "the affected staging table")
+            staging_table = task.metrics.get(
+                "staging_table", "the affected staging table"
+            )
             if metric == "total_rows":
                 actions.append(
                     f"Rerun the extract window for {task.metrics.get('domain', task.task_id)} and confirm {staging_table} is not empty before DQ."
@@ -539,7 +549,9 @@ def _build_evidence(
             if "reconciliation" in task.metrics
         },
         "dbt": {
-            "task_id": primary_failed.task_id if primary_failed and primary_failed.stage == "dbt_run_test" else "dbt_build",
+            "task_id": primary_failed.task_id
+            if primary_failed and primary_failed.stage == "dbt_run_test"
+            else "dbt_build",
             "status": (
                 "failed"
                 if failure_type == "dbt_failure"
@@ -547,7 +559,8 @@ def _build_evidence(
                     (
                         task.metrics.get("dbt_status")
                         for task in tasks
-                        if task.task_id == "dbt_build" and task.metrics.get("dbt_status")
+                        if task.task_id == "dbt_build"
+                        and task.metrics.get("dbt_status")
                     ),
                     "unknown",
                 )
@@ -670,9 +683,12 @@ def summarize_subprocess_failure(
     output = stderr or stdout or ""
     lines = [line.strip() for line in output.splitlines() if line.strip()]
     tail = " | ".join(lines[-8:]) if lines else "no subprocess output captured"
-    return _sanitize_error(
-        f"Command `{' '.join(command)}` failed with exit code {returncode}. {tail}"
-    ) or f"Command `{' '.join(command)}` failed with exit code {returncode}."
+    return (
+        _sanitize_error(
+            f"Command `{' '.join(command)}` failed with exit code {returncode}. {tail}"
+        )
+        or f"Command `{' '.join(command)}` failed with exit code {returncode}."
+    )
 
 
 def emit_triage_from_context(context: dict[str, Any]) -> dict[str, Any] | None:
@@ -710,7 +726,9 @@ def emit_triage_from_context(context: dict[str, Any]) -> dict[str, Any] | None:
         logger.info("Pipeline triage summary: %s", artifact.human_summary)
         return artifact.to_dict()
     except Exception:
-        logger.exception("Failed to emit pipeline triage artifact for run %s", dag_run.run_id)
+        logger.exception(
+            "Failed to emit pipeline triage artifact for run %s", dag_run.run_id
+        )
         return None
 
 

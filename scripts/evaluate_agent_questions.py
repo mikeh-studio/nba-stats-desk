@@ -122,7 +122,10 @@ def main() -> int:
         print(f"  tools: {tool_names}", flush=True)
         print(f"  answer: {payload.get('answer')}", flush=True)
         if args.json:
-            print(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False), flush=True)
+            print(
+                json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False),
+                flush=True,
+            )
 
         if errors:
             failures.extend([f"{case_id}: {error}" for error in errors])

@@ -64,6 +64,8 @@ def _coerce_float(value: Any) -> float | None:
 
 def _eval_node(node: ast.AST, values: dict[str, Any]) -> float | None:
     if isinstance(node, ast.Constant):
+        # _validate_node guarantees constants are numeric.
+        assert isinstance(node.value, (int, float))
         return float(node.value)
     if isinstance(node, ast.Name):
         return _coerce_float(values.get(node.id))
@@ -97,6 +99,8 @@ def compile_formula_sql(formula: str, column_map: dict[str, str]) -> str:
 
 def _compile_node(node: ast.AST, column_map: dict[str, str]) -> str:
     if isinstance(node, ast.Constant):
+        # _validate_node guarantees constants are numeric.
+        assert isinstance(node.value, (int, float))
         return str(float(node.value))
     if isinstance(node, ast.Name):
         column = column_map.get(node.id)
