@@ -93,6 +93,14 @@ to those matches by their projected coordinates, so an edge can point to a
 player who sits visually far away — the projection is a map, the cosine score
 is the truth.
 
+To populate `proj_*` immediately (instead of waiting for the next scheduled
+run), recompute and republish with the existing pipeline path:
+
+```bash
+python scripts/backfill_similarity_projection.py          # dry run (read-only)
+python scripts/backfill_similarity_projection.py --write   # publish to BigQuery
+```
+
 ## Validation
 
 Local validation that does not require BigQuery:

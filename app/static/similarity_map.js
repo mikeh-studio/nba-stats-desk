@@ -97,23 +97,28 @@
     return lines.join("<br>");
   }
 
-  function buildTraces(players, archetypes) {
-    const order = archetypes.map((a) => a.archetype_label);
+  // archetype_label is per-player and granular (e.g. "Scoring Guard - Scoring
+  // Volume / Recent Scoring"). Color by the base family (the part before the
+  // first " - ") so the legend stays readable and meaningful.
+  function baseArchetype(label) {
+    const text = (label || "Unclassified").split(" - ")[0].trim();
+    return text || "Unclassified";
+  }
+
+  function buildTraces(players) {
     const byLabel = new Map();
     players.forEach((player) => {
-      const label = player.archetype_label || "Unclassified";
+      const label = baseArchetype(player.archetype_label);
       if (!byLabel.has(label)) {
         byLabel.set(label, []);
       }
       byLabel.get(label).push(player);
     });
 
-    const labels = order.filter((label) => byLabel.has(label));
-    byLabel.forEach((_, label) => {
-      if (!labels.includes(label)) {
-        labels.push(label);
-      }
-    });
+    // Most populous families first, so palette order tracks prominence.
+    const labels = Array.from(byLabel.keys()).sort(
+      (a, b) => byLabel.get(b).length - byLabel.get(a).length || a.localeCompare(b),
+    );
 
     return labels.map((label, index) => {
       const group = byLabel.get(label);
@@ -161,6 +166,13 @@
       window.Plotly.deleteTraces(plotEl, extraIndices);
       extraIndices = [];
     }
+  }
+
+  // The CSS grid hands the plot a narrower column when the panel opens (and the
+  // full width back when it closes). Plotly only auto-resizes on window resize,
+  // so nudge it after the layout reflows or the legend collides with the panel.
+  function resizePlot() {
+    window.requestAnimationFrame(() => window.Plotly.Plots.resize(plotEl));
   }
 
   function formatScore(score) {
@@ -217,6 +229,7 @@
     if (clearBtn) {
       clearBtn.hidden = false;
     }
+    resizePlot();
   }
 
   function drawSelection(anchor, payload) {
@@ -345,6 +358,7 @@
     if (searchInput) {
       searchInput.value = "";
     }
+    resizePlot();
   }
 
   function resolveSearch() {
@@ -416,8 +430,7 @@
     }
 
     indexPlayers(players);
-    const archetypes = data.archetypes || [];
-    const traces = buildTraces(players, archetypes);
+    const traces = buildTraces(players);
     baseTraceCount = traces.length;
 
     const layout = {
@@ -457,7 +470,7 @@
     });
 
     wireControls();
-    setMeta(players.length + " players · " + archetypes.length + " archetypes");
+    setMeta(players.length + " players · " + traces.length + " archetypes");
   }
 
   function init() {
