@@ -8,6 +8,7 @@ private model package.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
@@ -461,34 +462,62 @@ def _candidate_cluster_counts(
     return [effective] if effective else []
 
 
+def _feature_display_label(feature_name: str) -> str:
+    """Human-readable name for a similarity feature (for axis annotations)."""
+    label = SIMILARITY_TRAIT_LABELS.get(feature_name)
+    if label:
+        return label
+    return feature_name.replace("_", " ")
+
+
+def _axis_drivers(loadings: Any, *, limit: int = 3) -> List[str]:
+    """Top features (by absolute PCA loading) that define an axis."""
+    import numpy as np
+
+    order = np.argsort(np.abs(loadings))[::-1]
+    drivers: List[str] = []
+    for index in order:
+        label = _feature_display_label(SIMILARITY_FEATURE_COLUMNS[int(index)])
+        if label not in drivers:
+            drivers.append(label)
+        if len(drivers) >= limit:
+            break
+    return drivers
+
+
 def _project_similarity_vectors(
     model_values: Any,
     *,
     random_state: int = RANDOM_STATE,
-) -> Tuple[Any, List[float]]:
+) -> Tuple[Any, List[Dict[str, Any]]]:
     """Project the L2-normalized similarity vectors to 3D with PCA.
 
     The projection runs on the same vectors the served cosine similarity uses,
-    so spatial proximity on the map tracks the similarity metric. When there are
-    fewer samples or features than requested components (small backfills, tests),
-    the remaining coordinate columns are padded with zeros so the output shape is
-    stable. Coordinates are an approximate map only.
+    so spatial proximity on the map tracks the similarity metric. Each axis also
+    gets its explained-variance share and its top driving features (from the PCA
+    loadings) so the plot can label PC1/PC2/PC3 with what actually separates
+    players. When there are fewer samples or features than requested components
+    (small backfills, tests), the extra coordinate columns are padded with zeros
+    so the output shape is stable. Coordinates are an approximate map only.
     """
     import numpy as np
     from sklearn.decomposition import PCA
 
     n_samples, n_features = model_values.shape
     coords = np.zeros((n_samples, PROJECTION_COMPONENTS), dtype=float)
-    variance: List[float] = [0.0] * PROJECTION_COMPONENTS
+    axes: List[Dict[str, Any]] = [
+        {"key": key, "variance": 0.0, "drivers": []} for key in PROJECTION_COLUMNS
+    ]
     components = min(PROJECTION_COMPONENTS, n_samples, n_features)
     if components < 1:
-        return coords, variance
+        return coords, axes
 
     pca = PCA(n_components=components, svd_solver="full", random_state=random_state)
     coords[:, :components] = pca.fit_transform(model_values)
     for index in range(components):
-        variance[index] = round(float(pca.explained_variance_ratio_[index]), 4)
-    return np.round(coords, 5), variance
+        axes[index]["variance"] = round(float(pca.explained_variance_ratio_[index]), 4)
+        axes[index]["drivers"] = _axis_drivers(pca.components_[index])
+    return np.round(coords, 5), axes
 
 
 def train_player_similarity_model(
@@ -547,9 +576,12 @@ def train_player_similarity_model(
     }
     modeling = modeling.assign(**normalized_columns)
 
-    projection_coords, projection_variance = _project_similarity_vectors(model_values)
+    projection_coords, projection_axes = _project_similarity_vectors(model_values)
     for index, column in enumerate(PROJECTION_COLUMNS):
         modeling[column] = projection_coords[:, index]
+    # Axis annotations are model-run metadata; store the same JSON on every row
+    # so the serving layer can read it from the projection table.
+    modeling["projection_axes"] = json.dumps(projection_axes)
 
     cluster_summaries: Dict[int, Dict[str, Any]] = {}
     for cluster_index in sorted(modeling["cluster_index"].unique()):
@@ -634,6 +666,7 @@ def train_player_similarity_model(
             *SIMILARITY_FEATURE_COLUMNS,
             *[f"norm_{feature_name}" for feature_name in SIMILARITY_FEATURE_COLUMNS],
             *PROJECTION_COLUMNS,
+            "projection_axes",
         ]
     ].copy()
 
@@ -669,7 +702,8 @@ def train_player_similarity_model(
         "vector_normalization": MODEL_VECTOR_NORMALIZATION,
         "projection_method": PROJECTION_METHOD,
         "projection_components": int(min(PROJECTION_COMPONENTS, len(modeling))),
-        "projection_explained_variance": projection_variance,
+        "projection_explained_variance": [axis["variance"] for axis in projection_axes],
+        "projection_axes": projection_axes,
         "empty_imputed_features": empty_columns,
         "cluster_counts": {
             str(cluster_index): int(count)

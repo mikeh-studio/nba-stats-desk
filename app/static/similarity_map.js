@@ -29,6 +29,7 @@
   const plotEl = document.getElementById("similarity-plot");
   const metaEl = document.getElementById("map-meta");
   const noteEl = document.getElementById("map-note");
+  const axesNoteEl = document.getElementById("map-axes-note");
   const layoutEl = document.querySelector(".map-layout");
   const panelEl = document.getElementById("map-panel");
   const panelName = document.getElementById("map-panel-name");
@@ -151,6 +152,44 @@
       showbackground: true,
       tickfont: { color: FONT_COLOR, size: 10 },
     };
+  }
+
+  function variancePct(meta) {
+    return typeof meta.variance === "number" && meta.variance > 0
+      ? " (" + Math.round(meta.variance * 100) + "%)"
+      : "";
+  }
+
+  // PCA axes are blends of all features. Label each with its single top driver
+  // + the share of variance it captures, so PC1/2/3 read as "what separates
+  // players" without crowding the 3D scene. The full driver list is in the
+  // caption below the plot.
+  function axisTitle(meta, fallback) {
+    if (!meta) {
+      return fallback;
+    }
+    const top = (meta.drivers || [])[0];
+    return top
+      ? fallback + " · " + top + variancePct(meta)
+      : fallback + variancePct(meta);
+  }
+
+  function renderAxesCaption(axes) {
+    if (!axesNoteEl) {
+      return;
+    }
+    if (!axes.length) {
+      axesNoteEl.textContent = "";
+      return;
+    }
+    const parts = axes.map((meta, index) => {
+      const drivers = (meta.drivers || []).join(", ");
+      return (
+        "PC" + (index + 1) + variancePct(meta) + (drivers ? " — " + drivers : "")
+      );
+    });
+    axesNoteEl.textContent =
+      "Each axis is a PCA blend of all stats: " + parts.join("; ") + ".";
   }
 
   function baseIndices() {
@@ -442,6 +481,9 @@
     const traces = buildTraces(players);
     baseTraceCount = traces.length;
 
+    const axes = Array.isArray(data.axes) ? data.axes : [];
+    renderAxesCaption(axes);
+
     const layout = {
       paper_bgcolor: AXIS_BG,
       plot_bgcolor: AXIS_BG,
@@ -454,9 +496,9 @@
         itemsizing: "constant",
       },
       scene: {
-        xaxis: axis("PC1"),
-        yaxis: axis("PC2"),
-        zaxis: axis("PC3"),
+        xaxis: axis(axisTitle(axes[0], "PC1")),
+        yaxis: axis(axisTitle(axes[1], "PC2")),
+        zaxis: axis(axisTitle(axes[2], "PC3")),
         aspectmode: "cube",
       },
     };

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -768,8 +769,17 @@ def test_get_player_metric_percentile_rejects_unknown_metric() -> None:
 def test_get_similarity_map_decorates_rows_and_summarizes(monkeypatch) -> None:
     repo = _build_repository()
 
+    axes_json = json.dumps(
+        [
+            {"key": "proj_x", "variance": 0.28, "drivers": ["scoring volume", "usage"]},
+            {"key": "proj_y", "variance": 0.19, "drivers": ["rim protection"]},
+            {"key": "proj_z", "variance": 0.11, "drivers": ["playmaking"]},
+        ]
+    )
+
     def fake_query(sql, *_args, **_kwargs):
         assert "proj_x" in sql
+        assert "projection_axes" in sql
         assert "sample_status IN ('ready', 'limited_sample')" in sql
         return [
             {
@@ -785,6 +795,7 @@ def test_get_similarity_map_decorates_rows_and_summarizes(monkeypatch) -> None:
                 "proj_x": 0.1,
                 "proj_y": 0.2,
                 "proj_z": 0.3,
+                "projection_axes": axes_json,
             },
             {
                 "player_id": 2,
@@ -814,6 +825,10 @@ def test_get_similarity_map_decorates_rows_and_summarizes(monkeypatch) -> None:
     assert first["archetype_label"] == "Scoring Guard - Scoring Volume / Recent Scoring"
     # ...but the summary collapses both to the base archetype family.
     assert result["archetypes"] == [{"archetype_label": "Scoring Guard", "count": 2}]
+    # Axis metadata is parsed from the projection_axes JSON.
+    assert [axis["key"] for axis in result["axes"]] == ["proj_x", "proj_y", "proj_z"]
+    assert result["axes"][0]["variance"] == 0.28
+    assert result["axes"][0]["drivers"] == ["scoring volume", "usage"]
 
 
 def test_get_similarity_map_returns_empty_on_bigquery_error(monkeypatch) -> None:

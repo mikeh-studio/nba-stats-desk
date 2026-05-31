@@ -1010,6 +1010,15 @@ class FakeRepository(WarehouseRepository):
                 }
             ],
             "archetypes": [{"archetype_label": "Scoring Guard", "count": 1}],
+            "axes": [
+                {
+                    "key": "proj_x",
+                    "variance": 0.28,
+                    "drivers": ["scoring volume", "usage"],
+                },
+                {"key": "proj_y", "variance": 0.19, "drivers": ["rim protection"]},
+                {"key": "proj_z", "variance": 0.11, "drivers": ["playmaking"]},
+            ],
         }
 
     def get_similarity_neighbors(self, player_id: int, *, limit: int = 6) -> dict:
@@ -1721,6 +1730,8 @@ def test_api_similarity_map_returns_players_and_archetypes() -> None:
     assert payload["players"][0]["player_name"] == "Alpha Guard"
     assert payload["players"][0]["x"] == 0.12
     assert payload["archetypes"] == [{"archetype_label": "Scoring Guard", "count": 1}]
+    assert payload["axes"][0]["key"] == "proj_x"
+    assert payload["axes"][0]["drivers"] == ["scoring volume", "usage"]
 
 
 def test_similarity_map_page_smoke() -> None:
@@ -1731,6 +1742,7 @@ def test_similarity_map_page_smoke() -> None:
     assert "Player Similarity Map" in response.text
     assert "/static/similarity_map.js" in response.text
     assert "plotly-gl3d" in response.text
+    assert 'id="map-axes-note"' in response.text
 
 
 def test_api_similarity_map_neighbors_returns_ranked_matches() -> None:

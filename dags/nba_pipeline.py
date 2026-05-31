@@ -5910,6 +5910,7 @@ def _player_similarity_feature_schema() -> List[bigquery.SchemaField]:
         fields.append(bigquery.SchemaField(f"norm_{feature_name}", "FLOAT64"))
     for projection_column in player_similarity_model.PROJECTION_COLUMNS:
         fields.append(bigquery.SchemaField(projection_column, "FLOAT64"))
+    fields.append(bigquery.SchemaField("projection_axes", "STRING"))
     return fields
 
 

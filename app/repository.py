@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from math import sqrt
@@ -2362,6 +2363,30 @@ class BigQueryWarehouseRepository:
         }
 
     @staticmethod
+    def _parse_projection_axes(value: Any) -> list[dict[str, Any]]:
+        """Decode the projection_axes JSON (axis variance + driving features)."""
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else value
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(parsed, list):
+            return []
+        axes: list[dict[str, Any]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            axes.append(
+                {
+                    "key": item.get("key"),
+                    "variance": _to_float(item.get("variance")),
+                    "drivers": [str(d) for d in item.get("drivers", []) if d],
+                }
+            )
+        return axes
+
+    @staticmethod
     def _base_archetype_label(label: str | None) -> str:
         # archetype_label is per-player and granular (e.g. "Scoring Guard -
         # Scoring Volume / Recent Scoring"). The family before the first " - "
@@ -2404,7 +2429,8 @@ class BigQueryWarehouseRepository:
           sample_status,
           proj_x,
           proj_y,
-          proj_z
+          proj_z,
+          projection_axes
         FROM {self._similarity_feature_table()}
         WHERE season = @season
           AND sample_status IN ('ready', 'limited_sample')
@@ -2419,13 +2445,22 @@ class BigQueryWarehouseRepository:
                 [bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON)],
             )
         except BQAPIError:
-            return {"season": SUPPORTED_SEASON, "players": [], "archetypes": []}
+            return {
+                "season": SUPPORTED_SEASON,
+                "players": [],
+                "archetypes": [],
+                "axes": [],
+            }
 
         players = [self._decorate_similarity_map_row(row) for row in rows]
+        axes = (
+            self._parse_projection_axes(rows[0].get("projection_axes")) if rows else []
+        )
         return {
             "season": SUPPORTED_SEASON,
             "players": players,
             "archetypes": self._summarize_map_archetypes(players),
+            "axes": axes,
         }
 
     def get_similarity_neighbors(

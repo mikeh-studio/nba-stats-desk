@@ -73,7 +73,10 @@ The baseline path:
    for the similarity map. PCA is used instead of t-SNE/UMAP so the published
    coordinates are deterministic and reproducible across runs. The projection
    is an approximate map only; the cosine similarity score remains the source
-   of truth, and explained variance is reported in diagnostics.
+   of truth, and explained variance is reported in diagnostics. Each axis also
+   gets its top driving features (from the PCA loadings, mapped to trait
+   labels), published as a `projection_axes` JSON column so the map can label
+   PC1/PC2/PC3 with what actually separates players.
 9. Publishes normalized feature vectors, projection coordinates, archetype
    labels, confidence, top traits, and table diagnostics.
 
