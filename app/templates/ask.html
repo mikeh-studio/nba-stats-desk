@@ -7,11 +7,7 @@
         <h1>Ask NBA Stats</h1>
       </div>
       <div class="hero-actions">
-        {% if health.status == "stale" %}
-          <span class="status" title="{{ health.last_successful_finished_at_utc or '' }}">Last refresh {{ health.last_successful_finished_at_utc | time_ago }}</span>
-        {% elif health.status == "fresh" %}
-          <span class="status">Data fresh</span>
-        {% endif %}
+        <span class="status" data-health-status>Data status loading</span>
       </div>
     </div>
 
@@ -184,5 +180,5 @@
     }
   </style>
 
-  <script type="module" src="/static/agent.js"></script>
+  <script type="module" src="/static/agent.js?v={{ static_version }}"></script>
 {% endblock %}

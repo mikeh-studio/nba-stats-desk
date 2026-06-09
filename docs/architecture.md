@@ -78,6 +78,7 @@ Gold serving models:
 - `player_opportunity_outlook`
 - `player_availability_current`
 - `player_search_index`
+- `recent_performance_workbench`
 - `workbench_compare`
 - `workbench_dashboard`
 - `workbench_home_dashboard`

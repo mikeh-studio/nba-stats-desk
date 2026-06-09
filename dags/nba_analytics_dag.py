@@ -29,14 +29,18 @@ from nba_pipeline_triage import (
 
 logger = logging.getLogger("nba_pipeline")
 SUPPORTED_SEASON = "2025-26"
+SCHEDULE_END_DATE = datetime(2026, 7, 1)
 
 
 def get_config(key: str, default: str | None = None) -> str | None:
     """Read from Airflow Variables first, fall back to env var, then default."""
     try:
-        return Variable.get(key)
+        value = Variable.get(key)
     except Exception:
-        return os.getenv(key, default)
+        value = os.getenv(key, default)
+    if isinstance(value, str):
+        return value.strip().strip("\"'")
+    return value
 
 
 def get_project_id() -> str:
@@ -269,6 +273,7 @@ default_args = {
     description="Incremental NBA 2025-26 player stats pipeline with BigQuery + dbt",
     schedule="0 11 * * *",
     start_date=datetime(2025, 1, 1),
+    end_date=SCHEDULE_END_DATE,
     catchup=False,
     max_active_runs=1,
     dagrun_timeout=timedelta(hours=2),

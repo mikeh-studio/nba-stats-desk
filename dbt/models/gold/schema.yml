@@ -306,6 +306,48 @@ models:
               arguments:
                 to: ref('dim_team')
                 field: team_abbr
+  - name: recent_performance_workbench
+    columns:
+      - name: season
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['2025-26']
+      - name: game_date
+        tests: [not_null]
+      - name: game_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_game')
+                field: game_id
+      - name: player_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_player')
+                field: player_id
+      - name: team_abbr
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: *nba_team_abbrs
+          - relationships:
+              arguments:
+                to: ref('dim_team')
+                field: team_abbr
+      - name: performance_status
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['above', 'below', 'near']
+      - name: trend_points_json
+        tests: [not_null]
   - name: player_category_profile
     columns:
       - name: player_id

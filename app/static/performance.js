@@ -14,7 +14,10 @@
     sortDir: "desc",
     trendStat: "pts",
     currentDetail: null,
+    selectionRequestId: 0,
     detailRequestId: 0,
+    renderFrame: 0,
+    detailCache: new Map(),
   };
 
   const $ = (selector) => document.querySelector(selector);
@@ -84,17 +87,18 @@
   }
 
   async function fetchJson(url) {
-    const response = await fetch(url, { cache: "no-store" });
+    const response = await fetch(url, { cache: "default" });
     if (!response.ok) {
       throw new Error(`Request failed: ${response.status}`);
     }
     return response.json();
   }
 
-  function setEmpty(message) {
+  function setEmpty(message, isBusy = false) {
     $("#performance-empty").hidden = false;
     $("#performance-empty").querySelector("p").textContent = message;
     $("#performance-table-wrap").hidden = true;
+    $("#performance-table-wrap").setAttribute("aria-busy", isBusy ? "true" : "false");
   }
 
   function setDetailEmpty(message) {
@@ -102,6 +106,10 @@
     $("#performance-detail-empty").querySelector("p").textContent = message;
     $("#performance-detail").hidden = true;
     $("#performance-detail-title").textContent = "Player View";
+  }
+
+  function setTableBusy(isBusy) {
+    $("#performance-table-wrap").setAttribute("aria-busy", isBusy ? "true" : "false");
   }
 
   function populateDates() {
@@ -115,7 +123,12 @@
     select.innerHTML = state.dates
       .map((date) => `<option value="${esc(date.value)}">${esc(date.label)}</option>`)
       .join("");
-    state.selectedDate = state.dates[0].value;
+    if (
+      !state.selectedDate ||
+      !state.dates.some((date) => date.value === state.selectedDate)
+    ) {
+      state.selectedDate = state.dates[0].value;
+    }
     select.value = state.selectedDate;
   }
 
@@ -166,7 +179,7 @@
       return `
         <div class="player-avatar" aria-hidden="true">
           <img src="${esc(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
-          <span class="player-avatar-fallback" hidden>${esc(player.player_initials || "NBA")}</span>
+          <span class="player-avatar-fallback">${esc(player.player_initials || "NBA")}</span>
         </div>
       `;
     }
@@ -234,11 +247,15 @@
         `;
       })
       .join("");
+  }
 
-    tbody.querySelectorAll(".performance-player-button").forEach((button) => {
-      button.addEventListener("click", () => {
-        loadPlayerDetail(button.dataset.playerId, button.dataset.gameId);
-      });
+  function scheduleRenderPlayers() {
+    if (state.renderFrame) {
+      cancelAnimationFrame(state.renderFrame);
+    }
+    state.renderFrame = requestAnimationFrame(() => {
+      state.renderFrame = 0;
+      renderPlayers();
     });
   }
 
@@ -423,7 +440,7 @@
 
     const avatar = $("#performance-detail-avatar");
     avatar.innerHTML = item.headshot_url
-      ? `<img src="${esc(item.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback" hidden>${esc(item.player_initials || "NBA")}</span>`
+      ? `<img src="${esc(item.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback">${esc(item.player_initials || "NBA")}</span>`
       : `<span class="player-avatar-fallback">${esc(item.player_initials || "NBA")}</span>`;
 
     $("#performance-detail-summary").innerHTML = (item.metrics || [])
@@ -447,30 +464,58 @@
     renderTrendChart(item);
   }
 
-  async function loadPlayerDetail(playerId, gameId) {
+  function renderDetailPreview(item) {
+    renderDetail(item);
+    $("#performance-detail-meta").textContent = `${statusLabel(item.performance_status)} - ${fmtSigned(item.performance_score)} score - ${item.games_sampled || 0} season games - loading detail`;
+    $("#performance-trend-meta").textContent = "Loading 30-day trend and percentile ranges.";
+    $("#performance-trend-chart").innerHTML = '<div class="empty-state"><p>Loading trend rows...</p></div>';
+  }
+
+  function showFirstPlayerDetail() {
+    if (state.players.length === 0) return;
+    const first = state.players[0];
+    renderDetailPreview(first);
+    loadPlayerDetail(first.player_id, first.game_id, { keepPreview: true });
+  }
+
+  async function loadPlayerDetail(playerId, gameId, options = {}) {
     if (!playerId || !gameId) return;
+    const key = `${playerId}:${gameId}`;
+    const cached = state.detailCache.get(key);
+    if (cached) {
+      renderDetail(cached);
+      return;
+    }
     const requestId = ++state.detailRequestId;
-    setDetailEmpty("Loading percentile ranges...");
+    if (!options.keepPreview) {
+      setDetailEmpty("Loading percentile ranges...");
+    }
     try {
       const data = await fetchJson(
         `/api/performance/players/${encodeURIComponent(playerId)}?game_id=${encodeURIComponent(gameId)}`
       );
       if (requestId !== state.detailRequestId) return;
+      state.detailCache.set(key, data.item);
       renderDetail(data.item);
     } catch {
       if (requestId !== state.detailRequestId) return;
-      setDetailEmpty("Could not load this player performance row.");
+      if (options.keepPreview) {
+        $("#performance-trend-meta").textContent = "Detailed percentile ranges could not load.";
+        $("#performance-trend-chart").innerHTML = '<div class="empty-state"><p>Trend rows are unavailable.</p></div>';
+      } else {
+        setDetailEmpty("Could not load this player performance row.");
+      }
     }
   }
 
-  async function loadPlayers() {
+  async function loadPlayers(requestId = state.selectionRequestId) {
     if (!state.selectedDate) {
       state.players = [];
       renderPlayers();
       return;
     }
     $("#performance-player-filter").disabled = true;
-    setEmpty("Loading player rows...");
+    setEmpty("Loading player rows...", true);
     state.currentDetail = null;
     state.detailRequestId += 1;
     setDetailEmpty("Pick a row from the player list.");
@@ -478,42 +523,81 @@
     if (state.selectedGameId) params.set("game_id", state.selectedGameId);
     try {
       const data = await fetchJson(`/api/performance/players?${params.toString()}`);
+      if (requestId !== state.selectionRequestId) return;
       state.players = data.items || [];
       $("#performance-player-filter").disabled = false;
       state.selectedKey = "";
+      setTableBusy(false);
       renderPlayers();
       if (state.players.length > 0) {
-        const first = state.players[0];
-        loadPlayerDetail(first.player_id, first.game_id);
+        showFirstPlayerDetail();
       }
     } catch {
+      if (requestId !== state.selectionRequestId) return;
       state.players = [];
+      setTableBusy(false);
       setEmpty("Could not load player rows.");
     }
   }
 
-  async function loadGames() {
+  async function loadGames(requestId = state.selectionRequestId) {
     state.games = [];
-    state.selectedGameId = "";
     populateGames();
     if (!state.selectedDate) return;
     try {
       const data = await fetchJson(
         `/api/performance/games?game_date=${encodeURIComponent(state.selectedDate)}`
       );
+      if (requestId !== state.selectionRequestId) return;
       state.games = data.items || [];
       populateGames();
     } catch {
+      if (requestId !== state.selectionRequestId) return;
       state.games = [];
       populateGames();
     }
   }
 
   async function loadDate(dateValue) {
+    await loadInitial(dateValue);
+  }
+
+  async function loadInitial(dateValue = "") {
+    const requestId = ++state.selectionRequestId;
     state.selectedDate = dateValue;
     state.selectedGameId = "";
-    await loadGames();
-    await loadPlayers();
+    $("#performance-player-filter").disabled = true;
+    setEmpty("Loading player rows...", true);
+    setDetailEmpty("Pick a row from the player list.");
+    const params = new URLSearchParams();
+    if (dateValue) params.set("game_date", dateValue);
+    try {
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      const data = await fetchJson(`/api/performance/initial${suffix}`);
+      if (requestId !== state.selectionRequestId) return;
+      state.dates = data.dates || [];
+      state.selectedDate = data.selected_date || "";
+      state.selectedGameId = data.selected_game_id || "";
+      state.games = data.games || [];
+      state.players = data.players || [];
+      populateDates();
+      populateGames();
+      $("#performance-player-filter").disabled = state.players.length === 0;
+      setTableBusy(false);
+      if (state.selectedDate) {
+        renderPlayers();
+        showFirstPlayerDetail();
+      } else {
+        setEmpty("No recent game dates are available.");
+      }
+    } catch {
+      if (requestId !== state.selectionRequestId) return;
+      $("#performance-date-select").innerHTML = '<option value="">Unavailable</option>';
+      state.games = [];
+      state.players = [];
+      setTableBusy(false);
+      setEmpty("Could not load recent game dates.");
+    }
   }
 
   function initEvents() {
@@ -523,12 +607,12 @@
 
     $("#performance-game-select").addEventListener("change", (event) => {
       state.selectedGameId = event.target.value;
-      loadPlayers();
+      loadPlayers(++state.selectionRequestId);
     });
 
     $("#performance-player-filter").addEventListener("input", (event) => {
       state.nameFilter = event.target.value;
-      renderPlayers();
+      scheduleRenderPlayers();
     });
 
     $("#performance-status-tabs").querySelectorAll("[data-status]").forEach((button) => {
@@ -538,7 +622,7 @@
           .forEach((item) => item.classList.remove("is-active"));
         button.classList.add("is-active");
         state.statusFilter = button.dataset.status || "all";
-        renderPlayers();
+        scheduleRenderPlayers();
       });
     });
 
@@ -551,8 +635,16 @@
           state.sortKey = nextKey;
           state.sortDir = "desc";
         }
-        renderPlayers();
+        scheduleRenderPlayers();
       });
+    });
+
+    $("#performance-player-rows").addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const button = target.closest(".performance-player-button");
+      if (!button) return;
+      loadPlayerDetail(button.dataset.playerId, button.dataset.gameId);
     });
 
     $("#performance-trend-tabs").querySelectorAll("[data-trend-stat]").forEach((button) => {
@@ -565,19 +657,7 @@
 
   async function init() {
     initEvents();
-    try {
-      const data = await fetchJson("/api/performance/dates");
-      state.dates = data.items || [];
-      populateDates();
-      if (state.selectedDate) {
-        await loadDate(state.selectedDate);
-      } else {
-        setEmpty("No recent game dates are available.");
-      }
-    } catch {
-      $("#performance-date-select").innerHTML = '<option value="">Unavailable</option>';
-      setEmpty("Could not load recent game dates.");
-    }
+    await loadInitial();
   }
 
   document.addEventListener("DOMContentLoaded", init);

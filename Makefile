@@ -8,6 +8,7 @@ endif
 export AIRFLOW_HOME ?= $(CURDIR)/airflow_home
 export AIRFLOW__CORE__DAGS_FOLDER ?= $(CURDIR)/dags
 export AIRFLOW__CORE__LOAD_EXAMPLES ?= False
+export PATH := $(CURDIR)/.venv-airflow/bin:$(PATH)
 
 AIRFLOW_PYTHON := $(firstword $(wildcard $(CURDIR)/.venv-airflow/bin/python3*))
 ifeq ($(AIRFLOW_PYTHON),)
@@ -20,9 +21,13 @@ endif
 
 FULL_SEASON_REPLAY_DAYS ?= 365
 
-.PHONY: airflow-init airflow-sync airflow-create-user airflow-webserver airflow-scheduler airflow-trigger airflow-backfill-season airflow-pause airflow-unpause airflow-list airflow-parse airflow-live-validate
+.PHONY: airflow-init airflow-install-local-settings airflow-sync airflow-create-user airflow-webserver airflow-scheduler airflow-trigger airflow-backfill-season airflow-pause airflow-unpause airflow-list airflow-parse airflow-live-validate agent-eval
 
-airflow-init:
+airflow-install-local-settings:
+	mkdir -p "$(AIRFLOW_HOME)/config"
+	cp scripts/airflow_local_settings.py "$(AIRFLOW_HOME)/config/airflow_local_settings.py"
+
+airflow-init: airflow-install-local-settings
 	mkdir -p "$(AIRFLOW_HOME)"
 	$(AIRFLOW_CMD) db migrate
 	$(AIRFLOW_CMD) dags reserialize
@@ -57,6 +62,9 @@ airflow-backfill-season: airflow-init
 
 airflow-live-validate:
 	$(AIRFLOW_LIVE_VALIDATE_PYTHON) scripts/airflow_live_validate.py
+
+agent-eval:
+	python3 scripts/evaluate_agent_questions.py
 
 airflow-pause:
 	$(AIRFLOW_CMD) dags pause --yes nba_analytics_pipeline

@@ -3,8 +3,8 @@
   <section class="hero">
     <div class="hero-top">
       <div>
-        <div class="eyebrow">Compare</div>
-        <h1>Player Comparison</h1>
+        <div class="eyebrow">Player Compare</div>
+        <h1>Player Compare</h1>
       </div>
       <div class="hero-actions">
         <span class="status">Window {{ window_label }}</span>
@@ -42,7 +42,7 @@
                   {% if player_a_detail.player.headshot_url %}
                     <img src="{{ player_a_detail.player.headshot_url }}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
                   {% endif %}
-                  <span class="player-avatar-fallback"{% if player_a_detail.player.headshot_url %} hidden{% endif %}>{{ player_a_detail.player.player_initials }}</span>
+                  <span class="player-avatar-fallback">{{ player_a_detail.player.player_initials }}</span>
                 </div>
                 <div>
                   <div class="meta">Locked first player</div>
@@ -150,7 +150,7 @@
                       {% if side.headshot_url %}
                         <img src="{{ side.headshot_url }}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
                       {% endif %}
-                      <span class="player-avatar-fallback"{% if side.headshot_url %} hidden{% endif %}>{{ side.player_initials }}</span>
+                      <span class="player-avatar-fallback">{{ side.player_initials }}</span>
                     </div>
                     <div>
                       <h3>{{ side.player_name or "Unknown player" }}</h3>

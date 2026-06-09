@@ -194,6 +194,10 @@ def test_normalize_game_log_season_types_defaults_to_regular_and_playoffs():
     assert pipeline.normalize_game_log_season_types(
         "Regular Season, Playoffs,Regular Season"
     ) == ["Regular Season", "Playoffs"]
+    assert pipeline.normalize_game_log_season_types('"Regular Season","Playoffs"') == [
+        "Regular Season",
+        "Playoffs",
+    ]
 
 
 def test_build_run_metadata_record_serializes_dates():

@@ -56,32 +56,6 @@ def _freshness_reason(health: dict[str, Any]) -> str:
     return "freshness_unavailable"
 
 
-def instrument_dashboard_view(
-    *, route: str, season: str, health: dict[str, Any], dashboard: dict[str, Any]
-) -> None:
-    as_of_date = dashboard.get("selected_as_of_date")
-    if health.get("status") != STATE_FRESH:
-        _emit_panel_event(
-            route=route,
-            surface="dashboard",
-            panel="freshness_banner",
-            state=str(health.get("status")),
-            reason=_freshness_reason(health),
-            season=season,
-            as_of_date=None if as_of_date is None else str(as_of_date),
-        )
-    if not dashboard.get("opportunity"):
-        _emit_panel_event(
-            route=route,
-            surface="dashboard",
-            panel="opportunity_board",
-            state=STATE_UNAVAILABLE,
-            reason="missing_schedule_context",
-            season=season,
-            as_of_date=None if as_of_date is None else str(as_of_date),
-        )
-
-
 def _detail_panel_reason(panel: str, state: str, player_detail: dict[str, Any]) -> str:
     if state == STATE_INSUFFICIENT_SAMPLE:
         if panel in {"archetype", "similarity"}:

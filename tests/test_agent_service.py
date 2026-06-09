@@ -1,0 +1,350 @@
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.agent.conversation import InMemoryConversationStore
+from app.agent.observability import AgentTrace
+from app.agent.service import AgentDisabledError, StatsAgent, normalize_agent_answer
+from app.config import Settings
+
+
+def _settings(**overrides: object) -> Settings:
+    values = {
+        "project_id": "local-project",
+        "gold_dataset": "nba_gold",
+        "metadata_dataset": "nba_metadata",
+        "freshness_threshold_hours": 36,
+        "max_search_results": 12,
+        "openai_api_key": "test-key",
+        "openai_agent_model": "gpt-5.4-mini",
+        "openai_agent_enabled": True,
+        "agent_max_tool_calls": 6,
+        "agent_rate_limit_per_minute": 0,
+    }
+    values.update(overrides)
+    return Settings(**values)
+
+
+class AgentServiceFakeRepository:
+    def search_players(self, query: str, limit: int = 10) -> list[dict]:
+        return [
+            {
+                "player_id": 7,
+                "player_name": "Tyrese Maxey",
+                "latest_team_abbr": "PHI",
+                "latest_game_date": "2026-02-10",
+                "games_sampled": 12,
+                "sample_status": "ready",
+                "overall_rank": 12,
+            }
+        ][:limit]
+
+    def get_player_detail(self, player_id: int) -> dict | None:
+        if player_id != 7:
+            return None
+        return {
+            "player": {
+                "player_id": 7,
+                "player_name": "Tyrese Maxey",
+                "team_abbr": "PHI",
+                "games_sampled": 12,
+            },
+            "trends": [{"stat": "PTS", "label": "PTS", "delta": 4.2}],
+            "game_log": {
+                "games": [
+                    {
+                        "game_date": "2026-02-10",
+                        "matchup": "PHI vs. NYK",
+                        "wl": "W",
+                        "pts": "30",
+                        "reb": "4",
+                        "ast": "8",
+                        "stl": "1",
+                        "blk": "0",
+                        "tov": "2",
+                    }
+                ]
+            },
+            "chart_baselines": {},
+            "similar_players": [{"player_id": 11, "player_name": "Jalen Brunson"}],
+            "stat_percentiles": [
+                {"key": "pts", "label": "PTS", "average": 25.0, "percentile": 91.0}
+            ],
+        }
+
+    def get_player_game_log(
+        self,
+        player_id: int,
+        limit: int = 30,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict | None:
+        if player_id != 7:
+            return None
+        return {
+            "player_id": 7,
+            "player_name": "Tyrese Maxey",
+            "season": "2025-26",
+            "games": [
+                {
+                    "game_date": "2026-02-10",
+                    "matchup": "PHI vs. NYK",
+                    "wl": "W",
+                    "pts": "30",
+                    "reb": "4",
+                    "ast": "8",
+                    "stl": "1",
+                    "blk": "0",
+                    "tov": "2",
+                }
+            ][:limit],
+        }
+
+    def get_metric_leaders(self, metric: str, limit: int = 10) -> list[dict]:
+        return [
+            {
+                "player_id": 7,
+                "player_name": "Tyrese Maxey",
+                "metric_key": metric,
+                "metric_value": 30.0,
+            }
+        ][:limit]
+
+    def get_player_metric_percentile(
+        self, player_id: int, metric: str, min_games: int = 5
+    ) -> dict | None:
+        if player_id != 7:
+            return None
+        return {
+            "player_name": "Tyrese Maxey",
+            "metric_key": metric,
+            "percentile": 91.0,
+            "in_requested_cohort": True,
+        }
+
+
+class SequenceResponses:
+    def __init__(self, tool_calls: list[SimpleNamespace]) -> None:
+        self.calls = 0
+        self.kwargs: list[dict] = []
+        self.tool_calls = tool_calls
+
+    def create(self, **kwargs):
+        self.calls += 1
+        self.kwargs.append(kwargs)
+        if self.calls == 1 and self.tool_calls:
+            return SimpleNamespace(output=self.tool_calls, output_text="")
+        return SimpleNamespace(
+            output=[],
+            output_text=json.dumps(
+                {
+                    "answer": "Answered from mocked tools.",
+                    "assumptions": [],
+                    "tables": [],
+                    "charts": [],
+                    "metric_definitions": [],
+                    "followups": [],
+                }
+            ),
+            usage=SimpleNamespace(input_tokens=10, output_tokens=5, total_tokens=15),
+        )
+
+
+class SequenceClient:
+    def __init__(self, tool_calls: list[SimpleNamespace]) -> None:
+        self.responses = SequenceResponses(tool_calls)
+
+
+class FlakyResponses(SequenceResponses):
+    def create(self, **kwargs):
+        if self.calls == 0:
+            self.calls += 1
+            exc = TimeoutError("temporary timeout")
+            raise exc
+        return super().create(**kwargs)
+
+
+class FlakyClient:
+    def __init__(self) -> None:
+        self.responses = FlakyResponses([])
+
+
+def _call(name: str, arguments: dict, call_id: str = "call_1") -> SimpleNamespace:
+    return SimpleNamespace(
+        type="function_call",
+        name=name,
+        arguments=json.dumps(arguments),
+        call_id=call_id,
+    )
+
+
+def test_normalize_agent_answer_handles_malformed_payloads() -> None:
+    assert normalize_agent_answer(None)["answer"] == "No answer returned."
+    assert normalize_agent_answer("plain text")["answer"] == "plain text"
+
+    payload = normalize_agent_answer({"answer": "ok", "tables": "bad"})
+
+    assert payload["answer"] == "ok"
+    assert payload["tables"] == []
+    assert payload["charts"] == []
+
+
+def test_clarification_short_circuits_without_openai() -> None:
+    client = SequenceClient([])
+    trace = AgentTrace("req-1", "stats", "gpt-5.4-mini")
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer("stats", conversation_id="c1", trace=trace)
+
+    assert payload["agent_plan"]["route"] == "clarify"
+    assert payload["tool_calls"] == []
+    assert payload["answer"].startswith("Which player")
+    assert client.responses.calls == 0
+    assert trace.outcome == "clarified"
+
+
+def test_clarification_still_requires_configured_agent_without_client() -> None:
+    agent = StatsAgent(
+        _settings(openai_api_key=None),
+        AgentServiceFakeRepository(),
+    )
+
+    try:
+        agent.answer("stats")
+    except AgentDisabledError as exc:
+        assert "OPENAI_API_KEY" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("Expected missing-key clarification to be disabled")
+
+
+def test_disabled_agent_rejects_even_with_injected_client() -> None:
+    agent = StatsAgent(
+        _settings(openai_agent_enabled=False),
+        AgentServiceFakeRepository(),
+        client=SequenceClient([]),
+    )
+
+    try:
+        agent.answer("How is Tyrese Maxey trending?")
+    except AgentDisabledError as exc:
+        assert "disabled" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("Expected disabled agent to reject injected client")
+
+
+def test_route_hint_and_required_tool_order_reach_openai() -> None:
+    client = SequenceClient(
+        [_call("resolve_player", {"name": "Tyrese Maxey", "limit": 5})]
+    )
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer("How is Tyrese Maxey trending?", conversation_id="c1")
+
+    assert payload["tool_calls"][0]["name"] == "resolve_player"
+    answer_kwargs = client.responses.kwargs[-1]
+    assert "route=player_trend" in answer_kwargs["instructions"]
+    assert answer_kwargs.get("tools") is None
+    assert [tool["name"] for tool in payload["tool_calls"][:2]] == [
+        "resolve_player",
+        "get_player_trends",
+    ]
+
+
+def test_transient_openai_errors_retry() -> None:
+    client = FlakyClient()
+    agent = StatsAgent(
+        _settings(openai_agent_retry_base_delay_seconds=0),
+        AgentServiceFakeRepository(),
+        client=client,
+    )
+
+    payload = agent.answer("Who are the top 5 players by points?")
+
+    assert payload["answer"] == "Answered from mocked tools."
+    assert client.responses.calls == 2
+
+
+def test_percentile_evidence_respects_min_games_filter() -> None:
+    client = SequenceClient([])
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer(
+        "Which percentile is Tyrese Maxey points among players with at least 50 games?"
+    )
+
+    percentile_call = next(
+        tool
+        for tool in payload["tool_calls"]
+        if tool["name"] == "calculate_player_percentile"
+    )
+    assert payload["agent_plan"]["min_games"] == 50
+    assert percentile_call["args"]["min_games"] == 50
+
+
+def test_tool_limit_outputs_are_matched_for_remaining_batch_calls() -> None:
+    client = SequenceClient(
+        [
+            _call("resolve_player", {"name": "Tyrese Maxey", "limit": 5}, "call_1"),
+            _call(
+                "get_player_trends",
+                {
+                    "player_id": 7,
+                    "metrics": ["pts"],
+                    "start_date": None,
+                    "end_date": None,
+                },
+                "call_2",
+            ),
+        ]
+    )
+    agent = StatsAgent(
+        _settings(agent_max_tool_calls=1),
+        AgentServiceFakeRepository(),
+        client=client,
+    )
+
+    payload = agent.answer("How is Tyrese Maxey trending?")
+
+    assert payload["answer"].startswith("I hit the tool-call limit")
+    assert [tool["status"] for tool in payload["tool_calls"]] == ["ok", "tool_limit"]
+
+
+def test_conversation_memory_replays_prior_turns() -> None:
+    store = InMemoryConversationStore()
+    client = SequenceClient([])
+    agent = StatsAgent(
+        _settings(),
+        AgentServiceFakeRepository(),
+        client=client,
+        conversation_store=store,
+    )
+
+    agent.answer("How is Tyrese Maxey trending?", conversation_id="thread-1")
+    agent.answer("What about assists?", conversation_id="thread-1")
+
+    second_input = client.responses.kwargs[-1]["input"]
+    assert second_input[0]["role"] == "user"
+    assert second_input[0]["content"] == "How is Tyrese Maxey trending?"
+    assert second_input[1]["role"] == "assistant"
+    assert second_input[-2]["content"] == "What about assists?"
+    assert second_input[-1]["role"] == "developer"
+
+
+def test_conversation_memory_zero_turns_disables_replay() -> None:
+    store = InMemoryConversationStore()
+
+    store.append_turn(
+        "thread-1",
+        question="How is Tyrese Maxey trending?",
+        answer="Answered.",
+        max_turns=0,
+    )
+
+    assert store.get_turns("thread-1", max_turns=0) == []
+    assert store.get_turns("thread-1", max_turns=6) == []

@@ -313,6 +313,12 @@
         background: rgba(255, 255, 255, 0.04);
         color: var(--highlight);
       }
+      .status.loading {
+        color: var(--muted);
+      }
+      .status[data-health-state="unavailable"] {
+        color: var(--muted);
+      }
       .chip.improvement {
         border-color: rgba(240, 78, 35, 0.42);
         background: rgba(240, 78, 35, 0.16);
@@ -424,11 +430,15 @@
         flex-shrink: 0;
       }
       .player-avatar img {
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
         object-fit: cover;
       }
       .player-avatar-fallback {
+        position: relative;
+        z-index: 1;
         font-family: "IBM Plex Mono", monospace;
         font-size: 0.9rem;
         letter-spacing: 0.08em;
@@ -739,12 +749,10 @@
             <span class="brand-title">NBA Stats Desk</span>
           </div>
           <div class="nav-links">
-            <a href="/">Dashboard</a>
             <a href="/ask">Ask</a>
-            <a href="/visualize">Visualize</a>
-            <a href="/performance">Performance</a>
-            <a href="/similarity-map">Similarity Map</a>
-            <a href="/compare">Compare</a>
+            <a href="/performance">Player Trends</a>
+            <a href="/similarity-map">Similar Players</a>
+            <a href="/compare">Player Compare</a>
             <span class="season-tag">Season {{ season }}</span>
             <form class="player-search-form nav-player-search" data-player-search-form role="search">
               <label class="sr-only">Find qualified player</label>
@@ -765,6 +773,6 @@
         {% block content %}{% endblock %}
       </div>
     </main>
-    <script type="module" src="/static/workbench.js"></script>
+    <script type="module" src="/static/workbench.js?v={{ static_version }}"></script>
   </body>
 </html>

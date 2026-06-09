@@ -380,6 +380,535 @@ def test_get_recent_performance_dates_uses_latest_game_window(monkeypatch) -> No
     assert rows == [{"value": "2026-02-10", "label": "Tue Feb 10"}]
 
 
+def test_get_recent_performance_initial_falls_back_to_serving_table_sql(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+    calls: list[str] = []
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        calls.append(sql)
+        assert "recent_performance_workbench" in sql
+        assert "TO_JSON_STRING(STRUCT(" in sql
+        assert "ANY_VALUE(rows.game_matchup) AS matchup" in sql
+        assert "selected_rows.game_id = @game_id" in sql
+        assert "UNION ALL" in sql
+        param_names = {param.name for param in params}
+        assert {"season", "game_date", "game_id", "limit"} == param_names
+        return [
+            {
+                "section": "date",
+                "sort_index": "1",
+                "payload": json.dumps({"game_date": "2026-02-10"}),
+            },
+            {
+                "section": "game",
+                "sort_index": "1",
+                "payload": json.dumps(
+                    {
+                        "game_id": "002250010",
+                        "game_date": "2026-02-10",
+                        "teams": "NYK / PHI",
+                        "matchup": "NYK @ PHI",
+                        "home_team_abbr": "PHI",
+                        "away_team_abbr": "NYK",
+                        "home_team_pts": "112",
+                        "away_team_pts": "108",
+                        "players_played": "20",
+                    }
+                ),
+            },
+            {
+                "section": "player",
+                "sort_index": "1",
+                "payload": json.dumps(
+                    {
+                        "game_id": "002250010",
+                        "game_date": "2026-02-10",
+                        "player_id": "7",
+                        "player_name": "Tyrese Maxey",
+                        "team_abbr": "PHI",
+                        "opponent_abbr": "NYK",
+                        "home_away": "home",
+                        "matchup": "PHI vs. NYK",
+                        "wl": "W",
+                        "min": "36.0",
+                        "pts": "31",
+                        "reb": "5",
+                        "ast": "7",
+                        "stl": "1",
+                        "blk": "0",
+                        "games_sampled": "12",
+                        "avg_pts": "25.8",
+                        "avg_reb": "4.4",
+                        "avg_ast": "6.7",
+                        "avg_stl": "1.1",
+                        "avg_blk": "0.2",
+                        "pts_delta": "5.2",
+                        "reb_delta": "0.6",
+                        "ast_delta": "0.3",
+                        "stl_delta": "-0.1",
+                        "blk_delta": "-0.2",
+                        "performance_score": "2.4",
+                        "performance_status": "above",
+                        "above_count": "3",
+                        "below_count": "2",
+                    }
+                ),
+            },
+        ]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    payload = repo.get_recent_performance_initial(
+        game_date="2026-02-10",
+        game_id="002250010",
+    )
+
+    assert payload["selected_date"] == "2026-02-10"
+    assert payload["selected_game_id"] == "002250010"
+    assert payload["dates"][0] == {"value": "2026-02-10", "label": "Tue Feb 10"}
+    assert payload["games"][0]["matchup"] == "NYK @ PHI"
+    assert payload["games"][0]["home_team_pts"] == 112
+    assert payload["players"][0]["player_id"] == 7
+    assert payload["players"][0]["metrics"][0]["delta"] == 5.2
+    assert len(calls) == 1
+
+
+def test_get_recent_performance_initial_uses_table_rows_api(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+
+    class FakeClient:
+        def get_table(self, table_id):
+            pytest.fail("list_rows should use selected_fields instead of get_table")
+
+        def list_rows(self, table, selected_fields, max_results):
+            assert table == "local-project.nba_gold.recent_performance_workbench"
+            field_names = [field.name for field in selected_fields]
+            assert field_names[:39] == [
+                "season",
+                "game_id",
+                "game_date",
+                "teams",
+                "game_matchup",
+                "home_team_abbr",
+                "away_team_abbr",
+                "home_team_pts",
+                "away_team_pts",
+                "players_played",
+                "player_id",
+                "player_name",
+                "team_abbr",
+                "opponent_abbr",
+                "home_away",
+                "matchup",
+                "wl",
+                "min",
+                "pts",
+                "reb",
+                "ast",
+                "stl",
+                "blk",
+                "games_sampled",
+                "avg_pts",
+                "avg_reb",
+                "avg_ast",
+                "avg_stl",
+                "avg_blk",
+                "pts_delta",
+                "reb_delta",
+                "ast_delta",
+                "stl_delta",
+                "blk_delta",
+                "pts_delta_pct",
+                "reb_delta_pct",
+                "ast_delta_pct",
+                "stl_delta_pct",
+                "blk_delta_pct",
+            ]
+            assert "pts_percentile" in field_names
+            assert "pts_p25" in field_names
+            assert "reb_percentile" in field_names
+            assert "performance_score" in field_names
+            assert "performance_status" in field_names
+            assert "above_count" in field_names
+            assert "below_count" in field_names
+            assert "trend_points_json" in field_names
+            assert max_results == 5000
+            return [
+                {
+                    "season": "2025-26",
+                    "game_id": "002250010",
+                    "game_date": "2026-02-10",
+                    "teams": "NYK / PHI",
+                    "game_matchup": "NYK @ PHI",
+                    "home_team_abbr": "PHI",
+                    "away_team_abbr": "NYK",
+                    "home_team_pts": "112",
+                    "away_team_pts": "108",
+                    "players_played": "20",
+                    "player_id": "8",
+                    "player_name": "Aaron Example",
+                    "team_abbr": "PHI",
+                    "opponent_abbr": "NYK",
+                    "home_away": "home",
+                    "matchup": "PHI vs. NYK",
+                    "wl": "W",
+                    "min": "31.0",
+                    "pts": "20",
+                    "reb": "7",
+                    "ast": "4",
+                    "stl": "1",
+                    "blk": "1",
+                    "games_sampled": "12",
+                    "avg_pts": "18.0",
+                    "avg_reb": "5.0",
+                    "avg_ast": "3.0",
+                    "avg_stl": "0.8",
+                    "avg_blk": "0.4",
+                    "pts_delta": "2.0",
+                    "reb_delta": "2.0",
+                    "ast_delta": "1.0",
+                    "stl_delta": "0.2",
+                    "blk_delta": "0.6",
+                    "performance_score": "2.4",
+                    "performance_status": "above",
+                    "above_count": "3",
+                    "below_count": "2",
+                },
+                {
+                    "season": "2025-26",
+                    "game_id": "002250010",
+                    "game_date": "2026-02-10",
+                    "teams": "NYK / PHI",
+                    "game_matchup": "NYK @ PHI",
+                    "home_team_abbr": "PHI",
+                    "away_team_abbr": "NYK",
+                    "home_team_pts": "112",
+                    "away_team_pts": "108",
+                    "players_played": "20",
+                    "player_id": "7",
+                    "player_name": "Tyrese Maxey",
+                    "team_abbr": "PHI",
+                    "opponent_abbr": "NYK",
+                    "home_away": "home",
+                    "matchup": "PHI vs. NYK",
+                    "wl": "W",
+                    "min": "36.0",
+                    "pts": "31",
+                    "reb": "5",
+                    "ast": "7",
+                    "stl": "1",
+                    "blk": "0",
+                    "games_sampled": "12",
+                    "avg_pts": "25.8",
+                    "avg_reb": "4.4",
+                    "avg_ast": "6.7",
+                    "avg_stl": "1.1",
+                    "avg_blk": "0.2",
+                    "pts_delta": "5.2",
+                    "reb_delta": "0.6",
+                    "ast_delta": "0.3",
+                    "stl_delta": "-0.1",
+                    "blk_delta": "-0.2",
+                    "performance_score": "2.4",
+                    "performance_status": "above",
+                    "above_count": "3",
+                    "below_count": "2",
+                },
+            ]
+
+    repo.client = FakeClient()
+    monkeypatch.setattr(
+        repo,
+        "_query",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(BadRequest("SQL unavailable")),
+    )
+
+    payload = repo.get_recent_performance_initial(game_date="2026-02-10")
+
+    assert payload["dates"] == [{"value": "2026-02-10", "label": "Tue Feb 10"}]
+    assert payload["games"][0]["matchup"] == "NYK @ PHI"
+    assert [player["player_name"] for player in payload["players"]] == [
+        "Aaron Example",
+        "Tyrese Maxey",
+    ]
+
+
+def test_recent_performance_table_rows_cache_feeds_initial_and_detail(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+
+    class FakeClient:
+        calls = 0
+
+        def list_rows(self, table, selected_fields, max_results):
+            self.calls += 1
+            assert table == "local-project.nba_gold.recent_performance_workbench"
+            field_names = [field.name for field in selected_fields]
+            assert "pts_percentile" in field_names
+            assert "trend_points_json" in field_names
+            assert max_results == 5000
+            return [
+                {
+                    "season": "2025-26",
+                    "game_id": "002250010",
+                    "game_date": "2026-02-10",
+                    "teams": "NYK / PHI",
+                    "game_matchup": "NYK @ PHI",
+                    "home_team_abbr": "PHI",
+                    "away_team_abbr": "NYK",
+                    "home_team_pts": "112",
+                    "away_team_pts": "108",
+                    "players_played": "20",
+                    "player_id": "7",
+                    "player_name": "Tyrese Maxey",
+                    "team_abbr": "PHI",
+                    "opponent_abbr": "NYK",
+                    "home_away": "home",
+                    "matchup": "PHI vs. NYK",
+                    "wl": "W",
+                    "min": "36.0",
+                    "pts": "31",
+                    "reb": "5",
+                    "ast": "7",
+                    "stl": "1",
+                    "blk": "0",
+                    "games_sampled": "12",
+                    "avg_pts": "25.8",
+                    "avg_reb": "4.4",
+                    "avg_ast": "6.7",
+                    "avg_stl": "1.1",
+                    "avg_blk": "0.2",
+                    "pts_delta": "5.2",
+                    "reb_delta": "0.6",
+                    "ast_delta": "0.3",
+                    "stl_delta": "-0.1",
+                    "blk_delta": "-0.2",
+                    "pts_percentile": "82.0",
+                    "pts_p10": "18",
+                    "pts_p25": "22",
+                    "pts_p50": "26",
+                    "pts_p75": "30",
+                    "pts_p90": "34",
+                    "performance_score": "2.4",
+                    "performance_status": "above",
+                    "above_count": "3",
+                    "below_count": "2",
+                    "trend_points_json": json.dumps(
+                        [
+                            {
+                                "game_id": "002250008",
+                                "game_date": "2026-02-08",
+                                "matchup": "PHI @ BOS",
+                                "min": "35.0",
+                                "pts": "26",
+                                "reb": "4",
+                                "ast": "6",
+                                "stl": "1",
+                                "blk": "0",
+                            },
+                            {
+                                "game_id": "002250010",
+                                "game_date": "2026-02-10",
+                                "matchup": "PHI vs. NYK",
+                                "min": "36.0",
+                                "pts": "31",
+                                "reb": "5",
+                                "ast": "7",
+                                "stl": "1",
+                                "blk": "0",
+                            },
+                        ]
+                    ),
+                }
+            ]
+
+    fake_client = FakeClient()
+    repo.client = fake_client
+    monkeypatch.setattr(
+        repo,
+        "_query",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(BadRequest("SQL unavailable")),
+    )
+
+    initial = repo.get_recent_performance_initial(game_date="2026-02-10")
+    detail = repo.get_recent_performance_player(7, game_id="002250010")
+
+    assert initial["players"][0]["player_name"] == "Tyrese Maxey"
+    assert detail is not None
+    assert detail["metrics"][0]["percentile"] == 82.0
+    assert detail["metrics"][0]["range"]["p25"] == 22.0
+    assert detail["trend_30d"]["points"][-1]["pts"] == 31.0
+    assert fake_client.calls == 1
+
+
+def test_get_recent_performance_initial_falls_back_to_live_query(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+    calls: list[str] = []
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        calls.append(sql)
+        if "recent_performance_workbench" in sql:
+            raise BadRequest("table not found")
+        assert "selected_player_ids AS" in sql
+        assert "s.game_id = @game_id" in sql
+        assert "TO_JSON_STRING(STRUCT(" in sql
+        param_names = {param.name for param in params}
+        assert {"season", "game_date", "game_id", "limit"} == param_names
+        return [
+            {
+                "section": "date",
+                "sort_index": "1",
+                "payload": json.dumps({"game_date": "2026-02-10"}),
+            },
+            {
+                "section": "player",
+                "sort_index": "1",
+                "payload": json.dumps(
+                    {
+                        "game_id": "002250010",
+                        "game_date": "2026-02-10",
+                        "player_id": "7",
+                        "player_name": "Tyrese Maxey",
+                        "team_abbr": "PHI",
+                        "opponent_abbr": "NYK",
+                        "home_away": "home",
+                        "matchup": "PHI vs. NYK",
+                        "wl": "W",
+                        "min": "36.0",
+                        "pts": "31",
+                        "reb": "5",
+                        "ast": "7",
+                        "stl": "1",
+                        "blk": "0",
+                        "games_sampled": "12",
+                        "avg_pts": "25.8",
+                        "avg_reb": "4.4",
+                        "avg_ast": "6.7",
+                        "avg_stl": "1.1",
+                        "avg_blk": "0.2",
+                        "pts_delta": "5.2",
+                        "reb_delta": "0.6",
+                        "ast_delta": "0.3",
+                        "stl_delta": "-0.1",
+                        "blk_delta": "-0.2",
+                        "performance_score": "2.4",
+                        "performance_status": "above",
+                        "above_count": "3",
+                        "below_count": "2",
+                    }
+                ),
+            },
+        ]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    payload = repo.get_recent_performance_initial(
+        game_date="2026-02-10",
+        game_id="002250010",
+    )
+
+    assert payload["players"][0]["player_name"] == "Tyrese Maxey"
+    assert len(calls) == 2
+
+
+def test_get_recent_performance_player_prefers_serving_table_detail(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+    calls: list[str] = []
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        calls.append(sql)
+        assert "recent_performance_workbench" in sql
+        assert "LIMIT 1" in sql
+        param_names = {param.name for param in params}
+        assert {"season", "player_id", "game_id"} == param_names
+        return [
+            {
+                "game_id": "002250010",
+                "game_date": "2026-02-10T00:00:00+00:00",
+                "player_id": "7",
+                "player_name": "Tyrese Maxey",
+                "team_abbr": "PHI",
+                "opponent_abbr": "NYK",
+                "home_away": "home",
+                "matchup": "PHI vs. NYK",
+                "wl": "W",
+                "min": "36.0",
+                "pts": "31",
+                "reb": "5",
+                "ast": "7",
+                "stl": "1",
+                "blk": "0",
+                "games_sampled": "12",
+                "avg_pts": "25.8",
+                "avg_reb": "4.4",
+                "avg_ast": "6.7",
+                "avg_stl": "1.1",
+                "avg_blk": "0.2",
+                "pts_delta": "5.2",
+                "reb_delta": "0.6",
+                "ast_delta": "0.3",
+                "stl_delta": "-0.1",
+                "blk_delta": "-0.2",
+                "pts_percentile": "82.0",
+                "pts_p10": "18",
+                "pts_p25": "22",
+                "pts_p50": "26",
+                "pts_p75": "30",
+                "pts_p90": "34",
+                "performance_score": "2.4",
+                "performance_status": "above",
+                "above_count": "3",
+                "below_count": "2",
+                "trend_points_json": json.dumps(
+                    [
+                        {
+                            "game_id": "002250008",
+                            "game_date": "2026-02-08",
+                            "matchup": "PHI @ BOS",
+                            "min": "35.0",
+                            "pts": "26",
+                            "reb": "4",
+                            "ast": "6",
+                            "stl": "1",
+                            "blk": "0",
+                        },
+                        {
+                            "game_id": "002250010",
+                            "game_date": "2026-02-10",
+                            "matchup": "PHI vs. NYK",
+                            "min": "36.0",
+                            "pts": "31",
+                            "reb": "5",
+                            "ast": "7",
+                            "stl": "1",
+                            "blk": "0",
+                        },
+                    ]
+                ),
+            }
+        ]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    payload = repo.get_recent_performance_player(7, game_id="002250010")
+
+    assert payload is not None
+    assert payload["metrics"][0]["percentile"] == 82.0
+    assert payload["metrics"][0]["range"]["p25"] == 22.0
+    assert payload["trend_30d"]["points"][-1]["pts"] == 31.0
+    assert payload["trend_30d"]["stats"][0]["season_average"] == 25.8
+    assert len(calls) == 1
+
+
 def test_get_recent_performance_games_uses_dim_game_labels(monkeypatch) -> None:
     repo = _build_repository()
 
@@ -478,6 +1007,8 @@ def test_get_recent_performance_player_returns_percentile_ranges(
 
     def fake_query(sql, params, *_args, **_kwargs):
         calls.append(sql)
+        if "recent_performance_workbench" in sql:
+            raise BadRequest("table not found")
         if "trend_window AS" in sql:
             assert "WITH selected AS" in sql
             assert "game_id = @game_id" in sql
@@ -578,7 +1109,7 @@ def test_get_recent_performance_player_returns_percentile_ranges(
     assert payload["trend_30d"]["window_days"] == 30
     assert payload["trend_30d"]["stats"][0]["season_average"] == 25.8
     assert payload["trend_30d"]["points"][-1]["pts"] == 31.0
-    assert len(calls) == 2
+    assert len(calls) == 3
 
 
 def test_get_recent_performance_player_does_not_synthesize_empty_trend(
@@ -587,6 +1118,8 @@ def test_get_recent_performance_player_does_not_synthesize_empty_trend(
     repo = _build_repository()
 
     def fake_query(sql, params, *_args, **_kwargs):
+        if "recent_performance_workbench" in sql:
+            raise BadRequest("table not found")
         if "trend_window AS" in sql:
             return []
         return [
