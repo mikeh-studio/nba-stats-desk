@@ -348,3 +348,19 @@ def test_conversation_memory_zero_turns_disables_replay() -> None:
 
     assert store.get_turns("thread-1", max_turns=0) == []
     assert store.get_turns("thread-1", max_turns=6) == []
+
+
+def test_conversation_store_evicts_least_recently_used_conversations() -> None:
+    store = InMemoryConversationStore(max_conversations=2)
+
+    store.append_turn("thread-a", question="qa", answer="aa", max_turns=4)
+    store.append_turn("thread-b", question="qb", answer="ab", max_turns=4)
+    store.append_turn("thread-a", question="qa2", answer="aa2", max_turns=4)
+    store.append_turn("thread-c", question="qc", answer="ac", max_turns=4)
+
+    assert store.get_turns("thread-b", max_turns=4) == []
+    questions = [turn.question for turn in store.get_turns("thread-a", max_turns=4)]
+    assert questions == ["qa", "qa2"]
+    assert [turn.question for turn in store.get_turns("thread-c", max_turns=4)] == [
+        "qc"
+    ]

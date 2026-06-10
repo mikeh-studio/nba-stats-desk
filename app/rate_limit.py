@@ -12,14 +12,30 @@ class RateLimitStore(Protocol):
 
 
 class InMemoryRateLimitStore:
+    _PRUNE_INTERVAL_SECONDS = 60.0
+
     def __init__(self) -> None:
         self._lock = Lock()
         self._values: dict[str, tuple[int, float]] = {}
+        self._next_prune_at = 0.0
+
+    def _prune_locked(self, now: float) -> None:
+        # Keys embed the minute window and caller IP, so without pruning the
+        # store grows by one entry per client per minute forever.
+        if now < self._next_prune_at:
+            return
+        self._next_prune_at = now + self._PRUNE_INTERVAL_SECONDS
+        expired = [
+            key for key, (_, expires_at) in self._values.items() if expires_at <= now
+        ]
+        for key in expired:
+            del self._values[key]
 
     def increment(self, key: str, window_seconds: int) -> int:
         now = time()
         expires_at = now + window_seconds
         with self._lock:
+            self._prune_locked(now)
             count, current_expires_at = self._values.get(key, (0, expires_at))
             if current_expires_at <= now:
                 count = 0

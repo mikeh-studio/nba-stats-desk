@@ -746,6 +746,36 @@ def test_recent_performance_table_rows_cache_feeds_initial_and_detail(
     assert fake_client.calls == 1
 
 
+def test_recent_performance_truncated_table_rows_fall_back_to_query(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+
+    class TruncatedRowIterator(list):
+        total_rows = 9000
+
+    class FakeClient:
+        def list_rows(self, table, selected_fields, max_results):
+            return TruncatedRowIterator()
+
+    repo.client = FakeClient()
+    queries: list[str] = []
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        queries.append(sql)
+        return []
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    payload = repo.get_recent_performance_initial(game_date="2026-02-10")
+
+    # A page smaller than the table must not feed the row cache (list_rows has
+    # no ordering guarantee); the repo should fall back to the query path.
+    assert repo._recent_performance_rows_cache is None
+    assert queries
+    assert payload["players"] == []
+
+
 def test_get_recent_performance_initial_falls_back_to_live_query(
     monkeypatch,
 ) -> None:

@@ -27,8 +27,9 @@ class ConversationStore(Protocol):
 
 
 class InMemoryConversationStore:
-    def __init__(self) -> None:
+    def __init__(self, *, max_conversations: int = 1000) -> None:
         self._lock = Lock()
+        self._max_conversations = max(1, max_conversations)
         self._turns: dict[str, list[ConversationTurn]] = {}
 
     def get_turns(self, conversation_id: str, max_turns: int) -> list[ConversationTurn]:
@@ -49,9 +50,16 @@ class InMemoryConversationStore:
         if not conversation_id or max_turns <= 0:
             return
         with self._lock:
-            turns = self._turns.setdefault(conversation_id, [])
+            # Every anonymous question creates a fresh conversation id, so the
+            # store must stay bounded: keep the most recently used
+            # conversations and evict the least recently used past the cap.
+            turns = self._turns.pop(conversation_id, [])
             turns.append(ConversationTurn(question=question, answer=answer))
             del turns[:-max_turns]
+            self._turns[conversation_id] = turns
+            while len(self._turns) > self._max_conversations:
+                oldest_id = next(iter(self._turns))
+                del self._turns[oldest_id]
 
 
 _store = InMemoryConversationStore()

@@ -352,6 +352,7 @@ RECENT_PERFORMANCE_TABLE_FIELDS: tuple[bigquery.SchemaField, ...] = (
     bigquery.SchemaField("trend_points_json", "STRING"),
 )
 RECENT_PERFORMANCE_TABLE_ROW_CACHE_TTL_SECONDS = 900
+RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS = 5000
 
 AGENT_METRIC_LEADER_CONFIG: dict[str, dict[str, str]] = {
     "pts": {
@@ -1333,7 +1334,7 @@ class BigQueryWarehouseRepository:
     def _recent_performance_table(self) -> str:
         return f"`{self._recent_performance_table_id()}`"
 
-    def _fetch_recent_performance_table_rows_api(self) -> list[dict[str, Any]]:
+    def _fetch_recent_performance_table_rows_api(self) -> list[dict[str, Any]] | None:
         now = time.monotonic()
         with self._recent_performance_rows_lock:
             cached = self._recent_performance_rows_cache
@@ -1346,18 +1347,33 @@ class BigQueryWarehouseRepository:
         row_iter = self.client.list_rows(
             self._recent_performance_table_id(),
             selected_fields=RECENT_PERFORMANCE_TABLE_FIELDS,
-            max_results=5000,
+            max_results=RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS,
         )
         rows = [
             {key: _to_iso(value) for key, value in dict(row).items()}
             for row in row_iter
         ]
+        total_rows = getattr(row_iter, "total_rows", None)
+        if isinstance(total_rows, int) and total_rows > len(rows):
+            # list_rows has no ordering guarantee, so a truncated page would
+            # silently drop arbitrary dates/games/players. Refuse the row
+            # cache and let callers fall back to the query path.
+            return None
         with self._recent_performance_rows_lock:
             self._recent_performance_rows_cache = (
                 time.monotonic(),
                 [dict(row) for row in rows],
             )
         return rows
+
+    def _try_fetch_recent_performance_table_rows(self) -> list[dict[str, Any]] | None:
+        # Only the BigQuery call is guarded here: bugs in downstream row
+        # formatting must surface instead of silently failing over to the
+        # expensive query path.
+        try:
+            return self._fetch_recent_performance_table_rows_api()
+        except (AttributeError, BQAPIError):
+            return None
 
     def _player_trends_table(self) -> str:
         return (
@@ -3303,8 +3319,10 @@ class BigQueryWarehouseRepository:
         parsed_game_date: date | None,
         game_id: str | None,
         limit: int,
-    ) -> dict[str, Any]:
-        rows = self._fetch_recent_performance_table_rows_api()
+    ) -> dict[str, Any] | None:
+        rows = self._try_fetch_recent_performance_table_rows()
+        if rows is None:
+            return None
         return self._format_recent_performance_initial_table_rows(
             rows,
             parsed_game_date=parsed_game_date,
@@ -3488,14 +3506,13 @@ class BigQueryWarehouseRepository:
                 "players": [],
             }
         limit = max(1, min(500, int(limit)))
-        try:
-            return self._fetch_recent_performance_initial_table_rows(
-                parsed_game_date=parsed_game_date,
-                game_id=game_id,
-                limit=limit,
-            )
-        except (AttributeError, BQAPIError):
-            pass
+        table_rows_payload = self._fetch_recent_performance_initial_table_rows(
+            parsed_game_date=parsed_game_date,
+            game_id=game_id,
+            limit=limit,
+        )
+        if table_rows_payload is not None:
+            return table_rows_payload
         try:
             return self._fetch_recent_performance_initial_table(
                 parsed_game_date=parsed_game_date,
@@ -4171,7 +4188,9 @@ class BigQueryWarehouseRepository:
     def _fetch_recent_performance_player_table_rows(
         self, player_id: int, *, game_id: str
     ) -> dict[str, Any] | None:
-        rows = self._fetch_recent_performance_table_rows_api()
+        rows = self._try_fetch_recent_performance_table_rows()
+        if rows is None:
+            return None
         for row in rows:
             if row.get("season") != SUPPORTED_SEASON:
                 continue
@@ -4208,13 +4227,10 @@ class BigQueryWarehouseRepository:
     def get_recent_performance_player(
         self, player_id: int, *, game_id: str
     ) -> dict[str, Any] | None:
-        try:
-            table_item = self._fetch_recent_performance_player_table_rows(
-                player_id,
-                game_id=game_id,
-            )
-        except (AttributeError, BQAPIError):
-            table_item = None
+        table_item = self._fetch_recent_performance_player_table_rows(
+            player_id,
+            game_id=game_id,
+        )
         if table_item is not None:
             return table_item
 

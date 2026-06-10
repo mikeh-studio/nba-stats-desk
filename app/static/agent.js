@@ -367,29 +367,64 @@ function parseSseChunk(buffer, onEvent) {
   return remaining;
 }
 
+function renderAskFailure(message, statusText) {
+  const statusEl = document.querySelector("[data-agent-status]");
+  renderPayload({
+    answer: message,
+    assumptions: [],
+    tables: [],
+    charts: [],
+    metric_definitions: [],
+    followups: [],
+  });
+  if (statusEl) statusEl.textContent = statusText;
+}
+
 async function askQuestionStream(question) {
   const response = await fetch("/api/agent/ask/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, conversation_id: activeConversationId }),
   });
-  if (!response.ok || !response.body) {
+  if (!response.ok) {
+    // The server answered (rate limit, validation, ...): surface its detail
+    // instead of re-submitting via the JSON fallback, which would charge the
+    // rate limit twice for the same question.
+    let detail = "Ask NBA Stats is unavailable.";
+    try {
+      const payload = await response.json();
+      if (payload && payload.detail) detail = payload.detail;
+    } catch {
+      // Keep the generic message when the error body is not JSON.
+    }
+    renderAskFailure(detail, "Unavailable");
+    return;
+  }
+  if (!response.body) {
     throw new Error("stream unavailable");
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const state = { answerText: "", finished: false };
+  const state = { answerText: "", finished: false, eventCount: 0 };
   let buffer = "";
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    buffer = parseSseChunk(buffer, (eventName, payload) => {
-      handleStreamEvent(eventName, payload, state);
-    });
-  }
-  if (!state.finished) {
-    throw new Error("stream ended without final event");
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = parseSseChunk(buffer, (eventName, payload) => {
+        state.eventCount += 1;
+        handleStreamEvent(eventName, payload, state);
+      });
+    }
+    if (!state.finished) {
+      throw new Error("stream ended without final event");
+    }
+  } catch (error) {
+    // Once any event has arrived the server is already running the agent;
+    // mark the error so the caller does not re-submit the question.
+    if (error instanceof Error) error.receivedEvents = state.eventCount > 0;
+    throw error;
   }
 }
 
@@ -400,19 +435,18 @@ async function askQuestion(question) {
   if (submit instanceof HTMLButtonElement) submit.disabled = true;
   try {
     await askQuestionStream(question);
-  } catch {
-    try {
-      await askQuestionJson(question);
-    } catch {
-      renderPayload({
-        answer: "Ask NBA Stats failed to reach the API.",
-        assumptions: [],
-        tables: [],
-        charts: [],
-        metric_definitions: [],
-        followups: [],
-      });
-      if (statusEl) statusEl.textContent = "Failed";
+  } catch (streamError) {
+    if (streamError instanceof Error && streamError.receivedEvents) {
+      renderAskFailure(
+        "Ask NBA Stats lost the connection before finishing. Try again shortly.",
+        "Failed"
+      );
+    } else {
+      try {
+        await askQuestionJson(question);
+      } catch {
+        renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed");
+      }
     }
   } finally {
     if (submit instanceof HTMLButtonElement) submit.disabled = false;

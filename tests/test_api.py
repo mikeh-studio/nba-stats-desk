@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import Settings, get_settings
 from app.main import (
+    PAYLOAD_CACHE_MAX_ENTRIES,
     _get_cached_payload,
     _health_cache,
     _payload_building,
@@ -21,6 +22,7 @@ from app.main import (
     _payload_refreshing,
     _performance_initial_cache_key,
     _prewarm_performance_flow,
+    _store_payload_locked,
     app,
     get_agent_client,
     get_repository,
@@ -1496,6 +1498,49 @@ def test_api_agent_ask_rate_limits_repeated_public_calls() -> None:
     assert second.status_code == 429
     assert "rate limit" in second.json()["detail"]
     assert fake_openai.responses.calls == 2
+
+
+def test_api_agent_ask_rate_limit_ignores_spoofed_forwarded_prefix() -> None:
+    fake_openai = FakeOpenAIClient()
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_rate_limit_per_minute=1,
+        ),
+        agent_client=fake_openai,
+    )
+
+    first = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers={"X-Forwarded-For": "10.0.0.1, 198.51.100.30"},
+    )
+    second = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers={"X-Forwarded-For": "10.0.0.2, 198.51.100.30"},
+    )
+
+    assert first.status_code == 200
+    # Only the right-most (proxy-appended) hop counts, so rotating the
+    # client-supplied prefix must not reset the limit.
+    assert second.status_code == 429
+
+
+def test_payload_cache_evicts_oldest_entries_past_cap() -> None:
+    with _payload_cache_lock:
+        saved = dict(_payload_cache)
+        _payload_cache.clear()
+        try:
+            for index in range(PAYLOAD_CACHE_MAX_ENTRIES + 25):
+                _store_payload_locked(("bound-test", index), {"index": index})
+            assert len(_payload_cache) == PAYLOAD_CACHE_MAX_ENTRIES
+            assert ("bound-test", 0) not in _payload_cache
+            newest = ("bound-test", PAYLOAD_CACHE_MAX_ENTRIES + 24)
+            assert newest in _payload_cache
+        finally:
+            _payload_cache.clear()
+            _payload_cache.update(saved)
 
 
 def test_api_agent_ask_rejects_overlong_question() -> None:

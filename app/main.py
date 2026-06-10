@@ -49,11 +49,13 @@ HEALTH_CACHE_TTL_SECONDS = 60
 PERFORMANCE_CACHE_TTL_SECONDS = 900
 PERFORMANCE_STALE_TTL_SECONDS = 3600
 PERFORMANCE_INITIAL_DEFAULT_LIMIT = 240
+PAYLOAD_CACHE_MAX_ENTRIES = 256
 _health_cache: dict[int, tuple[float, dict[str, Any]]] = {}
 _payload_cache: dict[tuple[Any, ...], tuple[float, Any]] = {}
 _payload_cache_lock = Lock()
 _payload_refreshing: set[tuple[Any, ...]] = set()
 _payload_building: dict[tuple[Any, ...], Event] = {}
+_repo_refs: dict[int, Any] = {}
 app_logger = logging.getLogger(__name__)
 
 
@@ -142,8 +144,16 @@ def get_agent_client() -> Any | None:
     return None
 
 
+def _repo_cache_token(repo: WarehouseRepository) -> int:
+    # Cache keys embed id(repo); pin the repo so CPython cannot recycle this
+    # id for a different repository while keyed cache entries are still alive.
+    token = id(repo)
+    _repo_refs[token] = repo
+    return token
+
+
 def _get_cached_health(repo: WarehouseRepository) -> dict[str, Any]:
-    key = id(repo)
+    key = _repo_cache_token(repo)
     now = time.monotonic()
     cached = _health_cache.get(key)
     if cached is not None:
@@ -162,11 +172,20 @@ def _performance_initial_cache_key(
     game_id: str | None,
     limit: int,
 ) -> tuple[Any, ...]:
-    return (id(repo), "performance_initial", game_date, game_id, limit)
+    return (_repo_cache_token(repo), "performance_initial", game_date, game_id, limit)
 
 
 def _clone_payload(payload: Any) -> Any:
     return deepcopy(payload)
+
+
+def _store_payload_locked(key: tuple[Any, ...], payload: Any) -> None:
+    # Keys embed user-controlled query params (game_id, limit, dates), so the
+    # cache must stay bounded; evict the oldest entries past the cap.
+    _payload_cache[key] = (time.monotonic(), _clone_payload(payload))
+    while len(_payload_cache) > PAYLOAD_CACHE_MAX_ENTRIES:
+        oldest_key = min(_payload_cache, key=lambda item: _payload_cache[item][0])
+        _payload_cache.pop(oldest_key, None)
 
 
 def _get_cached_payload(
@@ -217,7 +236,7 @@ def _get_cached_payload(
     try:
         payload = builder()
         with _payload_cache_lock:
-            _payload_cache[key] = (time.monotonic(), _clone_payload(payload))
+            _store_payload_locked(key, payload)
         return payload
     finally:
         with _payload_cache_lock:
@@ -229,8 +248,9 @@ def _refresh_cached_payload(key: tuple[Any, ...], builder: Any) -> None:
     try:
         payload = builder()
         with _payload_cache_lock:
-            _payload_cache[key] = (time.monotonic(), _clone_payload(payload))
+            _store_payload_locked(key, payload)
     except Exception:
+        app_logger.warning("stale payload cache refresh failed", exc_info=True)
         return
     finally:
         with _payload_cache_lock:
@@ -242,9 +262,14 @@ def _set_public_cache_header(response: Response, ttl_seconds: int) -> None:
 
 
 def _agent_rate_limit_key(request: Request) -> str:
+    # Cloud Run appends the connecting client's IP as the right-most
+    # X-Forwarded-For entry; anything left of it is client-supplied and
+    # spoofable, so only the right-most hop can be trusted for limiting.
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
-        return forwarded_for.split(",", 1)[0].strip() or "unknown"
+        last_hop = forwarded_for.rsplit(",", 1)[-1].strip()
+        if last_hop:
+            return last_hop
     if request.client is not None:
         return request.client.host
     return "unknown"
@@ -532,7 +557,7 @@ def api_performance_dates(
 ) -> dict:
     _set_public_cache_header(response, 60)
     return _get_cached_payload(
-        (id(repo), "performance_dates"),
+        (_repo_cache_token(repo), "performance_dates"),
         PERFORMANCE_CACHE_TTL_SECONDS,
         lambda: {
             "season": SUPPORTED_SEASON,
@@ -551,7 +576,7 @@ def api_performance_games(
     _set_public_cache_header(response, 60)
     game_date_value = game_date.isoformat() if game_date is not None else None
     return _get_cached_payload(
-        (id(repo), "performance_games", game_date_value),
+        (_repo_cache_token(repo), "performance_games", game_date_value),
         PERFORMANCE_CACHE_TTL_SECONDS,
         lambda: {
             "season": SUPPORTED_SEASON,
@@ -573,7 +598,13 @@ def api_performance_players(
     _set_public_cache_header(response, 60)
     game_date_value = game_date.isoformat()
     return _get_cached_payload(
-        (id(repo), "performance_players", game_date_value, game_id, limit),
+        (
+            _repo_cache_token(repo),
+            "performance_players",
+            game_date_value,
+            game_id,
+            limit,
+        ),
         PERFORMANCE_CACHE_TTL_SECONDS,
         lambda: {
             "season": SUPPORTED_SEASON,
@@ -598,7 +629,7 @@ def api_performance_player_detail(
 ) -> dict:
     _set_public_cache_header(response, 60)
     item = _get_cached_payload(
-        (id(repo), "performance_player_detail", player_id, game_id),
+        (_repo_cache_token(repo), "performance_player_detail", player_id, game_id),
         PERFORMANCE_CACHE_TTL_SECONDS,
         lambda: repo.get_recent_performance_player(player_id, game_id=game_id),
         stale_ttl_seconds=PERFORMANCE_STALE_TTL_SECONDS,
@@ -735,6 +766,23 @@ def api_agent_ask_stream(
                 trace.outcome = "error"
                 trace.error_type = type(exc).__name__
                 agent_logger.exception("agent stream execution failed", exc_info=exc)
+                queue.put(
+                    {
+                        "type": "error",
+                        "detail": (
+                            "Ask NBA Stats failed while generating an answer. "
+                            "Try again shortly."
+                        ),
+                        "request_id": request_id,
+                    }
+                )
+            except Exception as exc:
+                # The stream must always end with a terminal event; otherwise
+                # the client re-submits via the JSON fallback and the question
+                # is charged against the rate limit (and OpenAI) twice.
+                trace.outcome = "error"
+                trace.error_type = type(exc).__name__
+                agent_logger.exception("agent stream failed unexpectedly")
                 queue.put(
                     {
                         "type": "error",
