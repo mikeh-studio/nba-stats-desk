@@ -1,37 +1,46 @@
-# NBA Data Platform
+# NBA Stats Desk
 
-Production-style NBA data pipeline and public stats workbench for the `2025-26`
-season. The core platform is GCP-first: GCS for landing files, BigQuery for the
-warehouse, dbt for transformations, Airflow for orchestration, and FastAPI for a
-Cloud Run-ready public site/API.
+Agentic, GCP-backed NBA intelligence workbench for the `2025-26` season. It
+pairs a natural-language `/ask` stats agent that calls the OpenAI API with
+Performance insights for recent player form, backed by BigQuery, dbt, Airflow,
+and a Cloud Run-ready FastAPI service.
 
-Primary flow:
+Core flow:
 
 ```text
-NBA API + official NBA injury reports
-  -> GCS landing
-  -> BigQuery bronze
-  -> dbt silver/gold/agent
-  -> similarity, rankings, snapshots, agent search
-  -> FastAPI site/API
+NBA API + injury reports
+  -> GCS
+  -> BigQuery
+  -> dbt gold + agent models
+  -> FastAPI `/ask`, Performance, and stats APIs
 ```
 
 Optional portfolio paths include Redshift Serverless as a secondary warehouse.
 
-## Core Components
+## What It Shows
 
+- **Agentic Ask flow**: `/ask` plans questions, resolves players, asks
+  clarifying follow-ups, calls allowlisted semantic tools, and returns grounded
+  answers with charts, tables, assumptions, and metric context.
+- **Performance insights**: `/performance` compares recent player games against
+  season baselines with filters, percentiles, and 30-day trend context.
+- **Research views**: player detail, comparisons, rankings, leaderboards,
+  recommendations, and a 3D player similarity map support deeper stat review.
+- **Analytics engineering backbone**: source contracts, dbt models,
+  orchestration, metadata, and read-only serving keep the public app tied to
+  curated warehouse outputs.
+
+## Stack
+
+- **GCP**: GCS landing, BigQuery warehouse, and Cloud Run-ready serving.
+- **dbt**: bronze, silver, gold, and agent models for analytics and app APIs.
 - **Airflow**: orchestrates extraction, source contracts, staging loads, DQ,
   bronze merges, dbt builds, similarity publishing, and run metadata.
-- **BigQuery**: system-of-record warehouse across bronze, silver, gold, agent,
-  and metadata datasets.
-- **dbt**: owns cleaned, modeled, and serving-layer tables for analytics and the
-  public application, including the agent-specific search context table.
-- **FastAPI**: serves HTML pages and JSON APIs from curated gold, agent, and
-  metadata tables.
-- **Source contracts**: validate source shape and business rules before
-  non-empty extracts are landed.
-- **OpenAI stats agent**: optional `/ask` experience over allowlisted semantic
-  stats tools.
+- **FastAPI**: serves `/ask`, Performance, player, compare, similarity, and JSON
+  APIs from curated gold, agent, and metadata tables.
+- **Agentic tools**: query planning, player resolution, clarification handling,
+  OpenAI API calls, semantic metric tools, and evidence-bounded answer
+  rendering.
 
 ## Data Domains
 
@@ -56,7 +65,8 @@ The current warehouse is centered on the `2025-26` season.
 - **Gold facts/dimensions**: player stats, team scores, scoring contribution,
   players, teams, and games.
 - **Gold serving tables**: leaderboard, trends, rankings, player detail,
-  compare, dashboard, availability, recommendations, and legacy search index.
+  compare, dashboard, recent performance workbench, availability,
+  recommendations, and legacy search index.
 - **Agent serving table**: `nba_agent.agent_player_search` is a dedicated
   player context table for `/ask` player resolution and answer grounding.
 - **Similarity outputs**: feature input plus public baseline feature vectors
@@ -68,10 +78,14 @@ See [Architecture](docs/architecture.md) for the detailed table layout.
 
 ## Public App
 
-The FastAPI service serves both HTML pages and JSON routes:
+The FastAPI service serves read-only HTML pages and JSON routes from curated
+gold, agent, and metadata tables. The root route redirects to `/ask`, making the
+agent the default entry point while keeping Performance and directed research
+pages one click away.
 
-- ask, player, performance, compare, and similarity map pages
-- leaderboard, trends, recent game performance, analysis snapshot, recommendations, rankings
+- ask, performance, player, compare, and similarity map pages
+- leaderboard, trends, recent game performance, analysis snapshot,
+  recommendations, and rankings
 - player search/detail, game logs, percentiles, similarity, and health
 
 The similarity map (`/similarity-map`) is a 3D PCA projection of the player
@@ -81,12 +95,12 @@ drive it.
 
 ![Player similarity map](docs/images/similarity-map.png)
 
-The service is public read-only for v1. It reads from curated gold, agent, and
-metadata tables; it does not expose arbitrary SQL access.
-
-The `/ask` page is enabled with `OPENAI_API_KEY`. The agent can only call
-allowlisted app tools for player resolution, game logs, trends, percentiles,
-rankings, similarity, and metric leaderboards.
+The `/ask` page is enabled with `OPENAI_API_KEY`. The agentic flow calls the
+OpenAI API for planning and answer generation, but data access stays bounded: it
+resolves player names from warehouse-backed search context, asks for
+clarification on ambiguous requests, and can only call allowlisted app tools for
+player resolution, game logs, trends, percentiles, rankings, similarity, and
+metric leaderboards. It does not expose arbitrary SQL access.
 
 See [Public Service](docs/public-service.md) for route and agent details.
 
