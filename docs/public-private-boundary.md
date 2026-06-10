@@ -1,7 +1,8 @@
 # Public / Private Boundary
 
-This repo is intended to stay public as the NBA data platform and reference
-application. The personal model layer should live in a private repo or package.
+This repo is intended to stay public as NBA Stats Desk: the agentic stats
+workbench, GCP-backed data platform, and reference application. The personal
+model layer should live in a private repo or package.
 
 ## Keep Public
 
