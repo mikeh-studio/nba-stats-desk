@@ -165,6 +165,36 @@ def _extract_min_games(question: str) -> int | None:
     return None
 
 
+# Capitalized words that show up in stats questions but are never player
+# names. A capitalized phrase is skipped only when every word is listed here,
+# so real names ("Jalen Williams") survive even if a word overlaps.
+_MENTION_STOPWORDS = frozenset(
+    {
+        # Question/sentence-leading words.
+        "who", "what", "show", "compare", "which", "how", "follow",
+        "previous", "question", "tell", "give", "list", "find", "rank",
+        # League and cohort words.
+        "nba", "league", "average", "baseline", "eastern", "western",
+        "conference", "regular", "season", "playoffs", "team", "teams",
+        "player", "players", "game", "games", "top", "best", "leaders",
+        # Metric words.
+        "points", "assists", "rebounds", "steals", "blocks", "turnovers",
+        "percentile", "trend", "trends", "stats", "minutes",
+        # Time words.
+        "january", "february", "march", "april", "may", "june", "july",
+        "august", "september", "october", "november", "december",
+        "monday", "tuesday", "wednesday", "thursday", "friday",
+        "saturday", "sunday", "last", "recent", "this", "today",
+        "yesterday", "week", "month",
+    }
+)  # fmt: skip
+
+
+def _is_stopword_phrase(phrase: str) -> bool:
+    words = phrase.casefold().split()
+    return bool(words) and all(word in _MENTION_STOPWORDS for word in words)
+
+
 def _extract_player_mentions(question: str) -> list[str]:
     mentions: list[str] = []
     q_norm = normalize_player_text(question)
@@ -182,18 +212,9 @@ def _extract_player_mentions(question: str) -> list[str]:
                 mentions.append(mention)
     for match in re.finditer(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b", question):
         phrase = match.group(0).strip()
-        if phrase.casefold() in {
-            "who",
-            "what",
-            "show",
-            "compare",
-            "which",
-            "how",
-            "follow",
-            "previous",
-            "question",
-            "nba",
-        }:
+        # Every false mention costs a player-search warehouse query, so filter
+        # capitalized phrases made up entirely of non-name words.
+        if _is_stopword_phrase(phrase):
             continue
         phrase_norm = normalize_player_text(phrase)
         replaced = False

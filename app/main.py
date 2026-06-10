@@ -77,7 +77,9 @@ class CacheControlledStaticFiles(StaticFiles):
 
 
 class AgentAskRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=4000)
+    # Question length policy lives in _validate_agent_question so every
+    # violation gets the same 400 with a readable detail message.
+    question: str
     conversation_id: str | None = Field(default=None, max_length=80)
 
 
@@ -175,14 +177,13 @@ def _performance_initial_cache_key(
     return (_repo_cache_token(repo), "performance_initial", game_date, game_id, limit)
 
 
-def _clone_payload(payload: Any) -> Any:
-    return deepcopy(payload)
-
-
 def _store_payload_locked(key: tuple[Any, ...], payload: Any) -> None:
+    # A deep copy is stored so later builder/caller mutations cannot reach the
+    # cache; reads hand out the cached object directly, so handlers must treat
+    # cached payloads as immutable.
     # Keys embed user-controlled query params (game_id, limit, dates), so the
     # cache must stay bounded; evict the oldest entries past the cap.
-    _payload_cache[key] = (time.monotonic(), _clone_payload(payload))
+    _payload_cache[key] = (time.monotonic(), deepcopy(payload))
     while len(_payload_cache) > PAYLOAD_CACHE_MAX_ENTRIES:
         oldest_key = min(_payload_cache, key=lambda item: _payload_cache[item][0])
         _payload_cache.pop(oldest_key, None)
@@ -201,7 +202,7 @@ def _get_cached_payload(
         if cached is not None:
             cached_at, payload = cached
             if now - cached_at < ttl_seconds:
-                return _clone_payload(payload)
+                return payload
             if stale_ttl_seconds and now - cached_at < stale_ttl_seconds:
                 if key not in _payload_refreshing:
                     _payload_refreshing.add(key)
@@ -210,7 +211,7 @@ def _get_cached_payload(
                         args=(key, builder),
                         daemon=True,
                     ).start()
-                return _clone_payload(payload)
+                return payload
 
         building = _payload_building.get(key)
         if building is None:
@@ -225,7 +226,7 @@ def _get_cached_payload(
         with _payload_cache_lock:
             cached = _payload_cache.get(key)
             if cached is not None:
-                return _clone_payload(cached[1])
+                return cached[1]
         return _get_cached_payload(
             key,
             ttl_seconds,
@@ -319,6 +320,55 @@ def _validate_agent_question(question: str, settings: Settings) -> str:
 
 def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+
+
+AGENT_UNAVAILABLE_DETAIL = "Ask NBA Stats is unavailable."
+AGENT_FAILED_DETAIL = (
+    "Ask NBA Stats failed while generating an answer. Try again shortly."
+)
+
+
+def _fail_trace(trace: AgentTrace, exc: Exception) -> None:
+    trace.outcome = "error"
+    trace.error_type = type(exc).__name__
+
+
+def _build_stats_agent(
+    settings: Settings,
+    repo: WarehouseRepository,
+    agent_client: Any | None,
+) -> StatsAgent:
+    return StatsAgent(
+        settings,
+        repo,
+        client=agent_client,
+        conversation_store=get_conversation_store(),
+    )
+
+
+def _prepare_agent_request(
+    request: Request,
+    payload: AgentAskRequest,
+    settings: Settings,
+) -> tuple[str, str, str, AgentTrace]:
+    request_id = _request_id(request)
+    conversation_id = _conversation_id(payload.conversation_id)
+    trace = AgentTrace(
+        request_id=request_id,
+        question=payload.question,
+        model=settings.openai_agent_model,
+        conversation_id=conversation_id,
+    )
+    try:
+        question = _validate_agent_question(payload.question, settings)
+        _check_agent_rate_limit(request, settings)
+    except HTTPException as exc:
+        trace.outcome = "error"
+        trace.error_type = f"HTTP_{exc.status_code}"
+        exc.headers = {**(exc.headers or {}), "X-Request-ID": request_id}
+        trace.emit()
+        raise
+    return request_id, conversation_id, question, trace
 
 
 @app.get("/api/leaderboard")
@@ -648,51 +698,32 @@ def api_agent_ask(
     settings: Annotated[Settings, Depends(get_settings)],
     agent_client: Annotated[Any | None, Depends(get_agent_client)],
 ) -> dict:
-    request_id = _request_id(request)
-    conversation_id = _conversation_id(payload.conversation_id)
-    trace = AgentTrace(
-        request_id=request_id,
-        question=payload.question,
-        model=settings.openai_agent_model,
-        conversation_id=conversation_id,
+    request_id, conversation_id, question, trace = _prepare_agent_request(
+        request, payload, settings
     )
     try:
-        question = _validate_agent_question(payload.question, settings)
-        _check_agent_rate_limit(request, settings)
-        agent = StatsAgent(
-            settings,
-            repo,
-            client=agent_client,
-            conversation_store=get_conversation_store(),
-        )
+        agent = _build_stats_agent(settings, repo, agent_client)
         answer = agent.answer(
             question,
             conversation_id=conversation_id,
             trace=trace,
         )
     except AgentDisabledError as exc:
-        trace.outcome = "error"
-        trace.error_type = type(exc).__name__
+        _fail_trace(trace, exc)
         agent_logger.warning("agent disabled: %s", exc)
         raise HTTPException(
             status_code=503,
-            detail="Ask NBA Stats is unavailable.",
+            detail=AGENT_UNAVAILABLE_DETAIL,
             headers={"X-Request-ID": request_id},
         ) from exc
     except AgentExecutionError as exc:
-        trace.outcome = "error"
-        trace.error_type = type(exc).__name__
+        _fail_trace(trace, exc)
         agent_logger.exception("agent execution failed", exc_info=exc)
         raise HTTPException(
             status_code=502,
-            detail="Ask NBA Stats failed while generating an answer. Try again shortly.",
+            detail=AGENT_FAILED_DETAIL,
             headers={"X-Request-ID": request_id},
         ) from exc
-    except HTTPException as exc:
-        trace.outcome = "error"
-        trace.error_type = f"HTTP_{exc.status_code}"
-        exc.headers = {**(exc.headers or {}), "X-Request-ID": request_id}
-        raise
     finally:
         trace.emit()
     response.headers["X-Request-ID"] = request_id
@@ -707,23 +738,9 @@ def api_agent_ask_stream(
     settings: Annotated[Settings, Depends(get_settings)],
     agent_client: Annotated[Any | None, Depends(get_agent_client)],
 ) -> StreamingResponse:
-    request_id = _request_id(request)
-    conversation_id = _conversation_id(payload.conversation_id)
-    trace = AgentTrace(
-        request_id=request_id,
-        question=payload.question,
-        model=settings.openai_agent_model,
-        conversation_id=conversation_id,
+    request_id, conversation_id, question, trace = _prepare_agent_request(
+        request, payload, settings
     )
-    try:
-        question = _validate_agent_question(payload.question, settings)
-        _check_agent_rate_limit(request, settings)
-    except HTTPException as exc:
-        trace.outcome = "error"
-        trace.error_type = f"HTTP_{exc.status_code}"
-        exc.headers = {**(exc.headers or {}), "X-Request-ID": request_id}
-        trace.emit()
-        raise
 
     def event_stream():
         queue: Queue[dict[str, Any] | None] = Queue()
@@ -733,12 +750,7 @@ def api_agent_ask_stream(
 
         def worker() -> None:
             try:
-                agent = StatsAgent(
-                    settings,
-                    repo,
-                    client=agent_client,
-                    conversation_store=get_conversation_store(),
-                )
+                agent = _build_stats_agent(settings, repo, agent_client)
                 answer = agent.answer(
                     question,
                     conversation_id=conversation_id,
@@ -752,27 +764,12 @@ def api_agent_ask_stream(
                         queue.put({"type": "answer_delta", "delta": f"{token} "})
                 queue.put({"type": "final", "payload": answer})
             except AgentDisabledError as exc:
-                trace.outcome = "error"
-                trace.error_type = type(exc).__name__
+                _fail_trace(trace, exc)
                 agent_logger.warning("agent stream disabled: %s", exc)
                 queue.put(
                     {
                         "type": "error",
-                        "detail": "Ask NBA Stats is unavailable.",
-                        "request_id": request_id,
-                    }
-                )
-            except AgentExecutionError as exc:
-                trace.outcome = "error"
-                trace.error_type = type(exc).__name__
-                agent_logger.exception("agent stream execution failed", exc_info=exc)
-                queue.put(
-                    {
-                        "type": "error",
-                        "detail": (
-                            "Ask NBA Stats failed while generating an answer. "
-                            "Try again shortly."
-                        ),
+                        "detail": AGENT_UNAVAILABLE_DETAIL,
                         "request_id": request_id,
                     }
                 )
@@ -780,16 +777,12 @@ def api_agent_ask_stream(
                 # The stream must always end with a terminal event; otherwise
                 # the client re-submits via the JSON fallback and the question
                 # is charged against the rate limit (and OpenAI) twice.
-                trace.outcome = "error"
-                trace.error_type = type(exc).__name__
-                agent_logger.exception("agent stream failed unexpectedly")
+                _fail_trace(trace, exc)
+                agent_logger.exception("agent stream execution failed")
                 queue.put(
                     {
                         "type": "error",
-                        "detail": (
-                            "Ask NBA Stats failed while generating an answer. "
-                            "Try again shortly."
-                        ),
+                        "detail": AGENT_FAILED_DETAIL,
                         "request_id": request_id,
                     }
                 )

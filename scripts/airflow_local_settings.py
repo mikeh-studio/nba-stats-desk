@@ -1,4 +1,15 @@
-"""Local Airflow runtime tweaks for the NBA_GCP host scheduler."""
+"""Local Airflow runtime tweaks for the NBA_GCP host scheduler.
+
+This module is installed by ``make airflow-install-local-settings`` into
+``$AIRFLOW_HOME/config/airflow_local_settings.py`` and is imported by Airflow
+from there, never from ``scripts/``.
+
+It monkeypatches two private Airflow APIs (``TaskInstance.generate_command``
+and ``BaseExecutor.validate_airflow_tasks_run_command``) so spawned task
+processes use the absolute ``.venv-airflow`` interpreter. These are not
+stable interfaces: re-validate this file whenever the Airflow version in
+``.venv-airflow`` is upgraded.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +19,18 @@ from pathlib import Path
 from airflow.executors.base_executor import BaseExecutor
 from airflow.models.taskinstance import TaskInstance
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+
+def _repo_root() -> Path:
+    # Prefer AIRFLOW_HOME (<repo>/airflow_home), which is set for every
+    # scheduler entry point; the path-relative fallback only holds for the
+    # default installed location ($AIRFLOW_HOME/config/<this file>).
+    airflow_home = os.environ.get("AIRFLOW_HOME")
+    if airflow_home:
+        return Path(airflow_home).resolve().parent
+    return Path(__file__).resolve().parents[2]
+
+
+REPO_ROOT = _repo_root()
 VENV_BIN = REPO_ROOT / ".venv-airflow" / "bin"
 AIRFLOW_BIN = VENV_BIN / "airflow"
 

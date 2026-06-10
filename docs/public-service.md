@@ -100,8 +100,9 @@ API also returns `request_id` in the JSON payload and `X-Request-ID` response
 header.
 
 Rate limiting uses `AGENT_RATE_LIMIT_REDIS_URL` when set, which should point to
-Redis or Memorystore for horizontally scaled Cloud Run. Local and test runs fall
-back to an in-memory store. `AGENT_RATE_LIMIT_PER_MINUTE` and
+Redis or Memorystore for horizontally scaled Cloud Run. The Redis path uses
+`EXPIRE key seconds NX`, which requires Redis server 7.0 or newer (Memorystore
+for Redis 7.x). Local and test runs fall back to an in-memory store. `AGENT_RATE_LIMIT_PER_MINUTE` and
 `AGENT_RATE_LIMIT_DAILY` control per-IP ceilings, and
 `AGENT_QUESTION_MAX_CHARS` caps prompt size before OpenAI is called.
 

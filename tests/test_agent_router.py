@@ -65,3 +65,20 @@ def test_route_tools_are_registered_tool_names() -> None:
     for tool_names in ROUTE_TOOLS.values():
         for tool_name in tool_names:
             assert tool_name in registered_tool_names
+
+
+def test_player_mentions_skip_capitalized_non_name_phrases() -> None:
+    from app.agent.planner import _extract_player_mentions
+
+    mentions = _extract_player_mentions(
+        "Compare January points leaders in the Western Conference"
+    )
+    assert mentions == []
+
+
+def test_player_mentions_keep_real_names_with_overlapping_words() -> None:
+    from app.agent.planner import _extract_player_mentions
+
+    mentions = _extract_player_mentions("How is Jalen Williams trending in March?")
+    assert "Jalen Williams" in mentions
+    assert all("march" not in mention.casefold() for mention in mentions)

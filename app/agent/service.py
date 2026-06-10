@@ -776,14 +776,6 @@ class StatsAgent:
         instructions = f"{SYSTEM_PROMPT}\n\n{_route_hint(agent_plan)}"
         max_tool_calls = max(1, self.settings.agent_max_tool_calls)
         tools = _tool_schemas_for_plan(agent_plan.required_tools)
-        request_client = client
-        create_extra: dict[str, Any] = {}
-        if hasattr(client, "with_options"):
-            request_client = client.with_options(
-                timeout=self.settings.openai_agent_timeout_seconds
-            )
-        else:
-            create_extra["timeout"] = self.settings.openai_agent_timeout_seconds
 
         resolutions = self.player_resolver.resolve_many(
             query_plan.raw_player_mentions,
@@ -863,29 +855,15 @@ class StatsAgent:
             if evidence_payload is not None:
                 return evidence_payload
 
-        def create_response() -> Any:
-            attempts = max(0, self.settings.openai_agent_max_retries) + 1
-            delay = max(0.0, self.settings.openai_agent_retry_base_delay_seconds)
-            last_exc: Exception | None = None
-            for attempt in range(attempts):
-                try:
-                    return request_client.responses.create(
-                        model=self.settings.openai_agent_model,
-                        instructions=instructions,
-                        input=input_messages,
-                        tools=tools,
-                        text=TEXT_FORMAT,
-                        **create_extra,
-                    )
-                except Exception as exc:  # noqa: PERF203 - retry clarity matters here.
-                    last_exc = exc
-                    if attempt >= attempts - 1 or not _is_transient_openai_error(exc):
-                        break
-                    sleep(delay * (2**attempt))
-            raise AgentExecutionError("OpenAI agent request failed.") from last_exc
-
         while True:
-            response = create_response()
+            response = self._create_response(
+                client=client,
+                instructions=instructions,
+                input_messages=input_messages,
+                tools=tools,
+                text=TEXT_FORMAT,
+                timeout_seconds=self.settings.openai_agent_timeout_seconds,
+            )
             if trace is not None:
                 trace.add_usage(getattr(response, "usage", None))
 
