@@ -15,6 +15,11 @@ Initialize the local metadata DB and registered DAGs:
 make airflow-init
 ```
 
+The init target also installs `scripts/airflow_local_settings.py` into the
+ignored local `airflow_home/config/` directory. That keeps scheduler task
+subprocesses pointed at the repo-local `.venv-airflow` executable when the DAG
+runs under launchd.
+
 Create a local admin user:
 
 ```bash
@@ -30,11 +35,36 @@ make airflow-webserver
 
 Airflow UI: `http://localhost:8080`
 
-The DAG is scheduled daily at `0 11 * * *` UTC. To allow scheduled runs, keep
-the scheduler running and unpause the DAG:
+The DAG is scheduled daily at `0 11 * * *` UTC through `2026-07-01`, giving the
+2025-26 season a post-Finals correction buffer before scheduled runs stop. To
+allow scheduled runs, keep the scheduler running and unpause the DAG:
 
 ```bash
 make airflow-unpause
+```
+
+## Daily Local Scheduler
+
+For a hands-off local setup on macOS, install a LaunchAgent generated for the
+current checkout. It starts the Airflow scheduler at login, keeps it alive, and
+writes scheduler logs under ignored local `logs/` files:
+
+```bash
+scripts/install_airflow_launch_agent.sh
+```
+
+Before relying on scheduled runs, initialize Airflow and unpause the DAG:
+
+```bash
+make airflow-init
+make airflow-unpause
+```
+
+Check the service:
+
+```bash
+launchctl print "gui/$(id -u)/com.nba-gcp.airflow-scheduler"
+tail -f logs/airflow-scheduler.launchd.err.log
 ```
 
 Trigger manually:
@@ -106,7 +136,7 @@ NBA_API_RETRIES=3
 NBA_API_RETRY_BASE_DELAY_SECONDS=1.0
 NBA_API_RETRY_BACKOFF_MULTIPLIER=2.0
 NBA_API_RETRY_MAX_DELAY_SECONDS=8.0
-NBA_SHOT_LOCATION_SEASON_TYPE=Regular Season
+NBA_SHOT_LOCATION_SEASON_TYPE="Regular Season"
 ```
 
 Game logs are currently fetched through the active-player game-log endpoint, so

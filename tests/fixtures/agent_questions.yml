@@ -43,6 +43,15 @@
     - "LeBron"
     - "PTS"
 
+- id: lebron_baseline_compare_trend
+  question: "Compare LeBron's last 10 games against league baseline for points."
+  expected_tools:
+    - resolve_player
+    - get_player_trends
+  expected_terms:
+    - "LeBron"
+    - "PTS"
+
 - id: lebron_game_by_game_attributed_points
   question: "Show LeBron's recent game-by-game Attributed Points trend"
   expected_tools:

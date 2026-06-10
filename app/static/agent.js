@@ -262,42 +262,192 @@ function renderPayload(payload) {
   bindExampleButtons(contextEl);
 }
 
-async function askQuestion(question) {
+let activeConversationId = null;
+
+function setInterimAnswer(text) {
+  const empty = document.querySelector("[data-agent-empty]");
+  const answerEl = document.querySelector("[data-agent-answer]");
+  if (!answerEl || !empty) return;
+  empty.hidden = true;
+  answerEl.hidden = false;
+  answerEl.innerHTML = `<div class="agent-answer-text">${escHtml(text || "")}</div>`;
+}
+
+function applyConversation(payload) {
+  if (payload?.conversation_id) {
+    activeConversationId = payload.conversation_id;
+  }
+}
+
+function handleStreamEvent(eventName, payload, state) {
   const statusEl = document.querySelector("[data-agent-status]");
-  const submit = document.querySelector("[data-agent-submit]");
-  if (statusEl) statusEl.textContent = "Thinking";
-  if (submit instanceof HTMLButtonElement) submit.disabled = true;
-  try {
-    const response = await fetch("/api/agent/ask", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      renderPayload({
-        answer: payload.detail || "Ask NBA Stats is unavailable.",
-        assumptions: [],
-        tables: [],
-        charts: [],
-        metric_definitions: [],
-        followups: [],
-      });
-      if (statusEl) statusEl.textContent = "Unavailable";
-      return;
-    }
-    renderPayload(payload);
+  if (eventName === "meta") {
+    applyConversation(payload);
+    return;
+  }
+  if (eventName === "plan") {
+    if (statusEl) statusEl.textContent = `Route ${payload.route || "planned"}`;
+    return;
+  }
+  if (eventName === "tool_start") {
+    if (statusEl) statusEl.textContent = `Calling ${payload.name || "tool"}`;
+    return;
+  }
+  if (eventName === "tool_end") {
+    if (statusEl) statusEl.textContent = `${payload.name || "Tool"} ${payload.status || "done"}`;
+    return;
+  }
+  if (eventName === "answer_delta") {
+    state.answerText += payload.delta || "";
+    setInterimAnswer(state.answerText);
+    if (statusEl) statusEl.textContent = "Writing";
+    return;
+  }
+  if (eventName === "final") {
+    applyConversation(payload.payload);
+    renderPayload(payload.payload || {});
     if (statusEl) statusEl.textContent = "Answered";
-  } catch {
+    state.finished = true;
+    return;
+  }
+  if (eventName === "error") {
     renderPayload({
-      answer: "Ask NBA Stats failed to reach the API.",
+      answer: payload.detail || "Ask NBA Stats is unavailable.",
       assumptions: [],
       tables: [],
       charts: [],
       metric_definitions: [],
       followups: [],
     });
-    if (statusEl) statusEl.textContent = "Failed";
+    if (statusEl) statusEl.textContent = "Unavailable";
+    state.finished = true;
+  }
+}
+
+async function askQuestionJson(question) {
+  const statusEl = document.querySelector("[data-agent-status]");
+  const response = await fetch("/api/agent/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, conversation_id: activeConversationId }),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    renderPayload({
+      answer: payload.detail || "Ask NBA Stats is unavailable.",
+      assumptions: [],
+      tables: [],
+      charts: [],
+      metric_definitions: [],
+      followups: [],
+    });
+    if (statusEl) statusEl.textContent = "Unavailable";
+    return;
+  }
+  applyConversation(payload);
+  renderPayload(payload);
+  if (statusEl) statusEl.textContent = "Answered";
+}
+
+function parseSseChunk(buffer, onEvent) {
+  const parts = buffer.split("\n\n");
+  const remaining = parts.pop() || "";
+  parts.forEach((part) => {
+    const lines = part.split("\n");
+    const eventLine = lines.find((line) => line.startsWith("event:"));
+    const dataLine = lines.find((line) => line.startsWith("data:"));
+    if (!dataLine) return;
+    const eventName = eventLine ? eventLine.slice(6).trim() : "message";
+    try {
+      onEvent(eventName, JSON.parse(dataLine.slice(5).trim()));
+    } catch {
+      // Ignore malformed SSE fragments; the final JSON fallback still protects UX.
+    }
+  });
+  return remaining;
+}
+
+function renderAskFailure(message, statusText) {
+  const statusEl = document.querySelector("[data-agent-status]");
+  renderPayload({
+    answer: message,
+    assumptions: [],
+    tables: [],
+    charts: [],
+    metric_definitions: [],
+    followups: [],
+  });
+  if (statusEl) statusEl.textContent = statusText;
+}
+
+async function askQuestionStream(question) {
+  const response = await fetch("/api/agent/ask/stream", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ question, conversation_id: activeConversationId }),
+  });
+  if (!response.ok) {
+    // The server answered (rate limit, validation, ...): surface its detail
+    // instead of re-submitting via the JSON fallback, which would charge the
+    // rate limit twice for the same question.
+    let detail = "Ask NBA Stats is unavailable.";
+    try {
+      const payload = await response.json();
+      if (payload && payload.detail) detail = payload.detail;
+    } catch {
+      // Keep the generic message when the error body is not JSON.
+    }
+    renderAskFailure(detail, "Unavailable");
+    return;
+  }
+  if (!response.body) {
+    throw new Error("stream unavailable");
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const state = { answerText: "", finished: false, eventCount: 0 };
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      buffer = parseSseChunk(buffer, (eventName, payload) => {
+        state.eventCount += 1;
+        handleStreamEvent(eventName, payload, state);
+      });
+    }
+    if (!state.finished) {
+      throw new Error("stream ended without final event");
+    }
+  } catch (error) {
+    // Once any event has arrived the server is already running the agent;
+    // mark the error so the caller does not re-submit the question.
+    if (error instanceof Error) error.receivedEvents = state.eventCount > 0;
+    throw error;
+  }
+}
+
+async function askQuestion(question) {
+  const statusEl = document.querySelector("[data-agent-status]");
+  const submit = document.querySelector("[data-agent-submit]");
+  if (statusEl) statusEl.textContent = "Thinking";
+  if (submit instanceof HTMLButtonElement) submit.disabled = true;
+  try {
+    await askQuestionStream(question);
+  } catch (streamError) {
+    if (streamError instanceof Error && streamError.receivedEvents) {
+      renderAskFailure(
+        "Ask NBA Stats lost the connection before finishing. Try again shortly.",
+        "Failed"
+      );
+    } else {
+      try {
+        await askQuestionJson(question);
+      } catch {
+        renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed");
+      }
+    }
   } finally {
     if (submit instanceof HTMLButtonElement) submit.disabled = false;
   }

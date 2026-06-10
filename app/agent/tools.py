@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import date
+from threading import Lock
+from time import monotonic
 from typing import Any
 
 from app.agent.catalog import (
@@ -11,6 +13,36 @@ from app.agent.catalog import (
 )
 from app.agent.formulas import evaluate_formula
 from app.repository import WarehouseRepository
+
+
+class _TtlCache:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._values: dict[tuple[Any, ...], tuple[float, Any]] = {}
+
+    def get(self, key: tuple[Any, ...], ttl_seconds: int) -> Any | None:
+        if ttl_seconds <= 0:
+            return None
+        now = monotonic()
+        with self._lock:
+            cached = self._values.get(key)
+            if cached is None:
+                return None
+            expires_at, value = cached
+            if expires_at <= now:
+                self._values.pop(key, None)
+                return None
+            return value
+
+    def set(self, key: tuple[Any, ...], value: Any, ttl_seconds: int) -> None:
+        if ttl_seconds <= 0:
+            return
+        with self._lock:
+            self._values[key] = (monotonic() + ttl_seconds, value)
+
+
+_list_metrics_cache = _TtlCache()
+_resolve_player_cache = _TtlCache()
 
 
 def _to_float(value: Any) -> float | None:
@@ -393,9 +425,12 @@ class StatsToolRunner:
         self,
         repo: WarehouseRepository,
         catalog: SemanticCatalog | None = None,
+        *,
+        cache_ttl_seconds: int = 300,
     ) -> None:
         self.repo = repo
         self.catalog = catalog or load_semantic_catalog()
+        self.cache_ttl_seconds = cache_ttl_seconds
 
     def call_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
         if name == "list_metrics":
@@ -437,6 +472,10 @@ class StatsToolRunner:
         return {"status": "error", "message": f"Unknown tool: {name}"}
 
     def list_metrics(self, query: str | None = None) -> dict[str, Any]:
+        cache_key = ("list_metrics", str(query or "").casefold())
+        cached = _list_metrics_cache.get(cache_key, self.cache_ttl_seconds)
+        if cached is not None:
+            return cached
         metrics = self.catalog.list_metrics()
         if query:
             query_norm = str(query).lower()
@@ -447,32 +486,49 @@ class StatsToolRunner:
                 or query_norm in metric["label"].lower()
                 or any(query_norm in alias.lower() for alias in metric["aliases"])
             ]
-        return {"status": "ok", "metrics": metrics}
+        payload = {"status": "ok", "metrics": metrics}
+        _list_metrics_cache.set(cache_key, payload, self.cache_ttl_seconds)
+        return payload
 
     def resolve_player(self, name: Any, limit: Any = 5) -> dict[str, Any]:
         query = str(name or "").strip()
         if not query:
             return {"status": "error", "message": "Player name is required."}
+        max_rows = _coerce_limit(limit, default=5, minimum=1, maximum=8)
+        cache_key = ("resolve_player", query.casefold(), max_rows)
+        cached = _resolve_player_cache.get(cache_key, self.cache_ttl_seconds)
+        if cached is not None:
+            return cached
         rows = self.repo.search_players(
             query,
-            limit=_coerce_limit(limit, default=5, minimum=1, maximum=8),
+            limit=max_rows,
         )
         matches = [_compact_player(row) for row in rows]
         if not matches:
-            return {"status": "not_found", "query": query, "matches": []}
+            payload: dict[str, Any] = {
+                "status": "not_found",
+                "query": query,
+                "matches": [],
+            }
+            _resolve_player_cache.set(cache_key, payload, self.cache_ttl_seconds)
+            return payload
         exact = [
             match
             for match in matches
             if str(match.get("player_name") or "").lower() == query.lower()
         ]
         if len(matches) == 1 or len(exact) == 1:
-            return {
+            payload = {
                 "status": "ok",
                 "query": query,
                 "player": exact[0] if exact else matches[0],
                 "matches": matches,
             }
-        return {"status": "ambiguous", "query": query, "matches": matches}
+            _resolve_player_cache.set(cache_key, payload, self.cache_ttl_seconds)
+            return payload
+        payload = {"status": "ambiguous", "query": query, "matches": matches}
+        _resolve_player_cache.set(cache_key, payload, self.cache_ttl_seconds)
+        return payload
 
     def get_player_summary(self, player_id: Any) -> dict[str, Any]:
         detail = self.repo.get_player_detail(_to_int(player_id) or -1)

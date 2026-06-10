@@ -172,9 +172,9 @@ def normalize_game_log_season_types(value: Any = None) -> List[str]:
     if value in (None, ""):
         candidates = list(DEFAULT_GAME_LOG_SEASON_TYPES)
     elif isinstance(value, str):
-        candidates = [part.strip() for part in value.split(",")]
+        candidates = [part.strip().strip("\"'") for part in value.split(",")]
     else:
-        candidates = [str(part).strip() for part in value]
+        candidates = [str(part).strip().strip("\"'") for part in value]
 
     normalized: List[str] = []
     seen: set[str] = set()

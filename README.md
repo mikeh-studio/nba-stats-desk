@@ -70,7 +70,7 @@ See [Architecture](docs/architecture.md) for the detailed table layout.
 
 The FastAPI service serves both HTML pages and JSON routes:
 
-- home dashboard, player pages, performance, compare, visualize, similarity map, and ask pages
+- ask, player, performance, compare, and similarity map pages
 - leaderboard, trends, recent game performance, analysis snapshot, recommendations, rankings
 - player search/detail, game logs, percentiles, similarity, and health
 

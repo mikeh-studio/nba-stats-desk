@@ -117,16 +117,88 @@ function formatTrackedSummary(count, cap) {
   return `${count}/${cap} tracked in this browser`;
 }
 
+function formatTimeAgo(value) {
+  if (!value) {
+    return "unavailable";
+  }
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    return String(value);
+  }
+  const seconds = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+  if (seconds < 60) {
+    return "just now";
+  }
+  if (seconds < 3600) {
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  }
+  if (seconds < 86400) {
+    const hours = Math.floor(seconds / 3600);
+    return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  }
+  const days = Math.floor(seconds / 86400);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function renderHealthStatus(node, payload) {
+  const status = payload?.status || "unavailable";
+  const lastRefresh = payload?.last_successful_finished_at_utc || "";
+  node.classList.toggle("loading", false);
+  node.dataset.healthState = status;
+  if (lastRefresh) {
+    node.title = lastRefresh;
+  }
+  if (status === "fresh") {
+    node.textContent = "Data fresh";
+    return;
+  }
+  if (lastRefresh) {
+    node.textContent = `Last refresh ${formatTimeAgo(lastRefresh)}`;
+    return;
+  }
+  node.textContent = "Data status unavailable";
+}
+
+let healthStatusStarted = false;
+
+async function setupHealthStatus() {
+  if (healthStatusStarted) {
+    return;
+  }
+  healthStatusStarted = true;
+  const nodes = Array.from(document.querySelectorAll("[data-health-status]"));
+  if (nodes.length === 0) {
+    return;
+  }
+  nodes.forEach((node) => {
+    node.classList.add("loading");
+  });
+  try {
+    const response = await fetch("/api/health", { cache: "default" });
+    if (!response.ok) {
+      throw new Error("health unavailable");
+    }
+    const payload = await response.json();
+    nodes.forEach((node) => renderHealthStatus(node, payload));
+  } catch {
+    nodes.forEach((node) => {
+      node.classList.toggle("loading", false);
+      node.dataset.healthState = "unavailable";
+      node.textContent = "Data status unavailable";
+    });
+  }
+}
+
 function renderHeadshot(player) {
   const initials = escHtml(player.player_initials || "NBA");
   const imageMarkup = player.headshot_url
     ? `<img src="${escHtml(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />`
     : "";
-  const fallbackHidden = player.headshot_url ? " hidden" : "";
   return `
     <div class="player-avatar" aria-hidden="true">
       ${imageMarkup}
-      <span class="player-avatar-fallback"${fallbackHidden}>${initials}</span>
+      <span class="player-avatar-fallback">${initials}</span>
     </div>
   `;
 }
@@ -637,6 +709,7 @@ function setupPlayerTrendCharts() {
 }
 
 export function initWorkbench() {
+  setupHealthStatus();
   setupTrackButtons();
   setupCompareSearch();
   setupComparePlayerASearch();
@@ -654,5 +727,10 @@ export function initWorkbench() {
 }
 
 if (typeof document !== "undefined") {
-  document.addEventListener("DOMContentLoaded", initWorkbench);
+  setupHealthStatus();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initWorkbench);
+  } else {
+    initWorkbench();
+  }
 }

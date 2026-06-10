@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
+from threading import Event, Thread
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -10,7 +12,21 @@ from fastapi.testclient import TestClient
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import Settings, get_settings
-from app.main import app, get_agent_client, get_repository
+from app.main import (
+    PAYLOAD_CACHE_MAX_ENTRIES,
+    _get_cached_payload,
+    _health_cache,
+    _payload_building,
+    _payload_cache,
+    _payload_cache_lock,
+    _payload_refreshing,
+    _performance_initial_cache_key,
+    _prewarm_performance_flow,
+    _store_payload_locked,
+    app,
+    get_agent_client,
+    get_repository,
+)
 from app.repository import WarehouseRepository
 from app.telemetry import LOGGER_NAME
 
@@ -578,6 +594,37 @@ class FakeRepository(WarehouseRepository):
             rows = [row for row in rows if row["game_date"] == game_date]
         return rows
 
+    def get_recent_performance_initial(
+        self,
+        *,
+        game_date: str | None = None,
+        game_id: str | None = None,
+        limit: int = 240,
+    ) -> dict:
+        dates = self.get_recent_performance_dates()
+        selected_date = game_date or (dates[0]["value"] if dates else None)
+        if not selected_date:
+            return {
+                "season": "2025-26",
+                "dates": dates,
+                "selected_date": None,
+                "selected_game_id": game_id,
+                "games": [],
+                "players": [],
+            }
+        return {
+            "season": "2025-26",
+            "dates": dates,
+            "selected_date": selected_date,
+            "selected_game_id": game_id,
+            "games": self.get_recent_performance_games(game_date=selected_date),
+            "players": self.get_recent_performance_players(
+                game_date=selected_date,
+                game_id=game_id,
+                limit=limit,
+            ),
+        }
+
     def _performance_row(self) -> dict:
         return {
             "game_id": "002250010",
@@ -1064,6 +1111,98 @@ class StaleRepository(FakeRepository):
         }
 
 
+class HealthExplodingRepository(FakeRepository):
+    def get_health(self) -> dict:
+        raise AssertionError("page shell should not synchronously load health")
+
+
+class CountingPerformanceRepository(FakeRepository):
+    def __init__(self) -> None:
+        self.health_calls = 0
+        self.initial_calls = 0
+        self.date_calls = 0
+        self.game_calls = 0
+        self.player_calls = 0
+
+    def get_health(self) -> dict:
+        self.health_calls += 1
+        return super().get_health()
+
+    def get_recent_performance_initial(
+        self,
+        *,
+        game_date: str | None = None,
+        game_id: str | None = None,
+        limit: int = 240,
+    ) -> dict:
+        self.initial_calls += 1
+        dates = FakeRepository.get_recent_performance_dates(self)
+        selected_date = game_date or (dates[0]["value"] if dates else None)
+        if not selected_date:
+            return {
+                "season": "2025-26",
+                "dates": dates,
+                "selected_date": None,
+                "selected_game_id": game_id,
+                "games": [],
+                "players": [],
+            }
+        return {
+            "season": "2025-26",
+            "dates": dates,
+            "selected_date": selected_date,
+            "selected_game_id": game_id,
+            "games": FakeRepository.get_recent_performance_games(
+                self,
+                game_date=selected_date,
+            ),
+            "players": FakeRepository.get_recent_performance_players(
+                self,
+                game_date=selected_date,
+                game_id=game_id,
+                limit=limit,
+            ),
+        }
+
+    def get_recent_performance_dates(self) -> list[dict]:
+        self.date_calls += 1
+        return super().get_recent_performance_dates()
+
+    def get_recent_performance_games(
+        self, *, game_date: str | None = None
+    ) -> list[dict]:
+        self.game_calls += 1
+        return super().get_recent_performance_games(game_date=game_date)
+
+    def get_recent_performance_players(
+        self,
+        *,
+        game_date: str,
+        game_id: str | None = None,
+        limit: int = 240,
+    ) -> list[dict]:
+        self.player_calls += 1
+        return super().get_recent_performance_players(
+            game_date=game_date,
+            game_id=game_id,
+            limit=limit,
+        )
+
+
+class ExplodingPrewarmRepository(FakeRepository):
+    def get_health(self) -> dict:
+        raise RuntimeError("health unavailable")
+
+    def get_recent_performance_initial(
+        self,
+        *,
+        game_date: str | None = None,
+        game_id: str | None = None,
+        limit: int = 240,
+    ) -> dict:
+        raise RuntimeError("initial payload unavailable")
+
+
 class MissingOpportunityRepository(FakeRepository):
     def get_dashboard(self, as_of_date: str | None = None) -> dict:
         payload = super().get_dashboard(as_of_date=as_of_date)
@@ -1100,9 +1239,11 @@ def _test_settings(**overrides: object) -> Settings:
 class FakeOpenAIResponses:
     def __init__(self) -> None:
         self.calls = 0
+        self.kwargs: list[dict] = []
 
-    def create(self, **_kwargs):
+    def create(self, **kwargs):
         self.calls += 1
+        self.kwargs.append(kwargs)
         if self.calls == 1:
             return SimpleNamespace(
                 output=[
@@ -1204,49 +1345,12 @@ def build_client(
     return TestClient(app)
 
 
-def test_home_page_smoke() -> None:
+def test_home_redirects_to_ask() -> None:
     client = build_client()
-    response = client.get("/")
+    response = client.get("/", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Stats Dashboard" in response.text
-    assert "Signal Board" in response.text
-    assert "Choose Day" in response.text
-    assert "Wed Feb 11" in response.text
-    assert "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png" in response.text
-    assert "PTS +6.4" in response.text
-    assert "Strengths PTS, AST, 3PM" in response.text
-    assert "Strengths TOV" not in response.text
-    assert "Tracked Players" not in response.text
-    assert "/analysis" not in response.text
-    assert "/recommendations" not in response.text
-    assert "Risk " not in response.text
-
-
-def test_home_page_shows_stale_notice() -> None:
-    client = build_client(StaleRepository())
-    response = client.get("/")
-
-    assert response.status_code == 200
-    assert "Use the board with caution." not in response.text
-    assert "Last refresh" in response.text
-    assert 'title="2026-02-09T12:00:00+00:00"' in response.text
-
-
-def test_home_page_missing_opportunity_state() -> None:
-    client = build_client(MissingOpportunityRepository())
-    response = client.get("/")
-
-    assert response.status_code == 200
-    assert "Opportunity context is unavailable." in response.text
-
-
-def test_home_page_respects_selected_day() -> None:
-    client = build_client()
-    response = client.get("/?as_of_date=2026-02-09")
-
-    assert response.status_code == 200
-    assert "Mon Feb 09" in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == "/ask"
 
 
 def test_analysis_page_removed() -> None:
@@ -1269,7 +1373,22 @@ def test_ask_page_smoke() -> None:
 
     assert response.status_code == 200
     assert "Ask NBA Stats" in response.text
-    assert "/static/agent.js" in response.text
+    assert "/static/agent.js?v=20260609-performance-flow-v5" in response.text
+    assert "data-health-status" in response.text
+    assert ">Ask</a>" in response.text
+    assert ">Player Trends</a>" in response.text
+    assert ">Similar Players</a>" in response.text
+    assert ">Player Compare</a>" in response.text
+    assert ">Dashboard</a>" not in response.text
+    assert ">Visualize</a>" not in response.text
+
+
+def test_ask_page_does_not_block_on_health() -> None:
+    client = build_client(repo=HealthExplodingRepository())
+    response = client.get("/ask")
+
+    assert response.status_code == 200
+    assert "Data status loading" in response.text
 
 
 def test_api_agent_ask_returns_disabled_without_openai_key() -> None:
@@ -1280,7 +1399,20 @@ def test_api_agent_ask_returns_disabled_without_openai_key() -> None:
     )
 
     assert response.status_code == 503
-    assert "OPENAI_API_KEY" in response.json()["detail"]
+    assert response.headers["x-request-id"]
+    assert response.json()["detail"] == "Ask NBA Stats is unavailable."
+
+
+def test_api_agent_ask_vague_question_requires_openai_key() -> None:
+    client = build_client(settings=_test_settings(openai_api_key=None))
+    response = client.post(
+        "/api/agent/ask",
+        json={"question": "stats"},
+    )
+
+    assert response.status_code == 503
+    assert response.headers["x-request-id"]
+    assert response.json()["detail"] == "Ask NBA Stats is unavailable."
 
 
 def test_api_agent_ask_runs_mocked_openai_tool_loop() -> None:
@@ -1297,8 +1429,25 @@ def test_api_agent_ask_runs_mocked_openai_tool_loop() -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["season"] == "2025-26"
+    assert payload["request_id"]
+    assert response.headers["x-request-id"] == payload["request_id"]
     assert payload["answer"].startswith("Tyrese Maxey")
-    assert payload["tool_calls"][0] == {"name": "resolve_player", "status": "ok"}
+    assert payload["conversation_id"].startswith("agent-")
+    assert payload["tool_calls"][0]["name"] == "resolve_player"
+    assert payload["tool_calls"][0]["status"] == "ok"
+    assert payload["tool_calls"][0]["args"] == {"name": "Tyrese Maxey", "limit": 5}
+    assert isinstance(payload["tool_calls"][0]["duration_ms"], int)
+    assert payload["tool_calls"][0]["result"]["status"] == "ok"
+    assert payload["agent_plan"]["route"] == "player_trend"
+    assert payload["agent_plan"]["confidence"] > 0
+    assert payload["agent_plan"]["required_tools"] == [
+        "resolve_player",
+        "get_player_trends",
+    ]
+    assert (
+        "Routing plan for this question"
+        in fake_openai.responses.kwargs[-1]["instructions"]
+    )
     assert fake_openai.responses.calls == 2
 
 
@@ -1315,15 +1464,12 @@ def test_api_agent_ask_accepts_date_range_tool_args() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["tool_calls"][0] == {"name": "get_player_game_log", "status": "ok"}
-    game_log_schema = next(
-        tool
-        for tool in fake_openai.responses.first_tools
-        if tool["name"] == "get_player_game_log"
+    game_log_call = next(
+        tool for tool in payload["tool_calls"] if tool["name"] == "get_player_game_log"
     )
-    properties = game_log_schema["parameters"]["properties"]
-    assert properties["start_date"]["type"] == ["string", "null"]
-    assert properties["end_date"]["type"] == ["string", "null"]
+    assert game_log_call["status"] == "ok"
+    assert game_log_call["args"]["start_date"] == "2026-02-02"
+    assert game_log_call["args"]["end_date"] == "2026-02-03"
 
 
 def test_api_agent_ask_rate_limits_repeated_public_calls() -> None:
@@ -1352,6 +1498,162 @@ def test_api_agent_ask_rate_limits_repeated_public_calls() -> None:
     assert second.status_code == 429
     assert "rate limit" in second.json()["detail"]
     assert fake_openai.responses.calls == 2
+
+
+def test_api_agent_ask_rate_limit_ignores_spoofed_forwarded_prefix() -> None:
+    fake_openai = FakeOpenAIClient()
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_rate_limit_per_minute=1,
+        ),
+        agent_client=fake_openai,
+    )
+
+    first = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers={"X-Forwarded-For": "10.0.0.1, 198.51.100.30"},
+    )
+    second = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers={"X-Forwarded-For": "10.0.0.2, 198.51.100.30"},
+    )
+
+    assert first.status_code == 200
+    # Only the right-most (proxy-appended) hop counts, so rotating the
+    # client-supplied prefix must not reset the limit.
+    assert second.status_code == 429
+
+
+def test_payload_cache_evicts_oldest_entries_past_cap() -> None:
+    with _payload_cache_lock:
+        saved = dict(_payload_cache)
+        _payload_cache.clear()
+        try:
+            for index in range(PAYLOAD_CACHE_MAX_ENTRIES + 25):
+                _store_payload_locked(("bound-test", index), {"index": index})
+            assert len(_payload_cache) == PAYLOAD_CACHE_MAX_ENTRIES
+            assert ("bound-test", 0) not in _payload_cache
+            newest = ("bound-test", PAYLOAD_CACHE_MAX_ENTRIES + 24)
+            assert newest in _payload_cache
+        finally:
+            _payload_cache.clear()
+            _payload_cache.update(saved)
+
+
+def test_api_agent_ask_rejects_overlong_question() -> None:
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_question_max_chars=12,
+        ),
+        agent_client=FakeOpenAIClient(),
+    )
+
+    response = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+    )
+
+    assert response.status_code == 400
+    assert "too long" in response.json()["detail"]
+
+
+def test_api_agent_ask_enforces_daily_rate_limit() -> None:
+    fake_openai = FakeOpenAIClient()
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_rate_limit_per_minute=0,
+            agent_rate_limit_daily=1,
+        ),
+        agent_client=fake_openai,
+    )
+    headers = {"X-Forwarded-For": "198.51.100.24"}
+
+    first = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers=headers,
+    )
+    second = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers=headers,
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert "daily" in second.json()["detail"]
+
+
+def test_api_agent_ask_logs_structured_summary(caplog) -> None:
+    fake_openai = FakeOpenAIClient()
+    client = build_client(
+        settings=_test_settings(openai_api_key="test-key"),
+        agent_client=fake_openai,
+    )
+
+    with caplog.at_level("INFO", logger="app.agent"):
+        response = client.post(
+            "/api/agent/ask",
+            json={"question": "How is Tyrese Maxey trending?"},
+            headers={"X-Request-ID": "req-test-1"},
+        )
+
+    assert response.status_code == 200
+    summaries = [
+        json.loads(record.message)
+        for record in caplog.records
+        if "agent_request_summary" in record.message
+    ]
+    assert summaries[-1]["request_id"] == "req-test-1"
+    assert summaries[-1]["route"] == "player_trend"
+    assert summaries[-1]["outcome"] == "answered"
+    assert summaries[-1]["tools"][0]["args"] == {"name": "Tyrese Maxey", "limit": 5}
+
+
+def test_api_agent_ask_stream_sends_progress_and_final_payload() -> None:
+    fake_openai = FakeOpenAIClient()
+    client = build_client(
+        settings=_test_settings(openai_api_key="test-key"),
+        agent_client=fake_openai,
+    )
+
+    response = client.post(
+        "/api/agent/ask/stream",
+        json={"question": "How is Tyrese Maxey trending?"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "event: meta" in response.text
+    assert "event: plan" in response.text
+    assert "event: tool_start" in response.text
+    assert "event: answer_delta" in response.text
+    assert "event: final" in response.text
+    assert "Tyrese Maxey resolves" in response.text
+
+
+def test_api_agent_ask_stream_rejects_overlong_question_with_request_id() -> None:
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_question_max_chars=12,
+        ),
+        agent_client=FakeOpenAIClient(),
+    )
+
+    response = client.post(
+        "/api/agent/ask/stream",
+        json={"question": "How is Tyrese Maxey trending?"},
+    )
+
+    assert response.status_code == 400
+    assert response.headers["x-request-id"]
+    assert "too long" in response.json()["detail"]
 
 
 def test_player_page_smoke() -> None:
@@ -1562,11 +1864,11 @@ def test_player_page_logs_degraded_panel_state(caplog) -> None:
     )
 
 
-def test_home_page_logs_stale_freshness(caplog) -> None:
+def test_compare_page_logs_stale_freshness(caplog) -> None:
     client = build_client(StaleRepository())
 
     with caplog.at_level("INFO", logger=LOGGER_NAME):
-        response = client.get("/")
+        response = client.get("/compare")
 
     assert response.status_code == 200
     events = [
@@ -1577,8 +1879,7 @@ def test_home_page_logs_stale_freshness(caplog) -> None:
     assert any(
         event["panel"] == "freshness_banner"
         and event["reason"] == "stale_freshness"
-        and event["surface"] == "dashboard"
-        and event["as_of_date"] == "2026-02-11"
+        and event["surface"] == "compare"
         for event in events
     )
 
@@ -1644,11 +1945,177 @@ def test_performance_page_smoke() -> None:
     response = client.get("/performance")
 
     assert response.status_code == 200
-    assert "Game Performance" in response.text
+    assert "Player Trends" in response.text
     assert "/static/performance.js" in response.text
-    assert "performance.js?v=20260523-performance-polish" in response.text
+    assert "performance.js?v=20260609-performance-flow-v5" in response.text
+    assert "data-health-status" in response.text
     assert "performance-date-select" in response.text
     assert "Player View" in response.text
+
+
+def test_performance_page_does_not_block_on_health() -> None:
+    client = build_client(repo=HealthExplodingRepository())
+    response = client.get("/performance")
+
+    assert response.status_code == 200
+    assert "Data status loading" in response.text
+
+
+def test_api_performance_initial_returns_boot_payload_and_uses_cache() -> None:
+    repo = CountingPerformanceRepository()
+    client = build_client(repo=repo)
+
+    first = client.get("/api/performance/initial")
+    second = client.get("/api/performance/initial")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.headers["cache-control"] == "public, max-age=60"
+    payload = first.json()
+    assert payload["season"] == "2025-26"
+    assert payload["selected_date"] == "2026-02-10"
+    assert payload["dates"][0]["value"] == "2026-02-10"
+    assert payload["games"][0]["game_id"] == "002250010"
+    assert payload["players"][0]["player_name"] == "Tyrese Maxey"
+    assert repo.initial_calls == 1
+    assert repo.date_calls == 0
+    assert repo.game_calls == 0
+    assert repo.player_calls == 0
+
+
+def test_prewarm_performance_flow_populates_default_payload_cache() -> None:
+    repo = CountingPerformanceRepository()
+    key = _performance_initial_cache_key(
+        repo,
+        game_date=None,
+        game_id=None,
+        limit=240,
+    )
+    with _payload_cache_lock:
+        _payload_cache.pop(key, None)
+        _payload_refreshing.discard(key)
+        building = _payload_building.pop(key, None)
+        _health_cache.pop(id(repo), None)
+    if building is not None:
+        building.set()
+
+    try:
+        _prewarm_performance_flow(repo)
+
+        with _payload_cache_lock:
+            cached = _payload_cache.get(key)
+
+        assert cached is not None
+        assert cached[1]["selected_date"] == "2026-02-10"
+        assert cached[1]["players"][0]["player_name"] == "Tyrese Maxey"
+        assert repo.health_calls == 1
+        assert repo.initial_calls == 1
+        assert repo.date_calls == 0
+        assert repo.game_calls == 0
+        assert repo.player_calls == 0
+    finally:
+        with _payload_cache_lock:
+            _payload_cache.pop(key, None)
+            _payload_refreshing.discard(key)
+            building = _payload_building.pop(key, None)
+            _health_cache.pop(id(repo), None)
+        if building is not None:
+            building.set()
+
+
+def test_prewarm_performance_flow_tolerates_source_failures() -> None:
+    _prewarm_performance_flow(ExplodingPrewarmRepository())
+
+
+def test_cached_payload_serves_stale_while_refreshing() -> None:
+    key = ("unit", "stale-performance-cache")
+    calls = 0
+    with _payload_cache_lock:
+        _payload_cache[key] = (time.monotonic() - 5, {"state": "stale"})
+        _payload_refreshing.discard(key)
+
+    def builder() -> dict:
+        nonlocal calls
+        calls += 1
+        return {"state": "fresh"}
+
+    try:
+        payload = _get_cached_payload(
+            key,
+            1,
+            builder,
+            stale_ttl_seconds=60,
+        )
+
+        assert payload == {"state": "stale"}
+        for _ in range(50):
+            with _payload_cache_lock:
+                cached = _payload_cache.get(key)
+                is_refreshing = key in _payload_refreshing
+            if cached is not None and cached[1] == {"state": "fresh"}:
+                break
+            if not is_refreshing:
+                break
+            time.sleep(0.01)
+
+        with _payload_cache_lock:
+            cached = _payload_cache.get(key)
+        assert cached is not None
+        assert cached[1] == {"state": "fresh"}
+        assert calls == 1
+    finally:
+        with _payload_cache_lock:
+            _payload_cache.pop(key, None)
+            _payload_building.pop(key, None)
+            _payload_refreshing.discard(key)
+
+
+def test_cached_payload_coalesces_concurrent_cold_builds() -> None:
+    key = ("unit", "cold-performance-cache")
+    calls = 0
+    release = Event()
+    results: list[dict[str, str]] = []
+
+    with _payload_cache_lock:
+        _payload_cache.pop(key, None)
+        _payload_building.pop(key, None)
+        _payload_refreshing.discard(key)
+
+    def builder() -> dict[str, str]:
+        nonlocal calls
+        calls += 1
+        release.wait(timeout=2)
+        return {"state": "fresh"}
+
+    def read_payload() -> None:
+        results.append(_get_cached_payload(key, 60, builder))
+
+    threads = [Thread(target=read_payload), Thread(target=read_payload)]
+    try:
+        for thread in threads:
+            thread.start()
+        for _ in range(50):
+            with _payload_cache_lock:
+                is_building = key in _payload_building
+            if is_building:
+                break
+            time.sleep(0.01)
+        release.set()
+        for thread in threads:
+            thread.join(timeout=2)
+
+        assert results == [{"state": "fresh"}, {"state": "fresh"}]
+        assert calls == 1
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(timeout=2)
+        with _payload_cache_lock:
+            _payload_cache.pop(key, None)
+            building = _payload_building.pop(key, None)
+            _payload_refreshing.discard(key)
+        if building is not None:
+            building.set()
 
 
 def test_api_performance_dates() -> None:
@@ -1703,21 +2170,18 @@ def test_api_performance_player_detail_returns_percentile_ranges() -> None:
 
 def test_visualize_page_smoke() -> None:
     client = build_client()
-    response = client.get("/visualize")
+    response = client.get("/visualize", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Player Stats Explorer" in response.text
-    assert "chart.js" in response.text
-    assert "visualize.js" in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == "/performance"
 
 
 def test_visualize_page_with_player_id() -> None:
     client = build_client()
-    response = client.get("/visualize?player_id=7")
+    response = client.get("/visualize?player_id=7", follow_redirects=False)
 
-    assert response.status_code == 200
-    assert "Player Stats Explorer" in response.text
-    assert "__vizBootstrap" in response.text
+    assert response.status_code == 307
+    assert response.headers["location"] == "/performance"
 
 
 def test_api_similarity_map_returns_players_and_archetypes() -> None:
@@ -1739,10 +2203,19 @@ def test_similarity_map_page_smoke() -> None:
     response = client.get("/similarity-map")
 
     assert response.status_code == 200
-    assert "Player Similarity Map" in response.text
-    assert "/static/similarity_map.js" in response.text
+    assert "Similar Players" in response.text
+    assert "/static/similarity_map.js?v=20260609-performance-flow-v5" in response.text
+    assert "data-health-status" in response.text
     assert "plotly-gl3d" in response.text
     assert 'id="map-axes-note"' in response.text
+
+
+def test_similarity_map_page_does_not_block_on_health() -> None:
+    client = build_client(repo=HealthExplodingRepository())
+    response = client.get("/similarity-map")
+
+    assert response.status_code == 200
+    assert "Data status loading" in response.text
 
 
 def test_api_similarity_map_neighbors_returns_ranked_matches() -> None:

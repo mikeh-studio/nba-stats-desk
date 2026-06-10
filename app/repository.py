@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from math import sqrt
+from threading import Lock
 from typing import Any, Literal, Protocol
 
 from google.api_core.exceptions import GoogleAPIError as BQAPIError
@@ -270,6 +272,87 @@ RECENT_PERFORMANCE_STAT_CONFIG: tuple[dict[str, str], ...] = (
     {"key": "stl", "label": "STL"},
     {"key": "blk", "label": "BLK"},
 )
+
+RECENT_PERFORMANCE_TABLE_FIELDS: tuple[bigquery.SchemaField, ...] = (
+    bigquery.SchemaField("season", "STRING"),
+    bigquery.SchemaField("game_id", "STRING"),
+    bigquery.SchemaField("game_date", "DATE"),
+    bigquery.SchemaField("teams", "STRING"),
+    bigquery.SchemaField("game_matchup", "STRING"),
+    bigquery.SchemaField("home_team_abbr", "STRING"),
+    bigquery.SchemaField("away_team_abbr", "STRING"),
+    bigquery.SchemaField("home_team_pts", "INTEGER"),
+    bigquery.SchemaField("away_team_pts", "INTEGER"),
+    bigquery.SchemaField("players_played", "INTEGER"),
+    bigquery.SchemaField("player_id", "INTEGER"),
+    bigquery.SchemaField("player_name", "STRING"),
+    bigquery.SchemaField("team_abbr", "STRING"),
+    bigquery.SchemaField("opponent_abbr", "STRING"),
+    bigquery.SchemaField("home_away", "STRING"),
+    bigquery.SchemaField("matchup", "STRING"),
+    bigquery.SchemaField("wl", "STRING"),
+    bigquery.SchemaField("min", "FLOAT"),
+    bigquery.SchemaField("pts", "FLOAT"),
+    bigquery.SchemaField("reb", "FLOAT"),
+    bigquery.SchemaField("ast", "FLOAT"),
+    bigquery.SchemaField("stl", "FLOAT"),
+    bigquery.SchemaField("blk", "FLOAT"),
+    bigquery.SchemaField("games_sampled", "INTEGER"),
+    bigquery.SchemaField("avg_pts", "FLOAT"),
+    bigquery.SchemaField("avg_reb", "FLOAT"),
+    bigquery.SchemaField("avg_ast", "FLOAT"),
+    bigquery.SchemaField("avg_stl", "FLOAT"),
+    bigquery.SchemaField("avg_blk", "FLOAT"),
+    bigquery.SchemaField("pts_delta", "FLOAT"),
+    bigquery.SchemaField("reb_delta", "FLOAT"),
+    bigquery.SchemaField("ast_delta", "FLOAT"),
+    bigquery.SchemaField("stl_delta", "FLOAT"),
+    bigquery.SchemaField("blk_delta", "FLOAT"),
+    bigquery.SchemaField("pts_delta_pct", "FLOAT"),
+    bigquery.SchemaField("reb_delta_pct", "FLOAT"),
+    bigquery.SchemaField("ast_delta_pct", "FLOAT"),
+    bigquery.SchemaField("stl_delta_pct", "FLOAT"),
+    bigquery.SchemaField("blk_delta_pct", "FLOAT"),
+    bigquery.SchemaField("pts_p10", "FLOAT"),
+    bigquery.SchemaField("pts_p25", "FLOAT"),
+    bigquery.SchemaField("pts_p50", "FLOAT"),
+    bigquery.SchemaField("pts_p75", "FLOAT"),
+    bigquery.SchemaField("pts_p90", "FLOAT"),
+    bigquery.SchemaField("pts_percentile", "FLOAT"),
+    bigquery.SchemaField("reb_p10", "FLOAT"),
+    bigquery.SchemaField("reb_p25", "FLOAT"),
+    bigquery.SchemaField("reb_p50", "FLOAT"),
+    bigquery.SchemaField("reb_p75", "FLOAT"),
+    bigquery.SchemaField("reb_p90", "FLOAT"),
+    bigquery.SchemaField("reb_percentile", "FLOAT"),
+    bigquery.SchemaField("ast_p10", "FLOAT"),
+    bigquery.SchemaField("ast_p25", "FLOAT"),
+    bigquery.SchemaField("ast_p50", "FLOAT"),
+    bigquery.SchemaField("ast_p75", "FLOAT"),
+    bigquery.SchemaField("ast_p90", "FLOAT"),
+    bigquery.SchemaField("ast_percentile", "FLOAT"),
+    bigquery.SchemaField("stl_p10", "FLOAT"),
+    bigquery.SchemaField("stl_p25", "FLOAT"),
+    bigquery.SchemaField("stl_p50", "FLOAT"),
+    bigquery.SchemaField("stl_p75", "FLOAT"),
+    bigquery.SchemaField("stl_p90", "FLOAT"),
+    bigquery.SchemaField("stl_percentile", "FLOAT"),
+    bigquery.SchemaField("blk_p10", "FLOAT"),
+    bigquery.SchemaField("blk_p25", "FLOAT"),
+    bigquery.SchemaField("blk_p50", "FLOAT"),
+    bigquery.SchemaField("blk_p75", "FLOAT"),
+    bigquery.SchemaField("blk_p90", "FLOAT"),
+    bigquery.SchemaField("blk_percentile", "FLOAT"),
+    bigquery.SchemaField("performance_score", "FLOAT"),
+    bigquery.SchemaField("performance_status", "STRING"),
+    bigquery.SchemaField("above_count", "INTEGER"),
+    bigquery.SchemaField("below_count", "INTEGER"),
+    bigquery.SchemaField("date_rank", "INTEGER"),
+    bigquery.SchemaField("game_rank", "INTEGER"),
+    bigquery.SchemaField("trend_points_json", "STRING"),
+)
+RECENT_PERFORMANCE_TABLE_ROW_CACHE_TTL_SECONDS = 900
+RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS = 5000
 
 AGENT_METRIC_LEADER_CONFIG: dict[str, dict[str, str]] = {
     "pts": {
@@ -1105,6 +1188,10 @@ class WarehouseRepository(Protocol):
 
     def search_players(self, query: str, limit: int = 10) -> list[dict[str, Any]]: ...
 
+    def list_agent_player_candidates(
+        self, limit: int = 1000
+    ) -> list[dict[str, Any]]: ...
+
     def get_player_detail(self, player_id: int) -> dict[str, Any] | None: ...
 
     def get_compare(
@@ -1128,6 +1215,14 @@ class WarehouseRepository(Protocol):
         start_date: str | None = None,
         end_date: str | None = None,
     ) -> dict[str, Any] | None: ...
+
+    def get_recent_performance_initial(
+        self,
+        *,
+        game_date: str | None = None,
+        game_id: str | None = None,
+        limit: int = 240,
+    ) -> dict[str, Any]: ...
 
     def get_recent_performance_dates(self) -> list[dict[str, Any]]: ...
 
@@ -1168,6 +1263,16 @@ class WarehouseRepository(Protocol):
 class BigQueryWarehouseRepository:
     settings: Settings
     client: bigquery.Client | None = None
+    _recent_performance_rows_cache: tuple[float, list[dict[str, Any]]] | None = field(
+        default=None,
+        init=False,
+        repr=False,
+    )
+    _recent_performance_rows_lock: Lock = field(
+        default_factory=Lock,
+        init=False,
+        repr=False,
+    )
 
     def __post_init__(self) -> None:
         if self.client is None:
@@ -1219,6 +1324,56 @@ class BigQueryWarehouseRepository:
 
     def _dim_game_table(self) -> str:
         return f"`{self.settings.project_id}.{self.settings.gold_dataset}.dim_game`"
+
+    def _recent_performance_table_id(self) -> str:
+        return (
+            f"{self.settings.project_id}."
+            f"{self.settings.gold_dataset}.recent_performance_workbench"
+        )
+
+    def _recent_performance_table(self) -> str:
+        return f"`{self._recent_performance_table_id()}`"
+
+    def _fetch_recent_performance_table_rows_api(self) -> list[dict[str, Any]] | None:
+        now = time.monotonic()
+        with self._recent_performance_rows_lock:
+            cached = self._recent_performance_rows_cache
+            if cached is not None:
+                cached_at, rows = cached
+                if now - cached_at < RECENT_PERFORMANCE_TABLE_ROW_CACHE_TTL_SECONDS:
+                    return [dict(row) for row in rows]
+
+        assert self.client is not None
+        row_iter = self.client.list_rows(
+            self._recent_performance_table_id(),
+            selected_fields=RECENT_PERFORMANCE_TABLE_FIELDS,
+            max_results=RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS,
+        )
+        rows = [
+            {key: _to_iso(value) for key, value in dict(row).items()}
+            for row in row_iter
+        ]
+        total_rows = getattr(row_iter, "total_rows", None)
+        if isinstance(total_rows, int) and total_rows > len(rows):
+            # list_rows has no ordering guarantee, so a truncated page would
+            # silently drop arbitrary dates/games/players. Refuse the row
+            # cache and let callers fall back to the query path.
+            return None
+        with self._recent_performance_rows_lock:
+            self._recent_performance_rows_cache = (
+                time.monotonic(),
+                [dict(row) for row in rows],
+            )
+        return rows
+
+    def _try_fetch_recent_performance_table_rows(self) -> list[dict[str, Any]] | None:
+        # Only the BigQuery call is guarded here: bugs in downstream row
+        # formatting must surface instead of silently failing over to the
+        # expensive query path.
+        try:
+            return self._fetch_recent_performance_table_rows_api()
+        except (AttributeError, BQAPIError):
+            return None
 
     def _player_trends_table(self) -> str:
         return (
@@ -2653,6 +2808,53 @@ class BigQueryWarehouseRepository:
                 rows = self._search_players_from_game_stats(query, limit=limit)
         return [self._decorate_search_player_row(row) for row in rows]
 
+    def list_agent_player_candidates(self, limit: int = 1000) -> list[dict[str, Any]]:
+        try:
+            rows = self._list_player_candidates_from_search_table(
+                self._agent_player_search_table(), limit
+            )
+        except BQAPIError:
+            try:
+                rows = self._list_player_candidates_from_search_table(
+                    self._player_search_index_table(), limit
+                )
+            except BQAPIError:
+                rows = self._search_players_from_game_stats("", limit=limit)
+        return [self._decorate_search_player_row(row) for row in rows]
+
+    def _list_player_candidates_from_search_table(
+        self, table: str, limit: int = 1000
+    ) -> list[dict[str, Any]]:
+        sql = f"""
+        SELECT
+          player_id,
+          player_name,
+          latest_season,
+          latest_team_abbr,
+          latest_game_date,
+          games_sampled,
+          qualification_games,
+          is_qualified,
+          sample_status,
+          sample_warning,
+          overall_rank,
+          recommendation_score,
+          last_seen_at_utc
+        FROM {table}
+        WHERE latest_season = @season
+        ORDER BY
+          overall_rank IS NULL,
+          overall_rank,
+          games_sampled DESC,
+          player_name
+        LIMIT @limit
+        """
+        params = [
+            bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON),
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
+        ]
+        return self._query(sql, params)
+
     def _search_players_from_game_stats(
         self, query: str, limit: int = 10
     ) -> list[dict[str, Any]]:
@@ -2696,7 +2898,7 @@ class BigQueryWarehouseRepository:
           NULL AS recommendation_score,
           last_seen_at_utc
         FROM qualified
-        WHERE LOWER(player_name) LIKE CONCAT('%', LOWER(@query), '%')
+        WHERE @query = '' OR LOWER(player_name) LIKE CONCAT('%', LOWER(@query), '%')
         ORDER BY
           CASE
             WHEN LOWER(player_name) = LOWER(@query) THEN 0
@@ -2972,6 +3174,666 @@ class BigQueryWarehouseRepository:
             limit=limit,
             start_date=start_date,
             end_date=end_date,
+        )
+
+    def _format_recent_performance_initial_payload(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        parsed_game_date: date | None,
+        game_id: str | None,
+    ) -> dict[str, Any]:
+        dates: list[dict[str, Any]] = []
+        games: list[dict[str, Any]] = []
+        players: list[dict[str, Any]] = []
+        for row in rows:
+            try:
+                payload = json.loads(str(row.get("payload") or "{}"))
+            except json.JSONDecodeError:
+                continue
+            section = row.get("section")
+            if section == "date":
+                date_value = payload.get("game_date")
+                if date_value is not None:
+                    dates.append(
+                        {
+                            "value": str(date_value),
+                            "label": _format_home_date_label(str(date_value)),
+                        }
+                    )
+            elif section == "game":
+                games.append(_format_recent_performance_game(payload))
+            elif section == "player":
+                players.append(_format_recent_performance_row(payload))
+
+        selected_date = (
+            parsed_game_date.isoformat()
+            if parsed_game_date is not None
+            else (dates[0]["value"] if dates else None)
+        )
+        return {
+            "season": SUPPORTED_SEASON,
+            "dates": dates,
+            "selected_date": selected_date,
+            "selected_game_id": game_id,
+            "games": games,
+            "players": players,
+        }
+
+    def _format_recent_performance_initial_table_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        parsed_game_date: date | None,
+        game_id: str | None,
+        limit: int,
+    ) -> dict[str, Any]:
+        season_rows = [row for row in rows if row.get("season") == SUPPORTED_SEASON]
+        date_values = sorted(
+            {
+                str(row["game_date"])
+                for row in season_rows
+                if row.get("game_date") is not None
+            },
+            reverse=True,
+        )
+        dates = [
+            {"value": value, "label": _format_home_date_label(value)}
+            for value in date_values
+        ]
+        selected_date = (
+            parsed_game_date.isoformat()
+            if parsed_game_date is not None
+            else (date_values[0] if date_values else None)
+        )
+        if selected_date is None:
+            return {
+                "season": SUPPORTED_SEASON,
+                "dates": dates,
+                "selected_date": None,
+                "selected_game_id": game_id,
+                "games": [],
+                "players": [],
+            }
+
+        selected_rows = [
+            row for row in season_rows if str(row.get("game_date")) == selected_date
+        ]
+        games_by_id: dict[str, dict[str, Any]] = {}
+        for row in selected_rows:
+            row_game_id = row.get("game_id")
+            if row_game_id is None:
+                continue
+            games_by_id.setdefault(
+                str(row_game_id),
+                {
+                    "game_id": row_game_id,
+                    "game_date": row.get("game_date"),
+                    "teams": row.get("teams"),
+                    "matchup": row.get("game_matchup"),
+                    "home_team_abbr": row.get("home_team_abbr"),
+                    "away_team_abbr": row.get("away_team_abbr"),
+                    "home_team_pts": row.get("home_team_pts"),
+                    "away_team_pts": row.get("away_team_pts"),
+                    "players_played": row.get("players_played"),
+                },
+            )
+        games = [
+            _format_recent_performance_game(row)
+            for row in sorted(
+                games_by_id.values(),
+                key=lambda item: (
+                    str(item.get("game_date") or ""),
+                    str(item["game_id"]),
+                ),
+                reverse=True,
+            )
+        ]
+
+        player_rows = selected_rows
+        if game_id:
+            player_rows = [
+                row for row in player_rows if str(row.get("game_id") or "") == game_id
+            ]
+        player_rows = sorted(
+            player_rows,
+            key=lambda row: (
+                -(abs(_to_float(row.get("performance_score")) or 0)),
+                -(_to_int(row.get("above_count")) or 0),
+                str(row.get("player_name") or ""),
+            ),
+        )[:limit]
+        players = [_format_recent_performance_row(row) for row in player_rows]
+        return {
+            "season": SUPPORTED_SEASON,
+            "dates": dates,
+            "selected_date": selected_date,
+            "selected_game_id": game_id,
+            "games": games,
+            "players": players,
+        }
+
+    def _fetch_recent_performance_initial_table_rows(
+        self,
+        *,
+        parsed_game_date: date | None,
+        game_id: str | None,
+        limit: int,
+    ) -> dict[str, Any] | None:
+        rows = self._try_fetch_recent_performance_table_rows()
+        if rows is None:
+            return None
+        return self._format_recent_performance_initial_table_rows(
+            rows,
+            parsed_game_date=parsed_game_date,
+            game_id=game_id,
+            limit=limit,
+        )
+
+    def _fetch_recent_performance_initial_table(
+        self,
+        *,
+        parsed_game_date: date | None,
+        game_id: str | None,
+        limit: int,
+    ) -> dict[str, Any]:
+        selected_date_sql = (
+            "@game_date"
+            if parsed_game_date is not None
+            else "(SELECT MAX(game_date) FROM date_options)"
+        )
+        game_filter = ""
+        params: list[bigquery.ScalarQueryParameter] = [
+            bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON),
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
+        ]
+        if parsed_game_date is not None:
+            params.append(
+                bigquery.ScalarQueryParameter("game_date", "DATE", parsed_game_date)
+            )
+        if game_id:
+            game_filter = "AND selected_rows.game_id = @game_id"
+            params.append(bigquery.ScalarQueryParameter("game_id", "STRING", game_id))
+
+        table = self._recent_performance_table()
+        sql = f"""
+        WITH date_options AS (
+          SELECT DISTINCT game_date
+          FROM {table}
+          WHERE season = @season
+        ),
+        selected_date AS (
+          SELECT {selected_date_sql} AS game_date
+        ),
+        date_payloads AS (
+          SELECT
+            'date' AS section,
+            ROW_NUMBER() OVER (ORDER BY game_date DESC) AS sort_index,
+            TO_JSON_STRING(STRUCT(game_date)) AS payload
+          FROM date_options
+        ),
+        game_rows AS (
+          SELECT
+            rows.game_id,
+            rows.game_date,
+            ANY_VALUE(rows.teams) AS teams,
+            ANY_VALUE(rows.game_matchup) AS matchup,
+            ANY_VALUE(rows.home_team_abbr) AS home_team_abbr,
+            ANY_VALUE(rows.away_team_abbr) AS away_team_abbr,
+            ANY_VALUE(rows.home_team_pts) AS home_team_pts,
+            ANY_VALUE(rows.away_team_pts) AS away_team_pts,
+            MAX(rows.players_played) AS players_played
+          FROM {table} rows
+          CROSS JOIN selected_date
+          WHERE rows.season = @season
+            AND selected_date.game_date IS NOT NULL
+            AND rows.game_date = selected_date.game_date
+          GROUP BY rows.game_id, rows.game_date
+        ),
+        game_payloads AS (
+          SELECT
+            'game' AS section,
+            ROW_NUMBER() OVER (ORDER BY game_date DESC, game_id DESC) AS sort_index,
+            TO_JSON_STRING(STRUCT(
+              game_id,
+              game_date,
+              teams,
+              matchup,
+              home_team_abbr,
+              away_team_abbr,
+              home_team_pts,
+              away_team_pts,
+              players_played
+            )) AS payload
+          FROM game_rows
+        ),
+        selected_rows AS (
+          SELECT rows.*
+          FROM {table} rows
+          CROSS JOIN selected_date
+          WHERE rows.season = @season
+            AND selected_date.game_date IS NOT NULL
+            AND rows.game_date = selected_date.game_date
+        ),
+        ranked_rows AS (
+          SELECT
+            selected_rows.*,
+            ROW_NUMBER() OVER (
+              ORDER BY ABS(performance_score) DESC, above_count DESC, player_name
+            ) AS sort_index
+          FROM selected_rows
+          WHERE TRUE
+            {game_filter}
+        ),
+        player_payloads AS (
+          SELECT
+            'player' AS section,
+            sort_index,
+            TO_JSON_STRING(STRUCT(
+              game_id,
+              game_date,
+              player_id,
+              player_name,
+              team_abbr,
+              opponent_abbr,
+              home_away,
+              matchup,
+              wl,
+              min,
+              pts,
+              reb,
+              ast,
+              stl,
+              blk,
+              games_sampled,
+              avg_pts,
+              avg_reb,
+              avg_ast,
+              avg_stl,
+              avg_blk,
+              pts_delta,
+              reb_delta,
+              ast_delta,
+              stl_delta,
+              blk_delta,
+              pts_delta_pct,
+              reb_delta_pct,
+              ast_delta_pct,
+              stl_delta_pct,
+              blk_delta_pct,
+              performance_score,
+              performance_status,
+              above_count,
+              below_count
+            )) AS payload
+          FROM ranked_rows
+          WHERE sort_index <= @limit
+        )
+        SELECT section, sort_index, payload
+        FROM date_payloads
+        UNION ALL
+        SELECT section, sort_index, payload
+        FROM game_payloads
+        UNION ALL
+        SELECT section, sort_index, payload
+        FROM player_payloads
+        ORDER BY
+          CASE section WHEN 'date' THEN 1 WHEN 'game' THEN 2 ELSE 3 END,
+          sort_index
+        """
+        rows = self._query(sql, params)
+        return self._format_recent_performance_initial_payload(
+            rows,
+            parsed_game_date=parsed_game_date,
+            game_id=game_id,
+        )
+
+    def get_recent_performance_initial(
+        self,
+        *,
+        game_date: str | None = None,
+        game_id: str | None = None,
+        limit: int = 240,
+    ) -> dict[str, Any]:
+        parsed_game_date = _parse_iso_date(game_date)
+        if game_date is not None and parsed_game_date is None:
+            return {
+                "season": SUPPORTED_SEASON,
+                "dates": [],
+                "selected_date": None,
+                "selected_game_id": game_id,
+                "games": [],
+                "players": [],
+            }
+        limit = max(1, min(500, int(limit)))
+        table_rows_payload = self._fetch_recent_performance_initial_table_rows(
+            parsed_game_date=parsed_game_date,
+            game_id=game_id,
+            limit=limit,
+        )
+        if table_rows_payload is not None:
+            return table_rows_payload
+        try:
+            return self._fetch_recent_performance_initial_table(
+                parsed_game_date=parsed_game_date,
+                game_id=game_id,
+                limit=limit,
+            )
+        except BQAPIError:
+            pass
+
+        selected_date_sql = (
+            "@game_date"
+            if parsed_game_date is not None
+            else "(SELECT MAX(game_date) FROM available_dates)"
+        )
+        game_filter = ""
+        params: list[bigquery.ScalarQueryParameter] = [
+            bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON),
+            bigquery.ScalarQueryParameter("limit", "INT64", limit),
+        ]
+        if parsed_game_date is not None:
+            params.append(
+                bigquery.ScalarQueryParameter("game_date", "DATE", parsed_game_date)
+            )
+        if game_id:
+            game_filter = "AND s.game_id = @game_id"
+            params.append(bigquery.ScalarQueryParameter("game_id", "STRING", game_id))
+
+        sql = f"""
+        WITH latest AS (
+          SELECT MAX(game_date) AS max_game_date
+          FROM {self._fct_game_stats_table()}
+          WHERE season = @season
+        ),
+        available_dates AS (
+          SELECT DISTINCT
+            stats.game_date
+          FROM {self._fct_game_stats_table()} stats
+          CROSS JOIN latest
+          WHERE stats.season = @season
+            AND latest.max_game_date IS NOT NULL
+            AND stats.game_date BETWEEN DATE_SUB(latest.max_game_date, INTERVAL 6 DAY)
+                                    AND latest.max_game_date
+        ),
+        selected_date AS (
+          SELECT {selected_date_sql} AS game_date
+        ),
+        date_payloads AS (
+          SELECT
+            'date' AS section,
+            ROW_NUMBER() OVER (ORDER BY game_date DESC) AS sort_index,
+            TO_JSON_STRING(STRUCT(game_date)) AS payload
+          FROM available_dates
+        ),
+        recent_games AS (
+          SELECT DISTINCT
+            stats.game_id,
+            stats.game_date
+          FROM {self._fct_game_stats_table()} stats
+          CROSS JOIN latest
+          CROSS JOIN selected_date
+          WHERE stats.season = @season
+            AND selected_date.game_date IS NOT NULL
+            AND stats.game_date = selected_date.game_date
+            AND latest.max_game_date IS NOT NULL
+            AND stats.game_date BETWEEN DATE_SUB(latest.max_game_date, INTERVAL 6 DAY)
+                                    AND latest.max_game_date
+        ),
+        game_rollups AS (
+          SELECT
+            recent_games.game_id,
+            recent_games.game_date,
+            STRING_AGG(DISTINCT stats.team_abbr, ' / ' ORDER BY stats.team_abbr) AS teams,
+            MIN(stats.matchup) AS matchup,
+            dim_game.home_team_abbr,
+            dim_game.away_team_abbr,
+            dim_game.home_team_pts,
+            dim_game.away_team_pts,
+            COUNT(DISTINCT stats.player_id) AS players_played
+          FROM recent_games
+          JOIN {self._fct_game_stats_table()} stats
+            ON stats.season = @season
+           AND stats.game_id = recent_games.game_id
+          LEFT JOIN {self._dim_game_table()} dim_game
+            ON dim_game.season = @season
+           AND dim_game.game_id = recent_games.game_id
+          GROUP BY
+            recent_games.game_id,
+            recent_games.game_date,
+            dim_game.home_team_abbr,
+            dim_game.away_team_abbr,
+            dim_game.home_team_pts,
+            dim_game.away_team_pts
+        ),
+        game_payloads AS (
+          SELECT
+            'game' AS section,
+            ROW_NUMBER() OVER (ORDER BY game_date DESC, game_id DESC) AS sort_index,
+            TO_JSON_STRING(STRUCT(
+              game_id,
+              game_date,
+              teams,
+              matchup,
+              home_team_abbr,
+              away_team_abbr,
+              home_team_pts,
+              away_team_pts,
+              players_played
+            )) AS payload
+          FROM game_rollups
+        ),
+        selected_players AS (
+          SELECT
+            s.game_id,
+            s.game_date,
+            SAFE_CAST(s.player_id AS INT64) AS player_id,
+            s.player_name,
+            s.team_abbr,
+            s.opponent_abbr,
+            s.home_away,
+            s.matchup,
+            s.wl,
+            s.min,
+            s.pts,
+            s.reb,
+            s.ast,
+            s.stl,
+            s.blk
+          FROM {self._fct_game_stats_table()} s
+          CROSS JOIN selected_date
+          WHERE s.season = @season
+            AND selected_date.game_date IS NOT NULL
+            AND s.game_date = selected_date.game_date
+            AND COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) > 0
+            {game_filter}
+        ),
+        selected_player_ids AS (
+          SELECT DISTINCT player_id
+          FROM selected_players
+          WHERE player_id IS NOT NULL
+        ),
+        baseline AS (
+          SELECT
+            SAFE_CAST(stats.player_id AS INT64) AS player_id,
+            COUNT(*) AS games_sampled,
+            AVG(stats.pts) AS avg_pts,
+            AVG(stats.reb) AS avg_reb,
+            AVG(stats.ast) AS avg_ast,
+            AVG(stats.stl) AS avg_stl,
+            AVG(stats.blk) AS avg_blk,
+            STDDEV_POP(stats.pts) AS sd_pts,
+            STDDEV_POP(stats.reb) AS sd_reb,
+            STDDEV_POP(stats.ast) AS sd_ast,
+            STDDEV_POP(stats.stl) AS sd_stl,
+            STDDEV_POP(stats.blk) AS sd_blk
+          FROM {self._fct_game_stats_table()} stats
+          JOIN selected_player_ids
+            ON selected_player_ids.player_id = SAFE_CAST(stats.player_id AS INT64)
+          CROSS JOIN selected_date
+          WHERE stats.season = @season
+            AND stats.game_date <= selected_date.game_date
+            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0
+          GROUP BY player_id
+        ),
+        metric_rows AS (
+          SELECT
+            selected_players.*,
+            baseline.games_sampled,
+            baseline.avg_pts,
+            baseline.avg_reb,
+            baseline.avg_ast,
+            baseline.avg_stl,
+            baseline.avg_blk,
+            ROUND(selected_players.pts - baseline.avg_pts, 1) AS pts_delta,
+            ROUND(selected_players.reb - baseline.avg_reb, 1) AS reb_delta,
+            ROUND(selected_players.ast - baseline.avg_ast, 1) AS ast_delta,
+            ROUND(selected_players.stl - baseline.avg_stl, 1) AS stl_delta,
+            ROUND(selected_players.blk - baseline.avg_blk, 1) AS blk_delta,
+            ROUND(SAFE_DIVIDE(selected_players.pts - baseline.avg_pts, NULLIF(baseline.avg_pts, 0)) * 100, 1) AS pts_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.reb - baseline.avg_reb, NULLIF(baseline.avg_reb, 0)) * 100, 1) AS reb_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.ast - baseline.avg_ast, NULLIF(baseline.avg_ast, 0)) * 100, 1) AS ast_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.stl - baseline.avg_stl, NULLIF(baseline.avg_stl, 0)) * 100, 1) AS stl_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.blk - baseline.avg_blk, NULLIF(baseline.avg_blk, 0)) * 100, 1) AS blk_delta_pct,
+            CASE
+              WHEN baseline.sd_pts > 0 THEN SAFE_DIVIDE(selected_players.pts - baseline.avg_pts, baseline.sd_pts)
+              WHEN selected_players.pts > baseline.avg_pts THEN 1.0
+              WHEN selected_players.pts < baseline.avg_pts THEN -1.0
+              ELSE 0.0
+            END AS z_pts,
+            CASE
+              WHEN baseline.sd_reb > 0 THEN SAFE_DIVIDE(selected_players.reb - baseline.avg_reb, baseline.sd_reb)
+              WHEN selected_players.reb > baseline.avg_reb THEN 1.0
+              WHEN selected_players.reb < baseline.avg_reb THEN -1.0
+              ELSE 0.0
+            END AS z_reb,
+            CASE
+              WHEN baseline.sd_ast > 0 THEN SAFE_DIVIDE(selected_players.ast - baseline.avg_ast, baseline.sd_ast)
+              WHEN selected_players.ast > baseline.avg_ast THEN 1.0
+              WHEN selected_players.ast < baseline.avg_ast THEN -1.0
+              ELSE 0.0
+            END AS z_ast,
+            CASE
+              WHEN baseline.sd_stl > 0 THEN SAFE_DIVIDE(selected_players.stl - baseline.avg_stl, baseline.sd_stl)
+              WHEN selected_players.stl > baseline.avg_stl THEN 1.0
+              WHEN selected_players.stl < baseline.avg_stl THEN -1.0
+              ELSE 0.0
+            END AS z_stl,
+            CASE
+              WHEN baseline.sd_blk > 0 THEN SAFE_DIVIDE(selected_players.blk - baseline.avg_blk, baseline.sd_blk)
+              WHEN selected_players.blk > baseline.avg_blk THEN 1.0
+              WHEN selected_players.blk < baseline.avg_blk THEN -1.0
+              ELSE 0.0
+            END AS z_blk,
+            (
+              CASE WHEN selected_players.pts > baseline.avg_pts THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.reb > baseline.avg_reb THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.ast > baseline.avg_ast THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.stl > baseline.avg_stl THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.blk > baseline.avg_blk THEN 1 ELSE 0 END
+            ) AS above_count,
+            (
+              CASE WHEN selected_players.pts < baseline.avg_pts THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.reb < baseline.avg_reb THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.ast < baseline.avg_ast THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.stl < baseline.avg_stl THEN 1 ELSE 0 END
+              + CASE WHEN selected_players.blk < baseline.avg_blk THEN 1 ELSE 0 END
+            ) AS below_count
+          FROM selected_players
+          JOIN baseline
+            ON baseline.player_id = selected_players.player_id
+        ),
+        scored AS (
+          SELECT
+            *,
+            ROUND(z_pts + z_reb + z_ast + z_stl + z_blk, 2) AS performance_score
+          FROM metric_rows
+        ),
+        ranked_players AS (
+          SELECT
+            *,
+            CASE
+              WHEN performance_score >= 1.0 OR (performance_score > 0 AND above_count >= 3) THEN 'above'
+              WHEN performance_score <= -1.0 OR (performance_score < 0 AND below_count >= 3) THEN 'below'
+              ELSE 'near'
+            END AS performance_status,
+            ROW_NUMBER() OVER (
+              ORDER BY ABS(performance_score) DESC, above_count DESC, player_name
+            ) AS player_rank
+          FROM scored
+        ),
+        player_payloads AS (
+          SELECT
+            'player' AS section,
+            player_rank AS sort_index,
+            TO_JSON_STRING(STRUCT(
+              game_id,
+              game_date,
+              player_id,
+              player_name,
+              team_abbr,
+              opponent_abbr,
+              home_away,
+              matchup,
+              wl,
+              min,
+              pts,
+              reb,
+              ast,
+              stl,
+              blk,
+              games_sampled,
+              avg_pts,
+              avg_reb,
+              avg_ast,
+              avg_stl,
+              avg_blk,
+              pts_delta,
+              reb_delta,
+              ast_delta,
+              stl_delta,
+              blk_delta,
+              pts_delta_pct,
+              reb_delta_pct,
+              ast_delta_pct,
+              stl_delta_pct,
+              blk_delta_pct,
+              performance_score,
+              performance_status,
+              above_count,
+              below_count
+            )) AS payload
+          FROM ranked_players
+          WHERE player_rank <= @limit
+        )
+        SELECT section, sort_index, payload
+        FROM date_payloads
+        UNION ALL
+        SELECT section, sort_index, payload
+        FROM game_payloads
+        UNION ALL
+        SELECT section, sort_index, payload
+        FROM player_payloads
+        ORDER BY
+          CASE section WHEN 'date' THEN 1 WHEN 'game' THEN 2 ELSE 3 END,
+          sort_index
+        """
+        try:
+            rows = self._query(sql, params)
+        except BQAPIError:
+            return {
+                "season": SUPPORTED_SEASON,
+                "dates": [],
+                "selected_date": None,
+                "selected_game_id": game_id,
+                "games": [],
+                "players": [],
+            }
+
+        return self._format_recent_performance_initial_payload(
+            rows,
+            parsed_game_date=parsed_game_date,
+            game_id=game_id,
         )
 
     def get_recent_performance_dates(self) -> list[dict[str, Any]]:
@@ -3300,9 +4162,88 @@ class BigQueryWarehouseRepository:
             return _format_recent_performance_trend([])
         return _format_recent_performance_trend(rows)
 
+    def _format_recent_performance_player_table_row(
+        self, row: dict[str, Any]
+    ) -> dict[str, Any]:
+        item = _format_recent_performance_row(row, include_range=True)
+        try:
+            trend_points = json.loads(str(row.get("trend_points_json") or "[]"))
+        except json.JSONDecodeError:
+            trend_points = []
+        if not isinstance(trend_points, list):
+            trend_points = []
+
+        trend_rows: list[dict[str, Any]] = []
+        for point in trend_points:
+            if not isinstance(point, dict):
+                continue
+            trend_row = dict(point)
+            for config in RECENT_PERFORMANCE_STAT_CONFIG:
+                key = config["key"]
+                trend_row[f"avg_{key}"] = row.get(f"avg_{key}")
+            trend_rows.append(trend_row)
+        item["trend_30d"] = _format_recent_performance_trend(trend_rows)
+        return item
+
+    def _fetch_recent_performance_player_table_rows(
+        self, player_id: int, *, game_id: str
+    ) -> dict[str, Any] | None:
+        rows = self._try_fetch_recent_performance_table_rows()
+        if rows is None:
+            return None
+        for row in rows:
+            if row.get("season") != SUPPORTED_SEASON:
+                continue
+            if _to_int(row.get("player_id")) != player_id:
+                continue
+            if str(row.get("game_id") or "") != game_id:
+                continue
+            return self._format_recent_performance_player_table_row(row)
+        return None
+
+    def _fetch_recent_performance_player_table(
+        self, player_id: int, *, game_id: str
+    ) -> dict[str, Any] | None:
+        sql = f"""
+        SELECT *
+        FROM {self._recent_performance_table()}
+        WHERE season = @season
+          AND player_id = @player_id
+          AND game_id = @game_id
+        LIMIT 1
+        """
+        rows = self._query(
+            sql,
+            [
+                bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON),
+                bigquery.ScalarQueryParameter("player_id", "INT64", player_id),
+                bigquery.ScalarQueryParameter("game_id", "STRING", game_id),
+            ],
+        )
+        if not rows:
+            return None
+        return self._format_recent_performance_player_table_row(rows[0])
+
     def get_recent_performance_player(
         self, player_id: int, *, game_id: str
     ) -> dict[str, Any] | None:
+        table_item = self._fetch_recent_performance_player_table_rows(
+            player_id,
+            game_id=game_id,
+        )
+        if table_item is not None:
+            return table_item
+
+        try:
+            table_item = self._fetch_recent_performance_player_table(
+                player_id,
+                game_id=game_id,
+            )
+        except BQAPIError:
+            table_item = None
+        if table_item is not None:
+            return table_item
+
         sql = f"""
         WITH selected AS (
           SELECT
