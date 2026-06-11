@@ -1486,19 +1486,30 @@ def test_api_agent_ask_uses_selected_openai_model() -> None:
     assert all(call["model"] == "gpt-5.5" for call in fake_openai.responses.kwargs)
 
 
-def test_api_agent_ask_rejects_model_for_wrong_provider() -> None:
+def test_api_agent_ask_rejects_model_for_wrong_provider(caplog) -> None:
     client = build_client(settings=_test_settings(openai_api_key="test-key"))
-    response = client.post(
-        "/api/agent/ask",
-        json={
-            "question": "How is Tyrese Maxey trending?",
-            "provider": "openai",
-            "model": "claude-fable-5",
-        },
-    )
+    with caplog.at_level("INFO", logger="app.agent"):
+        response = client.post(
+            "/api/agent/ask",
+            json={
+                "question": "How is Tyrese Maxey trending?",
+                "provider": "openai",
+                "model": "claude-fable-5",
+            },
+        )
 
     assert response.status_code == 400
+    assert response.headers["x-request-id"]
     assert response.json()["detail"] == "Unsupported openai model: claude-fable-5"
+    summaries = [
+        json.loads(record.message)
+        for record in caplog.records
+        if "agent_request_summary" in record.message
+    ]
+    assert summaries[-1]["request_id"] == response.headers["x-request-id"]
+    assert summaries[-1]["model"] == "claude-fable-5"
+    assert summaries[-1]["outcome"] == "error"
+    assert summaries[-1]["error_type"] == "HTTP_400"
 
 
 def test_api_agent_ask_accepts_date_range_tool_args() -> None:

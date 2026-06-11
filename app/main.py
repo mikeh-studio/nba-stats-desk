@@ -395,14 +395,21 @@ def _prepare_agent_request(
 ) -> tuple[str, str, str, AgentTrace]:
     request_id = _request_id(request)
     conversation_id = _conversation_id(payload.conversation_id)
-    model = _selected_agent_model(payload, settings)
+    requested_model = (payload.model or "").strip()
+    provider = _selected_agent_provider(payload)
+    trace_model = requested_model or (
+        settings.anthropic_agent_model
+        if provider == "claude"
+        else settings.openai_agent_model
+    )
     trace = AgentTrace(
         request_id=request_id,
         question=payload.question,
-        model=model,
+        model=trace_model,
         conversation_id=conversation_id,
     )
     try:
+        trace.model = _selected_agent_model(payload, settings)
         question = _validate_agent_question(payload.question, settings)
         _check_agent_rate_limit(request, settings)
     except HTTPException as exc:
