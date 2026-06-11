@@ -3,6 +3,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+# Settings are read via os.getenv, so load .env here once: `uvicorn
+# app.main:app` then works straight from the README without exporting the
+# file manually. Real environment variables keep precedence.
+load_dotenv()
+
 SUPPORTED_SEASON = "2025-26"
 
 OPENAI_AGENT_MODEL_OPTIONS = (
