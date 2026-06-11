@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.config import Settings, get_settings
 from app.main import (
     PAYLOAD_CACHE_MAX_ENTRIES,
+    STATIC_VERSION,
     _get_cached_payload,
     _health_cache,
     _payload_building,
@@ -1373,8 +1374,14 @@ def test_ask_page_smoke() -> None:
 
     assert response.status_code == 200
     assert "Ask NBA Stats" in response.text
-    assert "/static/agent.js?v=20260609-performance-flow-v5" in response.text
+    assert f"/static/agent.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
+    assert "data-agent-provider" in response.text
+    assert "data-agent-model" in response.text
+    assert "agent-player-profile" in response.text
+    assert "gpt-5.5" in response.text
+    assert "claude-fable-5" in response.text
+    assert "Claude (Anthropic)" in response.text
     assert ">Ask</a>" in response.text
     assert ">Player Trends</a>" in response.text
     assert ">Similar Players</a>" in response.text
@@ -1432,6 +1439,11 @@ def test_api_agent_ask_runs_mocked_openai_tool_loop() -> None:
     assert payload["request_id"]
     assert response.headers["x-request-id"] == payload["request_id"]
     assert payload["answer"].startswith("Tyrese Maxey")
+    assert payload["player_profile"]["player"]["player_id"] == 7
+    assert payload["player_profile"]["player"]["player_name"] == "Tyrese Maxey"
+    assert payload["player_profile"]["profile_url"] == "/players/7"
+    assert payload["player_profile"]["recent_form"][0]["window_key"] == "last_5"
+    assert payload["player_profile"]["stat_percentiles"][0]["label"] == "PTS"
     assert payload["conversation_id"].startswith("agent-")
     assert payload["tool_calls"][0]["name"] == "resolve_player"
     assert payload["tool_calls"][0]["status"] == "ok"
@@ -1444,11 +1456,49 @@ def test_api_agent_ask_runs_mocked_openai_tool_loop() -> None:
         "resolve_player",
         "get_player_trends",
     ]
-    assert (
-        "Routing plan for this question"
-        in fake_openai.responses.kwargs[-1]["instructions"]
+    assert payload["player_profile"]["player"]["headshot_url"].endswith("/7.png")
+    assert payload["player_profile"]["player"]["overall_rank"] == 12
+    developer_messages = [
+        message
+        for message in fake_openai.responses.kwargs[-1]["input"]
+        if message.get("role") == "developer"
+    ]
+    assert any(
+        "Routing plan for this question" in message.get("content", "")
+        for message in developer_messages
     )
     assert fake_openai.responses.calls == 2
+
+
+def test_api_agent_ask_uses_selected_openai_model() -> None:
+    fake_openai = FakeOpenAIClient()
+    client = build_client(
+        settings=_test_settings(openai_api_key="test-key"),
+        agent_client=fake_openai,
+    )
+    response = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?", "model": "gpt-5.5"},
+    )
+
+    assert response.status_code == 200
+    assert fake_openai.responses.calls == 2
+    assert all(call["model"] == "gpt-5.5" for call in fake_openai.responses.kwargs)
+
+
+def test_api_agent_ask_rejects_model_for_wrong_provider() -> None:
+    client = build_client(settings=_test_settings(openai_api_key="test-key"))
+    response = client.post(
+        "/api/agent/ask",
+        json={
+            "question": "How is Tyrese Maxey trending?",
+            "provider": "openai",
+            "model": "claude-fable-5",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported openai model: claude-fable-5"
 
 
 def test_api_agent_ask_accepts_date_range_tool_args() -> None:
@@ -1635,6 +1685,8 @@ def test_api_agent_ask_stream_sends_progress_and_final_payload() -> None:
     assert "event: answer_delta" in response.text
     assert "event: final" in response.text
     assert "Tyrese Maxey resolves" in response.text
+    assert '"player_profile":' in response.text
+    assert '"profile_url": "/players/7"' in response.text
 
 
 def test_api_agent_ask_stream_rejects_overlong_question_with_request_id() -> None:
@@ -1947,7 +1999,7 @@ def test_performance_page_smoke() -> None:
     assert response.status_code == 200
     assert "Player Trends" in response.text
     assert "/static/performance.js" in response.text
-    assert "performance.js?v=20260609-performance-flow-v5" in response.text
+    assert f"performance.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
     assert "performance-date-select" in response.text
     assert "Player View" in response.text
@@ -2204,7 +2256,7 @@ def test_similarity_map_page_smoke() -> None:
 
     assert response.status_code == 200
     assert "Similar Players" in response.text
-    assert "/static/similarity_map.js?v=20260609-performance-flow-v5" in response.text
+    assert f"/static/similarity_map.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
     assert "plotly-gl3d" in response.text
     assert 'id="map-axes-note"' in response.text

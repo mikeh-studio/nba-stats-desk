@@ -177,12 +177,73 @@ function renderChart(chart) {
   `;
 }
 
+function initialsForName(name) {
+  return String(name || "NBA")
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.charAt(0))
+    .join("")
+    .toUpperCase() || "NBA";
+}
+
+function renderPlayerProfile(profile) {
+  if (!profile || typeof profile !== "object") return "";
+  const player = profile.player && typeof profile.player === "object" ? profile.player : {};
+  const name = String(player.player_name || "").trim();
+  if (!name) return "";
+
+  const initials = String(player.player_initials || initialsForName(name));
+  const metaParts = [
+    player.team_abbr,
+    profile.availability_state,
+    player.games_sampled ? `${player.games_sampled} games` : "",
+  ].filter(Boolean);
+  const trend = profile.trend && typeof profile.trend === "object" ? profile.trend : {};
+  const archetype =
+    profile.archetype && typeof profile.archetype === "object" ? profile.archetype : {};
+  const chips = [
+    player.overall_rank ? `Rank #${player.overall_rank}` : "",
+    player.recommendation_score ? `Score ${formatNumber(Number(player.recommendation_score))}` : "",
+    trend.status ? `Trend ${trend.status}` : "",
+    archetype.archetype_label ? archetype.archetype_label : "",
+    player.category_strengths ? `Strengths ${player.category_strengths}` : "",
+    player.category_risks ? `Risks ${player.category_risks}` : "",
+  ].filter(Boolean);
+  const profileUrl = String(profile.profile_url || "");
+  const safeProfileUrl = /^\/players\/\d+$/.test(profileUrl) ? profileUrl : "";
+  const avatar = player.headshot_url
+    ? `<img src="${escHtml(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback">${escHtml(initials)}</span>`
+    : `<span class="player-avatar-fallback">${escHtml(initials)}</span>`;
+
+  return `
+    <section class="agent-player-profile">
+      <div class="agent-profile-top">
+        <div class="identity-row">
+          <div class="player-avatar" aria-hidden="true">${avatar}</div>
+          <div class="agent-profile-copy">
+            <h3>${escHtml(name)}</h3>
+            ${metaParts.length ? `<p class="meta">${metaParts.map(escHtml).join(" · ")}</p>` : ""}
+          </div>
+        </div>
+        ${safeProfileUrl ? `<a class="button secondary agent-profile-link" href="${escHtml(safeProfileUrl)}">Open profile</a>` : ""}
+      </div>
+      ${chips.length ? `<div class="chip-row agent-profile-chips">${chips.map((chip) => `<span class="chip">${escHtml(chip)}</span>`).join("")}</div>` : ""}
+      ${profile.availability_reason ? `<p class="meta">${escHtml(profile.availability_reason)}</p>` : ""}
+    </section>
+  `;
+}
+
 function renderContext(payload) {
   const assumptions = asArray(payload.assumptions);
   const definitions = asArray(payload.metric_definitions);
   const followups = asArray(payload.followups);
   const toolCalls = asArray(payload.tool_calls);
   const blocks = [];
+  const playerProfile = renderPlayerProfile(payload.player_profile);
+  if (playerProfile) {
+    blocks.push(playerProfile);
+  }
   if (assumptions.length) {
     blocks.push(`
       <section class="stack-list">
@@ -227,28 +288,98 @@ function bindExampleButtons(root = document) {
   root.querySelectorAll("[data-agent-example]").forEach((button) => {
     button.addEventListener("click", () => {
       const input = document.querySelector("[data-agent-question]");
+      const form = document.querySelector("[data-agent-form]");
       if (!(input instanceof HTMLTextAreaElement)) return;
       input.value = button.dataset.agentExample || "";
-      input.focus();
+      if (form instanceof HTMLFormElement) {
+        form.requestSubmit();
+      } else {
+        input.focus();
+      }
     });
   });
 }
 
-function renderPayload(payload) {
+let activeConversationId = null;
+let lastQuestion = "";
+let currentAnswerEl = null;
+let askInFlight = false;
+
+function startTurn(label) {
   const empty = document.querySelector("[data-agent-empty]");
-  const answerEl = document.querySelector("[data-agent-answer]");
+  const thread = document.querySelector("[data-agent-answer]");
+  if (!thread || !empty) return;
+  empty.hidden = true;
+  thread.hidden = false;
+  const turn = document.createElement("article");
+  turn.className = "agent-turn";
+  turn.innerHTML = `
+    <div class="agent-turn-question">${escHtml(label)}</div>
+    <div class="agent-turn-answer"><span class="meta">Working&hellip;</span></div>
+  `;
+  thread.appendChild(turn);
+  currentAnswerEl = turn.querySelector(".agent-turn-answer");
+  resetAuxiliaryPanels();
+  turn.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function resetAuxiliaryPanels() {
   const tableCard = document.querySelector("[data-agent-table-card]");
   const tableEl = document.querySelector("[data-agent-tables]");
   const chartCard = document.querySelector("[data-agent-chart-card]");
   const chartEl = document.querySelector("[data-agent-charts]");
   const contextEl = document.querySelector("[data-agent-context]");
-  if (!answerEl || !empty || !tableCard || !tableEl || !chartCard || !chartEl || !contextEl) {
+  if (tableCard) tableCard.hidden = true;
+  if (tableEl) tableEl.innerHTML = "";
+  if (chartCard) chartCard.hidden = true;
+  if (chartEl) chartEl.innerHTML = "";
+  if (contextEl) {
+    contextEl.innerHTML = '<div class="empty-state"><p>Working&hellip;</p></div>';
+  }
+}
+
+function renderClarifyOptions(payload) {
+  const options = asArray(payload.clarification_options);
+  if (!options.length) return "";
+  return `
+    <div class="agent-clarify-options">
+      ${options
+        .map((option) => {
+          const name = String(option.player_name || "").trim();
+          if (!name) return "";
+          const team = option.team_abbr ? ` &middot; ${escHtml(option.team_abbr)}` : "";
+          return `<button class="button secondary" type="button" data-agent-player-option data-player-id="${escHtml(option.player_id ?? "")}" data-player-name="${escHtml(name)}">${escHtml(name)}${team}</button>`;
+        })
+        .join("")}
+    </div>
+  `;
+}
+
+function bindClarifyOptions(root) {
+  root.querySelectorAll("[data-agent-player-option]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const playerId = Number(button.dataset.playerId);
+      askQuestion(lastQuestion || button.dataset.playerName || "", {
+        playerId: Number.isFinite(playerId) && playerId > 0 ? playerId : null,
+        playerName: button.dataset.playerName || "",
+      });
+    });
+  });
+}
+
+function renderPayload(payload) {
+  const tableCard = document.querySelector("[data-agent-table-card]");
+  const tableEl = document.querySelector("[data-agent-tables]");
+  const chartCard = document.querySelector("[data-agent-chart-card]");
+  const chartEl = document.querySelector("[data-agent-charts]");
+  const contextEl = document.querySelector("[data-agent-context]");
+  if (!currentAnswerEl) startTurn(lastQuestion || "Question");
+  if (!currentAnswerEl || !tableCard || !tableEl || !chartCard || !chartEl || !contextEl) {
     return;
   }
 
-  empty.hidden = true;
-  answerEl.hidden = false;
-  answerEl.innerHTML = `<div class="agent-answer-text">${escHtml(payload.answer || "No answer returned.")}</div>`;
+  currentAnswerEl.innerHTML = `<div class="agent-answer-text">${escHtml(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
+  bindClarifyOptions(currentAnswerEl);
 
   const tables = asArray(payload.tables);
   tableCard.hidden = tables.length === 0;
@@ -262,15 +393,9 @@ function renderPayload(payload) {
   bindExampleButtons(contextEl);
 }
 
-let activeConversationId = null;
-
 function setInterimAnswer(text) {
-  const empty = document.querySelector("[data-agent-empty]");
-  const answerEl = document.querySelector("[data-agent-answer]");
-  if (!answerEl || !empty) return;
-  empty.hidden = true;
-  answerEl.hidden = false;
-  answerEl.innerHTML = `<div class="agent-answer-text">${escHtml(text || "")}</div>`;
+  if (!currentAnswerEl) return;
+  currentAnswerEl.innerHTML = `<div class="agent-answer-text">${escHtml(text || "")}</div>`;
 }
 
 function applyConversation(payload) {
@@ -324,12 +449,126 @@ function handleStreamEvent(eventName, payload, state) {
   }
 }
 
-async function askQuestionJson(question) {
+const PROVIDER_STORAGE_KEY = "askAgentProvider";
+const MODEL_STORAGE_KEY_PREFIX = "askAgentModel:";
+
+function readJsonScript(selector, fallback) {
+  const element = document.querySelector(selector);
+  if (!element) return fallback;
+  try {
+    return JSON.parse(element.textContent || "");
+  } catch {
+    return fallback;
+  }
+}
+
+const MODEL_OPTIONS = readJsonScript("[data-agent-model-options]", {});
+const DEFAULT_MODELS = readJsonScript("[data-agent-default-models]", {});
+
+function selectedProvider() {
+  const select = document.querySelector("[data-agent-provider]");
+  const value = select instanceof HTMLSelectElement ? select.value : "";
+  return value === "claude" ? "claude" : "openai";
+}
+
+function modelStorageKey(provider) {
+  return `${MODEL_STORAGE_KEY_PREFIX}${provider}`;
+}
+
+function selectedModel() {
+  const provider = selectedProvider();
+  const select = document.querySelector("[data-agent-model]");
+  const value = select instanceof HTMLSelectElement ? select.value : "";
+  const options = Array.isArray(MODEL_OPTIONS[provider])
+    ? MODEL_OPTIONS[provider]
+    : [];
+  if (options.some((option) => option.value === value)) return value;
+  return DEFAULT_MODELS[provider] || (options[0] && options[0].value) || "";
+}
+
+function populateModelSelect() {
+  const select = document.querySelector("[data-agent-model]");
+  if (!(select instanceof HTMLSelectElement)) return;
+  const provider = selectedProvider();
+  const options = Array.isArray(MODEL_OPTIONS[provider])
+    ? MODEL_OPTIONS[provider]
+    : [];
+  let stored = null;
+  try {
+    stored = window.localStorage.getItem(modelStorageKey(provider));
+  } catch {
+    stored = null;
+  }
+  const defaultModel =
+    DEFAULT_MODELS[provider] || (options[0] && options[0].value) || "";
+  const selected = options.some((option) => option.value === stored)
+    ? stored
+    : defaultModel;
+  select.innerHTML = options
+    .map(
+      (option) =>
+        `<option value="${escHtml(option.value)}">${escHtml(option.label || option.value)}</option>`
+    )
+    .join("");
+  select.value = selected;
+}
+
+function initProviderSelect() {
+  const select = document.querySelector("[data-agent-provider]");
+  if (!(select instanceof HTMLSelectElement)) return;
+  let stored = null;
+  try {
+    stored = window.localStorage.getItem(PROVIDER_STORAGE_KEY);
+  } catch {
+    stored = null;
+  }
+  if (stored === "openai" || stored === "claude") {
+    select.value = stored;
+  }
+  populateModelSelect();
+  select.addEventListener("change", () => {
+    try {
+      window.localStorage.setItem(PROVIDER_STORAGE_KEY, selectedProvider());
+    } catch {
+      // Private browsing can block storage; the toggle still works for the session.
+    }
+    populateModelSelect();
+  });
+  const modelSelect = document.querySelector("[data-agent-model]");
+  if (modelSelect instanceof HTMLSelectElement) {
+    modelSelect.addEventListener("change", () => {
+      try {
+        window.localStorage.setItem(
+          modelStorageKey(selectedProvider()),
+          selectedModel()
+        );
+      } catch {
+        // Private browsing can block storage; the selection still works for the session.
+      }
+    });
+  }
+}
+
+function buildAskBody(question, selection) {
+  const body = {
+    question,
+    conversation_id: activeConversationId,
+    provider: selectedProvider(),
+    model: selectedModel(),
+  };
+  if (selection && selection.playerName) {
+    body.selected_player_id = selection.playerId || null;
+    body.selected_player_name = selection.playerName;
+  }
+  return body;
+}
+
+async function askQuestionJson(question, selection) {
   const statusEl = document.querySelector("[data-agent-status]");
   const response = await fetch("/api/agent/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, conversation_id: activeConversationId }),
+    body: JSON.stringify(buildAskBody(question, selection)),
   });
   const payload = await response.json();
   if (!response.ok) {
@@ -380,11 +619,11 @@ function renderAskFailure(message, statusText) {
   if (statusEl) statusEl.textContent = statusText;
 }
 
-async function askQuestionStream(question) {
+async function askQuestionStream(question, selection) {
   const response = await fetch("/api/agent/ask/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question, conversation_id: activeConversationId }),
+    body: JSON.stringify(buildAskBody(question, selection)),
   });
   if (!response.ok) {
     // The server answered (rate limit, validation, ...): surface its detail
@@ -428,13 +667,21 @@ async function askQuestionStream(question) {
   }
 }
 
-async function askQuestion(question) {
+async function askQuestion(question, selection = null) {
+  if (askInFlight) return;
+  askInFlight = true;
   const statusEl = document.querySelector("[data-agent-status]");
   const submit = document.querySelector("[data-agent-submit]");
   if (statusEl) statusEl.textContent = "Thinking";
   if (submit instanceof HTMLButtonElement) submit.disabled = true;
+  if (selection && selection.playerName) {
+    startTurn(selection.playerName);
+  } else {
+    lastQuestion = question;
+    startTurn(question);
+  }
   try {
-    await askQuestionStream(question);
+    await askQuestionStream(question, selection);
   } catch (streamError) {
     if (streamError instanceof Error && streamError.receivedEvents) {
       renderAskFailure(
@@ -443,18 +690,20 @@ async function askQuestion(question) {
       );
     } else {
       try {
-        await askQuestionJson(question);
+        await askQuestionJson(question, selection);
       } catch {
         renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed");
       }
     }
   } finally {
+    askInFlight = false;
     if (submit instanceof HTMLButtonElement) submit.disabled = false;
   }
 }
 
 function initAgentPage() {
   bindExampleButtons();
+  initProviderSelect();
   const form = document.querySelector("[data-agent-form]");
   const input = document.querySelector("[data-agent-question]");
   if (!(form instanceof HTMLFormElement) || !(input instanceof HTMLTextAreaElement)) {
@@ -464,7 +713,14 @@ function initAgentPage() {
     event.preventDefault();
     const question = input.value.trim();
     if (!question) return;
+    input.value = "";
     askQuestion(question);
+  });
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
   });
 }
 

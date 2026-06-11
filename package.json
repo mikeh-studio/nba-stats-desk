@@ -1,5 +1,5 @@
 {
-  "name": "nba-data-platform-workbench-tests",
+  "name": "nba-stats-desk-workbench-tests",
   "private": true,
   "type": "module",
   "scripts": {

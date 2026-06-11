@@ -9,7 +9,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.agent.conversation import InMemoryConversationStore
 from app.agent.observability import AgentTrace
-from app.agent.service import AgentDisabledError, StatsAgent, normalize_agent_answer
+from app.agent.service import (
+    AgentDisabledError,
+    StatsAgent,
+    _AnswerFieldStream,
+    _clarify_reply_name,
+    normalize_agent_answer,
+)
 from app.config import Settings
 
 
@@ -248,12 +254,32 @@ def test_route_hint_and_required_tool_order_reach_openai() -> None:
 
     assert payload["tool_calls"][0]["name"] == "resolve_player"
     answer_kwargs = client.responses.kwargs[-1]
-    assert "route=player_trend" in answer_kwargs["instructions"]
+    developer_messages = [
+        message["content"]
+        for message in answer_kwargs["input"]
+        if message["role"] == "developer"
+    ]
+    assert any("route=player_trend" in message for message in developer_messages)
     assert answer_kwargs.get("tools") is None
     assert [tool["name"] for tool in payload["tool_calls"][:2]] == [
         "resolve_player",
         "get_player_trends",
     ]
+
+
+def test_resolved_player_answer_includes_compact_player_profile() -> None:
+    client = SequenceClient([])
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer("How is Tyrese Maxey trending?")
+
+    profile = payload["player_profile"]
+    assert profile["profile_url"] == "/players/7"
+    assert profile["player"]["player_id"] == 7
+    assert profile["player"]["player_name"] == "Tyrese Maxey"
+    assert profile["player"]["team_abbr"] == "PHI"
+    assert profile["player"]["games_sampled"] == 12
+    assert profile["similar_players"][0]["player_name"] == "Jalen Brunson"
 
 
 def test_transient_openai_errors_retry() -> None:
@@ -332,8 +358,11 @@ def test_conversation_memory_replays_prior_turns() -> None:
     assert second_input[0]["role"] == "user"
     assert second_input[0]["content"] == "How is Tyrese Maxey trending?"
     assert second_input[1]["role"] == "assistant"
-    assert second_input[-2]["content"] == "What about assists?"
-    assert second_input[-1]["role"] == "developer"
+    user_contents = [
+        message["content"] for message in second_input if message["role"] == "user"
+    ]
+    assert user_contents[-1] == "What about assists?"
+    assert any(message["role"] == "developer" for message in second_input)
 
 
 def test_conversation_memory_zero_turns_disables_replay() -> None:
@@ -350,6 +379,163 @@ def test_conversation_memory_zero_turns_disables_replay() -> None:
     assert store.get_turns("thread-1", max_turns=6) == []
 
 
+class AmbiguousPlayerRepository(AgentServiceFakeRepository):
+    """Fake repo where 'Jalen' is ambiguous and 'zzz' queries find nobody."""
+
+    def search_players(self, query: str, limit: int = 10) -> list[dict]:
+        lowered = query.lower()
+        if "zzz" in lowered:
+            return []
+        if "jalen" in lowered:
+            return [
+                {
+                    "player_id": 21,
+                    "player_name": "Jalen Green",
+                    "latest_team_abbr": "HOU",
+                    "latest_game_date": "2026-02-10",
+                    "games_sampled": 14,
+                    "sample_status": "ready",
+                    "overall_rank": 30,
+                },
+                {
+                    "player_id": 22,
+                    "player_name": "Jalen Williams",
+                    "latest_team_abbr": "OKC",
+                    "latest_game_date": "2026-02-10",
+                    "games_sampled": 15,
+                    "sample_status": "ready",
+                    "overall_rank": 18,
+                },
+            ][:limit]
+        return super().search_players(query, limit)
+
+
+def _clarify_agent(
+    store: InMemoryConversationStore,
+) -> tuple[StatsAgent, SequenceClient]:
+    client = SequenceClient([])
+    agent = StatsAgent(
+        _settings(),
+        AmbiguousPlayerRepository(),
+        client=client,
+        conversation_store=store,
+    )
+    return agent, client
+
+
+def test_clarify_reply_name_extraction() -> None:
+    assert _clarify_reply_name("Jalen Williams") == "Jalen Williams"
+    assert _clarify_reply_name("I meant Jalen Williams") == "Jalen Williams"
+    assert _clarify_reply_name("no, Jalen Green.") == "Jalen Green"
+    assert (
+        _clarify_reply_name("Who are the top 10 players by points this season?") is None
+    )
+
+
+def test_ambiguous_player_stores_pending_clarification_with_options() -> None:
+    store = InMemoryConversationStore()
+    agent, client = _clarify_agent(store)
+
+    payload = agent.answer("How is Jalen trending?", conversation_id="thread-1")
+
+    names = [option["player_name"] for option in payload["clarification_options"]]
+    assert names == ["Jalen Williams", "Jalen Green"]
+    assert payload["answer"] == "Which player did you mean?"
+    pending = store.get_pending_clarification("thread-1")
+    assert pending is not None
+    assert pending.question == "How is Jalen trending?"
+    turns = store.get_turns("thread-1", max_turns=6)
+    assert turns[-1].question == "How is Jalen trending?"
+
+
+def test_clarify_reply_resumes_original_question() -> None:
+    store = InMemoryConversationStore()
+    agent, client = _clarify_agent(store)
+
+    agent.answer("How is Jalen trending?", conversation_id="thread-1")
+    payload = agent.answer("I meant Jalen Williams", conversation_id="thread-1")
+
+    assert payload["answer"] == "Answered from mocked tools."
+    assert store.get_pending_clarification("thread-1") is None
+    resolve_call = payload["tool_calls"][0]
+    assert resolve_call["name"] == "resolve_player"
+    assert resolve_call["args"]["name"] == "Jalen Williams"
+    # The agent answers the original question, not the clarification reply.
+    final_input = client.responses.kwargs[-1]["input"]
+    user_contents = [
+        message["content"] for message in final_input if message["role"] == "user"
+    ]
+    assert user_contents[-1] == "How is Jalen trending?"
+
+
+def test_clarify_option_click_resumes_with_selected_player() -> None:
+    store = InMemoryConversationStore()
+    agent, _ = _clarify_agent(store)
+
+    agent.answer("How is Jalen trending?", conversation_id="thread-1")
+    payload = agent.answer(
+        "How is Jalen trending?",
+        conversation_id="thread-1",
+        selected_player={"player_id": 22, "player_name": "Jalen Williams"},
+    )
+
+    assert payload["answer"] == "Answered from mocked tools."
+    assert store.get_pending_clarification("thread-1") is None
+    resolve_call = payload["tool_calls"][0]
+    assert resolve_call["name"] == "resolve_player"
+    assert resolve_call["args"]["name"] == "Jalen Williams"
+    pinned = payload["query_plan"]["resolved_players"][0]
+    assert pinned["player_id"] == 22
+    assert pinned["match_method"] == "user_selected"
+
+
+def test_failed_clarify_reply_reasks_and_keeps_pending() -> None:
+    store = InMemoryConversationStore()
+    agent, _ = _clarify_agent(store)
+
+    agent.answer("How is Jalen trending?", conversation_id="thread-1")
+    payload = agent.answer("Zzz Qqq", conversation_id="thread-1")
+
+    assert 'could not find a player matching "Zzz Qqq"' in payload["answer"]
+    pending = store.get_pending_clarification("thread-1")
+    assert pending is not None
+    assert pending.question == "How is Jalen trending?"
+
+
+def test_new_question_while_pending_drops_clarification() -> None:
+    store = InMemoryConversationStore()
+    agent, _ = _clarify_agent(store)
+
+    agent.answer("How is Jalen trending?", conversation_id="thread-1")
+    payload = agent.answer(
+        "How is Tyrese Maxey trending in the last 10 games?",
+        conversation_id="thread-1",
+    )
+
+    assert store.get_pending_clarification("thread-1") is None
+    assert payload["answer"] == "Answered from mocked tools."
+    assert payload["clarification_options"] == []
+
+
+def test_pending_clarification_store_roundtrip_and_eviction() -> None:
+    store = InMemoryConversationStore(max_conversations=2)
+
+    store.set_pending_clarification(
+        "thread-a", question="How is Jalen trending?", query_plan=None
+    )
+    assert store.get_pending_clarification("thread-a") is not None
+
+    store.clear_pending_clarification("thread-a")
+    assert store.get_pending_clarification("thread-a") is None
+
+    store.set_pending_clarification(
+        "thread-a", question="How is Jalen trending?", query_plan=None
+    )
+    store.append_turn("thread-b", question="qb", answer="ab", max_turns=4)
+    store.append_turn("thread-c", question="qc", answer="ac", max_turns=4)
+    assert store.get_pending_clarification("thread-a") is None
+
+
 def test_conversation_store_evicts_least_recently_used_conversations() -> None:
     store = InMemoryConversationStore(max_conversations=2)
 
@@ -364,3 +550,35 @@ def test_conversation_store_evicts_least_recently_used_conversations() -> None:
     assert [turn.question for turn in store.get_turns("thread-c", max_turns=4)] == [
         "qc"
     ]
+
+
+def test_answer_field_stream_decodes_across_chunk_boundaries() -> None:
+    emitted: list[str] = []
+    stream = _AnswerFieldStream(emitted.append)
+    raw = json.dumps({"answer": 'He said "go" — now\nplay.', "assumptions": []})
+
+    for index in range(0, len(raw), 3):
+        stream.feed(raw[index : index + 3])
+
+    assert "".join(emitted) == 'He said "go" — now\nplay.'
+    assert stream.emitted is True
+
+
+def test_answer_field_stream_handles_split_escapes_and_unicode() -> None:
+    emitted: list[str] = []
+    stream = _AnswerFieldStream(emitted.append)
+    # Split right inside the \u escape and the \n escape.
+    stream.feed('{"answer": "tip\\u00e9')
+    stream.feed('e\\')
+    stream.feed('nend", "tables": []}')
+
+    assert "".join(emitted) == "tipée\nend"
+
+
+def test_answer_field_stream_ignores_payloads_without_answer_string() -> None:
+    emitted: list[str] = []
+    stream = _AnswerFieldStream(emitted.append)
+    stream.feed('{"answer": 42, "assumptions": []}')
+
+    assert emitted == []
+    assert stream.emitted is False

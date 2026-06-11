@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -16,6 +17,8 @@ from app.agent.router import (
     build_agent_plan,
 )
 from app.config import Settings
+
+logger = logging.getLogger("nba.agent.planner")
 
 
 class TimeWindow(BaseModel):
@@ -286,6 +289,7 @@ def build_query_plan(
     *,
     settings: Settings,
     client: Any | None,
+    model: str | None = None,
 ) -> QueryPlan:
     fallback = deterministic_query_plan(question)
     if (
@@ -304,13 +308,16 @@ def build_query_plan(
         create_extra["timeout"] = settings.agent_planner_timeout_seconds
     try:
         response = request_client.responses.create(
-            model=settings.agent_planner_model or settings.openai_agent_model,
+            model=settings.agent_planner_model or model or settings.openai_agent_model,
             instructions=PLANNER_PROMPT,
             input=[{"role": "user", "content": question}],
             text=QUERY_PLAN_TEXT_FORMAT,
             **create_extra,
         )
-    except Exception:
+    except Exception as exc:
+        # The deterministic fallback keeps the request alive, but a planner
+        # that fails every call (e.g. a schema rejection) must show in logs.
+        logger.warning("LLM planner failed; using deterministic plan: %s", exc)
         return fallback
     plan = _parse_plan_response(response)
     if plan is None or plan.confidence < settings.agent_planner_min_confidence:
