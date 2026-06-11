@@ -11,7 +11,7 @@ from functools import lru_cache
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock, Thread
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -28,7 +28,13 @@ from pydantic import BaseModel, Field
 from app.agent.conversation import get_conversation_store
 from app.agent.observability import LOGGER_NAME, AgentTrace
 from app.agent.service import AgentDisabledError, AgentExecutionError, StatsAgent
-from app.config import SUPPORTED_SEASON, Settings, get_settings
+from app.config import (
+    AGENT_MODEL_OPTIONS,
+    AGENT_MODEL_VALUES,
+    SUPPORTED_SEASON,
+    Settings,
+    get_settings,
+)
 from app.rate_limit import get_agent_rate_limiter
 from app.repository import (
     BigQueryWarehouseRepository,
@@ -41,7 +47,7 @@ from app.repository import (
 from app.telemetry import instrument_compare_view, instrument_player_view
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260609-performance-flow-v5"
+STATIC_VERSION = "20260610-ask-model-select-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 TRACKING_CAP = 8
@@ -81,6 +87,42 @@ class AgentAskRequest(BaseModel):
     # violation gets the same 400 with a readable detail message.
     question: str
     conversation_id: str | None = Field(default=None, max_length=80)
+    # Set when the user clicks a clarification option; the agent resumes the
+    # pending question with this player pinned instead of re-resolving.
+    selected_player_id: int | None = Field(default=None, ge=1)
+    selected_player_name: str | None = Field(default=None, max_length=80)
+    # Which LLM backend answers this question; defaults to OpenAI.
+    provider: Literal["openai", "claude"] | None = None
+    # Concrete model id for the selected provider; env defaults apply when empty.
+    model: str | None = Field(default=None, max_length=80)
+
+
+def _selected_player(payload: AgentAskRequest) -> dict[str, Any] | None:
+    name = (payload.selected_player_name or "").strip()
+    if not name:
+        return None
+    return {"player_id": payload.selected_player_id, "player_name": name}
+
+
+def _selected_agent_provider(payload: AgentAskRequest) -> Literal["openai", "claude"]:
+    return payload.provider or "openai"
+
+
+def _selected_agent_model(payload: AgentAskRequest, settings: Settings) -> str:
+    provider = _selected_agent_provider(payload)
+    requested = (payload.model or "").strip()
+    if requested:
+        if requested not in AGENT_MODEL_VALUES[provider]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported {provider} model: {requested}",
+            )
+        return requested
+    return (
+        settings.anthropic_agent_model
+        if provider == "claude"
+        else settings.openai_agent_model
+    )
 
 
 def _time_ago(value: str | None) -> str:
@@ -353,13 +395,21 @@ def _prepare_agent_request(
 ) -> tuple[str, str, str, AgentTrace]:
     request_id = _request_id(request)
     conversation_id = _conversation_id(payload.conversation_id)
+    requested_model = (payload.model or "").strip()
+    provider = _selected_agent_provider(payload)
+    trace_model = requested_model or (
+        settings.anthropic_agent_model
+        if provider == "claude"
+        else settings.openai_agent_model
+    )
     trace = AgentTrace(
         request_id=request_id,
         question=payload.question,
-        model=settings.openai_agent_model,
+        model=trace_model,
         conversation_id=conversation_id,
     )
     try:
+        trace.model = _selected_agent_model(payload, settings)
         question = _validate_agent_question(payload.question, settings)
         _check_agent_rate_limit(request, settings)
     except HTTPException as exc:
@@ -707,6 +757,9 @@ def api_agent_ask(
             question,
             conversation_id=conversation_id,
             trace=trace,
+            selected_player=_selected_player(payload),
+            provider=payload.provider,
+            model=payload.model,
         )
     except AgentDisabledError as exc:
         _fail_trace(trace, exc)
@@ -726,6 +779,7 @@ def api_agent_ask(
         ) from exc
     finally:
         trace.emit()
+    answer.pop("answer_streamed", None)
     response.headers["X-Request-ID"] = request_id
     return {"season": SUPPORTED_SEASON, "request_id": request_id, **answer}
 
@@ -756,12 +810,18 @@ def api_agent_ask_stream(
                     conversation_id=conversation_id,
                     trace=trace,
                     progress_callback=progress,
+                    selected_player=_selected_player(payload),
+                    provider=payload.provider,
+                    model=payload.model,
                 )
                 answer["request_id"] = request_id
                 answer["season"] = SUPPORTED_SEASON
-                for token in str(answer.get("answer") or "").split(" "):
-                    if token:
-                        queue.put({"type": "answer_delta", "delta": f"{token} "})
+                if not answer.pop("answer_streamed", False):
+                    # Word-split fallback for paths that didn't stream real
+                    # deltas (OpenAI provider, tool-loop answers).
+                    for token in str(answer.get("answer") or "").split(" "):
+                        if token:
+                            queue.put({"type": "answer_delta", "delta": f"{token} "})
                 queue.put({"type": "final", "payload": answer})
             except AgentDisabledError as exc:
                 _fail_trace(trace, exc)
@@ -820,7 +880,12 @@ def ask_page(
         "season": SUPPORTED_SEASON,
         "tracking_cap": TRACKING_CAP,
         "agent_enabled": settings.openai_agent_enabled,
-        "agent_configured": bool(settings.openai_api_key),
+        "agent_configured": bool(settings.openai_api_key or settings.anthropic_api_key),
+        "agent_model_options": AGENT_MODEL_OPTIONS,
+        "agent_default_models": {
+            "openai": settings.openai_agent_model,
+            "claude": settings.anthropic_agent_model,
+        },
     }
     return templates.TemplateResponse(request, "ask.html", context)
 

@@ -3,7 +3,40 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from dotenv import load_dotenv
+
+# Settings are read via os.getenv, so load .env here once: `uvicorn
+# app.main:app` then works straight from the README without exporting the
+# file manually. Real environment variables keep precedence.
+load_dotenv()
+
 SUPPORTED_SEASON = "2025-26"
+
+OPENAI_AGENT_MODEL_OPTIONS = (
+    {"value": "gpt-5.5", "label": "GPT-5.5"},
+    {"value": "gpt-5.4", "label": "GPT-5.4"},
+    {"value": "gpt-5.4-mini", "label": "GPT-5.4 mini"},
+)
+ANTHROPIC_AGENT_MODEL_OPTIONS = (
+    {"value": "claude-fable-5", "label": "Claude Fable 5"},
+    {"value": "claude-opus-4-8", "label": "Claude Opus 4.8"},
+    {"value": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6"},
+    {"value": "claude-haiku-4-5", "label": "Claude Haiku 4.5"},
+)
+AGENT_MODEL_OPTIONS = {
+    "openai": OPENAI_AGENT_MODEL_OPTIONS,
+    "claude": ANTHROPIC_AGENT_MODEL_OPTIONS,
+}
+OPENAI_AGENT_MODEL_VALUES = frozenset(
+    option["value"] for option in OPENAI_AGENT_MODEL_OPTIONS
+)
+ANTHROPIC_AGENT_MODEL_VALUES = frozenset(
+    option["value"] for option in ANTHROPIC_AGENT_MODEL_OPTIONS
+)
+AGENT_MODEL_VALUES = {
+    "openai": OPENAI_AGENT_MODEL_VALUES,
+    "claude": ANTHROPIC_AGENT_MODEL_VALUES,
+}
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -23,8 +56,13 @@ class Settings:
     agent_dataset: str = "nba_agent"
     openai_api_key: str | None = None
     openai_agent_model: str = "gpt-5.4-mini"
+    anthropic_api_key: str | None = None
+    anthropic_agent_model: str = "claude-opus-4-8"
     openai_agent_enabled: bool = True
     openai_agent_timeout_seconds: float = 20.0
+    # Claude answers stream at large max_tokens and need a wider wall clock
+    # than the OpenAI path.
+    anthropic_agent_timeout_seconds: float = 90.0
     openai_agent_max_retries: int = 2
     openai_agent_retry_base_delay_seconds: float = 0.5
     agent_planner_enabled: bool = True
@@ -52,9 +90,14 @@ def get_settings() -> Settings:
         max_search_results=int(os.getenv("API_MAX_SEARCH_RESULTS", "12")),
         openai_api_key=os.getenv("OPENAI_API_KEY") or None,
         openai_agent_model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.4-mini"),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
+        anthropic_agent_model=os.getenv("ANTHROPIC_AGENT_MODEL", "claude-opus-4-8"),
         openai_agent_enabled=_env_bool("OPENAI_AGENT_ENABLED", True),
         openai_agent_timeout_seconds=float(
             os.getenv("OPENAI_AGENT_TIMEOUT_SECONDS", "20")
+        ),
+        anthropic_agent_timeout_seconds=float(
+            os.getenv("ANTHROPIC_AGENT_TIMEOUT_SECONDS", "90")
         ),
         openai_agent_max_retries=int(os.getenv("OPENAI_AGENT_MAX_RETRIES", "2")),
         openai_agent_retry_base_delay_seconds=float(

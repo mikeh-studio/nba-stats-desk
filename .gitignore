@@ -28,6 +28,10 @@ nba_api_executed.ipynb
 .ipynb_checkpoints/
 .context/
 
+# Local agent state
+.claude/settings.local.json
+.claude/worktrees/
+
 # Linter/type-checker caches
 .mypy_cache/
 .ruff_cache/

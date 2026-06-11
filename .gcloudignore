@@ -14,13 +14,24 @@ logs/
 reports/
 target/
 dbt_packages/
+dbt/profiles/.user.yml
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.gstack/
+.claude/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+
+# Terraform local state and provider caches
+.terraform/
+*.tfvars
+*.tfstate
+*.tfstate.backup
+infra/terraform-aws/env/
+infra/terraform-aws/env
 
 local_notes/
 notebooks/
