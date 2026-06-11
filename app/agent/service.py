@@ -368,8 +368,7 @@ def _player_profile_payload(
             "team_abbr": raw_player.get("team_abbr") or candidate.team_abbr,
             "latest_game_date": raw_player.get("latest_game_date")
             or candidate.latest_game_date,
-            "games_sampled": raw_player.get("games_sampled")
-            or candidate.games_sampled,
+            "games_sampled": raw_player.get("games_sampled") or candidate.games_sampled,
             "overall_rank": raw_player.get("overall_rank") or candidate.overall_rank,
             "player_initials": raw_player.get("player_initials")
             or _player_initials(str(player_name)),
@@ -454,11 +453,7 @@ def _player_profile_payload(
             if isinstance(item, dict)
         ],
     }
-    return {
-        key: value
-        for key, value in profile.items()
-        if value not in (None, {}, [])
-    }
+    return {key: value for key, value in profile.items() if value not in (None, {}, [])}
 
 
 _CLARIFY_REPLY_FILLER = re.compile(
@@ -667,8 +662,7 @@ class StatsAgent:
         # Name the provider and underlying error (Anthropic/OpenAI messages
         # carry their request IDs) so failures are diagnosable from logs.
         raise AgentExecutionError(
-            f"{provider} agent request failed: "
-            f"{type(last_exc).__name__}: {last_exc}"
+            f"{provider} agent request failed: {type(last_exc).__name__}: {last_exc}"
         ) from last_exc
 
     def _record_tool_call(

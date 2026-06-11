@@ -569,7 +569,7 @@ def test_answer_field_stream_handles_split_escapes_and_unicode() -> None:
     stream = _AnswerFieldStream(emitted.append)
     # Split right inside the \u escape and the \n escape.
     stream.feed('{"answer": "tip\\u00e9')
-    stream.feed('e\\')
+    stream.feed("e\\")
     stream.feed('nend", "tables": []}')
 
     assert "".join(emitted) == "tipée\nend"
