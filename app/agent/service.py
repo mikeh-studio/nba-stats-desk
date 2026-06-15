@@ -156,11 +156,11 @@ TEXT_FORMAT = {
 
 
 class AgentDisabledError(RuntimeError):
-    """Raised when the stats agent is not configured to call OpenAI."""
+    """Raised when the stats agent is not configured to call an LLM provider."""
 
 
 class AgentExecutionError(RuntimeError):
-    """Raised when an OpenAI agent run fails."""
+    """Raised when an LLM agent run fails."""
 
 
 def _default_agent_answer(answer: str) -> dict[str, Any]:

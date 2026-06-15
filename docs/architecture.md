@@ -12,7 +12,9 @@ learning/portfolio path, not a replacement for the default runtime.
 - Self-hosted Airflow is the supported orchestration path.
 - FastAPI serves the public read-only site and API.
 - Terraform manages GCP infrastructure and optional AWS Redshift infrastructure.
-- Analysis output is deterministic and template-based.
+- `/ask` can call OpenAI or Claude APIs for planning and answer generation.
+- The separate `analysis_snapshots` warehouse artifact is deterministic and
+  template-based.
 - Media sentiment ingestion is deferred until source, cost, and retention rules
   are explicit.
 
@@ -114,8 +116,9 @@ compare, performance, dashboards, freshness, and analysis snapshots use curated
 gold read models. Player resolution for search and `/ask` starts from
 `nba_agent.agent_player_search`, which denormalizes qualified player identity,
 season averages, percentiles, trend state, availability, and an answer-context
-string into one agent-specific table. The OpenAI agent still reaches data only
-through allowlisted application tools and does not get arbitrary SQL access.
+string into one agent-specific table. The `/ask` agent can use OpenAI or Claude
+for planning and answer generation, but still reaches data only through
+allowlisted application tools and does not get arbitrary SQL access.
 
 ## Optional Secondary Path
 

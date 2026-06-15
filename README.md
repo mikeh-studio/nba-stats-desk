@@ -1,9 +1,18 @@
 # NBA Stats Desk
 
-Agentic, GCP-backed NBA intelligence workbench for the `2025-26` season. It
-pairs a natural-language `/ask` stats agent that can call OpenAI or Claude APIs
-with Performance insights for recent player form, backed by BigQuery, dbt,
-Airflow, and a Cloud Run-ready FastAPI service.
+[![CI](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml/badge.svg)](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml)
+
+NBA Stats Desk is a GCP-backed NBA analytics workbench for the `2025-26` season.
+It uses NBA API and injury-report sources, GCS, BigQuery, dbt, Airflow, and a
+Cloud Run-ready FastAPI app to serve a natural-language `/ask` agent, recent
+performance views, player research pages, and a 3D similarity map. The `/ask`
+runtime can call OpenAI or Claude APIs for planning and answer generation while
+all stats access stays bounded to curated warehouse-backed tools.
+
+See the [architecture reference](docs/architecture.md) for the pipeline and
+serving layout, and the
+[player similarity map screenshot](docs/images/similarity-map.png) for the
+current 3D research view.
 
 Core flow:
 
@@ -232,8 +241,8 @@ See [Validation](docs/validation.md) for the full QA matrix.
 ## Security Hygiene
 
 - Do not commit credentials or local `.env` files.
-- Keep GCP, OpenAI, and AWS secrets in ignored local config or a managed secret
-  store.
+- Keep GCP, OpenAI, Anthropic, and AWS secrets in ignored local config or a
+  managed secret store.
 - The public service is read-only and queries curated serving tables.
 - Local Airflow logs, dbt logs, pipeline triage output, notebooks, and build
   artifacts are ignored by git.

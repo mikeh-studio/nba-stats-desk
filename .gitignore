@@ -24,6 +24,9 @@ infra/terraform-aws/env/
 infra/terraform-aws/env
 
 # Notebook and editor artifacts
+*.csv
+/*.ipynb
+data/
 nba_api_executed.ipynb
 .ipynb_checkpoints/
 .context/

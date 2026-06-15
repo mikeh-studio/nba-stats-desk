@@ -1,1 +1,1 @@
-"""OpenAI-backed NBA stats agent package."""
+"""Provider-backed NBA stats agent package."""
