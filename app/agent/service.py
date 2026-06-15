@@ -1375,8 +1375,7 @@ class StatsAgent:
         # Opponent intent is detected on the user's own wording so it holds
         # whether the plan came from the LLM planner or the deterministic one.
         query_plan.opponent_breakdown = (
-            query_plan.opponent_breakdown
-            or detect_opponent_breakdown(cleaned_question)
+            query_plan.opponent_breakdown or detect_opponent_breakdown(cleaned_question)
         )
         agent_plan = query_plan.to_agent_plan(cleaned_question)
         if trace is not None:

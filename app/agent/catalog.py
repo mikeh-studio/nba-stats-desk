@@ -109,9 +109,7 @@ class SemanticCatalog:
 
     def tier_keys(self, tier: int) -> tuple[str, ...]:
         """Metric keys belonging to exactly ``tier``, in catalog order."""
-        return tuple(
-            key for key, metric in self.metrics.items() if metric.tier == tier
-        )
+        return tuple(key for key, metric in self.metrics.items() if metric.tier == tier)
 
     def default_metric_keys(self, max_tier: int = DEFAULT_TIER) -> tuple[str, ...]:
         """Keys for the default cohort: every metric through ``max_tier``.

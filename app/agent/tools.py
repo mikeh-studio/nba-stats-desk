@@ -788,9 +788,7 @@ class StatsToolRunner:
             "charts": [
                 {
                     "type": "bar",
-                    "title": (
-                        f"{log.get('player_name')} {primary.label} by opponent"
-                    ),
+                    "title": (f"{log.get('player_name')} {primary.label} by opponent"),
                     "x_label": "Opponent",
                     "y_label": primary.label,
                     "series": [
