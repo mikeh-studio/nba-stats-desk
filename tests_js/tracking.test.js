@@ -6,6 +6,8 @@ import {
   TRACKING_KEY,
   addTrackedPlayer,
   buildCompareHref,
+  formatHealthStatusText,
+  formatSeasonCoverage,
   loadTrackedPlayers,
   normalizeTrackedPayload,
   parseTrackedPayload,
@@ -72,4 +74,32 @@ test("removeTrackedPlayer removes only the selected ID", () => {
 test("buildCompareHref preserves window and focus in compare links", () => {
   const href = buildCompareHref(7, 9, "last_7", "scoring");
   assert.equal(href, "/compare?player_a_id=7&player_b_id=9&window=last_7&focus=scoring");
+});
+
+test("formatSeasonCoverage labels full 2025-26 season coverage", () => {
+  assert.equal(
+    formatSeasonCoverage({
+      season: "2025-26",
+      season_types: ["Regular Season", "Playoffs"],
+      is_full_season: true,
+    }),
+    "2025-26 full season"
+  );
+});
+
+test("formatHealthStatusText combines last refresh and season coverage", () => {
+  const payload = {
+    status: "fresh",
+    last_successful_finished_at_utc: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+    season_coverage: {
+      season: "2025-26",
+      season_types: ["Regular Season", "Playoffs"],
+      is_full_season: true,
+    },
+  };
+
+  assert.match(
+    formatHealthStatusText(payload, "season-coverage"),
+    /^Last refresh 1 day ago - 2025-26 full season$/
+  );
 });

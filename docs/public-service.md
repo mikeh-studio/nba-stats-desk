@@ -54,9 +54,10 @@ The compare page supports direct `player_a_id` links and first-player search
 when no initial player is provided. Compare responses can include a similarity
 block with pair score, shared traits, and contrasting traits.
 
-The performance page shows recent player game rows against each player's own
-season baseline. It exposes date and game filters, status sorting, percentile
-ranges for the selected row, and a 30-day game trend drawn from
+The performance page shows 2025-26 playoff player game rows against each
+player's own season baseline, excluding players below one minute. It exposes
+date and game filters, status sorting, minutes, FG%, FT%, 3PM, percentile ranges
+for the selected row, and a 30-day game trend drawn from
 `gold.recent_performance_workbench`. The default performance payload and health
 status are prewarmed on app startup when `PERFORMANCE_CACHE_PREWARM_ENABLED`
 is true.

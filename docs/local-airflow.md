@@ -105,21 +105,31 @@ NBA_BRONZE_BOOTSTRAP_MODE=auto
 ```
 
 For a full `2025-26` stats backfill without resetting metadata, use the
-dedicated target:
+dedicated scheduler and trigger targets. Start the scheduler with replay
+overrides in one terminal:
+
+```bash
+make airflow-scheduler-season
+```
+
+Then trigger the run from another terminal:
 
 ```bash
 make airflow-backfill-season
 ```
 
-That target runs the DAG with `NBA_REPLAY_DAYS=365` and
-`NBA_BRONZE_BOOTSTRAP_MODE=force`. The forced bootstrap matters when auxiliary
-bronze tables already have partial rows: it re-derives observed schedule,
-line-score, and player-reference rows from the full replayed `raw_game_logs`
-instead of leaving an older partial `raw_schedule` untouched.
+Those targets run the DAG with `NBA_REPLAY_DAYS=365` and
+`NBA_BRONZE_BOOTSTRAP_MODE=force`. The scheduler-side override matters because
+the trigger command queues a DagRun, while the scheduler process is what
+executes the tasks and reads environment fallback values. The forced bootstrap
+matters when auxiliary bronze tables already have partial rows: it re-derives
+observed schedule, line-score, and player-reference rows from the full replayed
+`raw_game_logs` instead of leaving an older partial `raw_schedule` untouched.
 
 To use a different replay window:
 
 ```bash
+FULL_SEASON_REPLAY_DAYS=420 make airflow-scheduler-season
 FULL_SEASON_REPLAY_DAYS=420 make airflow-backfill-season
 ```
 

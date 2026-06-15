@@ -17,6 +17,7 @@ from app.repository import (
     _weighted_similarity_vector,
     build_analysis_payload,
     build_freshness_payload,
+    build_season_coverage_payload,
 )
 
 
@@ -89,6 +90,34 @@ def test_build_freshness_payload_missing_finished_at_is_unavailable() -> None:
 
     assert payload["status"] == "unavailable"
     assert payload["is_fresh"] is False
+
+
+def test_build_season_coverage_payload_marks_full_season() -> None:
+    payload = build_season_coverage_payload(
+        {
+            "season": "2025-26",
+            "first_game_date": "2025-10-21",
+            "latest_game_date": "2026-06-14",
+            "game_count": "1230",
+            "player_game_rows": "31200",
+            "has_regular_season": "true",
+            "has_playoffs": "true",
+        }
+    )
+
+    assert payload == {
+        "season": "2025-26",
+        "first_game_date": "2025-10-21",
+        "latest_game_date": "2026-06-14",
+        "game_count": 1230,
+        "player_game_rows": 31200,
+        "season_types": ["Regular Season", "Playoffs"],
+        "is_full_season": True,
+    }
+
+
+def test_build_season_coverage_payload_requires_games() -> None:
+    assert build_season_coverage_payload({"game_count": "0"}) is None
 
 
 def test_build_analysis_payload_nests_structured_sections() -> None:
@@ -363,12 +392,13 @@ def test_get_player_game_log_applies_date_range_filters(monkeypatch) -> None:
     assert payload["games"][0]["game_date"] == "2026-02-03"
 
 
-def test_get_recent_performance_dates_uses_latest_game_window(monkeypatch) -> None:
+def test_get_recent_performance_dates_uses_playoff_scope(monkeypatch) -> None:
     repo = _build_repository()
 
     def fake_query(sql, params, *_args, **_kwargs):
-        assert "MAX(game_date) AS max_game_date" in sql
-        assert "DATE_SUB(latest.max_game_date, INTERVAL 6 DAY)" in sql
+        assert "season_type = 'Playoffs'" in sql
+        assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1" in sql
+        assert "INTERVAL 6 DAY" not in sql
         assert "fct_player_game_stats" in sql
         assert {param.name for param in params} == {"season"}
         return [{"game_date": "2026-02-10"}]
@@ -392,6 +422,8 @@ def test_get_recent_performance_initial_falls_back_to_serving_table_sql(
         assert "TO_JSON_STRING(STRUCT(" in sql
         assert "ANY_VALUE(rows.game_matchup) AS matchup" in sql
         assert "selected_rows.game_id = @game_id" in sql
+        assert "fg_pct" in sql
+        assert "avg_fg_pct" in sql
         assert "UNION ALL" in sql
         param_names = {param.name for param in params}
         assert {"season", "game_date", "game_id", "limit"} == param_names
@@ -425,6 +457,7 @@ def test_get_recent_performance_initial_falls_back_to_serving_table_sql(
                     {
                         "game_id": "002250010",
                         "game_date": "2026-02-10",
+                        "season_type": "Playoffs",
                         "player_id": "7",
                         "player_name": "Tyrese Maxey",
                         "team_abbr": "PHI",
@@ -438,17 +471,28 @@ def test_get_recent_performance_initial_falls_back_to_serving_table_sql(
                         "ast": "7",
                         "stl": "1",
                         "blk": "0",
+                        "fg_pct": "0.500",
+                        "ft_pct": "0.800",
+                        "fg3m": "3",
                         "games_sampled": "12",
                         "avg_pts": "25.8",
                         "avg_reb": "4.4",
                         "avg_ast": "6.7",
                         "avg_stl": "1.1",
                         "avg_blk": "0.2",
+                        "avg_min": "34.8",
+                        "avg_fg_pct": "0.468",
+                        "avg_ft_pct": "0.840",
+                        "avg_fg3m": "2.4",
                         "pts_delta": "5.2",
                         "reb_delta": "0.6",
                         "ast_delta": "0.3",
                         "stl_delta": "-0.1",
                         "blk_delta": "-0.2",
+                        "min_delta": "1.2",
+                        "fg_pct_delta": "0.032",
+                        "ft_pct_delta": "-0.040",
+                        "fg3m_delta": "0.6",
                         "performance_score": "2.4",
                         "performance_status": "above",
                         "above_count": "3",
@@ -472,6 +516,11 @@ def test_get_recent_performance_initial_falls_back_to_serving_table_sql(
     assert payload["games"][0]["home_team_pts"] == 112
     assert payload["players"][0]["player_id"] == 7
     assert payload["players"][0]["metrics"][0]["delta"] == 5.2
+    metrics = {item["key"]: item for item in payload["players"][0]["metrics"]}
+    assert metrics["fg_pct"]["value"] == 50.0
+    assert metrics["fg_pct"]["delta"] == 3.2
+    assert metrics["ft_pct"]["value"] == 80.0
+    assert metrics["fg3m"]["value"] == 3.0
     assert len(calls) == 1
 
 
@@ -487,47 +536,21 @@ def test_get_recent_performance_initial_uses_table_rows_api(
         def list_rows(self, table, selected_fields, max_results):
             assert table == "local-project.nba_gold.recent_performance_workbench"
             field_names = [field.name for field in selected_fields]
-            assert field_names[:39] == [
-                "season",
-                "game_id",
-                "game_date",
-                "teams",
-                "game_matchup",
-                "home_team_abbr",
-                "away_team_abbr",
-                "home_team_pts",
-                "away_team_pts",
-                "players_played",
-                "player_id",
-                "player_name",
-                "team_abbr",
-                "opponent_abbr",
-                "home_away",
-                "matchup",
-                "wl",
-                "min",
-                "pts",
-                "reb",
-                "ast",
-                "stl",
-                "blk",
-                "games_sampled",
-                "avg_pts",
-                "avg_reb",
-                "avg_ast",
-                "avg_stl",
-                "avg_blk",
-                "pts_delta",
-                "reb_delta",
-                "ast_delta",
-                "stl_delta",
-                "blk_delta",
-                "pts_delta_pct",
-                "reb_delta_pct",
-                "ast_delta_pct",
-                "stl_delta_pct",
-                "blk_delta_pct",
-            ]
+            assert field_names[:3] == ["season", "season_type", "game_id"]
+            for field_name in [
+                "fg_pct",
+                "ft_pct",
+                "fg3m",
+                "avg_min",
+                "avg_fg_pct",
+                "avg_ft_pct",
+                "avg_fg3m",
+                "min_delta",
+                "fg_pct_delta",
+                "ft_pct_delta",
+                "fg3m_delta",
+            ]:
+                assert field_name in field_names
             assert "pts_percentile" in field_names
             assert "pts_p25" in field_names
             assert "reb_percentile" in field_names
@@ -540,6 +563,7 @@ def test_get_recent_performance_initial_uses_table_rows_api(
             return [
                 {
                     "season": "2025-26",
+                    "season_type": "Playoffs",
                     "game_id": "002250010",
                     "game_date": "2026-02-10",
                     "teams": "NYK / PHI",
@@ -562,17 +586,28 @@ def test_get_recent_performance_initial_uses_table_rows_api(
                     "ast": "4",
                     "stl": "1",
                     "blk": "1",
+                    "fg_pct": "0.520",
+                    "ft_pct": "0.750",
+                    "fg3m": "2",
                     "games_sampled": "12",
                     "avg_pts": "18.0",
                     "avg_reb": "5.0",
                     "avg_ast": "3.0",
                     "avg_stl": "0.8",
                     "avg_blk": "0.4",
+                    "avg_min": "30.0",
+                    "avg_fg_pct": "0.490",
+                    "avg_ft_pct": "0.800",
+                    "avg_fg3m": "1.4",
                     "pts_delta": "2.0",
                     "reb_delta": "2.0",
                     "ast_delta": "1.0",
                     "stl_delta": "0.2",
                     "blk_delta": "0.6",
+                    "min_delta": "1.0",
+                    "fg_pct_delta": "0.030",
+                    "ft_pct_delta": "-0.050",
+                    "fg3m_delta": "0.6",
                     "performance_score": "2.4",
                     "performance_status": "above",
                     "above_count": "3",
@@ -580,6 +615,7 @@ def test_get_recent_performance_initial_uses_table_rows_api(
                 },
                 {
                     "season": "2025-26",
+                    "season_type": "Playoffs",
                     "game_id": "002250010",
                     "game_date": "2026-02-10",
                     "teams": "NYK / PHI",
@@ -602,17 +638,28 @@ def test_get_recent_performance_initial_uses_table_rows_api(
                     "ast": "7",
                     "stl": "1",
                     "blk": "0",
+                    "fg_pct": "0.500",
+                    "ft_pct": "0.800",
+                    "fg3m": "3",
                     "games_sampled": "12",
                     "avg_pts": "25.8",
                     "avg_reb": "4.4",
                     "avg_ast": "6.7",
                     "avg_stl": "1.1",
                     "avg_blk": "0.2",
+                    "avg_min": "34.8",
+                    "avg_fg_pct": "0.468",
+                    "avg_ft_pct": "0.840",
+                    "avg_fg3m": "2.4",
                     "pts_delta": "5.2",
                     "reb_delta": "0.6",
                     "ast_delta": "0.3",
                     "stl_delta": "-0.1",
                     "blk_delta": "-0.2",
+                    "min_delta": "1.2",
+                    "fg_pct_delta": "0.032",
+                    "ft_pct_delta": "-0.040",
+                    "fg3m_delta": "0.6",
                     "performance_score": "2.4",
                     "performance_status": "above",
                     "above_count": "3",
@@ -655,6 +702,7 @@ def test_recent_performance_table_rows_cache_feeds_initial_and_detail(
             return [
                 {
                     "season": "2025-26",
+                    "season_type": "Playoffs",
                     "game_id": "002250010",
                     "game_date": "2026-02-10",
                     "teams": "NYK / PHI",
@@ -677,23 +725,40 @@ def test_recent_performance_table_rows_cache_feeds_initial_and_detail(
                     "ast": "7",
                     "stl": "1",
                     "blk": "0",
+                    "fg_pct": "0.500",
+                    "ft_pct": "0.800",
+                    "fg3m": "3",
                     "games_sampled": "12",
                     "avg_pts": "25.8",
                     "avg_reb": "4.4",
                     "avg_ast": "6.7",
                     "avg_stl": "1.1",
                     "avg_blk": "0.2",
+                    "avg_min": "34.8",
+                    "avg_fg_pct": "0.468",
+                    "avg_ft_pct": "0.840",
+                    "avg_fg3m": "2.4",
                     "pts_delta": "5.2",
                     "reb_delta": "0.6",
                     "ast_delta": "0.3",
                     "stl_delta": "-0.1",
                     "blk_delta": "-0.2",
+                    "min_delta": "1.2",
+                    "fg_pct_delta": "0.032",
+                    "ft_pct_delta": "-0.040",
+                    "fg3m_delta": "0.6",
                     "pts_percentile": "82.0",
                     "pts_p10": "18",
                     "pts_p25": "22",
                     "pts_p50": "26",
                     "pts_p75": "30",
                     "pts_p90": "34",
+                    "fg_pct_percentile": "72.0",
+                    "fg_pct_p10": "0.390",
+                    "fg_pct_p25": "0.430",
+                    "fg_pct_p50": "0.470",
+                    "fg_pct_p75": "0.520",
+                    "fg_pct_p90": "0.580",
                     "performance_score": "2.4",
                     "performance_status": "above",
                     "above_count": "3",
@@ -710,6 +775,9 @@ def test_recent_performance_table_rows_cache_feeds_initial_and_detail(
                                 "ast": "6",
                                 "stl": "1",
                                 "blk": "0",
+                                "fg_pct": "0.480",
+                                "ft_pct": "0.750",
+                                "fg3m": "2",
                             },
                             {
                                 "game_id": "002250010",
@@ -721,6 +789,9 @@ def test_recent_performance_table_rows_cache_feeds_initial_and_detail(
                                 "ast": "7",
                                 "stl": "1",
                                 "blk": "0",
+                                "fg_pct": "0.500",
+                                "ft_pct": "0.800",
+                                "fg3m": "3",
                             },
                         ]
                     ),
@@ -742,7 +813,11 @@ def test_recent_performance_table_rows_cache_feeds_initial_and_detail(
     assert detail is not None
     assert detail["metrics"][0]["percentile"] == 82.0
     assert detail["metrics"][0]["range"]["p25"] == 22.0
+    detail_metrics = {item["key"]: item for item in detail["metrics"]}
+    assert detail_metrics["fg_pct"]["value"] == 50.0
+    assert detail_metrics["fg_pct"]["range"]["p25"] == 43.0
     assert detail["trend_30d"]["points"][-1]["pts"] == 31.0
+    assert detail["trend_30d"]["points"][-1]["fg_pct"] == 50.0
     assert fake_client.calls == 1
 
 
@@ -788,6 +863,8 @@ def test_get_recent_performance_initial_falls_back_to_live_query(
             raise BadRequest("table not found")
         assert "selected_player_ids AS" in sql
         assert "s.game_id = @game_id" in sql
+        assert "s.season_type = 'Playoffs'" in sql
+        assert "COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) >= 1" in sql
         assert "TO_JSON_STRING(STRUCT(" in sql
         param_names = {param.name for param in params}
         assert {"season", "game_date", "game_id", "limit"} == param_names
@@ -877,23 +954,40 @@ def test_get_recent_performance_player_prefers_serving_table_detail(
                 "ast": "7",
                 "stl": "1",
                 "blk": "0",
+                "fg_pct": "0.500",
+                "ft_pct": "0.800",
+                "fg3m": "3",
                 "games_sampled": "12",
                 "avg_pts": "25.8",
                 "avg_reb": "4.4",
                 "avg_ast": "6.7",
                 "avg_stl": "1.1",
                 "avg_blk": "0.2",
+                "avg_min": "34.8",
+                "avg_fg_pct": "0.468",
+                "avg_ft_pct": "0.840",
+                "avg_fg3m": "2.4",
                 "pts_delta": "5.2",
                 "reb_delta": "0.6",
                 "ast_delta": "0.3",
                 "stl_delta": "-0.1",
                 "blk_delta": "-0.2",
+                "min_delta": "1.2",
+                "fg_pct_delta": "0.032",
+                "ft_pct_delta": "-0.040",
+                "fg3m_delta": "0.6",
                 "pts_percentile": "82.0",
                 "pts_p10": "18",
                 "pts_p25": "22",
                 "pts_p50": "26",
                 "pts_p75": "30",
                 "pts_p90": "34",
+                "fg_pct_percentile": "72.0",
+                "fg_pct_p10": "0.390",
+                "fg_pct_p25": "0.430",
+                "fg_pct_p50": "0.470",
+                "fg_pct_p75": "0.520",
+                "fg_pct_p90": "0.580",
                 "performance_score": "2.4",
                 "performance_status": "above",
                 "above_count": "3",
@@ -910,6 +1004,9 @@ def test_get_recent_performance_player_prefers_serving_table_detail(
                             "ast": "6",
                             "stl": "1",
                             "blk": "0",
+                            "fg_pct": "0.480",
+                            "ft_pct": "0.750",
+                            "fg3m": "2",
                         },
                         {
                             "game_id": "002250010",
@@ -921,6 +1018,9 @@ def test_get_recent_performance_player_prefers_serving_table_detail(
                             "ast": "7",
                             "stl": "1",
                             "blk": "0",
+                            "fg_pct": "0.500",
+                            "ft_pct": "0.800",
+                            "fg3m": "3",
                         },
                     ]
                 ),
@@ -934,9 +1034,114 @@ def test_get_recent_performance_player_prefers_serving_table_detail(
     assert payload is not None
     assert payload["metrics"][0]["percentile"] == 82.0
     assert payload["metrics"][0]["range"]["p25"] == 22.0
+    metrics = {item["key"]: item for item in payload["metrics"]}
+    assert metrics["fg_pct"]["value"] == 50.0
+    assert metrics["fg_pct"]["range"]["p25"] == 43.0
     assert payload["trend_30d"]["points"][-1]["pts"] == 31.0
+    assert payload["trend_30d"]["points"][-1]["fg_pct"] == 50.0
     assert payload["trend_30d"]["stats"][0]["season_average"] == 25.8
     assert len(calls) == 1
+
+
+def test_get_recent_performance_player_falls_back_from_incomplete_table_detail(
+    monkeypatch,
+) -> None:
+    repo = _build_repository()
+    calls: list[str] = []
+
+    complete_row = {
+        "game_id": "002250010",
+        "game_date": "2026-02-10T00:00:00+00:00",
+        "player_id": "7",
+        "player_name": "Tyrese Maxey",
+        "team_abbr": "PHI",
+        "opponent_abbr": "NYK",
+        "home_away": "home",
+        "matchup": "PHI vs. NYK",
+        "wl": "W",
+        "min": "36.0",
+        "pts": "31",
+        "reb": "5",
+        "ast": "7",
+        "stl": "1",
+        "blk": "0",
+        "fg_pct": "0.500",
+        "ft_pct": "0.800",
+        "fg3m": "3",
+        "games_sampled": "12",
+        "avg_pts": "25.8",
+        "avg_reb": "4.4",
+        "avg_ast": "6.7",
+        "avg_stl": "1.1",
+        "avg_blk": "0.2",
+        "avg_min": "34.8",
+        "avg_fg_pct": "0.468",
+        "avg_ft_pct": "0.840",
+        "avg_fg3m": "2.4",
+        "pts_delta": "5.2",
+        "reb_delta": "0.6",
+        "ast_delta": "0.3",
+        "stl_delta": "-0.1",
+        "blk_delta": "-0.2",
+        "min_delta": "1.2",
+        "fg_pct_delta": "0.032",
+        "ft_pct_delta": "-0.040",
+        "fg3m_delta": "0.6",
+        "performance_score": "2.4",
+        "performance_status": "above",
+        "above_count": "3",
+        "below_count": "2",
+    }
+
+    def fake_query(sql, params, *_args, **_kwargs):
+        calls.append(sql)
+        if "recent_performance_workbench" in sql and "TO_JSON_STRING(STRUCT(" in sql:
+            return [
+                {
+                    "section": "date",
+                    "sort_index": "1",
+                    "payload": json.dumps({"game_date": "2026-02-10"}),
+                },
+                {
+                    "section": "player",
+                    "sort_index": "1",
+                    "payload": json.dumps(complete_row),
+                },
+            ]
+        if "recent_performance_workbench" in sql:
+            return [
+                {
+                    "game_id": "002250010",
+                    "game_date": "2026-02-10T00:00:00+00:00",
+                    "player_id": "7",
+                    "player_name": "Tyrese Maxey",
+                    "min": "36.0",
+                    "pts": "31",
+                    "reb": "5",
+                    "ast": "7",
+                    "stl": "1",
+                    "blk": "0",
+                    "avg_pts": "25.8",
+                    "pts_delta": "5.2",
+                    "trend_points_json": "[]",
+                }
+            ]
+        if "trend_window AS" in sql:
+            return [complete_row]
+        return [complete_row | {"pts_percentile": "82.0", "pts_p25": "22"}]
+
+    monkeypatch.setattr(repo, "_query", fake_query)
+
+    payload = repo.get_recent_performance_player(7, game_id="002250010")
+
+    assert payload is not None
+    metrics = {item["key"]: item for item in payload["metrics"]}
+    assert metrics["min"]["season_average"] == 34.8
+    assert metrics["fg_pct"]["value"] == 50.0
+    assert metrics["ft_pct"]["delta"] == -4.0
+    assert metrics["fg3m"]["value"] == 3.0
+    assert payload["trend_30d"]["points"][-1]["fg_pct"] == 50.0
+    assert len(calls) == 3
 
 
 def test_get_recent_performance_games_uses_dim_game_labels(monkeypatch) -> None:
@@ -945,6 +1150,8 @@ def test_get_recent_performance_games_uses_dim_game_labels(monkeypatch) -> None:
     def fake_query(sql, params, *_args, **_kwargs):
         assert "dim_game" in sql
         assert "stats.game_date = @game_date" in sql
+        assert "stats.season_type = 'Playoffs'" in sql
+        assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1" in sql
         param_names = {param.name for param in params}
         assert param_names == {"season", "game_date"}
         return [
@@ -979,7 +1186,9 @@ def test_get_recent_performance_players_builds_baseline_payload(
         assert "STDDEV_POP(pts) AS sd_pts" in sql
         assert "performance_score" in sql
         assert "s.game_id = @game_id" in sql
-        assert "COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) > 0" in sql
+        assert "s.season_type = 'Playoffs'" in sql
+        assert "COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) >= 1" in sql
+        assert "AVG(fg_pct) AS avg_fg_pct" in sql
         param_names = {param.name for param in params}
         assert {"season", "game_date", "game_id", "limit"} == param_names
         return [
@@ -999,17 +1208,28 @@ def test_get_recent_performance_players_builds_baseline_payload(
                 "ast": "7",
                 "stl": "1",
                 "blk": "0",
+                "fg_pct": "0.500",
+                "ft_pct": "0.800",
+                "fg3m": "3",
                 "games_sampled": "12",
                 "avg_pts": "25.8",
                 "avg_reb": "4.4",
                 "avg_ast": "6.7",
                 "avg_stl": "1.1",
                 "avg_blk": "0.2",
+                "avg_min": "34.8",
+                "avg_fg_pct": "0.468",
+                "avg_ft_pct": "0.840",
+                "avg_fg3m": "2.4",
                 "pts_delta": "5.2",
                 "reb_delta": "0.6",
                 "ast_delta": "0.3",
                 "stl_delta": "-0.1",
                 "blk_delta": "-0.2",
+                "min_delta": "1.2",
+                "fg_pct_delta": "0.032",
+                "ft_pct_delta": "-0.040",
+                "fg3m_delta": "0.6",
                 "performance_score": "2.4",
                 "performance_status": "above",
                 "above_count": "3",
@@ -1027,6 +1247,10 @@ def test_get_recent_performance_players_builds_baseline_payload(
     assert rows[0]["performance_status"] == "above"
     assert rows[0]["metrics"][0]["label"] == "PTS"
     assert rows[0]["metrics"][0]["delta"] == 5.2
+    metrics = {item["key"]: item for item in rows[0]["metrics"]}
+    assert metrics["fg_pct"]["value"] == 50.0
+    assert metrics["ft_pct"]["delta"] == -4.0
+    assert metrics["fg3m"]["delta"] == 0.6
 
 
 def test_get_recent_performance_player_returns_percentile_ranges(
@@ -1044,7 +1268,8 @@ def test_get_recent_performance_player_returns_percentile_ranges(
             assert "game_id = @game_id" in sql
             assert "DATE_SUB(selected.selected_game_date, INTERVAL 29 DAY)" in sql
             assert "SAFE_CAST(game_date AS DATE)" in sql
-            assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0" in sql
+            assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1" in sql
+            assert "stats.fg_pct" in sql
             param_names = {param.name for param in params}
             assert {"season", "player_id", "game_id"} == param_names
             return [
@@ -1058,11 +1283,18 @@ def test_get_recent_performance_player_returns_percentile_ranges(
                     "ast": "6",
                     "stl": "1",
                     "blk": "0",
+                    "fg_pct": "0.480",
+                    "ft_pct": "0.750",
+                    "fg3m": "2",
                     "avg_pts": "25.8",
                     "avg_reb": "4.4",
                     "avg_ast": "6.7",
                     "avg_stl": "1.1",
                     "avg_blk": "0.2",
+                    "avg_min": "34.8",
+                    "avg_fg_pct": "0.468",
+                    "avg_ft_pct": "0.840",
+                    "avg_fg3m": "2.4",
                 },
                 {
                     "game_id": "002250010",
@@ -1074,17 +1306,26 @@ def test_get_recent_performance_player_returns_percentile_ranges(
                     "ast": "7",
                     "stl": "1",
                     "blk": "0",
+                    "fg_pct": "0.500",
+                    "ft_pct": "0.800",
+                    "fg3m": "3",
                     "avg_pts": "25.8",
                     "avg_reb": "4.4",
                     "avg_ast": "6.7",
                     "avg_stl": "1.1",
                     "avg_blk": "0.2",
+                    "avg_min": "34.8",
+                    "avg_fg_pct": "0.468",
+                    "avg_ft_pct": "0.840",
+                    "avg_fg3m": "2.4",
                 },
             ]
         assert "APPROX_QUANTILES(r.pts, 100)[OFFSET(25)] AS pts_p25" in sql
+        assert "APPROX_QUANTILES(r.fg_pct, 100)[OFFSET(25)] AS fg_pct_p25" in sql
         assert "COUNTIF(r.pts < selected.pts)" in sql
         assert "0.5 * COUNTIF(r.pts = selected.pts)" in sql
-        assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0" in sql
+        assert "s.season_type = 'Playoffs'" in sql
+        assert "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1" in sql
         param_names = {param.name for param in params}
         assert {"season", "player_id", "game_id"} == param_names
         return [
@@ -1104,23 +1345,40 @@ def test_get_recent_performance_player_returns_percentile_ranges(
                 "ast": "7",
                 "stl": "1",
                 "blk": "0",
+                "fg_pct": "0.500",
+                "ft_pct": "0.800",
+                "fg3m": "3",
                 "games_sampled": "12",
                 "avg_pts": "25.8",
                 "avg_reb": "4.4",
                 "avg_ast": "6.7",
                 "avg_stl": "1.1",
                 "avg_blk": "0.2",
+                "avg_min": "34.8",
+                "avg_fg_pct": "0.468",
+                "avg_ft_pct": "0.840",
+                "avg_fg3m": "2.4",
                 "pts_delta": "5.2",
                 "reb_delta": "0.6",
                 "ast_delta": "0.3",
                 "stl_delta": "-0.1",
                 "blk_delta": "-0.2",
+                "min_delta": "1.2",
+                "fg_pct_delta": "0.032",
+                "ft_pct_delta": "-0.040",
+                "fg3m_delta": "0.6",
                 "pts_percentile": "82.0",
                 "pts_p10": "18",
                 "pts_p25": "22",
                 "pts_p50": "26",
                 "pts_p75": "30",
                 "pts_p90": "34",
+                "fg_pct_percentile": "72.0",
+                "fg_pct_p10": "0.390",
+                "fg_pct_p25": "0.430",
+                "fg_pct_p50": "0.470",
+                "fg_pct_p75": "0.520",
+                "fg_pct_p90": "0.580",
                 "performance_score": "2.4",
                 "performance_status": "above",
                 "above_count": "3",
@@ -1136,9 +1394,13 @@ def test_get_recent_performance_player_returns_percentile_ranges(
     assert payload["game_date"] == "2026-02-10"
     assert payload["metrics"][0]["percentile"] == 82.0
     assert payload["metrics"][0]["range"]["p25"] == 22.0
+    metrics = {item["key"]: item for item in payload["metrics"]}
+    assert metrics["fg_pct"]["value"] == 50.0
+    assert metrics["fg_pct"]["range"]["p25"] == 43.0
     assert payload["trend_30d"]["window_days"] == 30
     assert payload["trend_30d"]["stats"][0]["season_average"] == 25.8
     assert payload["trend_30d"]["points"][-1]["pts"] == 31.0
+    assert payload["trend_30d"]["points"][-1]["fg_pct"] == 50.0
     assert len(calls) == 3
 
 

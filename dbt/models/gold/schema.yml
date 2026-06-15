@@ -237,7 +237,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'MIN', 'FANTASY_POINTS_SIMPLE']
+                values: ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'MIN', 'FG%', 'FT%', '3PM', 'FANTASY_POINTS_SIMPLE']
       - name: player_id
         tests:
           - not_null
@@ -314,6 +314,12 @@ models:
           - accepted_values:
               arguments:
                 values: ['2025-26']
+      - name: season_type
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['Playoffs']
       - name: game_date
         tests: [not_null]
       - name: game_id

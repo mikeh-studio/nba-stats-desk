@@ -47,7 +47,7 @@ from app.repository import (
 from app.telemetry import instrument_compare_view, instrument_player_view
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260610-ask-model-select-v1"
+STATIC_VERSION = "20260615-season-coverage-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 TRACKING_CAP = 8
