@@ -12,6 +12,31 @@ from app.agent.formulas import extract_formula_variables
 CATALOG_PATH = Path(__file__).with_name("semantic_catalog.yml")
 DEFAULT_METRIC_KEYS = ("pts", "reb", "ast", "stl", "blk", "tov")
 
+# Generic catch-all wording that maps to "give me the standard box-score set"
+# rather than a single named metric. A clarification reply like "look at all
+# individual stats" lands here, so the user gets the default cohort instead of
+# an "Unsupported metric" error for a word that was never a metric to begin with.
+_GENERIC_METRIC_TOKENS = frozenset(
+    {
+        "all",
+        "all_stats",
+        "all_individual_stats",
+        "individual_stats",
+        "all_metrics",
+        "all_of_them",
+        "everything",
+        "every_stat",
+        "stat",
+        "stats",
+        "splits",
+        "box_score",
+        "boxscore",
+        "full",
+        "complete",
+        "overall",
+    }
+)
+
 
 def _normalize_key(value: str) -> str:
     return value.strip().lower().replace("-", "_").replace(" ", "_")
@@ -83,18 +108,33 @@ class SemanticCatalog:
         *,
         default_keys: tuple[str, ...] = DEFAULT_METRIC_KEYS,
     ) -> tuple[list[MetricDefinition], list[str]]:
+        """Resolve a list of requested metrics, degrading gracefully.
+
+        Unlike :meth:`resolve_metric`, this never returns an empty selection:
+        unknown tokens are reported in ``invalid`` but dropped, generic wording
+        ("all stats", "individual stats") expands to ``default_keys``, and a
+        request where nothing resolved falls back to ``default_keys`` too. This
+        keeps multi-metric tools (game log, trends, percentiles) answerable
+        instead of hard-failing when a planner emits a vague metric word.
+        """
         if not values:
             return [self.metrics[key] for key in default_keys], []
 
         resolved: list[MetricDefinition] = []
         invalid: list[str] = []
         for value in values:
+            normalized = _normalize_key(str(value))
+            if not normalized or normalized in _GENERIC_METRIC_TOKENS:
+                # Generic catch-all wording is satisfied by the default cohort.
+                continue
             metric = self.resolve_metric(str(value))
             if metric is None:
                 invalid.append(str(value))
                 continue
             if metric.key not in {item.key for item in resolved}:
                 resolved.append(metric)
+        if not resolved:
+            resolved = [self.metrics[key] for key in default_keys]
         return resolved, invalid
 
 

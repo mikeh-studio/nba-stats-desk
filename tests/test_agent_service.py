@@ -244,6 +244,36 @@ def test_disabled_agent_rejects_even_with_injected_client() -> None:
         raise AssertionError("Expected disabled agent to reject injected client")
 
 
+def test_vague_metric_does_not_clarify_when_player_resolves(monkeypatch) -> None:
+    # Mimic a planner that flags a vague-metric clarification ("which stats?")
+    # even though the player is named. A resolved player must still be answered
+    # with the default key metrics rather than bounced back with a question.
+    from app.agent import service as service_module
+    from app.agent.planner import QueryPlan
+    from app.agent.router import AgentRoute
+
+    def fake_build_query_plan(question: str, **kwargs: object) -> QueryPlan:
+        return QueryPlan(
+            route=AgentRoute.PLAYER_TREND,
+            confidence=0.9,
+            raw_player_mentions=["Tyrese Maxey"],
+            metrics=[],
+            needs_clarification=True,
+            clarification_question="Which stats would you like summarized?",
+        )
+
+    monkeypatch.setattr(service_module, "build_query_plan", fake_build_query_plan)
+    client = SequenceClient([])
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer("Summarize how Tyrese Maxey's stats have changed")
+
+    assert payload["clarification_options"] == []
+    assert payload["answer"] == "Answered from mocked tools."
+    tool_names = [tool["name"] for tool in payload["tool_calls"]]
+    assert "get_player_trends" in tool_names
+
+
 def test_route_hint_and_required_tool_order_reach_openai() -> None:
     client = SequenceClient(
         [_call("resolve_player", {"name": "Tyrese Maxey", "limit": 5})]

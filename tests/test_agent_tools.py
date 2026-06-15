@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.agent.catalog import load_semantic_catalog
+from app.agent.catalog import DEFAULT_METRIC_KEYS, load_semantic_catalog
 from app.agent.tools import StatsToolRunner
 
 
@@ -264,6 +264,85 @@ def test_agent_trends_tool_computes_from_date_filtered_game_log() -> None:
         {"x": "2026-02-03", "y": 31.0, "meta": "PHI @ BOS L"},
         {"x": "2026-02-10", "y": 24.0, "meta": "PHI vs. LAL W"},
     ]
+
+
+def test_resolve_metrics_expands_generic_all_stats_to_defaults() -> None:
+    catalog = load_semantic_catalog()
+
+    selected, invalid = catalog.resolve_metrics(["all individual stats"])
+
+    assert invalid == []
+    assert [metric.key for metric in selected] == list(DEFAULT_METRIC_KEYS)
+
+
+def test_resolve_metrics_drops_unknown_keeps_valid() -> None:
+    catalog = load_semantic_catalog()
+
+    selected, invalid = catalog.resolve_metrics(["points", "made up stat"])
+
+    assert [metric.key for metric in selected] == ["pts"]
+    assert invalid == ["made up stat"]
+
+
+def test_resolve_metrics_falls_back_to_defaults_when_all_unknown() -> None:
+    catalog = load_semantic_catalog()
+
+    selected, invalid = catalog.resolve_metrics(["made up stat"])
+
+    assert [metric.key for metric in selected] == list(DEFAULT_METRIC_KEYS)
+    assert invalid == ["made up stat"]
+
+
+def test_agent_game_log_tool_answers_generic_stats_request() -> None:
+    runner = StatsToolRunner(ToolFakeRepository())
+
+    payload = runner.get_player_game_log(7, ["individual stats"], limit=2)
+
+    assert payload["status"] == "ok"
+    assert payload["ignored_metrics"] == []
+    assert [metric["key"] for metric in payload["metrics"]] == list(DEFAULT_METRIC_KEYS)
+
+
+def test_agent_trends_tool_ignores_unknown_metric_without_failing() -> None:
+    runner = StatsToolRunner(ToolFakeRepository())
+
+    payload = runner.get_player_trends(7, ["points", "nonsense"])
+
+    assert payload["status"] == "ok"
+    assert payload["ignored_metrics"] == ["nonsense"]
+
+
+def test_agent_opponent_splits_identifies_toughest_matchup() -> None:
+    runner = StatsToolRunner(ToolFakeRepository())
+
+    payload = runner.get_player_opponent_splits(7, ["points"], limit=20)
+
+    assert payload["status"] == "ok"
+    assert payload["primary_metric"]["key"] == "pts"
+    assert payload["games_returned"] == 3
+    assert payload["overall_averages"]["pts"] == 27.67
+    # Worst scoring game is the 24-point night vs LAL.
+    toughest = payload["toughest_opponent"]
+    assert toughest["opponent_abbr"] == "LAL"
+    assert toughest["metrics"]["pts"] == 24.0
+    assert toughest["primary_delta_vs_overall"] == -3.67
+    assert toughest["record"] == "1-0"
+    assert [row["opponent_abbr"] for row in payload["opponents"]] == [
+        "LAL",
+        "NYK",
+        "BOS",
+    ]
+    assert payload["charts"][0]["type"] == "bar"
+
+
+def test_agent_opponent_splits_defaults_metrics_for_generic_request() -> None:
+    runner = StatsToolRunner(ToolFakeRepository())
+
+    payload = runner.get_player_opponent_splits(7, ["all stats"], limit=20)
+
+    assert payload["status"] == "ok"
+    assert payload["ignored_metrics"] == []
+    assert payload["primary_metric"]["key"] == "pts"
 
 
 def test_agent_ranking_tool_rejects_unknown_metric() -> None:

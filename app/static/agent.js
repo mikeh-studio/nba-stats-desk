@@ -126,8 +126,8 @@ function renderLineChart(chart) {
 
 function renderBarChart(chart) {
   const width = 720;
-  const height = 250;
-  const pad = { top: 26, right: 24, bottom: 48, left: 46 };
+  const height = 260;
+  const pad = { top: 34, right: 24, bottom: 48, left: 46 };
   const series = asArray(chart.series)[0];
   const points = asArray(series?.points)
     .map((point) => ({
@@ -142,17 +142,21 @@ function renderBarChart(chart) {
   const innerWidth = width - pad.left - pad.right;
   const innerHeight = height - pad.top - pad.bottom;
   const bottom = pad.top + innerHeight;
-  const maxValue = Math.max(...points.map((point) => point.yValue), 100);
-  const barGap = 10;
-  const barWidth = Math.max(16, (innerWidth - barGap * (points.length - 1)) / points.length);
+  // Scale to the data (with headroom) so short bars stay readable instead of
+  // being squashed against a fixed 0-100 axis.
+  const maxValue = Math.max(...points.map((point) => point.yValue), 1);
+  const yMax = maxValue * 1.15;
+  const barGap = 12;
+  const barWidth = Math.max(20, (innerWidth - barGap * (points.length - 1)) / points.length);
   const bars = points
     .map((point, index) => {
-      const barHeight = (point.yValue / maxValue) * innerHeight;
+      const barHeight = point.yValue > 0 ? Math.max(2, (point.yValue / yMax) * innerHeight) : 0;
       const x = pad.left + index * (barWidth + barGap);
       const y = bottom - barHeight;
       return `
         <g class="agent-point" tabindex="0" aria-label="${escHtml(point.xLabel)} ${formatNumber(point.yValue)}">
           <rect class="agent-bar" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="6" />
+          <text class="agent-bar-value" text-anchor="middle" x="${(x + barWidth / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}">${escHtml(formatNumber(point.yValue))}</text>
           <text class="agent-point-label" text-anchor="middle" x="${(x + barWidth / 2).toFixed(1)}" y="${height - 18}">${escHtml(point.xLabel)}</text>
           ${tooltipMarkup({ x: x + barWidth / 2, y, label: formatNumber(point.yValue), meta: point.meta }, width)}
         </g>
@@ -167,8 +171,84 @@ function renderBarChart(chart) {
   `;
 }
 
+function renderPercentileChart(chart) {
+  const width = 720;
+  const height = 290;
+  const pad = { top: 38, right: 26, bottom: 54, left: 54 };
+  const series = asArray(chart.series)[0];
+  const points = asArray(series?.points)
+    .map((point) => ({
+      xLabel: String(point.x ?? ""),
+      yValue: Number(point.y),
+      meta: String(point.meta ?? ""),
+    }))
+    .filter((point) => Number.isFinite(point.yValue));
+  if (points.length === 0) {
+    return '<div class="empty-state"><strong>No chart data.</strong></div>';
+  }
+  const innerWidth = width - pad.left - pad.right;
+  const innerHeight = height - pad.top - pad.bottom;
+  const bottom = pad.top + innerHeight;
+  // Percentiles always live on a fixed 0-100 scale so bars are comparable.
+  const yFor = (value) => bottom - (Math.max(0, Math.min(100, value)) / 100) * innerHeight;
+  const grid = [0, 25, 50, 75, 100]
+    .map((tick) => {
+      const y = yFor(tick);
+      return `
+        <line class="agent-grid" x1="${pad.left}" y1="${y.toFixed(1)}" x2="${width - pad.right}" y2="${y.toFixed(1)}" />
+        <text class="agent-axis" text-anchor="end" x="${pad.left - 8}" y="${(y + 4).toFixed(1)}">${tick}</text>
+      `;
+    })
+    .join("");
+  const barGap = 16;
+  const barWidth = Math.max(30, (innerWidth - barGap * (points.length - 1)) / points.length);
+  const bars = points
+    .map((point, index) => {
+      const x = pad.left + index * (barWidth + barGap);
+      const y = yFor(point.yValue);
+      const barHeight = Math.max(2, bottom - y);
+      const above = point.yValue >= 50;
+      const valueLabel = String(Math.round(point.yValue));
+      return `
+        <g class="agent-point" tabindex="0" aria-label="${escHtml(point.xLabel)} ${escHtml(valueLabel)}th percentile">
+          <rect class="agent-bar ${above ? "is-above" : "is-below"}" x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barWidth.toFixed(1)}" height="${barHeight.toFixed(1)}" rx="6" />
+          <text class="agent-bar-value" text-anchor="middle" x="${(x + barWidth / 2).toFixed(1)}" y="${(y - 8).toFixed(1)}">${escHtml(valueLabel)}</text>
+          <text class="agent-point-label" text-anchor="middle" x="${(x + barWidth / 2).toFixed(1)}" y="${(bottom + 22).toFixed(1)}">${escHtml(point.xLabel)}</text>
+          ${tooltipMarkup({ x: x + barWidth / 2, y, label: `${valueLabel}th percentile`, meta: point.meta }, width)}
+        </g>
+      `;
+    })
+    .join("");
+  const refY = yFor(50);
+  const reference = `
+    <line class="agent-reference" x1="${pad.left}" y1="${refY.toFixed(1)}" x2="${width - pad.right}" y2="${refY.toFixed(1)}" />
+    <text class="agent-reference-label" x="${pad.left + 2}" y="${(refY - 7).toFixed(1)}">League average (50th)</text>
+  `;
+  return `
+    <svg role="img" aria-label="${escHtml(chart.title || "Percentile chart")}" viewBox="0 0 ${width} ${height}">
+      <text class="agent-axis-title" x="14" y="${(pad.top - 16).toFixed(1)}">Percentile (vs qualified players)</text>
+      ${grid}
+      ${bars}
+      ${reference}
+    </svg>
+  `;
+}
+
+function isPercentileChart(chart) {
+  const yLabel = String(chart.y_label ?? "").toLowerCase();
+  const title = String(chart.title ?? "").toLowerCase();
+  return yLabel.includes("percentile") || title.includes("percentile");
+}
+
 function renderChart(chart) {
-  const chartBody = chart.type === "bar" ? renderBarChart(chart) : renderLineChart(chart);
+  let chartBody;
+  if (isPercentileChart(chart)) {
+    chartBody = renderPercentileChart(chart);
+  } else if (chart.type === "bar") {
+    chartBody = renderBarChart(chart);
+  } else {
+    chartBody = renderLineChart(chart);
+  }
   return `
     <article class="agent-chart">
       <div class="agent-chart-title">${escHtml(chart.title || "Chart")}</div>

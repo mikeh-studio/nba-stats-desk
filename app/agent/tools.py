@@ -221,6 +221,21 @@ def _build_line_chart(
     }
 
 
+def _percentile_meta(row: dict[str, Any]) -> str:
+    percentile = _to_float(row.get("percentile"))
+    average = _to_float(row.get("average"))
+    parts: list[str] = []
+    if average is not None:
+        parts.append(f"{average:g} per game")
+    if percentile is not None:
+        delta = percentile - 50
+        if delta >= 0:
+            parts.append(f"+{delta:g} vs league avg")
+        else:
+            parts.append(f"{delta:g} vs league avg")
+    return " · ".join(parts)
+
+
 def _build_percentile_chart(
     player_name: str,
     rows: list[dict[str, Any]],
@@ -229,7 +244,7 @@ def _build_percentile_chart(
         {
             "x": str(row.get("label") or row.get("key") or ""),
             "y": _to_float(row.get("percentile")) or 0.0,
-            "meta": f"{row.get('average')} avg",
+            "meta": _percentile_meta(row),
         }
         for row in rows
     ]
@@ -306,6 +321,35 @@ def get_tool_schemas() -> list[dict[str, Any]]:
             "type": "function",
             "name": "get_player_game_log",
             "description": "Get recent game log rows and line-chart data for approved metrics.",
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "NBA player id."},
+                    "metrics": metric_array,
+                    "limit": {"type": "integer", "description": "Game count, 1-82."},
+                    "start_date": date_filter,
+                    "end_date": date_filter,
+                },
+                "required": [
+                    "player_id",
+                    "metrics",
+                    "limit",
+                    "start_date",
+                    "end_date",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
+            "name": "get_player_opponent_splits",
+            "description": (
+                "Aggregate a player's recent game log by opponent to find which "
+                "team they struggled against. Returns per-opponent averages, "
+                "win/loss record, and each opponent's delta vs the player's own "
+                "average for the primary metric."
+            ),
             "strict": True,
             "parameters": {
                 "type": "object",
@@ -447,6 +491,14 @@ class StatsToolRunner:
                 args.get("start_date"),
                 args.get("end_date"),
             )
+        if name == "get_player_opponent_splits":
+            return self.get_player_opponent_splits(
+                args.get("player_id"),
+                args.get("metrics"),
+                args.get("limit"),
+                args.get("start_date"),
+                args.get("end_date"),
+            )
         if name == "get_player_trends":
             return self.get_player_trends(
                 args.get("player_id"),
@@ -568,13 +620,6 @@ class StatsToolRunner:
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
         )
-        if invalid:
-            return {
-                "status": "error",
-                "message": "Unsupported metric.",
-                "invalid_metrics": invalid,
-                "valid_metrics": self.catalog.list_metrics(),
-            }
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
             return {
@@ -610,6 +655,7 @@ class StatsToolRunner:
             "player_name": log.get("player_name"),
             "season": log.get("season"),
             "metrics": [metric.to_public_dict() for metric in selected],
+            "ignored_metrics": invalid,
             "date_range": date_range,
             "games_returned": len(rows),
             "rows": rows,
@@ -619,6 +665,149 @@ class StatsToolRunner:
                     games=games,
                     metrics=selected,
                 )
+            ],
+        }
+
+    def get_player_opponent_splits(
+        self,
+        player_id: Any,
+        metrics: list[str] | None,
+        limit: Any = 20,
+        start_date: Any = None,
+        end_date: Any = None,
+    ) -> dict[str, Any]:
+        """Aggregate a player's recent game log by opponent.
+
+        Answers "which team did they struggle against": each opponent gets
+        per-metric averages, a win/loss record, and the primary metric's delta
+        versus the player's own average across the sampled games, so a tougher
+        matchup surfaces as a negative delta (or positive for lower-is-better
+        metrics like turnovers).
+        """
+        selected, invalid = self.catalog.resolve_metrics(
+            metrics,
+            default_keys=DEFAULT_METRIC_KEYS,
+        )
+        date_range, date_error = _coerce_date_range(start_date, end_date)
+        if date_error:
+            return {
+                "status": "error",
+                "message": date_error,
+                "date_range": date_range,
+            }
+        player_id_int = _to_int(player_id) or -1
+        game_limit = _coerce_limit(limit, default=20, minimum=1, maximum=82)
+        log = self.repo.get_player_game_log(
+            player_id_int,
+            limit=game_limit,
+            start_date=date_range["start_date"],
+            end_date=date_range["end_date"],
+        )
+        if log is None:
+            return {"status": "not_found", "player_id": player_id}
+        games = list(log.get("games") or [])
+        primary = selected[0]
+        # Collect per-game metric values once, grouped by opponent.
+        grouped: dict[str, dict[str, Any]] = {}
+        overall_values: dict[str, list[float]] = {metric.key: [] for metric in selected}
+        for game in games:
+            opponent = str(game.get("opponent_abbr") or "").strip() or "UNK"
+            bucket = grouped.setdefault(
+                opponent,
+                {"games": 0, "wins": 0, "losses": 0, "values": {}},
+            )
+            bucket["games"] += 1
+            result = str(game.get("wl") or "").strip().upper()
+            if result == "W":
+                bucket["wins"] += 1
+            elif result == "L":
+                bucket["losses"] += 1
+            for metric in selected:
+                value = _game_metric_value(game, metric)
+                if value is None:
+                    continue
+                bucket["values"].setdefault(metric.key, []).append(value)
+                overall_values[metric.key].append(value)
+
+        def _avg(values: list[float]) -> float | None:
+            return round(sum(values) / len(values), 2) if values else None
+
+        overall_avg = {key: _avg(values) for key, values in overall_values.items()}
+        primary_overall = overall_avg.get(primary.key)
+        opponents: list[dict[str, Any]] = []
+        for opponent, bucket in grouped.items():
+            averages = {
+                metric.key: _avg(bucket["values"].get(metric.key, []))
+                for metric in selected
+            }
+            primary_avg = averages.get(primary.key)
+            delta = (
+                round(primary_avg - primary_overall, 2)
+                if primary_avg is not None and primary_overall is not None
+                else None
+            )
+            opponents.append(
+                {
+                    "opponent_abbr": opponent,
+                    "games": bucket["games"],
+                    "wins": bucket["wins"],
+                    "losses": bucket["losses"],
+                    "record": f"{bucket['wins']}-{bucket['losses']}",
+                    "metrics": averages,
+                    "primary_delta_vs_overall": delta,
+                }
+            )
+
+        # "Struggled more" = worst primary-metric average for the opponent.
+        # Higher-is-better metrics sort ascending (low scoring is bad); a
+        # lower-is-better metric like turnovers sorts descending (high is bad).
+        def _sort_key(row: dict[str, Any]) -> float:
+            value = row["metrics"].get(primary.key)
+            if value is None:
+                return float("inf")
+            return value if primary.higher_is_better else -value
+
+        opponents.sort(key=_sort_key)
+        toughest = next(
+            (row for row in opponents if row["metrics"].get(primary.key) is not None),
+            None,
+        )
+        return {
+            "status": "ok",
+            "player_id": player_id_int,
+            "player_name": log.get("player_name"),
+            "season": log.get("season"),
+            "metrics": [metric.to_public_dict() for metric in selected],
+            "primary_metric": primary.to_public_dict(),
+            "ignored_metrics": invalid,
+            "date_range": date_range,
+            "games_returned": len(games),
+            "overall_averages": overall_avg,
+            "opponents": opponents,
+            "toughest_opponent": toughest,
+            "charts": [
+                {
+                    "type": "bar",
+                    "title": (
+                        f"{log.get('player_name')} {primary.label} by opponent"
+                    ),
+                    "x_label": "Opponent",
+                    "y_label": primary.label,
+                    "series": [
+                        {
+                            "key": primary.key,
+                            "label": primary.label,
+                            "points": [
+                                {
+                                    "x": row["opponent_abbr"],
+                                    "y": row["metrics"].get(primary.key) or 0.0,
+                                    "meta": f"{row['games']} g, {row['record']}",
+                                }
+                                for row in opponents
+                            ],
+                        }
+                    ],
+                }
             ],
         }
 
@@ -633,13 +822,6 @@ class StatsToolRunner:
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
         )
-        if invalid:
-            return {
-                "status": "error",
-                "message": "Unsupported metric.",
-                "invalid_metrics": invalid,
-                "valid_metrics": self.catalog.list_metrics(),
-            }
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
             return {
@@ -686,6 +868,7 @@ class StatsToolRunner:
             "player": _compact_player(player),
             "date_range": date_range,
             "trends": trends,
+            "ignored_metrics": invalid,
             "charts": [
                 _build_line_chart(
                     title=f"{player.get('player_name')} trend",
@@ -705,13 +888,6 @@ class StatsToolRunner:
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
         )
-        if invalid:
-            return {
-                "status": "error",
-                "message": "Unsupported metric.",
-                "invalid_metrics": invalid,
-                "valid_metrics": self.catalog.list_metrics(),
-            }
         detail = self.repo.get_player_detail(_to_int(player_id) or -1)
         if detail is None:
             return {"status": "not_found", "player_id": player_id}
@@ -726,6 +902,7 @@ class StatsToolRunner:
             "status": "ok",
             "player": _compact_player(player),
             "percentiles": rows,
+            "ignored_metrics": invalid,
             "charts": [
                 _build_percentile_chart(player.get("player_name", "Player"), rows)
             ],

@@ -67,6 +67,28 @@ def test_route_tools_are_registered_tool_names() -> None:
             assert tool_name in registered_tool_names
 
 
+def test_detect_opponent_breakdown_flags_matchup_questions() -> None:
+    from app.agent.planner import detect_opponent_breakdown
+
+    assert detect_opponent_breakdown(
+        "Is there a specific team Wembanyama struggled more with?"
+    )
+    assert detect_opponent_breakdown("How does Luka do against each opponent?")
+    assert not detect_opponent_breakdown("How are Wembanyama's points trending?")
+
+
+def test_opponent_breakdown_appends_split_tool_to_plan() -> None:
+    from app.agent.planner import deterministic_query_plan
+
+    plan = deterministic_query_plan(
+        "In the last 20 games, is there a specific team LeBron James struggled with?"
+    )
+    agent_plan = plan.to_agent_plan(plan.route.value)
+
+    assert plan.opponent_breakdown is True
+    assert "get_player_opponent_splits" in agent_plan.required_tools
+
+
 def test_player_mentions_skip_capitalized_non_name_phrases() -> None:
     from app.agent.planner import _extract_player_mentions
 

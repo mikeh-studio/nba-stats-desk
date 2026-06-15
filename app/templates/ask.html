@@ -229,6 +229,37 @@
     .agent-bar {
       fill: var(--accent);
     }
+    .agent-bar.is-above {
+      fill: var(--accent-hot);
+    }
+    .agent-bar.is-below {
+      fill: rgba(167, 175, 183, 0.6);
+    }
+    .agent-bar-value {
+      fill: var(--ink);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .agent-grid {
+      stroke: rgba(255, 255, 255, 0.08);
+    }
+    .agent-axis-title {
+      fill: var(--muted);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+    }
+    .agent-reference {
+      stroke: var(--highlight);
+      stroke-width: 2;
+      stroke-dasharray: 6 5;
+    }
+    .agent-reference-label {
+      fill: var(--highlight);
+      font-family: "IBM Plex Mono", monospace;
+      font-size: 0.72rem;
+      font-weight: 600;
+    }
     .agent-dot {
       fill: var(--highlight);
       stroke: var(--accent);
