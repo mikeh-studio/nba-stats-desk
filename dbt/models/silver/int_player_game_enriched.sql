@@ -17,6 +17,7 @@ select
     ft_pct,
     fg3m,
     fg3a,
+    plus_minus,
     pts,
     reb,
     ast,

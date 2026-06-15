@@ -102,6 +102,11 @@ deduped as (
         {% else %}
         cast(null as {{ float64_type() }}) as fg3a,
         {% endif %}
+        {% if 'plus_minus' in ns.column_names %}
+        cast(plus_minus as {{ float64_type() }}) as plus_minus,
+        {% else %}
+        cast(null as {{ float64_type() }}) as plus_minus,
+        {% endif %}
         cast(pts as {{ int64_type() }}) as pts,
         cast(reb as {{ int64_type() }}) as reb,
         cast(ast as {{ int64_type() }}) as ast,

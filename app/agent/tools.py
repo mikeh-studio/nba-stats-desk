@@ -161,6 +161,19 @@ _CHANGE_POINT_SD_RATIO = 0.75
 _FLAT_SHAPE_SD_RATIO = 0.5
 _ROLLING_WINDOW = 3
 
+# "Struggled against" is about efficiency and impact, not raw volume: a player
+# can score 26 on bad shooting and a negative plus-minus and still have
+# "struggled". Each opponent's per-metric average is turned into a z-score vs
+# the player's own window average and blended with these weights (all
+# higher-is-better), so the lowest score is the toughest matchup. Weights are
+# renormalized over whichever metrics are actually available.
+_STRUGGLE_WEIGHTS = {
+    "ts_pct": 0.35,
+    "fg_pct": 0.20,
+    "plus_minus": 0.30,
+    "pts": 0.15,
+}
+
 
 def _stdev(values: list[float]) -> float:
     """Population standard deviation; 0 for fewer than two samples."""
@@ -290,8 +303,10 @@ def _build_game_log_trend_row(
     return {
         "stat": metric.trend_stat,
         "label": metric.label,
+        "unit": metric.unit,
         "formula": metric.formula.upper() if metric.formula else None,
         "window_games": games_in_window,
+        "window_avg": _average(values),
         "recent_games": len(recent),
         "prior_games": len(prior),
         "recent_avg": recent_avg,
@@ -825,6 +840,57 @@ class StatsToolRunner:
             ],
         }
 
+    def _opponent_game_breakdown(
+        self,
+        games: list[dict[str, Any]],
+        opponent_abbr: str,
+    ) -> list[dict[str, Any]]:
+        """Per-game detail vs one opponent: shooting line, TS%, impact.
+
+        Surfaces the individual games behind the toughest matchup so the answer
+        can show the shooting nights that dragged the efficiency down, not just
+        the averages.
+        """
+        ts_metric = self.catalog.resolve_metric("ts_pct")
+        fg_metric = self.catalog.resolve_metric("fg_pct")
+        rows: list[dict[str, Any]] = []
+        for game in games:
+            label = str(game.get("opponent_abbr") or "").strip() or "UNK"
+            if label != opponent_abbr:
+                continue
+            fgm = _to_int(game.get("fgm"))
+            fga = _to_int(game.get("fga"))
+            fg3m = _to_int(game.get("fg3m"))
+            fg3a = _to_int(game.get("fg3a"))
+            rows.append(
+                {
+                    "game_date": game.get("game_date"),
+                    "matchup": game.get("matchup"),
+                    "wl": game.get("wl"),
+                    "pts": _to_int(game.get("pts")),
+                    "reb": _to_int(game.get("reb")),
+                    "ast": _to_int(game.get("ast")),
+                    "blk": _to_int(game.get("blk")),
+                    "tov": _to_int(game.get("tov")),
+                    "fg": f"{fgm}/{fga}"
+                    if fgm is not None and fga is not None
+                    else None,
+                    "fg3": (
+                        f"{fg3m}/{fg3a}"
+                        if fg3m is not None and fg3a is not None
+                        else None
+                    ),
+                    "fg_pct": (
+                        _game_metric_value(game, fg_metric) if fg_metric else None
+                    ),
+                    "ts_pct": (
+                        _game_metric_value(game, ts_metric) if ts_metric else None
+                    ),
+                    "plus_minus": _to_int(game.get("plus_minus")),
+                }
+            )
+        return rows
+
     def get_player_opponent_splits(
         self,
         player_id: Any,
@@ -843,7 +909,7 @@ class StatsToolRunner:
         """
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
-            default_keys=DEFAULT_METRIC_KEYS,
+            default_keys=self.catalog.analysis_metric_keys(),
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -890,7 +956,24 @@ class StatsToolRunner:
             return round(sum(values) / len(values), 2) if values else None
 
         overall_avg = {key: _avg(values) for key, values in overall_values.items()}
+        overall_std = {key: _stdev(values) for key, values in overall_values.items()}
         primary_overall = overall_avg.get(primary.key)
+
+        def _struggle_score(averages: dict[str, float | None]) -> float | None:
+            # Blend efficiency/impact z-scores vs the player's own window
+            # average; negative means worse than usual, i.e. struggled.
+            score = 0.0
+            total_weight = 0.0
+            for key, weight in _STRUGGLE_WEIGHTS.items():
+                opp_value = averages.get(key)
+                base = overall_avg.get(key)
+                spread = overall_std.get(key)
+                if opp_value is None or base is None or not spread:
+                    continue
+                score += weight * ((opp_value - base) / spread)
+                total_weight += weight
+            return round(score / total_weight, 3) if total_weight else None
+
         opponents: list[dict[str, Any]] = []
         for opponent, bucket in grouped.items():
             averages = {
@@ -912,22 +995,36 @@ class StatsToolRunner:
                     "record": f"{bucket['wins']}-{bucket['losses']}",
                     "metrics": averages,
                     "primary_delta_vs_overall": delta,
+                    "struggle_score": _struggle_score(averages),
                 }
             )
 
-        # "Struggled more" = worst primary-metric average for the opponent.
-        # Higher-is-better metrics sort ascending (low scoring is bad); a
-        # lower-is-better metric like turnovers sorts descending (high is bad).
-        def _sort_key(row: dict[str, Any]) -> float:
+        # Toughest matchup = lowest struggle score (worst efficiency/impact vs
+        # the player's own norm). Opponents with no scorable metric sort last;
+        # if nothing scores we fall back to the worst primary-metric average.
+        def _sort_key(row: dict[str, Any]) -> tuple[int, float]:
+            score = row["struggle_score"]
+            if score is not None:
+                return (0, score)
             value = row["metrics"].get(primary.key)
             if value is None:
-                return float("inf")
-            return value if primary.higher_is_better else -value
+                return (2, float("inf"))
+            return (1, value if primary.higher_is_better else -value)
 
         opponents.sort(key=_sort_key)
         toughest = next(
-            (row for row in opponents if row["metrics"].get(primary.key) is not None),
+            (
+                row
+                for row in opponents
+                if row["struggle_score"] is not None
+                or row["metrics"].get(primary.key) is not None
+            ),
             None,
+        )
+        toughest_games = (
+            self._opponent_game_breakdown(games, toughest["opponent_abbr"])
+            if toughest is not None
+            else []
         )
         return {
             "status": "ok",
@@ -942,6 +1039,7 @@ class StatsToolRunner:
             "overall_averages": overall_avg,
             "opponents": opponents,
             "toughest_opponent": toughest,
+            "toughest_opponent_games": toughest_games,
             "charts": [
                 {
                     "type": "bar",
@@ -976,7 +1074,7 @@ class StatsToolRunner:
     ) -> dict[str, Any]:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
-            default_keys=DEFAULT_METRIC_KEYS,
+            default_keys=self.catalog.analysis_metric_keys(),
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -1028,6 +1126,14 @@ class StatsToolRunner:
             if derived_trend is not None:
                 trends.append(derived_trend)
         player = detail.get("player") or {}
+        # Percentage and plus-minus metrics live on different scales than the
+        # counting stats, so the line chart plots only count metrics to stay
+        # readable; the efficiency/impact numbers are carried in the trend rows.
+        chart_metrics = [
+            metric
+            for metric in selected
+            if metric.unit == "count" and metric.key != "plus_minus"
+        ] or selected
         return {
             "status": "ok",
             "player": _compact_player(player),
@@ -1038,7 +1144,7 @@ class StatsToolRunner:
                 _build_line_chart(
                     title=f"{player.get('player_name')} trend",
                     games=games,
-                    metrics=selected,
+                    metrics=chart_metrics,
                     rolling_window=_ROLLING_WINDOW,
                 )
             ],

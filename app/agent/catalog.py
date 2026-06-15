@@ -21,6 +21,22 @@ CATALOG_PATH = Path(__file__).with_name("semantic_catalog.yml")
 DEFAULT_TIER = 2
 DEFAULT_METRIC_KEYS = ("pts", "reb", "ast", "stl", "blk", "tov")
 
+# The default set above is the traditional box score, used for game logs and
+# charts. "How have their stats changed" / "who did they struggle against"
+# questions want a curated impact set instead — headline scoring plus shot
+# blocking, shooting efficiency, and on-court impact — so the trend and
+# opponent tools default to this richer cohort. Keys must exist in the catalog.
+ANALYSIS_METRIC_KEYS = (
+    "pts",
+    "reb",
+    "ast",
+    "blk",
+    "ts_pct",
+    "fg_pct",
+    "fg3_pct",
+    "plus_minus",
+)
+
 # Generic catch-all wording that maps to "give me the standard box-score set"
 # rather than a single named metric. A clarification reply like "look at all
 # individual stats" lands here, so the user gets the default cohort instead of
@@ -66,6 +82,11 @@ class MetricDefinition:
     direction: str
     formula: str | None
     tier: int
+    unit: str
+
+    @property
+    def is_percent(self) -> bool:
+        return self.unit == "percent"
 
     @property
     def higher_is_better(self) -> bool:
@@ -91,6 +112,7 @@ class MetricDefinition:
             "direction": self.direction,
             "formula": self.formula,
             "tier": self.tier,
+            "unit": self.unit,
         }
 
 
@@ -121,6 +143,10 @@ class SemanticCatalog:
         return tuple(
             key for key, metric in self.metrics.items() if metric.tier <= max_tier
         )
+
+    def analysis_metric_keys(self) -> tuple[str, ...]:
+        """Curated impact set for trend/opponent narratives (existing keys only)."""
+        return tuple(key for key in ANALYSIS_METRIC_KEYS if key in self.metrics)
 
     def resolve_metric(self, value: str) -> MetricDefinition | None:
         key = self._aliases.get(_normalize_key(value))
@@ -189,5 +215,6 @@ def load_semantic_catalog(path: str | Path = CATALOG_PATH) -> SemanticCatalog:
             # Untiered metrics fall to the lowest priority so they never leak
             # into the default cohort by accident.
             tier=int(config.get("tier") or 99),
+            unit=str(config.get("unit") or "count"),
         )
     return SemanticCatalog(metrics)

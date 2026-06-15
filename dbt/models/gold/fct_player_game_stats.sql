@@ -24,6 +24,7 @@ select
     cast(ft_pct as {{ float64_type() }}) as ft_pct,
     cast(fg3m as {{ int64_type() }}) as fg3m,
     cast(fg3a as {{ int64_type() }}) as fg3a,
+    cast(plus_minus as {{ int64_type() }}) as plus_minus,
     pts,
     reb,
     ast,
