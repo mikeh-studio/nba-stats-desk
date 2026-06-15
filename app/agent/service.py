@@ -32,6 +32,7 @@ Use tools for player identity, game logs, percentiles, trends, rankings, and sim
 Use calculate_player_percentile for questions asking where one player ranks in a metric cohort.
 For "points attributed", "points created", or "points + assists * 2", use metric points_created.
 For game-by-game questions, call get_player_game_log so the response can include each game's values.
+For "how have their stats changed over the last N games" questions, read get_player_trends: describe the trajectory using trend_shape and slope_per_game, contrast the first-half vs second-half averages (prior_avg vs recent_avg), and if change_point is present call out the in-window shift (split_date, before_avg to after_avg). Note volatility/best/worst when form was streaky.
 For "which team did they struggle against" or opponent-matchup questions, use get_player_opponent_splits and cite the toughest_opponent it returns.
 For date-range questions, pass start_date and end_date as YYYY-MM-DD tool arguments; use null for an open side of the range.
 Respect explicit minimum-games filters; if the cohort is empty or the player is outside it, say that directly.
@@ -1035,6 +1036,7 @@ class StatsAgent:
                     "metrics": metrics,
                     "start_date": start_date,
                     "end_date": end_date,
+                    "limit": game_limit,
                 },
             ):
                 return evidence

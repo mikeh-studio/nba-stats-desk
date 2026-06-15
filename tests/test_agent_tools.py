@@ -335,6 +335,103 @@ def test_agent_trends_tool_ignores_unknown_metric_without_failing() -> None:
     assert payload["ignored_metrics"] == ["nonsense"]
 
 
+class TrendFakeRepository(ToolFakeRepository):
+    """20-game window where scoring jumps from ~20 to ~32 at the midpoint."""
+
+    def get_player_game_log(
+        self,
+        player_id: int,
+        limit: int = 30,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict | None:
+        if player_id != 7:
+            return None
+        games = []
+        for index in range(20):
+            pts = 20 if index < 10 else 32
+            games.append(
+                {
+                    "game_date": f"2026-01-{index + 1:02d}",
+                    "matchup": "PHI vs. NYK",
+                    "wl": "W",
+                    "team_abbr": "PHI",
+                    "opponent_abbr": "NYK",
+                    "pts": str(pts),
+                    "reb": "5",
+                    "ast": "5",
+                    "stl": "1",
+                    "blk": "0",
+                    "tov": "2",
+                }
+            )
+        if start_date:
+            games = [game for game in games if game["game_date"] >= start_date]
+        if end_date:
+            games = [game for game in games if game["game_date"] <= end_date]
+        if limit:
+            games = games[-limit:]
+        return {
+            "player_id": 7,
+            "player_name": "Tyrese Maxey",
+            "season": "2025-26",
+            "games": games,
+            "date_range": {"start_date": start_date, "end_date": end_date},
+        }
+
+
+def test_trends_split_window_in_half_and_flag_change_point() -> None:
+    runner = StatsToolRunner(TrendFakeRepository())
+
+    payload = runner.get_player_trends(7, ["points"], limit=20)
+
+    assert payload["status"] == "ok"
+    row = payload["trends"][0]
+    # First-half vs second-half, spanning the whole 20-game window.
+    assert row["window_games"] == 20
+    assert row["prior_avg"] == 20.0
+    assert row["recent_avg"] == 32.0
+    assert row["delta"] == 12.0
+    assert row["trend_shape"] == "rising"
+    assert row["best"] == 32.0
+    assert row["worst"] == 20.0
+    change_point = row["change_point"]
+    assert change_point is not None
+    assert change_point["split_game_number"] == 11
+    assert change_point["before_avg"] == 20.0
+    assert change_point["after_avg"] == 32.0
+    assert change_point["delta"] == 12.0
+    # The trend chart carries a rolling-average overlay alongside the raw line.
+    series_keys = {series["key"] for series in payload["charts"][0]["series"]}
+    assert {"pts", "pts_avg3"} <= series_keys
+
+
+def test_change_point_ignores_day_to_day_noise() -> None:
+    from app.agent.tools import _detect_change_point, _stdev
+
+    values = [20, 22, 19, 21, 20, 22, 21, 19, 20, 21]
+    pairs = [(f"2026-01-{i + 1:02d}", float(v)) for i, v in enumerate(values)]
+
+    assert _detect_change_point(pairs, _stdev([float(v) for v in values])) is None
+
+
+def test_trend_shape_reads_flat_when_swing_is_within_noise() -> None:
+    from app.agent.tools import _classify_shape, _linear_slope, _stdev
+
+    values = [20.0, 22.0, 19.0, 21.0, 20.0, 22.0, 21.0, 19.0, 20.0, 21.0]
+    slope = _linear_slope(values)
+
+    assert _classify_shape(slope, _stdev(values), len(values)) == "flat"
+
+
+def test_rolling_average_uses_trailing_window() -> None:
+    from app.agent.tools import _rolling_average
+
+    assert _rolling_average([10.0, 20.0, 30.0, 40.0], window=3) == [20.0, 30.0]
+    assert _rolling_average([10.0, 20.0], window=3) == []
+
+
 def test_agent_opponent_splits_identifies_toughest_matchup() -> None:
     runner = StatsToolRunner(ToolFakeRepository())
 
