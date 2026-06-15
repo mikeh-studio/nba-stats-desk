@@ -79,7 +79,11 @@ The agent can call allowlisted application tools for:
 
 - player resolution
 - game logs, including optional inclusive `start_date` / `end_date` filters
-- trends, including optional inclusive `start_date` / `end_date` filters
+- trends over a game window (`limit`) or `start_date` / `end_date` range:
+  first-half vs second-half averages, per-game slope, volatility, a flagged
+  within-period change point, and a rolling-average chart overlay
+- opponent splits: per-opponent averages, win/loss record, and the toughest
+  matchup ranked by an efficiency-and-impact composite (see below)
 - percentiles
 - rankings
 - similarity
@@ -126,3 +130,23 @@ approved stat keys, such as:
 ```yaml
 formula: "pts + ast * 2"
 ```
+
+Shooting efficiency is exposed as derived percentage metrics scaled to 0-100,
+so their deltas read as percentage points: `fg_pct` (`fg_pct * 100`), `fg3_pct`
+(`fg3m / fg3a * 100`), and `ts_pct` (`pts / (2 * (fga + 0.44 * fta)) * 100`).
+A metric's `unit` (`count` or `percent`) drives formatting and keeps percentage
+lines off the counting-stat chart axis. `plus_minus` carries on-court impact.
+
+Each metric has a `tier` (1-4). A vague "stats" question resolves to the
+default cohort — tiers 1-2, the traditional box score
+(`catalog.default_metric_keys()`) — used for game logs and charts. The
+"how have their stats changed" and "who did they struggle against" tools
+instead default to a curated impact set (`catalog.analysis_metric_keys()`:
+scoring, rebounds, assists, blocks, shooting efficiency, and plus-minus).
+
+"Struggled against" is intentionally not a raw-volume sort: the toughest
+opponent is the lowest composite **struggle score**, a weighted blend of
+shooting efficiency and plus-minus expressed as z-scores against the player's
+own window average. A team can therefore grade as the toughest matchup on
+efficiency and impact even when raw points look fine, and the tool returns a
+per-game drill-down (shooting line, TS%, plus-minus) for that opponent.

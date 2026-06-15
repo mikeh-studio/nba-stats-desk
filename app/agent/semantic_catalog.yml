@@ -119,3 +119,55 @@ metrics:
     leaderboard_column:
     direction: higher
     tier: 4
+  fg_pct:
+    label: FG%
+    description: Field-goal percentage per game, made field goals over attempts.
+    aliases: [field goal percentage, fg percentage, shooting percentage, fg pct]
+    game_log_key: fg_pct
+    formula: "fg_pct * 100"
+    trend_stat: FG_PCT
+    detail_average_key:
+    baseline_key:
+    percentile_key:
+    leaderboard_column:
+    direction: higher
+    unit: percent
+    tier: 3
+  fg3_pct:
+    label: 3P%
+    description: Three-point percentage per game, made threes over three-point attempts.
+    aliases: [three point percentage, 3p percentage, three pt percentage, 3pt pct, 3p pct]
+    formula: "fg3m / fg3a * 100"
+    trend_stat: FG3_PCT
+    detail_average_key:
+    baseline_key:
+    percentile_key:
+    leaderboard_column:
+    direction: higher
+    unit: percent
+    tier: 3
+  ts_pct:
+    label: TS%
+    description: True shooting percentage = points / (2 * (FGA + 0.44 * FTA)).
+    aliases: [true shooting, true shooting percentage, ts percentage, ts pct]
+    formula: "pts / (2 * (fga + 0.44 * fta)) * 100"
+    trend_stat: TS_PCT
+    detail_average_key:
+    baseline_key:
+    percentile_key:
+    leaderboard_column:
+    direction: higher
+    unit: percent
+    tier: 3
+  plus_minus:
+    label: "+/-"
+    description: Plus-minus point differential while the player is on the court.
+    aliases: [plus minus, plusminus, plus/minus, impact, net points]
+    game_log_key: plus_minus
+    trend_stat: PLUS_MINUS
+    detail_average_key:
+    baseline_key:
+    percentile_key:
+    leaderboard_column:
+    direction: higher
+    tier: 3

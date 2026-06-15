@@ -275,7 +275,14 @@ def test_metric_tiers_assign_every_metric_a_tier() -> None:
 
     assert catalog.tier_keys(1) == ("pts", "reb", "ast")
     assert catalog.tier_keys(2) == ("stl", "blk", "tov")
-    assert catalog.tier_keys(3) == ("fg3m", "min")
+    assert catalog.tier_keys(3) == (
+        "fg3m",
+        "min",
+        "fg_pct",
+        "fg3_pct",
+        "ts_pct",
+        "plus_minus",
+    )
     assert catalog.tier_keys(4) == ("fantasy_points_simple", "points_created")
     # No metric should silently fall through to the untiered bucket.
     assert all(metric.tier <= 4 for metric in catalog.metrics.values())
@@ -463,6 +470,128 @@ def test_agent_opponent_splits_defaults_metrics_for_generic_request() -> None:
     assert payload["status"] == "ok"
     assert payload["ignored_metrics"] == []
     assert payload["primary_metric"]["key"] == "pts"
+
+
+def test_analysis_metric_keys_are_the_impact_set() -> None:
+    catalog = load_semantic_catalog()
+
+    assert catalog.analysis_metric_keys() == (
+        "pts",
+        "reb",
+        "ast",
+        "blk",
+        "ts_pct",
+        "fg_pct",
+        "fg3_pct",
+        "plus_minus",
+    )
+
+
+def test_efficiency_metrics_compute_percentages_from_game_row() -> None:
+    from app.agent.tools import _game_metric_value
+
+    catalog = load_semantic_catalog()
+    row = {"pts": 28, "fga": 25, "fta": 5, "fg_pct": 0.36, "fg3m": 2, "fg3a": 9}
+
+    fg_metric = catalog.resolve_metric("fg%")
+    fg3_metric = catalog.resolve_metric("3p%")
+    ts_metric = catalog.resolve_metric("true shooting")
+    assert fg_metric is not None and fg_metric.is_percent
+    assert _game_metric_value(row, fg_metric) == 36.0
+    assert _game_metric_value(row, fg3_metric) == round(2 / 9 * 100, 2)
+    assert _game_metric_value(row, ts_metric) == round(
+        28 / (2 * (25 + 0.44 * 5)) * 100, 2
+    )
+
+
+class EfficiencyFakeRepository(ToolFakeRepository):
+    """Two opponents: MIN (low scoring, efficient, +) and NYK (more points,
+    poor efficiency, negative impact). NYK should grade as the toughest."""
+
+    def get_player_game_log(
+        self,
+        player_id: int,
+        limit: int = 30,
+        *,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> dict | None:
+        if player_id != 7:
+            return None
+        templates = [
+            ("MIN", "W", 20, 12, 8, 0.667, 4, 1, 2, 12, 3, 4),
+            ("MIN", "W", 20, 12, 8, 0.667, 4, 1, 2, 12, 3, 4),
+            ("NYK", "L", 28, 25, 9, 0.36, 5, 2, 9, -8, 9, 2),
+            ("NYK", "L", 28, 25, 9, 0.36, 5, 2, 9, -8, 9, 2),
+        ]
+        games = []
+        for index, tpl in enumerate(templates):
+            opp, wl, pts, fga, fgm, fg_pct, fta, fg3m, fg3a, pm, reb, blk = tpl
+            games.append(
+                {
+                    "game_date": f"2026-03-{index + 1:02d}",
+                    "matchup": f"SAS vs. {opp}",
+                    "wl": wl,
+                    "team_abbr": "SAS",
+                    "opponent_abbr": opp,
+                    "pts": pts,
+                    "reb": reb,
+                    "ast": 3,
+                    "stl": 1,
+                    "blk": blk,
+                    "tov": 2,
+                    "fgm": fgm,
+                    "fga": fga,
+                    "fg_pct": fg_pct,
+                    "ftm": fta,
+                    "fta": fta,
+                    "fg3m": fg3m,
+                    "fg3a": fg3a,
+                    "plus_minus": pm,
+                }
+            )
+        if start_date:
+            games = [game for game in games if game["game_date"] >= start_date]
+        if end_date:
+            games = [game for game in games if game["game_date"] <= end_date]
+        if limit:
+            games = games[-limit:]
+        return {
+            "player_id": 7,
+            "player_name": "Victor Wembanyama",
+            "season": "2025-26",
+            "games": games,
+            "date_range": {"start_date": start_date, "end_date": end_date},
+        }
+
+
+def test_opponent_struggle_score_flags_efficiency_not_volume() -> None:
+    runner = StatsToolRunner(EfficiencyFakeRepository())
+
+    payload = runner.get_player_opponent_splits(7, None, limit=20)
+
+    assert payload["status"] == "ok"
+    toughest = payload["toughest_opponent"]
+    # NYK scores MORE points than MIN but is the toughest on efficiency/impact.
+    assert toughest["opponent_abbr"] == "NYK"
+    assert toughest["metrics"]["pts"] == 28.0
+    assert toughest["struggle_score"] is not None and toughest["struggle_score"] < 0
+    min_row = next(r for r in payload["opponents"] if r["opponent_abbr"] == "MIN")
+    assert min_row["struggle_score"] > toughest["struggle_score"]
+
+
+def test_opponent_splits_drill_down_lists_toughest_games() -> None:
+    runner = StatsToolRunner(EfficiencyFakeRepository())
+
+    payload = runner.get_player_opponent_splits(7, None, limit=20)
+
+    drill = payload["toughest_opponent_games"]
+    assert len(drill) == 2
+    assert {row["fg"] for row in drill} == {"9/25"}
+    assert {row["fg3"] for row in drill} == {"2/9"}
+    assert all(row["plus_minus"] == -8 for row in drill)
+    expected_ts = round(28 / (2 * (25 + 0.44 * 5)) * 100, 2)
+    assert all(row["ts_pct"] == expected_ts for row in drill)
 
 
 def test_agent_ranking_tool_rejects_unknown_metric() -> None:

@@ -1024,10 +1024,12 @@ def _format_game_log_row(row: dict[str, Any], game_number: int) -> dict[str, Any
         "blk",
         "tov",
         "fg3m",
+        "fg3a",
         "fgm",
         "fga",
         "ftm",
         "fta",
+        "plus_minus",
     ):
         parsed = _to_int(item.get(key))
         if parsed is not None:
@@ -2141,12 +2143,14 @@ class BigQueryWarehouseRepository:
           blk,
           tov,
           fg3m,
+          fg3a,
           fgm,
           fga,
           fg_pct,
           ftm,
           fta,
           ft_pct,
+          plus_minus,
           fantasy_points_simple
         FROM {self._fct_game_stats_table()}
         WHERE {" AND ".join(filters)}
