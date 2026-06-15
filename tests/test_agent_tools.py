@@ -5,7 +5,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.agent.catalog import DEFAULT_METRIC_KEYS, load_semantic_catalog
+from app.agent.catalog import (
+    DEFAULT_METRIC_KEYS,
+    DEFAULT_TIER,
+    load_semantic_catalog,
+)
 from app.agent.tools import StatsToolRunner
 
 
@@ -264,6 +268,25 @@ def test_agent_trends_tool_computes_from_date_filtered_game_log() -> None:
         {"x": "2026-02-03", "y": 31.0, "meta": "PHI @ BOS L"},
         {"x": "2026-02-10", "y": 24.0, "meta": "PHI vs. LAL W"},
     ]
+
+
+def test_metric_tiers_assign_every_metric_a_tier() -> None:
+    catalog = load_semantic_catalog()
+
+    assert catalog.tier_keys(1) == ("pts", "reb", "ast")
+    assert catalog.tier_keys(2) == ("stl", "blk", "tov")
+    assert catalog.tier_keys(3) == ("fg3m", "min")
+    assert catalog.tier_keys(4) == ("fantasy_points_simple", "points_created")
+    # No metric should silently fall through to the untiered bucket.
+    assert all(metric.tier <= 4 for metric in catalog.metrics.values())
+
+
+def test_default_metric_keys_track_tiers_one_and_two() -> None:
+    catalog = load_semantic_catalog()
+
+    assert catalog.default_metric_keys() == DEFAULT_METRIC_KEYS
+    assert catalog.default_metric_keys(max_tier=DEFAULT_TIER) == DEFAULT_METRIC_KEYS
+    assert catalog.default_metric_keys(max_tier=1) == ("pts", "reb", "ast")
 
 
 def test_resolve_metrics_expands_generic_all_stats_to_defaults() -> None:

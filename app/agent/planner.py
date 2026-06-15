@@ -129,7 +129,9 @@ Extract minimum-games cohort filters such as "at least 50 games" into min_games.
 Only put concrete box-score stats in metrics (points, rebounds, assists,
 steals, blocks, turnovers, threes, minutes). For vague catch-all wording like
 "stats", "all stats", "individual stats", or "everything", leave metrics empty
-so the default box-score set is used; never emit those words as metrics.
+so the default tier set is used (tier 1 points/rebounds/assists plus tier 2
+steals/blocks/turnovers); never emit those words as metrics, and never route to
+clarify just because the metric is vague.
 Use player_trend for one-player questions comparing a player to league average
 or baseline. Use compare only for two-player comparisons.
 Mark needs_clarification true ONLY when the player or comparison target is
@@ -356,5 +358,12 @@ def build_query_plan(
         return fallback
     plan = _parse_plan_response(response)
     if plan is None or plan.confidence < settings.agent_planner_min_confidence:
+        return fallback
+    # A named player must never dead-end on a metric/clarify question. If the
+    # LLM punted to CLARIFY (it sometimes reads "summarize his stats" as
+    # under-specified) but the deterministic router found a real route, trust
+    # the deterministic plan: vague metrics resolve to the default tier set
+    # rather than asking the user which stat to use.
+    if plan.route == AgentRoute.CLARIFY and fallback.route != AgentRoute.CLARIFY:
         return fallback
     return plan
