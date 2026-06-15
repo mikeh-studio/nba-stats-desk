@@ -10,6 +10,7 @@ metrics:
     percentile_key: pts_percentile
     leaderboard_column: avg_pts
     direction: higher
+    tier: 1
   reb:
     label: REB
     description: Rebounds per game across qualified 2025-26 players.
@@ -21,6 +22,7 @@ metrics:
     percentile_key: reb_percentile
     leaderboard_column: avg_reb
     direction: higher
+    tier: 1
   ast:
     label: AST
     description: Assists per game across qualified 2025-26 players.
@@ -32,6 +34,7 @@ metrics:
     percentile_key: ast_percentile
     leaderboard_column: avg_ast
     direction: higher
+    tier: 1
   stl:
     label: STL
     description: Steals per game across qualified 2025-26 players.
@@ -43,6 +46,7 @@ metrics:
     percentile_key: stl_percentile
     leaderboard_column: avg_stl
     direction: higher
+    tier: 2
   blk:
     label: BLK
     description: Blocks per game across qualified 2025-26 players.
@@ -54,6 +58,7 @@ metrics:
     percentile_key: blk_percentile
     leaderboard_column: avg_blk
     direction: higher
+    tier: 2
   tov:
     label: TOV
     description: Turnovers per game, ranked as ball security where fewer is better.
@@ -65,6 +70,7 @@ metrics:
     percentile_key: tov_percentile
     leaderboard_column: avg_tov
     direction: lower
+    tier: 2
   fg3m:
     label: 3PM
     description: Made threes per game across qualified 2025-26 players.
@@ -76,6 +82,7 @@ metrics:
     percentile_key:
     leaderboard_column: avg_fg3m
     direction: higher
+    tier: 3
   min:
     label: MIN
     description: Minutes per game across qualified 2025-26 players.
@@ -87,6 +94,7 @@ metrics:
     percentile_key:
     leaderboard_column: avg_min
     direction: higher
+    tier: 3
   fantasy_points_simple:
     label: BSI
     description: Simple box-score index used by this project as a fantasy proxy.
@@ -98,6 +106,7 @@ metrics:
     percentile_key:
     leaderboard_column: avg_fantasy_points_simple
     direction: higher
+    tier: 4
   points_created:
     label: Attributed Points
     description: Derived offensive points estimate calculated as PTS + AST * 2.
@@ -109,3 +118,4 @@ metrics:
     percentile_key:
     leaderboard_column:
     direction: higher
+    tier: 4

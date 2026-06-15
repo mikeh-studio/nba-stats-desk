@@ -9,7 +9,12 @@ from pydantic import ValidationError
 
 from app.agent.conversation import ConversationStore, PendingClarification
 from app.agent.observability import AgentTrace, summarize_tool_result
-from app.agent.planner import QueryPlan, build_query_plan, deterministic_query_plan
+from app.agent.planner import (
+    QueryPlan,
+    build_query_plan,
+    detect_opponent_breakdown,
+    deterministic_query_plan,
+)
 from app.agent.player_resolver import (
     PlayerCandidate,
     PlayerResolution,
@@ -27,6 +32,8 @@ Use tools for player identity, game logs, percentiles, trends, rankings, and sim
 Use calculate_player_percentile for questions asking where one player ranks in a metric cohort.
 For "points attributed", "points created", or "points + assists * 2", use metric points_created.
 For game-by-game questions, call get_player_game_log so the response can include each game's values.
+For "how have their stats changed over the last N games" questions, read get_player_trends: describe the trajectory using trend_shape and slope_per_game, contrast the first-half vs second-half averages (prior_avg vs recent_avg), and if change_point is present call out the in-window shift (split_date, before_avg to after_avg). Note volatility/best/worst when form was streaky.
+For "which team did they struggle against" or opponent-matchup questions, use get_player_opponent_splits and cite the toughest_opponent it returns.
 For date-range questions, pass start_date and end_date as YYYY-MM-DD tool arguments; use null for an open side of the range.
 Respect explicit minimum-games filters; if the cohort is empty or the player is outside it, say that directly.
 Do not invent SQL, raw table names, injuries, transactions, or facts not present in tool data.
@@ -42,6 +49,10 @@ You are writing from a prebuilt evidence bundle. Do not call tools unless the
 bundle is clearly insufficient. Explain the answer with enough depth for the
 route, cite concrete values from evidence, and surface caveats from tool
 statuses or limited samples.
+Answer with whatever the bundle does contain rather than refusing outright: if
+a tool fell back to default metrics or returned partial data, use it and note
+the limitation. Only decline a sub-question when no relevant evidence is
+present at all.
 """.strip()
 
 
@@ -1025,6 +1036,7 @@ class StatsAgent:
                     "metrics": metrics,
                     "start_date": start_date,
                     "end_date": end_date,
+                    "limit": game_limit,
                 },
             ):
                 return evidence
@@ -1044,6 +1056,17 @@ class StatsAgent:
                     "get_player_percentiles",
                     {"player_id": player_id, "metrics": metrics},
                 )
+            if query_plan.opponent_breakdown:
+                add_tool(
+                    "get_player_opponent_splits",
+                    {
+                        "player_id": player_id,
+                        "metrics": metrics,
+                        "limit": game_limit,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                    },
+                )
             return evidence
         if query_plan.route == AgentRoute.GAME_LOG:
             add_tool(
@@ -1056,6 +1079,17 @@ class StatsAgent:
                     "end_date": end_date,
                 },
             )
+            if query_plan.opponent_breakdown:
+                add_tool(
+                    "get_player_opponent_splits",
+                    {
+                        "player_id": player_id,
+                        "metrics": metrics,
+                        "limit": game_limit,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                    },
+                )
             return evidence
         if query_plan.route == AgentRoute.PERCENTILE:
             add_tool(
@@ -1340,6 +1374,11 @@ class StatsAgent:
                 client=client,
                 model=selected_model,
             )
+        # Opponent intent is detected on the user's own wording so it holds
+        # whether the plan came from the LLM planner or the deterministic one.
+        query_plan.opponent_breakdown = (
+            query_plan.opponent_breakdown or detect_opponent_breakdown(cleaned_question)
+        )
         agent_plan = query_plan.to_agent_plan(cleaned_question)
         if trace is not None:
             trace.conversation_id = conversation_id
@@ -1406,8 +1445,14 @@ class StatsAgent:
             AgentRoute.CLARIFY,
         }
         ok_resolution_count = len(query_plan.resolved_players)
-        needs_clarification = query_plan.needs_clarification or (
-            needs_players and ok_resolution_count == 0
+        # Only clarify over the player/target, never over vague metrics: "stats"
+        # or "how is he doing" is answered with the default key-metric set, so a
+        # resolved player should get an analysis, not a follow-up question. A
+        # planner clarification flag is honored only for routes that have no
+        # player to anchor on (e.g. ranking) or when no usable player resolved.
+        missing_target = needs_players and ok_resolution_count == 0
+        needs_clarification = missing_target or (
+            query_plan.needs_clarification and not needs_players
         )
         if query_plan.route == AgentRoute.COMPARE and ok_resolution_count < 2:
             needs_clarification = True

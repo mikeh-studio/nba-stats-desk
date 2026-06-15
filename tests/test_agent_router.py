@@ -67,6 +67,70 @@ def test_route_tools_are_registered_tool_names() -> None:
             assert tool_name in registered_tool_names
 
 
+def test_detect_opponent_breakdown_flags_matchup_questions() -> None:
+    from app.agent.planner import detect_opponent_breakdown
+
+    assert detect_opponent_breakdown(
+        "Is there a specific team Wembanyama struggled more with?"
+    )
+    assert detect_opponent_breakdown("How does Luka do against each opponent?")
+    assert not detect_opponent_breakdown("How are Wembanyama's points trending?")
+
+
+def test_opponent_breakdown_appends_split_tool_to_plan() -> None:
+    from app.agent.planner import deterministic_query_plan
+
+    plan = deterministic_query_plan(
+        "In the last 20 games, is there a specific team LeBron James struggled with?"
+    )
+    agent_plan = plan.to_agent_plan(plan.route.value)
+
+    assert plan.opponent_breakdown is True
+    assert "get_player_opponent_splits" in agent_plan.required_tools
+
+
+def test_llm_clarify_falls_back_to_deterministic_route_for_named_player() -> None:
+    from types import SimpleNamespace
+
+    from app.agent.planner import AgentRoute, build_query_plan
+
+    # The LLM planner punts to clarify even though a player is clearly named.
+    clarify_json = (
+        '{"route": "clarify", "confidence": 0.9, "answer_depth": "normal",'
+        ' "raw_player_mentions": ["Wembanyama"], "metrics": [],'
+        ' "min_games": null, "time_window": {"kind": "last_n_games",'
+        ' "last_n_games": 20, "start_date": null, "end_date": null},'
+        ' "needs_clarification": true,'
+        ' "clarification_question": "Which stat do you want?"}'
+    )
+
+    class _Responses:
+        def create(self, **kwargs: object) -> SimpleNamespace:
+            return SimpleNamespace(output_text=clarify_json)
+
+    class _Client:
+        responses = _Responses()
+
+    settings = SimpleNamespace(
+        agent_planner_enabled=True,
+        openai_agent_enabled=True,
+        agent_planner_timeout_seconds=5.0,
+        agent_planner_model="gpt-test",
+        openai_agent_model="gpt-test",
+        agent_planner_min_confidence=0.3,
+    )
+
+    plan = build_query_plan(
+        "In the last 20 games, summarize how Wembanyama's stats have changed?",
+        settings=settings,
+        client=_Client(),
+    )
+
+    # Deterministic router recognizes the trend question, so we never clarify.
+    assert plan.route == AgentRoute.PLAYER_TREND
+    assert plan.needs_clarification is False
+
+
 def test_player_mentions_skip_capitalized_non_name_phrases() -> None:
     from app.agent.planner import _extract_player_mentions
 

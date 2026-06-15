@@ -42,9 +42,17 @@ class QueryPlan(BaseModel):
     needs_clarification: bool = False
     clarification_question: str | None = None
     clarification_options: list[dict[str, Any]] = Field(default_factory=list)
+    opponent_breakdown: bool = False
     planner_source: str = "deterministic"
 
     def to_agent_plan(self, original_question: str) -> AgentPlan:
+        required_tools = list(ROUTE_TOOLS[self.route])
+        if (
+            self.opponent_breakdown
+            and self.route in {AgentRoute.PLAYER_TREND, AgentRoute.GAME_LOG}
+            and "get_player_opponent_splits" not in required_tools
+        ):
+            required_tools.append("get_player_opponent_splits")
         return AgentPlan(
             route=self.route,
             confidence=self.confidence,
@@ -57,7 +65,7 @@ class QueryPlan(BaseModel):
                 start_date=self.time_window.start_date,
                 end_date=self.time_window.end_date,
             ),
-            required_tools=ROUTE_TOOLS[self.route],
+            required_tools=required_tools,
             needs_clarification=self.needs_clarification,
             clarification_question=self.clarification_question,
         )
@@ -118,10 +126,18 @@ Return only the requested JSON schema.
 Classify the user's intent, extract NBA player mentions exactly as written,
 extract metric words, and identify date ranges or last-N-game windows.
 Extract minimum-games cohort filters such as "at least 50 games" into min_games.
+Only put concrete box-score stats in metrics (points, rebounds, assists,
+steals, blocks, turnovers, threes, minutes). For vague catch-all wording like
+"stats", "all stats", "individual stats", or "everything", leave metrics empty
+so the default tier set is used (tier 1 points/rebounds/assists plus tier 2
+steals/blocks/turnovers); never emit those words as metrics, and never route to
+clarify just because the metric is vague.
 Use player_trend for one-player questions comparing a player to league average
 or baseline. Use compare only for two-player comparisons.
-If the user did not provide enough player/metric/comparison detail, mark
-needs_clarification true.
+Mark needs_clarification true ONLY when the player or comparison target is
+missing or ambiguous. Never ask which stat to use: vague or missing metrics are
+answered with the default box-score set, so a named player always gets an
+answer rather than a follow-up question.
 """.strip()
 
 
@@ -153,6 +169,26 @@ def _extract_metrics(question: str) -> list[str]:
             if key not in found:
                 found.append(key)
     return found
+
+
+_OPPONENT_BREAKDOWN_PATTERNS = (
+    r"\bagainst (?:which|what|certain|a specific|specific) (?:team|teams|opponent)",
+    r"\b(?:which|what|specific|certain) (?:team|teams|opponent)",
+    r"\bstruggle[ds]? (?:more |most )?(?:with|against|versus|vs)\b",
+    r"\b(?:by|per|each|every) (?:team|opponent)\b",
+    r"\bopponent (?:split|splits|breakdown|matchup)",
+    r"\bmatchups?\b",
+)
+
+
+def detect_opponent_breakdown(question: str) -> bool:
+    """True when the question asks how a player fares against specific teams.
+
+    Drives an opponent-by-opponent game-log aggregation so the agent can name
+    the toughest matchup instead of refusing for lack of opponent data.
+    """
+    q = question.casefold()
+    return any(re.search(pattern, q) for pattern in _OPPONENT_BREAKDOWN_PATTERNS)
 
 
 def _extract_min_games(question: str) -> int | None:
@@ -259,6 +295,7 @@ def deterministic_query_plan(question: str) -> QueryPlan:
         metrics=metrics,
         min_games=_extract_min_games(question),
         time_window=_extract_time_window(question),
+        opponent_breakdown=detect_opponent_breakdown(question),
         tool_recipe=ROUTE_TOOLS[route],
         needs_clarification=needs_clarification,
         clarification_question=(
@@ -321,5 +358,12 @@ def build_query_plan(
         return fallback
     plan = _parse_plan_response(response)
     if plan is None or plan.confidence < settings.agent_planner_min_confidence:
+        return fallback
+    # A named player must never dead-end on a metric/clarify question. If the
+    # LLM punted to CLARIFY (it sometimes reads "summarize his stats" as
+    # under-specified) but the deterministic router found a real route, trust
+    # the deterministic plan: vague metrics resolve to the default tier set
+    # rather than asking the user which stat to use.
+    if plan.route == AgentRoute.CLARIFY and fallback.route != AgentRoute.CLARIFY:
         return fallback
     return plan

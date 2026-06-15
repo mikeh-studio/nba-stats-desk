@@ -151,24 +151,133 @@ def _average(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1)
 
 
+# A window needs at least this many games before a within-period comparison is
+# meaningful; below it the whole window is treated as one "recent" sample so a
+# 2-3 game date filter still returns a clean average instead of a noisy split.
+_MIN_SPLIT_GAMES = 4
+# Change points and shape calls must clear this fraction of the window's own
+# standard deviation, so day-to-day noise never gets narrated as a real shift.
+_CHANGE_POINT_SD_RATIO = 0.75
+_FLAT_SHAPE_SD_RATIO = 0.5
+_ROLLING_WINDOW = 3
+
+
+def _stdev(values: list[float]) -> float:
+    """Population standard deviation; 0 for fewer than two samples."""
+    n = len(values)
+    if n < 2:
+        return 0.0
+    mean = sum(values) / n
+    variance = sum((value - mean) ** 2 for value in values) / n
+    return round(variance**0.5, 1)
+
+
+def _linear_slope(values: list[float]) -> float | None:
+    """Least-squares slope of value vs game index (per-game change)."""
+    n = len(values)
+    if n < 2:
+        return None
+    mean_x = (n - 1) / 2
+    mean_y = sum(values) / n
+    denominator = sum((x - mean_x) ** 2 for x in range(n))
+    if denominator == 0:
+        return None
+    numerator = sum((x - mean_x) * (y - mean_y) for x, y in enumerate(values))
+    return round(numerator / denominator, 2)
+
+
+def _classify_shape(slope: float | None, stdev: float, games: int) -> str:
+    """Label the trajectory as rising/declining/flat from slope vs noise."""
+    if slope is None or games < 2:
+        return "flat"
+    modeled_swing = abs(slope) * (games - 1)
+    if modeled_swing < 1e-9 or (
+        stdev > 0 and modeled_swing < _FLAT_SHAPE_SD_RATIO * stdev
+    ):
+        return "flat"
+    return "rising" if slope > 0 else "declining"
+
+
+def _detect_change_point(
+    pairs: list[tuple[str, float]],
+    stdev: float,
+    *,
+    min_side: int = 2,
+) -> dict[str, Any] | None:
+    """Find the split that most shifts the mean, if it clears the noise floor.
+
+    Scans every split with at least ``min_side`` games on each side, picks the
+    one with the largest before/after gap, and reports it only when that gap
+    exceeds ``_CHANGE_POINT_SD_RATIO`` of the window's own volatility — so only
+    clear within-period changes surface, not day-to-day swings.
+    """
+    n = len(pairs)
+    if n < 2 * min_side or stdev <= 0:
+        return None
+    values = [value for _, value in pairs]
+    best_index = None
+    best_gap = 0.0
+    for k in range(min_side, n - min_side + 1):
+        before = values[:k]
+        after = values[k:]
+        gap = (sum(after) / len(after)) - (sum(before) / len(before))
+        if best_index is None or abs(gap) > abs(best_gap):
+            best_index = k
+            best_gap = gap
+    if best_index is None or abs(best_gap) < _CHANGE_POINT_SD_RATIO * stdev:
+        return None
+    before = values[:best_index]
+    after = values[best_index:]
+    return {
+        "split_game_number": best_index + 1,
+        "split_date": pairs[best_index][0],
+        "before_games": len(before),
+        "after_games": len(after),
+        "before_avg": round(sum(before) / len(before), 1),
+        "after_avg": round(sum(after) / len(after), 1),
+        "delta": round(best_gap, 1),
+    }
+
+
+def _rolling_average(values: list[float], window: int = _ROLLING_WINDOW) -> list[float]:
+    """Trailing moving average, emitted once enough games exist to smooth."""
+    if len(values) < window:
+        return []
+    smoothed: list[float] = []
+    for end in range(window, len(values) + 1):
+        chunk = values[end - window : end]
+        smoothed.append(round(sum(chunk) / window, 1))
+    return smoothed
+
+
 def _build_game_log_trend_row(
     games: list[dict[str, Any]],
     metric: MetricDefinition,
 ) -> dict[str, Any] | None:
-    values: list[float] = []
+    pairs: list[tuple[str, float]] = []
     for game in games:
         value = _game_metric_value(game, metric)
         if value is not None:
-            values.append(value)
-    if not values:
+            pairs.append((str(game.get("game_date") or ""), value))
+    if not pairs:
         return None
-    recent = values[-5:]
-    prior = values[-10:-5] if len(values) > 5 else []
+    values = [value for _, value in pairs]
+    games_in_window = len(values)
+    # Half-and-half so the comparison spans the whole requested window (first
+    # half vs second half) instead of a fixed last-5 anchor. Small windows have
+    # no useful split, so the whole sample is the "recent" average.
+    if games_in_window >= _MIN_SPLIT_GAMES:
+        midpoint = games_in_window // 2
+        prior = values[:midpoint]
+        recent = values[midpoint:]
+    else:
+        prior = []
+        recent = values
     recent_avg = _average(recent)
     prior_avg = _average(prior)
     delta = (
         round(recent_avg - prior_avg, 1)
-        if recent_avg is not None and prior_avg is not None and prior_avg != 0
+        if recent_avg is not None and prior_avg is not None
         else None
     )
     pct_change = (
@@ -176,16 +285,25 @@ def _build_game_log_trend_row(
         if delta is not None and prior_avg is not None and prior_avg != 0
         else None
     )
+    stdev = _stdev(values)
+    slope = _linear_slope(values)
     return {
         "stat": metric.trend_stat,
         "label": metric.label,
         "formula": metric.formula.upper() if metric.formula else None,
+        "window_games": games_in_window,
         "recent_games": len(recent),
         "prior_games": len(prior),
         "recent_avg": recent_avg,
         "prior_avg": prior_avg,
         "delta": delta,
         "pct_change": pct_change,
+        "slope_per_game": slope,
+        "trend_shape": _classify_shape(slope, stdev, games_in_window),
+        "volatility": stdev,
+        "best": round(max(values), 1),
+        "worst": round(min(values), 1),
+        "change_point": _detect_change_point(pairs, stdev),
         "direction_is_good": metric.higher_is_better,
     }
 
@@ -195,14 +313,17 @@ def _build_line_chart(
     title: str,
     games: list[dict[str, Any]],
     metrics: list[MetricDefinition],
+    rolling_window: int | None = None,
 ) -> dict[str, Any]:
     series = []
     for metric in metrics:
         points = []
+        y_values: list[float] = []
         for game in games:
             value = _game_metric_value(game, metric)
             if value is None:
                 continue
+            y_values.append(value)
             points.append(
                 {
                     "x": str(game.get("game_date") or ""),
@@ -212,6 +333,26 @@ def _build_line_chart(
             )
         if points:
             series.append({"key": metric.key, "label": metric.label, "points": points})
+            # A trailing moving-average companion smooths daily noise so the
+            # underlying trajectory over the window is readable on the chart.
+            if rolling_window:
+                smoothed = _rolling_average(y_values, rolling_window)
+                if smoothed:
+                    offset = len(points) - len(smoothed)
+                    series.append(
+                        {
+                            "key": f"{metric.key}_avg{rolling_window}",
+                            "label": f"{metric.label} ({rolling_window}-game avg)",
+                            "points": [
+                                {
+                                    "x": points[offset + index]["x"],
+                                    "y": value,
+                                    "meta": f"{rolling_window}-game average",
+                                }
+                                for index, value in enumerate(smoothed)
+                            ],
+                        }
+                    )
     return {
         "type": "line",
         "title": title,
@@ -219,6 +360,21 @@ def _build_line_chart(
         "y_label": "Stat value",
         "series": series,
     }
+
+
+def _percentile_meta(row: dict[str, Any]) -> str:
+    percentile = _to_float(row.get("percentile"))
+    average = _to_float(row.get("average"))
+    parts: list[str] = []
+    if average is not None:
+        parts.append(f"{average:g} per game")
+    if percentile is not None:
+        delta = percentile - 50
+        if delta >= 0:
+            parts.append(f"+{delta:g} vs league avg")
+        else:
+            parts.append(f"{delta:g} vs league avg")
+    return " · ".join(parts)
 
 
 def _build_percentile_chart(
@@ -229,7 +385,7 @@ def _build_percentile_chart(
         {
             "x": str(row.get("label") or row.get("key") or ""),
             "y": _to_float(row.get("percentile")) or 0.0,
-            "meta": f"{row.get('average')} avg",
+            "meta": _percentile_meta(row),
         }
         for row in rows
     ]
@@ -328,8 +484,42 @@ def get_tool_schemas() -> list[dict[str, Any]]:
         },
         {
             "type": "function",
+            "name": "get_player_opponent_splits",
+            "description": (
+                "Aggregate a player's recent game log by opponent to find which "
+                "team they struggled against. Returns per-opponent averages, "
+                "win/loss record, and each opponent's delta vs the player's own "
+                "average for the primary metric."
+            ),
+            "strict": True,
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "player_id": {"type": "integer", "description": "NBA player id."},
+                    "metrics": metric_array,
+                    "limit": {"type": "integer", "description": "Game count, 1-82."},
+                    "start_date": date_filter,
+                    "end_date": date_filter,
+                },
+                "required": [
+                    "player_id",
+                    "metrics",
+                    "limit",
+                    "start_date",
+                    "end_date",
+                ],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "type": "function",
             "name": "get_player_trends",
-            "description": "Get recent-vs-prior trends and chart-ready game data for a player.",
+            "description": (
+                "Analyze a player's trend over a game window: first-half vs "
+                "second-half averages, per-game slope, volatility, a flagged "
+                "within-period change point, and chart data with a rolling "
+                "average. Pass limit to scope the window (e.g. last 20 games)."
+            ),
             "strict": True,
             "parameters": {
                 "type": "object",
@@ -338,8 +528,18 @@ def get_tool_schemas() -> list[dict[str, Any]]:
                     "metrics": metric_array,
                     "start_date": date_filter,
                     "end_date": date_filter,
+                    "limit": {
+                        "type": ["integer", "null"],
+                        "description": "Window size in games, 1-82 (e.g. 20 for last 20).",
+                    },
                 },
-                "required": ["player_id", "metrics", "start_date", "end_date"],
+                "required": [
+                    "player_id",
+                    "metrics",
+                    "start_date",
+                    "end_date",
+                    "limit",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -447,12 +647,21 @@ class StatsToolRunner:
                 args.get("start_date"),
                 args.get("end_date"),
             )
+        if name == "get_player_opponent_splits":
+            return self.get_player_opponent_splits(
+                args.get("player_id"),
+                args.get("metrics"),
+                args.get("limit"),
+                args.get("start_date"),
+                args.get("end_date"),
+            )
         if name == "get_player_trends":
             return self.get_player_trends(
                 args.get("player_id"),
                 args.get("metrics"),
                 args.get("start_date"),
                 args.get("end_date"),
+                args.get("limit"),
             )
         if name == "get_player_percentiles":
             return self.get_player_percentiles(
@@ -568,13 +777,6 @@ class StatsToolRunner:
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
         )
-        if invalid:
-            return {
-                "status": "error",
-                "message": "Unsupported metric.",
-                "invalid_metrics": invalid,
-                "valid_metrics": self.catalog.list_metrics(),
-            }
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
             return {
@@ -610,6 +812,7 @@ class StatsToolRunner:
             "player_name": log.get("player_name"),
             "season": log.get("season"),
             "metrics": [metric.to_public_dict() for metric in selected],
+            "ignored_metrics": invalid,
             "date_range": date_range,
             "games_returned": len(rows),
             "rows": rows,
@@ -622,24 +825,159 @@ class StatsToolRunner:
             ],
         }
 
+    def get_player_opponent_splits(
+        self,
+        player_id: Any,
+        metrics: list[str] | None,
+        limit: Any = 20,
+        start_date: Any = None,
+        end_date: Any = None,
+    ) -> dict[str, Any]:
+        """Aggregate a player's recent game log by opponent.
+
+        Answers "which team did they struggle against": each opponent gets
+        per-metric averages, a win/loss record, and the primary metric's delta
+        versus the player's own average across the sampled games, so a tougher
+        matchup surfaces as a negative delta (or positive for lower-is-better
+        metrics like turnovers).
+        """
+        selected, invalid = self.catalog.resolve_metrics(
+            metrics,
+            default_keys=DEFAULT_METRIC_KEYS,
+        )
+        date_range, date_error = _coerce_date_range(start_date, end_date)
+        if date_error:
+            return {
+                "status": "error",
+                "message": date_error,
+                "date_range": date_range,
+            }
+        player_id_int = _to_int(player_id) or -1
+        game_limit = _coerce_limit(limit, default=20, minimum=1, maximum=82)
+        log = self.repo.get_player_game_log(
+            player_id_int,
+            limit=game_limit,
+            start_date=date_range["start_date"],
+            end_date=date_range["end_date"],
+        )
+        if log is None:
+            return {"status": "not_found", "player_id": player_id}
+        games = list(log.get("games") or [])
+        primary = selected[0]
+        # Collect per-game metric values once, grouped by opponent.
+        grouped: dict[str, dict[str, Any]] = {}
+        overall_values: dict[str, list[float]] = {metric.key: [] for metric in selected}
+        for game in games:
+            opponent = str(game.get("opponent_abbr") or "").strip() or "UNK"
+            bucket = grouped.setdefault(
+                opponent,
+                {"games": 0, "wins": 0, "losses": 0, "values": {}},
+            )
+            bucket["games"] += 1
+            result = str(game.get("wl") or "").strip().upper()
+            if result == "W":
+                bucket["wins"] += 1
+            elif result == "L":
+                bucket["losses"] += 1
+            for metric in selected:
+                value = _game_metric_value(game, metric)
+                if value is None:
+                    continue
+                bucket["values"].setdefault(metric.key, []).append(value)
+                overall_values[metric.key].append(value)
+
+        def _avg(values: list[float]) -> float | None:
+            return round(sum(values) / len(values), 2) if values else None
+
+        overall_avg = {key: _avg(values) for key, values in overall_values.items()}
+        primary_overall = overall_avg.get(primary.key)
+        opponents: list[dict[str, Any]] = []
+        for opponent, bucket in grouped.items():
+            averages = {
+                metric.key: _avg(bucket["values"].get(metric.key, []))
+                for metric in selected
+            }
+            primary_avg = averages.get(primary.key)
+            delta = (
+                round(primary_avg - primary_overall, 2)
+                if primary_avg is not None and primary_overall is not None
+                else None
+            )
+            opponents.append(
+                {
+                    "opponent_abbr": opponent,
+                    "games": bucket["games"],
+                    "wins": bucket["wins"],
+                    "losses": bucket["losses"],
+                    "record": f"{bucket['wins']}-{bucket['losses']}",
+                    "metrics": averages,
+                    "primary_delta_vs_overall": delta,
+                }
+            )
+
+        # "Struggled more" = worst primary-metric average for the opponent.
+        # Higher-is-better metrics sort ascending (low scoring is bad); a
+        # lower-is-better metric like turnovers sorts descending (high is bad).
+        def _sort_key(row: dict[str, Any]) -> float:
+            value = row["metrics"].get(primary.key)
+            if value is None:
+                return float("inf")
+            return value if primary.higher_is_better else -value
+
+        opponents.sort(key=_sort_key)
+        toughest = next(
+            (row for row in opponents if row["metrics"].get(primary.key) is not None),
+            None,
+        )
+        return {
+            "status": "ok",
+            "player_id": player_id_int,
+            "player_name": log.get("player_name"),
+            "season": log.get("season"),
+            "metrics": [metric.to_public_dict() for metric in selected],
+            "primary_metric": primary.to_public_dict(),
+            "ignored_metrics": invalid,
+            "date_range": date_range,
+            "games_returned": len(games),
+            "overall_averages": overall_avg,
+            "opponents": opponents,
+            "toughest_opponent": toughest,
+            "charts": [
+                {
+                    "type": "bar",
+                    "title": (f"{log.get('player_name')} {primary.label} by opponent"),
+                    "x_label": "Opponent",
+                    "y_label": primary.label,
+                    "series": [
+                        {
+                            "key": primary.key,
+                            "label": primary.label,
+                            "points": [
+                                {
+                                    "x": row["opponent_abbr"],
+                                    "y": row["metrics"].get(primary.key) or 0.0,
+                                    "meta": f"{row['games']} g, {row['record']}",
+                                }
+                                for row in opponents
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
     def get_player_trends(
         self,
         player_id: Any,
         metrics: list[str] | None,
         start_date: Any = None,
         end_date: Any = None,
+        limit: Any = None,
     ) -> dict[str, Any]:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
         )
-        if invalid:
-            return {
-                "status": "error",
-                "message": "Unsupported metric.",
-                "invalid_metrics": invalid,
-                "valid_metrics": self.catalog.list_metrics(),
-            }
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
             return {
@@ -652,6 +990,7 @@ class StatsToolRunner:
         if detail is None:
             return {"status": "not_found", "player_id": player_id}
         has_date_filter = bool(date_range["start_date"] or date_range["end_date"])
+        limit_int = _to_int(limit)
         if has_date_filter:
             game_log = (
                 self.repo.get_player_game_log(
@@ -661,6 +1000,14 @@ class StatsToolRunner:
                     end_date=date_range["end_date"],
                 )
                 or {}
+            )
+            trends: list[dict[str, Any]] = []
+        elif limit_int and limit_int > 0:
+            # When the question scopes a window ("last 20 games"), derive every
+            # trend from that whole window rather than the warehouse's fixed
+            # last-5-vs-prior-5 summary, which ignores the requested period.
+            game_log = (
+                self.repo.get_player_game_log(player_id_int, limit=limit_int) or {}
             )
             trends = []
         else:
@@ -686,11 +1033,13 @@ class StatsToolRunner:
             "player": _compact_player(player),
             "date_range": date_range,
             "trends": trends,
+            "ignored_metrics": invalid,
             "charts": [
                 _build_line_chart(
                     title=f"{player.get('player_name')} trend",
                     games=games,
                     metrics=selected,
+                    rolling_window=_ROLLING_WINDOW,
                 )
             ],
             "league_baselines": detail.get("chart_baselines") or {},
@@ -705,13 +1054,6 @@ class StatsToolRunner:
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
         )
-        if invalid:
-            return {
-                "status": "error",
-                "message": "Unsupported metric.",
-                "invalid_metrics": invalid,
-                "valid_metrics": self.catalog.list_metrics(),
-            }
         detail = self.repo.get_player_detail(_to_int(player_id) or -1)
         if detail is None:
             return {"status": "not_found", "player_id": player_id}
@@ -726,6 +1068,7 @@ class StatsToolRunner:
             "status": "ok",
             "player": _compact_player(player),
             "percentiles": rows,
+            "ignored_metrics": invalid,
             "charts": [
                 _build_percentile_chart(player.get("player_name", "Player"), rows)
             ],

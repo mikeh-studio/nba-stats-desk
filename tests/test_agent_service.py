@@ -93,23 +93,39 @@ class AgentServiceFakeRepository:
     ) -> dict | None:
         if player_id != 7:
             return None
+        games = [
+            {
+                "game_date": "2026-02-10",
+                "matchup": "PHI vs. NYK",
+                "wl": "W",
+                "team_abbr": "PHI",
+                "opponent_abbr": "NYK",
+                "pts": "30",
+                "reb": "4",
+                "ast": "8",
+                "stl": "1",
+                "blk": "0",
+                "tov": "2",
+            },
+            {
+                "game_date": "2026-02-08",
+                "matchup": "PHI @ BOS",
+                "wl": "L",
+                "team_abbr": "PHI",
+                "opponent_abbr": "BOS",
+                "pts": "18",
+                "reb": "3",
+                "ast": "5",
+                "stl": "0",
+                "blk": "0",
+                "tov": "4",
+            },
+        ]
         return {
             "player_id": 7,
             "player_name": "Tyrese Maxey",
             "season": "2025-26",
-            "games": [
-                {
-                    "game_date": "2026-02-10",
-                    "matchup": "PHI vs. NYK",
-                    "wl": "W",
-                    "pts": "30",
-                    "reb": "4",
-                    "ast": "8",
-                    "stl": "1",
-                    "blk": "0",
-                    "tov": "2",
-                }
-            ][:limit],
+            "games": games[:limit],
         }
 
     def get_metric_leaders(self, metric: str, limit: int = 10) -> list[dict]:
@@ -242,6 +258,87 @@ def test_disabled_agent_rejects_even_with_injected_client() -> None:
         assert "disabled" in str(exc)
     else:  # pragma: no cover - defensive assertion
         raise AssertionError("Expected disabled agent to reject injected client")
+
+
+def test_garbage_metrics_and_opponent_question_answers_from_evidence(
+    monkeypatch,
+) -> None:
+    # Reproduces the Wembanyama failure: the planner extracted junk metric
+    # words and the question asks which team he struggled against. The trend
+    # and game-log tools must NOT error on the junk metrics, and the opponent
+    # split must be in the bundle so the toughest matchup can be named.
+    from app.agent import service as service_module
+    from app.agent.planner import QueryPlan, TimeWindow
+    from app.agent.router import AgentRoute
+
+    def fake_build_query_plan(question: str, **kwargs: object) -> QueryPlan:
+        return QueryPlan(
+            route=AgentRoute.PLAYER_TREND,
+            confidence=0.9,
+            raw_player_mentions=["Tyrese Maxey"],
+            metrics=["stats", "changed", "struggled", "team"],
+            time_window=TimeWindow(kind="last_n_games", last_n_games=20),
+        )
+
+    monkeypatch.setattr(service_module, "build_query_plan", fake_build_query_plan)
+    client = SequenceClient([])
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer(
+        "In the last 20 games, summarize how Tyrese Maxey's stats changed. "
+        "Is there a specific team he struggled more with?"
+    )
+
+    assert payload["clarification_options"] == []
+    # Every tool ran without an "Unsupported metric" failure.
+    called = {call["name"]: call for call in payload["tool_calls"]}
+    for tool_name in (
+        "get_player_trends",
+        "get_player_game_log",
+        "get_player_opponent_splits",
+    ):
+        assert tool_name in called, f"{tool_name} was not called"
+        assert called[tool_name]["status"] == "ok"
+    assert "Unsupported metric" not in str(payload["tool_calls"])
+    # The full evidence bundle handed to the model carries the opponent split,
+    # so the toughest matchup (the 18-point loss at BOS) is answerable.
+    evidence_text = "".join(
+        message["content"]
+        for message in client.responses.kwargs[-1]["input"]
+        if message.get("role") == "developer"
+    )
+    assert "toughest_opponent" in evidence_text
+    assert "BOS" in evidence_text
+
+
+def test_vague_metric_does_not_clarify_when_player_resolves(monkeypatch) -> None:
+    # Mimic a planner that flags a vague-metric clarification ("which stats?")
+    # even though the player is named. A resolved player must still be answered
+    # with the default key metrics rather than bounced back with a question.
+    from app.agent import service as service_module
+    from app.agent.planner import QueryPlan
+    from app.agent.router import AgentRoute
+
+    def fake_build_query_plan(question: str, **kwargs: object) -> QueryPlan:
+        return QueryPlan(
+            route=AgentRoute.PLAYER_TREND,
+            confidence=0.9,
+            raw_player_mentions=["Tyrese Maxey"],
+            metrics=[],
+            needs_clarification=True,
+            clarification_question="Which stats would you like summarized?",
+        )
+
+    monkeypatch.setattr(service_module, "build_query_plan", fake_build_query_plan)
+    client = SequenceClient([])
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer("Summarize how Tyrese Maxey's stats have changed")
+
+    assert payload["clarification_options"] == []
+    assert payload["answer"] == "Answered from mocked tools."
+    tool_names = [tool["name"] for tool in payload["tool_calls"]]
+    assert "get_player_trends" in tool_names
 
 
 def test_route_hint_and_required_tool_order_reach_openai() -> None:
