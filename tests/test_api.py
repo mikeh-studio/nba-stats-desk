@@ -630,6 +630,7 @@ class FakeRepository(WarehouseRepository):
         return {
             "game_id": "002250010",
             "game_date": "2026-02-10",
+            "season_type": "Playoffs",
             "player_id": 7,
             "player_name": "Tyrese Maxey",
             "team_abbr": "PHI",
@@ -731,6 +732,76 @@ class FakeRepository(WarehouseRepository):
                         "p90": 1,
                     },
                 },
+                {
+                    "key": "min",
+                    "label": "MIN",
+                    "value": 36.0,
+                    "season_average": 34.8,
+                    "delta": 1.2,
+                    "delta_pct": 3.4,
+                    "status": "above",
+                    "percentile": 70.0,
+                    "range": {
+                        "p10": 28.0,
+                        "p25": 32.0,
+                        "median": 35.0,
+                        "p75": 37.0,
+                        "p90": 39.0,
+                    },
+                },
+                {
+                    "key": "fg_pct",
+                    "label": "FG%",
+                    "value": 50.0,
+                    "season_average": 46.8,
+                    "delta": 3.2,
+                    "delta_pct": 6.8,
+                    "status": "above",
+                    "format": "percent",
+                    "percentile": 72.0,
+                    "range": {
+                        "p10": 39.0,
+                        "p25": 43.0,
+                        "median": 47.0,
+                        "p75": 52.0,
+                        "p90": 58.0,
+                    },
+                },
+                {
+                    "key": "ft_pct",
+                    "label": "FT%",
+                    "value": 80.0,
+                    "season_average": 84.0,
+                    "delta": -4.0,
+                    "delta_pct": -4.8,
+                    "status": "below",
+                    "format": "percent",
+                    "percentile": 45.0,
+                    "range": {
+                        "p10": 65.0,
+                        "p25": 75.0,
+                        "median": 84.0,
+                        "p75": 90.0,
+                        "p90": 96.0,
+                    },
+                },
+                {
+                    "key": "fg3m",
+                    "label": "3PM",
+                    "value": 3,
+                    "season_average": 2.4,
+                    "delta": 0.6,
+                    "delta_pct": 25.0,
+                    "status": "above",
+                    "percentile": 69.0,
+                    "range": {
+                        "p10": 0,
+                        "p25": 1,
+                        "median": 2,
+                        "p75": 4,
+                        "p90": 5,
+                    },
+                },
             ],
         }
 
@@ -743,6 +814,20 @@ class FakeRepository(WarehouseRepository):
                 {"key": "ast", "label": "AST", "season_average": 6.7},
                 {"key": "stl", "label": "STL", "season_average": 1.1},
                 {"key": "blk", "label": "BLK", "season_average": 0.2},
+                {"key": "min", "label": "MIN", "season_average": 34.8},
+                {
+                    "key": "fg_pct",
+                    "label": "FG%",
+                    "season_average": 46.8,
+                    "format": "percent",
+                },
+                {
+                    "key": "ft_pct",
+                    "label": "FT%",
+                    "season_average": 84.0,
+                    "format": "percent",
+                },
+                {"key": "fg3m", "label": "3PM", "season_average": 2.4},
             ],
             "points": [
                 {
@@ -755,6 +840,10 @@ class FakeRepository(WarehouseRepository):
                     "ast": 6,
                     "stl": 1,
                     "blk": 0,
+                    "min": 35.0,
+                    "fg_pct": 48.0,
+                    "ft_pct": 75.0,
+                    "fg3m": 2,
                 },
                 {
                     "game_id": "002250010",
@@ -766,6 +855,10 @@ class FakeRepository(WarehouseRepository):
                     "ast": 7,
                     "stl": 1,
                     "blk": 0,
+                    "min": 36.0,
+                    "fg_pct": 50.0,
+                    "ft_pct": 80.0,
+                    "fg3m": 3,
                 },
             ],
         }
@@ -1096,6 +1189,15 @@ class FakeRepository(WarehouseRepository):
             "age_hours": 0.8,
             "threshold_hours": 36,
             "last_successful_finished_at_utc": "2026-02-11T01:15:00+00:00",
+            "season_coverage": {
+                "season": "2025-26",
+                "first_game_date": "2025-10-21",
+                "latest_game_date": "2026-06-14",
+                "game_count": 1230,
+                "player_game_rows": 31200,
+                "season_types": ["Regular Season", "Playoffs"],
+                "is_full_season": True,
+            },
         }
 
 
@@ -1790,6 +1892,7 @@ def test_api_health_smoke() -> None:
     payload = response.json()
     assert payload["status"] == "fresh"
     assert payload["last_successful_finished_at_utc"] == "2026-02-11T01:15:00+00:00"
+    assert payload["season_coverage"]["is_full_season"] is True
     assert "latest_successful_run" not in payload
 
 
@@ -2012,8 +2115,11 @@ def test_performance_page_smoke() -> None:
     assert "/static/performance.js" in response.text
     assert f"performance.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
+    assert 'data-health-format="season-coverage"' in response.text
     assert "performance-date-select" in response.text
     assert "Player View" in response.text
+    assert "FG%" in response.text
+    assert "3PM" in response.text
 
 
 def test_performance_page_does_not_block_on_health() -> None:
@@ -2021,7 +2127,7 @@ def test_performance_page_does_not_block_on_health() -> None:
     response = client.get("/performance")
 
     assert response.status_code == 200
-    assert "Data status loading" in response.text
+    assert "Last refresh loading" in response.text
 
 
 def test_api_performance_initial_returns_boot_payload_and_uses_cache() -> None:
@@ -2214,6 +2320,10 @@ def test_api_performance_players_returns_baseline_deltas() -> None:
     assert item["performance_status"] == "above"
     assert item["metrics"][0]["label"] == "PTS"
     assert item["metrics"][0]["delta"] == 5.2
+    metrics = {metric["key"]: metric for metric in item["metrics"]}
+    assert metrics["fg_pct"]["value"] == 50.0
+    assert metrics["ft_pct"]["format"] == "percent"
+    assert metrics["fg3m"]["value"] == 3
     assert "trend_30d" not in item
 
 
@@ -2226,9 +2336,12 @@ def test_api_performance_player_detail_returns_percentile_ranges() -> None:
     assert item["player_name"] == "Tyrese Maxey"
     assert item["metrics"][0]["percentile"] == 82.0
     assert item["metrics"][0]["range"]["p25"] == 22
+    metrics = {metric["key"]: metric for metric in item["metrics"]}
+    assert metrics["fg_pct"]["range"]["p25"] == 43.0
     assert item["trend_30d"]["window_days"] == 30
     assert item["trend_30d"]["stats"][0]["season_average"] == 25.8
     assert item["trend_30d"]["points"][-1]["game_id"] == "002250010"
+    assert item["trend_30d"]["points"][-1]["fg_pct"] == 50.0
 
 
 def test_visualize_page_smoke() -> None:

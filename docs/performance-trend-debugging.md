@@ -31,14 +31,14 @@ the line, there was no plain rendered trend-data surface to inspect.
 - The trend chart now exposes `data-point-count`, `data-player-id`, and
   `data-game-id` for UI verification.
 - A compact game-by-game trend data strip renders under the chart.
-- `scripts/check_performance_ui.sh` verifies that Jared McCain's rendered UI has
-  8 trend points and that the `2026-05-20` row renders as 12 points.
+- `scripts/check_performance_ui.sh` verifies that the rendered playoff UI shows
+  the expanded table metrics, detail metrics, and a non-empty trend chart.
 
 ## Future Guardrail
 
 For UI data bugs, verify the rendered DOM, not only the API. The acceptance
-check should assert a user-visible data count and at least one known date/value
-from the browser-rendered page.
+check should assert user-visible metric cells and trend content from the
+browser-rendered page.
 
 Run the UI check with a local server:
 

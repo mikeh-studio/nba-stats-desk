@@ -15,12 +15,16 @@ with numbered as (
         stl,
         blk,
         tov,
+        fg_pct,
+        ft_pct,
+        fg3m,
         fantasy_points_simple,
         row_number() over (
             partition by player_id
             order by game_date desc
         ) as game_num
     from {{ ref('fct_player_game_stats') }}
+    where coalesce(cast(min as {{ float64_type() }}), 0) >= 1
 ),
 base as (
     select * from numbered where game_num <= 10
@@ -116,6 +120,45 @@ min_trend as (
     from base
     group by 2, 3
 ),
+fg_pct_trend as (
+    select
+        max(season) as season,
+        player_id,
+        player_name,
+        'FG%' as stat,
+        {{ countif('game_num <= 5') }} as recent_games,
+        {{ countif('game_num between 6 and 10') }} as prior_games,
+        round(avg(case when game_num <= 5 then fg_pct end) * 100, 1) as recent_avg,
+        round(avg(case when game_num between 6 and 10 then fg_pct end) * 100, 1) as prior_avg
+    from base
+    group by 2, 3
+),
+ft_pct_trend as (
+    select
+        max(season) as season,
+        player_id,
+        player_name,
+        'FT%' as stat,
+        {{ countif('game_num <= 5') }} as recent_games,
+        {{ countif('game_num between 6 and 10') }} as prior_games,
+        round(avg(case when game_num <= 5 then ft_pct end) * 100, 1) as recent_avg,
+        round(avg(case when game_num between 6 and 10 then ft_pct end) * 100, 1) as prior_avg
+    from base
+    group by 2, 3
+),
+fg3m_trend as (
+    select
+        max(season) as season,
+        player_id,
+        player_name,
+        '3PM' as stat,
+        {{ countif('game_num <= 5') }} as recent_games,
+        {{ countif('game_num between 6 and 10') }} as prior_games,
+        round(avg(case when game_num <= 5 then fg3m end), 1) as recent_avg,
+        round(avg(case when game_num between 6 and 10 then fg3m end), 1) as prior_avg
+    from base
+    group by 2, 3
+),
 fantasy_points_trend as (
     select
         max(season) as season,
@@ -143,6 +186,12 @@ unioned as (
     select * from tov_trend
     union all
     select * from min_trend
+    union all
+    select * from fg_pct_trend
+    union all
+    select * from ft_pct_trend
+    union all
+    select * from fg3m_trend
     union all
     select * from fantasy_points_trend
 )

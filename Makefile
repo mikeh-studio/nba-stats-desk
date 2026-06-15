@@ -21,7 +21,7 @@ endif
 
 FULL_SEASON_REPLAY_DAYS ?= 365
 
-.PHONY: airflow-init airflow-install-local-settings airflow-sync airflow-create-user airflow-webserver airflow-scheduler airflow-trigger airflow-backfill-season airflow-pause airflow-unpause airflow-list airflow-parse airflow-live-validate agent-eval
+.PHONY: airflow-init airflow-install-local-settings airflow-sync airflow-create-user airflow-webserver airflow-scheduler airflow-scheduler-season airflow-trigger airflow-backfill-season airflow-pause airflow-unpause airflow-list airflow-parse airflow-live-validate agent-eval
 
 airflow-install-local-settings:
 	mkdir -p "$(AIRFLOW_HOME)/config"
@@ -48,6 +48,9 @@ airflow-webserver:
 
 airflow-scheduler:
 	$(AIRFLOW_CMD) scheduler
+
+airflow-scheduler-season:
+	NBA_REPLAY_DAYS=$(FULL_SEASON_REPLAY_DAYS) NBA_BRONZE_BOOTSTRAP_MODE=force $(AIRFLOW_CMD) scheduler
 
 airflow-sync:
 	$(AIRFLOW_CMD) dags reserialize
