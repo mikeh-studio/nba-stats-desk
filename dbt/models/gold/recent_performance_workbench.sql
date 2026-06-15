@@ -4,26 +4,23 @@
     cluster_by=['season', 'game_date', 'game_id']
 ) }}
 
-with latest as (
-    select max(game_date) as max_game_date
-    from {{ ref('fct_player_game_stats') }}
-),
-recent_games as (
+with playoff_games as (
     select distinct
         stats.season,
+        stats.season_type,
         stats.game_id,
         stats.game_date
     from {{ ref('fct_player_game_stats') }} stats
-    cross join latest
-    where latest.max_game_date is not null
-      and stats.game_date between date_sub(latest.max_game_date, interval 6 day)
-                              and latest.max_game_date
+    where stats.season = '2025-26'
+      and stats.season_type = 'Playoffs'
+      and coalesce(cast(stats.min as {{ float64_type() }}), 0) >= 1
 ),
 game_rollups as (
     select
-        recent_games.season,
-        recent_games.game_id,
-        recent_games.game_date,
+        playoff_games.season,
+        playoff_games.season_type,
+        playoff_games.game_id,
+        playoff_games.game_date,
         string_agg(distinct stats.team_abbr, ' / ' order by stats.team_abbr) as teams,
         min(stats.matchup) as matchup,
         dim_game.home_team_abbr,
@@ -31,17 +28,20 @@ game_rollups as (
         dim_game.home_team_pts,
         dim_game.away_team_pts,
         count(distinct stats.player_id) as players_played
-    from recent_games
+    from playoff_games
     join {{ ref('fct_player_game_stats') }} stats
-      on stats.season = recent_games.season
-     and stats.game_id = recent_games.game_id
+      on stats.season = playoff_games.season
+     and stats.game_id = playoff_games.game_id
+     and stats.season_type = 'Playoffs'
+     and coalesce(cast(stats.min as {{ float64_type() }}), 0) >= 1
     left join {{ ref('dim_game') }} dim_game
-      on dim_game.season = recent_games.season
-     and dim_game.game_id = recent_games.game_id
+      on dim_game.season = playoff_games.season
+     and dim_game.game_id = playoff_games.game_id
     group by
-        recent_games.season,
-        recent_games.game_id,
-        recent_games.game_date,
+        playoff_games.season,
+        playoff_games.season_type,
+        playoff_games.game_id,
+        playoff_games.game_date,
         dim_game.home_team_abbr,
         dim_game.away_team_abbr,
         dim_game.home_team_pts,
@@ -50,6 +50,7 @@ game_rollups as (
 selected_players as (
     select
         s.season,
+        s.season_type,
         s.game_id,
         s.game_date,
         cast(s.player_id as {{ int64_type() }}) as player_id,
@@ -64,12 +65,16 @@ selected_players as (
         s.reb,
         s.ast,
         s.stl,
-        s.blk
+        s.blk,
+        s.fg_pct,
+        s.ft_pct,
+        s.fg3m
     from {{ ref('fct_player_game_stats') }} s
-    join recent_games
-      on recent_games.season = s.season
-     and recent_games.game_id = s.game_id
-    where coalesce(cast(s.min as {{ float64_type() }}), 0) > 0
+    join playoff_games
+      on playoff_games.season = s.season
+     and playoff_games.game_id = s.game_id
+    where s.season_type = 'Playoffs'
+      and coalesce(cast(s.min as {{ float64_type() }}), 0) >= 1
 ),
 selected_player_ids as (
     select distinct season, player_id
@@ -88,6 +93,10 @@ baseline as (
         avg(stats.ast) as avg_ast,
         avg(stats.stl) as avg_stl,
         avg(stats.blk) as avg_blk,
+        avg(stats.min) as avg_min,
+        avg(stats.fg_pct) as avg_fg_pct,
+        avg(stats.ft_pct) as avg_ft_pct,
+        avg(stats.fg3m) as avg_fg3m,
         stddev_pop(stats.pts) as sd_pts,
         stddev_pop(stats.reb) as sd_reb,
         stddev_pop(stats.ast) as sd_ast,
@@ -152,7 +161,61 @@ baseline as (
                 'count(*)'
             ) }} * 100,
             1
-        ) as blk_percentile
+        ) as blk_percentile,
+        approx_quantiles(stats.min, 100)[offset(10)] as min_p10,
+        approx_quantiles(stats.min, 100)[offset(25)] as min_p25,
+        approx_quantiles(stats.min, 100)[offset(50)] as min_p50,
+        approx_quantiles(stats.min, 100)[offset(75)] as min_p75,
+        approx_quantiles(stats.min, 100)[offset(90)] as min_p90,
+        round(
+            {{ safe_divide(
+                'countif(stats.min < selected_players.min) + 0.5 * countif(stats.min = selected_players.min)',
+                'count(*)'
+            ) }} * 100,
+            1
+        ) as min_percentile,
+        approx_quantiles(stats.fg_pct, 100)[offset(10)] as fg_pct_p10,
+        approx_quantiles(stats.fg_pct, 100)[offset(25)] as fg_pct_p25,
+        approx_quantiles(stats.fg_pct, 100)[offset(50)] as fg_pct_p50,
+        approx_quantiles(stats.fg_pct, 100)[offset(75)] as fg_pct_p75,
+        approx_quantiles(stats.fg_pct, 100)[offset(90)] as fg_pct_p90,
+        case
+            when selected_players.fg_pct is null then null
+            else round(
+                {{ safe_divide(
+                    'countif(stats.fg_pct < selected_players.fg_pct) + 0.5 * countif(stats.fg_pct = selected_players.fg_pct)',
+                    'nullif(countif(stats.fg_pct is not null), 0)'
+                ) }} * 100,
+                1
+            )
+        end as fg_pct_percentile,
+        approx_quantiles(stats.ft_pct, 100)[offset(10)] as ft_pct_p10,
+        approx_quantiles(stats.ft_pct, 100)[offset(25)] as ft_pct_p25,
+        approx_quantiles(stats.ft_pct, 100)[offset(50)] as ft_pct_p50,
+        approx_quantiles(stats.ft_pct, 100)[offset(75)] as ft_pct_p75,
+        approx_quantiles(stats.ft_pct, 100)[offset(90)] as ft_pct_p90,
+        case
+            when selected_players.ft_pct is null then null
+            else round(
+                {{ safe_divide(
+                    'countif(stats.ft_pct < selected_players.ft_pct) + 0.5 * countif(stats.ft_pct = selected_players.ft_pct)',
+                    'nullif(countif(stats.ft_pct is not null), 0)'
+                ) }} * 100,
+                1
+            )
+        end as ft_pct_percentile,
+        approx_quantiles(stats.fg3m, 100)[offset(10)] as fg3m_p10,
+        approx_quantiles(stats.fg3m, 100)[offset(25)] as fg3m_p25,
+        approx_quantiles(stats.fg3m, 100)[offset(50)] as fg3m_p50,
+        approx_quantiles(stats.fg3m, 100)[offset(75)] as fg3m_p75,
+        approx_quantiles(stats.fg3m, 100)[offset(90)] as fg3m_p90,
+        round(
+            {{ safe_divide(
+                'countif(stats.fg3m < selected_players.fg3m) + 0.5 * countif(stats.fg3m = selected_players.fg3m)',
+                'count(*)'
+            ) }} * 100,
+            1
+        ) as fg3m_percentile
     from {{ ref('fct_player_game_stats') }} stats
     join selected_player_ids
       on selected_player_ids.season = stats.season
@@ -161,7 +224,7 @@ baseline as (
       on selected_players.season = stats.season
      and selected_players.player_id = cast(stats.player_id as {{ int64_type() }})
      and selected_players.game_date >= stats.game_date
-    where coalesce(cast(stats.min as {{ float64_type() }}), 0) > 0
+    where coalesce(cast(stats.min as {{ float64_type() }}), 0) >= 1
     group by 1, 2, 3, 4
 ),
 metric_rows as (
@@ -173,6 +236,10 @@ metric_rows as (
         baseline.avg_ast,
         baseline.avg_stl,
         baseline.avg_blk,
+        baseline.avg_min,
+        baseline.avg_fg_pct,
+        baseline.avg_ft_pct,
+        baseline.avg_fg3m,
         baseline.pts_p10,
         baseline.pts_p25,
         baseline.pts_p50,
@@ -203,16 +270,48 @@ metric_rows as (
         baseline.blk_p75,
         baseline.blk_p90,
         baseline.blk_percentile,
+        baseline.min_p10,
+        baseline.min_p25,
+        baseline.min_p50,
+        baseline.min_p75,
+        baseline.min_p90,
+        baseline.min_percentile,
+        baseline.fg_pct_p10,
+        baseline.fg_pct_p25,
+        baseline.fg_pct_p50,
+        baseline.fg_pct_p75,
+        baseline.fg_pct_p90,
+        baseline.fg_pct_percentile,
+        baseline.ft_pct_p10,
+        baseline.ft_pct_p25,
+        baseline.ft_pct_p50,
+        baseline.ft_pct_p75,
+        baseline.ft_pct_p90,
+        baseline.ft_pct_percentile,
+        baseline.fg3m_p10,
+        baseline.fg3m_p25,
+        baseline.fg3m_p50,
+        baseline.fg3m_p75,
+        baseline.fg3m_p90,
+        baseline.fg3m_percentile,
         round(selected_players.pts - baseline.avg_pts, 1) as pts_delta,
         round(selected_players.reb - baseline.avg_reb, 1) as reb_delta,
         round(selected_players.ast - baseline.avg_ast, 1) as ast_delta,
         round(selected_players.stl - baseline.avg_stl, 1) as stl_delta,
         round(selected_players.blk - baseline.avg_blk, 1) as blk_delta,
+        round(selected_players.min - baseline.avg_min, 1) as min_delta,
+        round(selected_players.fg_pct - baseline.avg_fg_pct, 3) as fg_pct_delta,
+        round(selected_players.ft_pct - baseline.avg_ft_pct, 3) as ft_pct_delta,
+        round(selected_players.fg3m - baseline.avg_fg3m, 1) as fg3m_delta,
         round({{ safe_divide('selected_players.pts - baseline.avg_pts', 'nullif(baseline.avg_pts, 0)') }} * 100, 1) as pts_delta_pct,
         round({{ safe_divide('selected_players.reb - baseline.avg_reb', 'nullif(baseline.avg_reb, 0)') }} * 100, 1) as reb_delta_pct,
         round({{ safe_divide('selected_players.ast - baseline.avg_ast', 'nullif(baseline.avg_ast, 0)') }} * 100, 1) as ast_delta_pct,
         round({{ safe_divide('selected_players.stl - baseline.avg_stl', 'nullif(baseline.avg_stl, 0)') }} * 100, 1) as stl_delta_pct,
         round({{ safe_divide('selected_players.blk - baseline.avg_blk', 'nullif(baseline.avg_blk, 0)') }} * 100, 1) as blk_delta_pct,
+        round({{ safe_divide('selected_players.min - baseline.avg_min', 'nullif(baseline.avg_min, 0)') }} * 100, 1) as min_delta_pct,
+        round({{ safe_divide('selected_players.fg_pct - baseline.avg_fg_pct', 'nullif(baseline.avg_fg_pct, 0)') }} * 100, 1) as fg_pct_delta_pct,
+        round({{ safe_divide('selected_players.ft_pct - baseline.avg_ft_pct', 'nullif(baseline.avg_ft_pct, 0)') }} * 100, 1) as ft_pct_delta_pct,
+        round({{ safe_divide('selected_players.fg3m - baseline.avg_fg3m', 'nullif(baseline.avg_fg3m, 0)') }} * 100, 1) as fg3m_delta_pct,
         case
             when baseline.sd_pts > 0 then {{ safe_divide('selected_players.pts - baseline.avg_pts', 'baseline.sd_pts') }}
             when selected_players.pts > baseline.avg_pts then 1.0
@@ -303,7 +402,10 @@ trend_payloads as (
                     stats.reb,
                     stats.ast,
                     stats.stl,
-                    stats.blk
+                    stats.blk,
+                    stats.fg_pct,
+                    stats.ft_pct,
+                    stats.fg3m
                 )
                 order by stats.game_date, stats.game_id
             )
@@ -314,11 +416,12 @@ trend_payloads as (
      and cast(stats.player_id as {{ int64_type() }}) = selected_players.player_id
      and stats.game_date between date_sub(selected_players.game_date, interval 29 day)
                              and selected_players.game_date
-    where coalesce(cast(stats.min as {{ float64_type() }}), 0) > 0
+    where coalesce(cast(stats.min as {{ float64_type() }}), 0) >= 1
     group by 1, 2, 3
 )
 select
     ranked.season,
+    ranked.season_type,
     ranked.game_id,
     ranked.game_date,
     game_rollups.teams,
@@ -341,12 +444,19 @@ select
     ranked.ast,
     ranked.stl,
     ranked.blk,
+    ranked.fg_pct,
+    ranked.ft_pct,
+    ranked.fg3m,
     ranked.games_sampled,
     ranked.avg_pts,
     ranked.avg_reb,
     ranked.avg_ast,
     ranked.avg_stl,
     ranked.avg_blk,
+    ranked.avg_min,
+    ranked.avg_fg_pct,
+    ranked.avg_ft_pct,
+    ranked.avg_fg3m,
     ranked.pts_p10,
     ranked.pts_p25,
     ranked.pts_p50,
@@ -377,16 +487,48 @@ select
     ranked.blk_p75,
     ranked.blk_p90,
     ranked.blk_percentile,
+    ranked.min_p10,
+    ranked.min_p25,
+    ranked.min_p50,
+    ranked.min_p75,
+    ranked.min_p90,
+    ranked.min_percentile,
+    ranked.fg_pct_p10,
+    ranked.fg_pct_p25,
+    ranked.fg_pct_p50,
+    ranked.fg_pct_p75,
+    ranked.fg_pct_p90,
+    ranked.fg_pct_percentile,
+    ranked.ft_pct_p10,
+    ranked.ft_pct_p25,
+    ranked.ft_pct_p50,
+    ranked.ft_pct_p75,
+    ranked.ft_pct_p90,
+    ranked.ft_pct_percentile,
+    ranked.fg3m_p10,
+    ranked.fg3m_p25,
+    ranked.fg3m_p50,
+    ranked.fg3m_p75,
+    ranked.fg3m_p90,
+    ranked.fg3m_percentile,
     ranked.pts_delta,
     ranked.reb_delta,
     ranked.ast_delta,
     ranked.stl_delta,
     ranked.blk_delta,
+    ranked.min_delta,
+    ranked.fg_pct_delta,
+    ranked.ft_pct_delta,
+    ranked.fg3m_delta,
     ranked.pts_delta_pct,
     ranked.reb_delta_pct,
     ranked.ast_delta_pct,
     ranked.stl_delta_pct,
     ranked.blk_delta_pct,
+    ranked.min_delta_pct,
+    ranked.fg_pct_delta_pct,
+    ranked.ft_pct_delta_pct,
+    ranked.fg3m_delta_pct,
     ranked.performance_score,
     ranked.performance_status,
     ranked.above_count,

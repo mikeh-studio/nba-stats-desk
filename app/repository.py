@@ -20,6 +20,7 @@ STATE_STALE = "stale"
 STATE_MISSING = "missing"
 STATE_INSUFFICIENT_SAMPLE = "insufficient_sample"
 STATE_UNAVAILABLE = "unavailable"
+FULL_SEASON_TYPES = ("Regular Season", "Playoffs")
 
 CompareWindow = Literal["last_3", "last_5", "last_7", "prior_5", "last_10"]
 CompareFocus = Literal["balanced", "scoring", "playmaking", "defense"]
@@ -262,19 +263,29 @@ TREND_STAT_ORDER = {
     "BLK": 5,
     "TOV": 6,
     "MIN": 7,
-    "FANTASY_POINTS_SIMPLE": 8,
+    "FG%": 8,
+    "FT%": 9,
+    "3PM": 10,
+    "FANTASY_POINTS_SIMPLE": 11,
 }
 
-RECENT_PERFORMANCE_STAT_CONFIG: tuple[dict[str, str], ...] = (
+RECENT_PERFORMANCE_STAT_CONFIG: tuple[dict[str, Any], ...] = (
     {"key": "pts", "label": "PTS"},
     {"key": "reb", "label": "REB"},
     {"key": "ast", "label": "AST"},
     {"key": "stl", "label": "STL"},
     {"key": "blk", "label": "BLK"},
+    {"key": "min", "label": "MIN"},
+    {"key": "fg_pct", "label": "FG%", "format": "percent"},
+    {"key": "ft_pct", "label": "FT%", "format": "percent"},
+    {"key": "fg3m", "label": "3PM"},
 )
+RECENT_PERFORMANCE_PERCENT_KEYS = {"fg_pct", "ft_pct"}
+RECENT_PERFORMANCE_DETAIL_HYDRATE_KEYS = ("min", "fg_pct", "ft_pct", "fg3m")
 
 RECENT_PERFORMANCE_TABLE_FIELDS: tuple[bigquery.SchemaField, ...] = (
     bigquery.SchemaField("season", "STRING"),
+    bigquery.SchemaField("season_type", "STRING"),
     bigquery.SchemaField("game_id", "STRING"),
     bigquery.SchemaField("game_date", "DATE"),
     bigquery.SchemaField("teams", "STRING"),
@@ -297,22 +308,37 @@ RECENT_PERFORMANCE_TABLE_FIELDS: tuple[bigquery.SchemaField, ...] = (
     bigquery.SchemaField("ast", "FLOAT"),
     bigquery.SchemaField("stl", "FLOAT"),
     bigquery.SchemaField("blk", "FLOAT"),
+    bigquery.SchemaField("fg_pct", "FLOAT"),
+    bigquery.SchemaField("ft_pct", "FLOAT"),
+    bigquery.SchemaField("fg3m", "FLOAT"),
     bigquery.SchemaField("games_sampled", "INTEGER"),
     bigquery.SchemaField("avg_pts", "FLOAT"),
     bigquery.SchemaField("avg_reb", "FLOAT"),
     bigquery.SchemaField("avg_ast", "FLOAT"),
     bigquery.SchemaField("avg_stl", "FLOAT"),
     bigquery.SchemaField("avg_blk", "FLOAT"),
+    bigquery.SchemaField("avg_min", "FLOAT"),
+    bigquery.SchemaField("avg_fg_pct", "FLOAT"),
+    bigquery.SchemaField("avg_ft_pct", "FLOAT"),
+    bigquery.SchemaField("avg_fg3m", "FLOAT"),
     bigquery.SchemaField("pts_delta", "FLOAT"),
     bigquery.SchemaField("reb_delta", "FLOAT"),
     bigquery.SchemaField("ast_delta", "FLOAT"),
     bigquery.SchemaField("stl_delta", "FLOAT"),
     bigquery.SchemaField("blk_delta", "FLOAT"),
+    bigquery.SchemaField("min_delta", "FLOAT"),
+    bigquery.SchemaField("fg_pct_delta", "FLOAT"),
+    bigquery.SchemaField("ft_pct_delta", "FLOAT"),
+    bigquery.SchemaField("fg3m_delta", "FLOAT"),
     bigquery.SchemaField("pts_delta_pct", "FLOAT"),
     bigquery.SchemaField("reb_delta_pct", "FLOAT"),
     bigquery.SchemaField("ast_delta_pct", "FLOAT"),
     bigquery.SchemaField("stl_delta_pct", "FLOAT"),
     bigquery.SchemaField("blk_delta_pct", "FLOAT"),
+    bigquery.SchemaField("min_delta_pct", "FLOAT"),
+    bigquery.SchemaField("fg_pct_delta_pct", "FLOAT"),
+    bigquery.SchemaField("ft_pct_delta_pct", "FLOAT"),
+    bigquery.SchemaField("fg3m_delta_pct", "FLOAT"),
     bigquery.SchemaField("pts_p10", "FLOAT"),
     bigquery.SchemaField("pts_p25", "FLOAT"),
     bigquery.SchemaField("pts_p50", "FLOAT"),
@@ -343,6 +369,30 @@ RECENT_PERFORMANCE_TABLE_FIELDS: tuple[bigquery.SchemaField, ...] = (
     bigquery.SchemaField("blk_p75", "FLOAT"),
     bigquery.SchemaField("blk_p90", "FLOAT"),
     bigquery.SchemaField("blk_percentile", "FLOAT"),
+    bigquery.SchemaField("min_p10", "FLOAT"),
+    bigquery.SchemaField("min_p25", "FLOAT"),
+    bigquery.SchemaField("min_p50", "FLOAT"),
+    bigquery.SchemaField("min_p75", "FLOAT"),
+    bigquery.SchemaField("min_p90", "FLOAT"),
+    bigquery.SchemaField("min_percentile", "FLOAT"),
+    bigquery.SchemaField("fg_pct_p10", "FLOAT"),
+    bigquery.SchemaField("fg_pct_p25", "FLOAT"),
+    bigquery.SchemaField("fg_pct_p50", "FLOAT"),
+    bigquery.SchemaField("fg_pct_p75", "FLOAT"),
+    bigquery.SchemaField("fg_pct_p90", "FLOAT"),
+    bigquery.SchemaField("fg_pct_percentile", "FLOAT"),
+    bigquery.SchemaField("ft_pct_p10", "FLOAT"),
+    bigquery.SchemaField("ft_pct_p25", "FLOAT"),
+    bigquery.SchemaField("ft_pct_p50", "FLOAT"),
+    bigquery.SchemaField("ft_pct_p75", "FLOAT"),
+    bigquery.SchemaField("ft_pct_p90", "FLOAT"),
+    bigquery.SchemaField("ft_pct_percentile", "FLOAT"),
+    bigquery.SchemaField("fg3m_p10", "FLOAT"),
+    bigquery.SchemaField("fg3m_p25", "FLOAT"),
+    bigquery.SchemaField("fg3m_p50", "FLOAT"),
+    bigquery.SchemaField("fg3m_p75", "FLOAT"),
+    bigquery.SchemaField("fg3m_p90", "FLOAT"),
+    bigquery.SchemaField("fg3m_percentile", "FLOAT"),
     bigquery.SchemaField("performance_score", "FLOAT"),
     bigquery.SchemaField("performance_status", "STRING"),
     bigquery.SchemaField("above_count", "INTEGER"),
@@ -800,6 +850,38 @@ def build_freshness_payload(
     }
 
 
+def build_season_coverage_payload(
+    row: dict[str, Any] | None,
+    *,
+    season: str = SUPPORTED_SEASON,
+) -> dict[str, Any] | None:
+    if row is None:
+        return None
+
+    game_count = _to_int(row.get("game_count"))
+    if not game_count:
+        return None
+
+    season_types = [
+        label
+        for label, field_name in (
+            ("Regular Season", "has_regular_season"),
+            ("Playoffs", "has_playoffs"),
+        )
+        if _to_bool(row.get(field_name)) is True
+    ]
+    is_full_season = all(label in season_types for label in FULL_SEASON_TYPES)
+    return {
+        "season": row.get("season") or season,
+        "first_game_date": row.get("first_game_date"),
+        "latest_game_date": row.get("latest_game_date"),
+        "game_count": game_count,
+        "player_game_rows": _to_int(row.get("player_game_rows")),
+        "season_types": season_types,
+        "is_full_season": is_full_season,
+    }
+
+
 def _opportunity_state_from_row(row: dict[str, Any]) -> str:
     if row.get("games_next_7d") in (None, "") and row.get("opportunity_score") in (
         None,
@@ -976,16 +1058,26 @@ def _recent_performance_status(
     return "near"
 
 
+def _format_recent_performance_metric_value(key: str, value: Any) -> float | None:
+    parsed = _to_float(value)
+    if parsed is None:
+        return None
+    if key in RECENT_PERFORMANCE_PERCENT_KEYS:
+        return round(parsed * 100, 1)
+    return round(parsed, 1)
+
+
 def _format_recent_performance_metric(
     row: dict[str, Any],
     *,
     key: str,
     label: str,
     include_range: bool,
+    value_format: str | None = None,
 ) -> dict[str, Any]:
-    value = _round_float(row.get(key), 1)
-    average = _round_float(row.get(f"avg_{key}"), 1)
-    delta = _round_float(row.get(f"{key}_delta"), 1)
+    value = _format_recent_performance_metric_value(key, row.get(key))
+    average = _format_recent_performance_metric_value(key, row.get(f"avg_{key}"))
+    delta = _format_recent_performance_metric_value(key, row.get(f"{key}_delta"))
     metric_status = "near"
     if delta is not None:
         if delta > 0:
@@ -1000,16 +1092,19 @@ def _format_recent_performance_metric(
         "delta": delta,
         "delta_pct": _round_float(row.get(f"{key}_delta_pct"), 1),
         "status": metric_status,
+        "format": value_format,
     }
     if include_range:
         percentile = _round_float(row.get(f"{key}_percentile"), 1)
         payload["percentile"] = _clamp_percentile(percentile)
         payload["range"] = {
-            "p10": _round_float(row.get(f"{key}_p10"), 1),
-            "p25": _round_float(row.get(f"{key}_p25"), 1),
-            "median": _round_float(row.get(f"{key}_p50"), 1),
-            "p75": _round_float(row.get(f"{key}_p75"), 1),
-            "p90": _round_float(row.get(f"{key}_p90"), 1),
+            "p10": _format_recent_performance_metric_value(key, row.get(f"{key}_p10")),
+            "p25": _format_recent_performance_metric_value(key, row.get(f"{key}_p25")),
+            "median": _format_recent_performance_metric_value(
+                key, row.get(f"{key}_p50")
+            ),
+            "p75": _format_recent_performance_metric_value(key, row.get(f"{key}_p75")),
+            "p90": _format_recent_performance_metric_value(key, row.get(f"{key}_p90")),
         }
     return payload
 
@@ -1026,6 +1121,7 @@ def _format_recent_performance_row(
     return {
         "game_id": row.get("game_id"),
         "game_date": _format_iso_date(row.get("game_date")),
+        "season_type": row.get("season_type"),
         "player_id": _to_int(row.get("player_id")),
         "player_name": row.get("player_name"),
         "team_abbr": row.get("team_abbr"),
@@ -1047,6 +1143,7 @@ def _format_recent_performance_row(
                 key=config["key"],
                 label=config["label"],
                 include_range=include_range,
+                value_format=config.get("format"),
             )
             for config in RECENT_PERFORMANCE_STAT_CONFIG
         ],
@@ -1061,27 +1158,111 @@ def _format_recent_performance_trend(rows: list[dict[str, Any]]) -> dict[str, An
             {
                 "key": config["key"],
                 "label": config["label"],
-                "season_average": _round_float(
-                    first_row.get(f"avg_{config['key']}"), 1
+                "season_average": _format_recent_performance_metric_value(
+                    config["key"], first_row.get(f"avg_{config['key']}")
                 ),
+                "format": config.get("format"),
             }
             for config in RECENT_PERFORMANCE_STAT_CONFIG
         ],
         "points": [
-            {
-                "game_id": row.get("game_id"),
-                "game_date": _format_iso_date(row.get("game_date")),
-                "matchup": row.get("matchup"),
-                "minutes": _round_float(row.get("min"), 1),
-                "pts": _round_float(row.get("pts"), 1),
-                "reb": _round_float(row.get("reb"), 1),
-                "ast": _round_float(row.get("ast"), 1),
-                "stl": _round_float(row.get("stl"), 1),
-                "blk": _round_float(row.get("blk"), 1),
-            }
+            (
+                {
+                    "game_id": row.get("game_id"),
+                    "game_date": _format_iso_date(row.get("game_date")),
+                    "matchup": row.get("matchup"),
+                    "minutes": _round_float(row.get("min"), 1),
+                }
+                | {
+                    config["key"]: _format_recent_performance_metric_value(
+                        config["key"], row.get(config["key"])
+                    )
+                    for config in RECENT_PERFORMANCE_STAT_CONFIG
+                }
+            )
             for row in rows
         ],
     }
+
+
+def _recent_performance_metric_map(item: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    metrics = item.get("metrics")
+    if not isinstance(metrics, list):
+        return {}
+    return {
+        str(metric.get("key")): metric
+        for metric in metrics
+        if isinstance(metric, dict) and metric.get("key") is not None
+    }
+
+
+def _recent_performance_detail_needs_hydration(item: dict[str, Any]) -> bool:
+    metrics = _recent_performance_metric_map(item)
+    for key in RECENT_PERFORMANCE_DETAIL_HYDRATE_KEYS:
+        metric = metrics.get(key)
+        if metric is None:
+            return True
+        if key == "min":
+            if metric.get("season_average") is None or metric.get("delta") is None:
+                return True
+            continue
+        if (
+            metric.get("value") is None
+            or metric.get("season_average") is None
+            or metric.get("delta") is None
+        ):
+            return True
+    return False
+
+
+def _recent_performance_trend_needs_hydration(item: dict[str, Any]) -> bool:
+    trend = item.get("trend_30d")
+    if not isinstance(trend, dict):
+        return True
+    points = trend.get("points")
+    if not isinstance(points, list) or not points:
+        return True
+    for point in points:
+        if not isinstance(point, dict):
+            return True
+        if any(point.get(key) is None for key in ("fg_pct", "ft_pct", "fg3m")):
+            return True
+    return False
+
+
+def _merge_recent_performance_detail_summary(
+    item: dict[str, Any], source: dict[str, Any]
+) -> dict[str, Any]:
+    for field_name in (
+        "season_type",
+        "minutes",
+        "games_sampled",
+        "performance_score",
+        "performance_status",
+        "above_count",
+        "below_count",
+    ):
+        source_value = source.get(field_name)
+        if source_value is not None:
+            item[field_name] = source_value
+
+    target_metrics = _recent_performance_metric_map(item)
+    source_metrics = _recent_performance_metric_map(source)
+    for config in RECENT_PERFORMANCE_STAT_CONFIG:
+        key = config["key"]
+        source_metric = source_metrics.get(key)
+        if source_metric is None:
+            continue
+        target_metric = target_metrics.get(key)
+        if target_metric is None:
+            item.setdefault("metrics", []).append(dict(source_metric))
+            continue
+        for field_name in ("value", "season_average", "delta", "delta_pct", "status"):
+            source_value = source_metric.get(field_name)
+            if source_value is not None:
+                target_metric[field_name] = source_value
+        target_metric["format"] = source_metric.get("format")
+    return item
 
 
 def _format_recent_performance_game(row: dict[str, Any]) -> dict[str, Any]:
@@ -1206,6 +1387,8 @@ class WarehouseRepository(Protocol):
     def get_latest_analysis(self) -> dict[str, Any] | None: ...
 
     def get_latest_successful_run(self) -> dict[str, Any] | None: ...
+
+    def get_season_coverage(self) -> dict[str, Any] | None: ...
 
     def get_player_game_log(
         self,
@@ -3158,6 +3341,28 @@ class BigQueryWarehouseRepository:
         )
         return rows[0] if rows else None
 
+    def get_season_coverage(self) -> dict[str, Any] | None:
+        sql = f"""
+        SELECT
+          @season AS season,
+          MIN(game_date) AS first_game_date,
+          MAX(game_date) AS latest_game_date,
+          COUNT(DISTINCT game_id) AS game_count,
+          COUNT(*) AS player_game_rows,
+          COUNTIF(season_type = 'Regular Season') > 0 AS has_regular_season,
+          COUNTIF(season_type = 'Playoffs') > 0 AS has_playoffs
+        FROM {self._fct_game_stats_table()}
+        WHERE season = @season
+        """
+        try:
+            rows = self._query(
+                sql,
+                [bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON)],
+            )
+        except BQAPIError:
+            return None
+        return build_season_coverage_payload(rows[0] if rows else None)
+
     def get_player_game_log(
         self,
         player_id: int,
@@ -3430,6 +3635,7 @@ class BigQueryWarehouseRepository:
             'player' AS section,
             sort_index,
             TO_JSON_STRING(STRUCT(
+              season_type,
               game_id,
               game_date,
               player_id,
@@ -3445,22 +3651,37 @@ class BigQueryWarehouseRepository:
               ast,
               stl,
               blk,
+              fg_pct,
+              ft_pct,
+              fg3m,
               games_sampled,
               avg_pts,
               avg_reb,
               avg_ast,
               avg_stl,
               avg_blk,
+              avg_min,
+              avg_fg_pct,
+              avg_ft_pct,
+              avg_fg3m,
               pts_delta,
               reb_delta,
               ast_delta,
               stl_delta,
               blk_delta,
+              min_delta,
+              fg_pct_delta,
+              ft_pct_delta,
+              fg3m_delta,
               pts_delta_pct,
               reb_delta_pct,
               ast_delta_pct,
               stl_delta_pct,
               blk_delta_pct,
+              min_delta_pct,
+              fg_pct_delta_pct,
+              ft_pct_delta_pct,
+              fg3m_delta_pct,
               performance_score,
               performance_status,
               above_count,
@@ -3541,20 +3762,13 @@ class BigQueryWarehouseRepository:
             params.append(bigquery.ScalarQueryParameter("game_id", "STRING", game_id))
 
         sql = f"""
-        WITH latest AS (
-          SELECT MAX(game_date) AS max_game_date
-          FROM {self._fct_game_stats_table()}
-          WHERE season = @season
-        ),
-        available_dates AS (
+        WITH available_dates AS (
           SELECT DISTINCT
             stats.game_date
           FROM {self._fct_game_stats_table()} stats
-          CROSS JOIN latest
           WHERE stats.season = @season
-            AND latest.max_game_date IS NOT NULL
-            AND stats.game_date BETWEEN DATE_SUB(latest.max_game_date, INTERVAL 6 DAY)
-                                    AND latest.max_game_date
+            AND stats.season_type = 'Playoffs'
+            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1
         ),
         selected_date AS (
           SELECT {selected_date_sql} AS game_date
@@ -3566,41 +3780,40 @@ class BigQueryWarehouseRepository:
             TO_JSON_STRING(STRUCT(game_date)) AS payload
           FROM available_dates
         ),
-        recent_games AS (
+        playoff_games AS (
           SELECT DISTINCT
             stats.game_id,
             stats.game_date
           FROM {self._fct_game_stats_table()} stats
-          CROSS JOIN latest
           CROSS JOIN selected_date
           WHERE stats.season = @season
+            AND stats.season_type = 'Playoffs'
             AND selected_date.game_date IS NOT NULL
             AND stats.game_date = selected_date.game_date
-            AND latest.max_game_date IS NOT NULL
-            AND stats.game_date BETWEEN DATE_SUB(latest.max_game_date, INTERVAL 6 DAY)
-                                    AND latest.max_game_date
+            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1
         ),
         game_rollups AS (
           SELECT
-            recent_games.game_id,
-            recent_games.game_date,
+            playoff_games.game_id,
+            playoff_games.game_date,
             STRING_AGG(DISTINCT stats.team_abbr, ' / ' ORDER BY stats.team_abbr) AS teams,
             MIN(stats.matchup) AS matchup,
             dim_game.home_team_abbr,
             dim_game.away_team_abbr,
             dim_game.home_team_pts,
             dim_game.away_team_pts,
-            COUNT(DISTINCT stats.player_id) AS players_played
-          FROM recent_games
+            COUNT(DISTINCT CASE WHEN COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1 THEN stats.player_id END) AS players_played
+          FROM playoff_games
           JOIN {self._fct_game_stats_table()} stats
             ON stats.season = @season
-           AND stats.game_id = recent_games.game_id
+           AND stats.season_type = 'Playoffs'
+           AND stats.game_id = playoff_games.game_id
           LEFT JOIN {self._dim_game_table()} dim_game
             ON dim_game.season = @season
-           AND dim_game.game_id = recent_games.game_id
+           AND dim_game.game_id = playoff_games.game_id
           GROUP BY
-            recent_games.game_id,
-            recent_games.game_date,
+            playoff_games.game_id,
+            playoff_games.game_date,
             dim_game.home_team_abbr,
             dim_game.away_team_abbr,
             dim_game.home_team_pts,
@@ -3627,6 +3840,7 @@ class BigQueryWarehouseRepository:
           SELECT
             s.game_id,
             s.game_date,
+            s.season_type,
             SAFE_CAST(s.player_id AS INT64) AS player_id,
             s.player_name,
             s.team_abbr,
@@ -3639,13 +3853,17 @@ class BigQueryWarehouseRepository:
             s.reb,
             s.ast,
             s.stl,
-            s.blk
+            s.blk,
+            s.fg_pct,
+            s.ft_pct,
+            s.fg3m
           FROM {self._fct_game_stats_table()} s
           CROSS JOIN selected_date
           WHERE s.season = @season
+            AND s.season_type = 'Playoffs'
             AND selected_date.game_date IS NOT NULL
             AND s.game_date = selected_date.game_date
-            AND COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) > 0
+            AND COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) >= 1
             {game_filter}
         ),
         selected_player_ids AS (
@@ -3662,6 +3880,10 @@ class BigQueryWarehouseRepository:
             AVG(stats.ast) AS avg_ast,
             AVG(stats.stl) AS avg_stl,
             AVG(stats.blk) AS avg_blk,
+            AVG(stats.min) AS avg_min,
+            AVG(stats.fg_pct) AS avg_fg_pct,
+            AVG(stats.ft_pct) AS avg_ft_pct,
+            AVG(stats.fg3m) AS avg_fg3m,
             STDDEV_POP(stats.pts) AS sd_pts,
             STDDEV_POP(stats.reb) AS sd_reb,
             STDDEV_POP(stats.ast) AS sd_ast,
@@ -3673,7 +3895,7 @@ class BigQueryWarehouseRepository:
           CROSS JOIN selected_date
           WHERE stats.season = @season
             AND stats.game_date <= selected_date.game_date
-            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0
+            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1
           GROUP BY player_id
         ),
         metric_rows AS (
@@ -3685,16 +3907,28 @@ class BigQueryWarehouseRepository:
             baseline.avg_ast,
             baseline.avg_stl,
             baseline.avg_blk,
+            baseline.avg_min,
+            baseline.avg_fg_pct,
+            baseline.avg_ft_pct,
+            baseline.avg_fg3m,
             ROUND(selected_players.pts - baseline.avg_pts, 1) AS pts_delta,
             ROUND(selected_players.reb - baseline.avg_reb, 1) AS reb_delta,
             ROUND(selected_players.ast - baseline.avg_ast, 1) AS ast_delta,
             ROUND(selected_players.stl - baseline.avg_stl, 1) AS stl_delta,
             ROUND(selected_players.blk - baseline.avg_blk, 1) AS blk_delta,
+            ROUND(selected_players.min - baseline.avg_min, 1) AS min_delta,
+            ROUND(selected_players.fg_pct - baseline.avg_fg_pct, 3) AS fg_pct_delta,
+            ROUND(selected_players.ft_pct - baseline.avg_ft_pct, 3) AS ft_pct_delta,
+            ROUND(selected_players.fg3m - baseline.avg_fg3m, 1) AS fg3m_delta,
             ROUND(SAFE_DIVIDE(selected_players.pts - baseline.avg_pts, NULLIF(baseline.avg_pts, 0)) * 100, 1) AS pts_delta_pct,
             ROUND(SAFE_DIVIDE(selected_players.reb - baseline.avg_reb, NULLIF(baseline.avg_reb, 0)) * 100, 1) AS reb_delta_pct,
             ROUND(SAFE_DIVIDE(selected_players.ast - baseline.avg_ast, NULLIF(baseline.avg_ast, 0)) * 100, 1) AS ast_delta_pct,
             ROUND(SAFE_DIVIDE(selected_players.stl - baseline.avg_stl, NULLIF(baseline.avg_stl, 0)) * 100, 1) AS stl_delta_pct,
             ROUND(SAFE_DIVIDE(selected_players.blk - baseline.avg_blk, NULLIF(baseline.avg_blk, 0)) * 100, 1) AS blk_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.min - baseline.avg_min, NULLIF(baseline.avg_min, 0)) * 100, 1) AS min_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.fg_pct - baseline.avg_fg_pct, NULLIF(baseline.avg_fg_pct, 0)) * 100, 1) AS fg_pct_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.ft_pct - baseline.avg_ft_pct, NULLIF(baseline.avg_ft_pct, 0)) * 100, 1) AS ft_pct_delta_pct,
+            ROUND(SAFE_DIVIDE(selected_players.fg3m - baseline.avg_fg3m, NULLIF(baseline.avg_fg3m, 0)) * 100, 1) AS fg3m_delta_pct,
             CASE
               WHEN baseline.sd_pts > 0 THEN SAFE_DIVIDE(selected_players.pts - baseline.avg_pts, baseline.sd_pts)
               WHEN selected_players.pts > baseline.avg_pts THEN 1.0
@@ -3767,6 +4001,7 @@ class BigQueryWarehouseRepository:
             'player' AS section,
             player_rank AS sort_index,
             TO_JSON_STRING(STRUCT(
+              season_type,
               game_id,
               game_date,
               player_id,
@@ -3782,22 +4017,37 @@ class BigQueryWarehouseRepository:
               ast,
               stl,
               blk,
+              fg_pct,
+              ft_pct,
+              fg3m,
               games_sampled,
               avg_pts,
               avg_reb,
               avg_ast,
               avg_stl,
               avg_blk,
+              avg_min,
+              avg_fg_pct,
+              avg_ft_pct,
+              avg_fg3m,
               pts_delta,
               reb_delta,
               ast_delta,
               stl_delta,
               blk_delta,
+              min_delta,
+              fg_pct_delta,
+              ft_pct_delta,
+              fg3m_delta,
               pts_delta_pct,
               reb_delta_pct,
               ast_delta_pct,
               stl_delta_pct,
               blk_delta_pct,
+              min_delta_pct,
+              fg_pct_delta_pct,
+              ft_pct_delta_pct,
+              fg3m_delta_pct,
               performance_score,
               performance_status,
               above_count,
@@ -3838,19 +4088,12 @@ class BigQueryWarehouseRepository:
 
     def get_recent_performance_dates(self) -> list[dict[str, Any]]:
         sql = f"""
-        WITH latest AS (
-          SELECT MAX(game_date) AS max_game_date
-          FROM {self._fct_game_stats_table()}
-          WHERE season = @season
-        )
         SELECT DISTINCT
           stats.game_date
         FROM {self._fct_game_stats_table()} stats
-        CROSS JOIN latest
         WHERE stats.season = @season
-          AND latest.max_game_date IS NOT NULL
-          AND stats.game_date BETWEEN DATE_SUB(latest.max_game_date, INTERVAL 6 DAY)
-                                  AND latest.max_game_date
+          AND stats.season_type = 'Playoffs'
+          AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1
         ORDER BY stats.game_date DESC
         """
         try:
@@ -3874,11 +4117,8 @@ class BigQueryWarehouseRepository:
     ) -> list[dict[str, Any]]:
         filters = [
             "stats.season = @season",
-            "latest.max_game_date IS NOT NULL",
-            (
-                "stats.game_date BETWEEN DATE_SUB(latest.max_game_date, INTERVAL 6 DAY) "
-                "AND latest.max_game_date"
-            ),
+            "stats.season_type = 'Playoffs'",
+            "COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1",
         ]
         params: list[bigquery.ScalarQueryParameter] = [
             bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON)
@@ -3890,44 +4130,39 @@ class BigQueryWarehouseRepository:
                 bigquery.ScalarQueryParameter("game_date", "DATE", parsed_game_date)
             )
         sql = f"""
-        WITH latest AS (
-          SELECT MAX(game_date) AS max_game_date
-          FROM {self._fct_game_stats_table()}
-          WHERE season = @season
-        ),
-        recent_games AS (
+        WITH playoff_games AS (
           SELECT DISTINCT
             stats.game_id,
             stats.game_date
           FROM {self._fct_game_stats_table()} stats
-          CROSS JOIN latest
           WHERE {" AND ".join(filters)}
         )
         SELECT
-          recent_games.game_id,
-          recent_games.game_date,
+          playoff_games.game_id,
+          playoff_games.game_date,
           STRING_AGG(DISTINCT stats.team_abbr, ' / ' ORDER BY stats.team_abbr) AS teams,
           MIN(stats.matchup) AS matchup,
           dim_game.home_team_abbr,
           dim_game.away_team_abbr,
           dim_game.home_team_pts,
           dim_game.away_team_pts,
-          COUNT(DISTINCT stats.player_id) AS players_played
-        FROM recent_games
+          COUNT(DISTINCT CASE WHEN COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1 THEN stats.player_id END) AS players_played
+        FROM playoff_games
         JOIN {self._fct_game_stats_table()} stats
           ON stats.season = @season
-         AND stats.game_id = recent_games.game_id
+         AND stats.season_type = 'Playoffs'
+         AND stats.game_id = playoff_games.game_id
         LEFT JOIN {self._dim_game_table()} dim_game
           ON dim_game.season = @season
-         AND dim_game.game_id = recent_games.game_id
+         AND dim_game.game_id = playoff_games.game_id
         GROUP BY
-          recent_games.game_id,
-          recent_games.game_date,
+          playoff_games.game_id,
+          playoff_games.game_date,
           dim_game.home_team_abbr,
           dim_game.away_team_abbr,
           dim_game.home_team_pts,
           dim_game.away_team_pts
-        ORDER BY recent_games.game_date DESC, recent_games.game_id DESC
+        ORDER BY playoff_games.game_date DESC, playoff_games.game_id DESC
         """
         try:
             rows = self._query(sql, params)
@@ -3948,8 +4183,9 @@ class BigQueryWarehouseRepository:
         limit = max(1, min(500, int(limit)))
         selected_filters = [
             "s.season = @season",
+            "s.season_type = 'Playoffs'",
             "s.game_date = @game_date",
-            "COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) > 0",
+            "COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) >= 1",
         ]
         params: list[bigquery.ScalarQueryParameter] = [
             bigquery.ScalarQueryParameter("season", "STRING", SUPPORTED_SEASON),
@@ -3964,6 +4200,7 @@ class BigQueryWarehouseRepository:
           SELECT
             s.game_id,
             s.game_date,
+            s.season_type,
             s.player_id,
             s.player_name,
             s.team_abbr,
@@ -3976,7 +4213,10 @@ class BigQueryWarehouseRepository:
             s.reb,
             s.ast,
             s.stl,
-            s.blk
+            s.blk,
+            s.fg_pct,
+            s.ft_pct,
+            s.fg3m
           FROM {self._fct_game_stats_table()} s
           WHERE {" AND ".join(selected_filters)}
         ),
@@ -3989,6 +4229,10 @@ class BigQueryWarehouseRepository:
             AVG(ast) AS avg_ast,
             AVG(stl) AS avg_stl,
             AVG(blk) AS avg_blk,
+            AVG(min) AS avg_min,
+            AVG(fg_pct) AS avg_fg_pct,
+            AVG(ft_pct) AS avg_ft_pct,
+            AVG(fg3m) AS avg_fg3m,
             STDDEV_POP(pts) AS sd_pts,
             STDDEV_POP(reb) AS sd_reb,
             STDDEV_POP(ast) AS sd_ast,
@@ -3997,7 +4241,7 @@ class BigQueryWarehouseRepository:
           FROM {self._fct_game_stats_table()}
           WHERE season = @season
             AND game_date <= @game_date
-            AND COALESCE(SAFE_CAST(min AS FLOAT64), 0) > 0
+            AND COALESCE(SAFE_CAST(min AS FLOAT64), 0) >= 1
           GROUP BY player_id
         ),
         metric_rows AS (
@@ -4009,16 +4253,28 @@ class BigQueryWarehouseRepository:
             baseline.avg_ast,
             baseline.avg_stl,
             baseline.avg_blk,
+            baseline.avg_min,
+            baseline.avg_fg_pct,
+            baseline.avg_ft_pct,
+            baseline.avg_fg3m,
             ROUND(selected.pts - baseline.avg_pts, 1) AS pts_delta,
             ROUND(selected.reb - baseline.avg_reb, 1) AS reb_delta,
             ROUND(selected.ast - baseline.avg_ast, 1) AS ast_delta,
             ROUND(selected.stl - baseline.avg_stl, 1) AS stl_delta,
             ROUND(selected.blk - baseline.avg_blk, 1) AS blk_delta,
+            ROUND(selected.min - baseline.avg_min, 1) AS min_delta,
+            ROUND(selected.fg_pct - baseline.avg_fg_pct, 3) AS fg_pct_delta,
+            ROUND(selected.ft_pct - baseline.avg_ft_pct, 3) AS ft_pct_delta,
+            ROUND(selected.fg3m - baseline.avg_fg3m, 1) AS fg3m_delta,
             ROUND(SAFE_DIVIDE(selected.pts - baseline.avg_pts, NULLIF(baseline.avg_pts, 0)) * 100, 1) AS pts_delta_pct,
             ROUND(SAFE_DIVIDE(selected.reb - baseline.avg_reb, NULLIF(baseline.avg_reb, 0)) * 100, 1) AS reb_delta_pct,
             ROUND(SAFE_DIVIDE(selected.ast - baseline.avg_ast, NULLIF(baseline.avg_ast, 0)) * 100, 1) AS ast_delta_pct,
             ROUND(SAFE_DIVIDE(selected.stl - baseline.avg_stl, NULLIF(baseline.avg_stl, 0)) * 100, 1) AS stl_delta_pct,
             ROUND(SAFE_DIVIDE(selected.blk - baseline.avg_blk, NULLIF(baseline.avg_blk, 0)) * 100, 1) AS blk_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.min - baseline.avg_min, NULLIF(baseline.avg_min, 0)) * 100, 1) AS min_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.fg_pct - baseline.avg_fg_pct, NULLIF(baseline.avg_fg_pct, 0)) * 100, 1) AS fg_pct_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.ft_pct - baseline.avg_ft_pct, NULLIF(baseline.avg_ft_pct, 0)) * 100, 1) AS ft_pct_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.fg3m - baseline.avg_fg3m, NULLIF(baseline.avg_fg3m, 0)) * 100, 1) AS fg3m_delta_pct,
             CASE
               WHEN baseline.sd_pts > 0 THEN SAFE_DIVIDE(selected.pts - baseline.avg_pts, baseline.sd_pts)
               WHEN selected.pts > baseline.avg_pts THEN 1.0
@@ -4102,6 +4358,7 @@ class BigQueryWarehouseRepository:
           WHERE season = @season
             AND SAFE_CAST(player_id AS INT64) = @player_id
             AND game_id = @game_id
+            AND COALESCE(SAFE_CAST(min AS FLOAT64), 0) >= 1
           LIMIT 1
         ),
         trend_window AS (
@@ -4114,7 +4371,10 @@ class BigQueryWarehouseRepository:
             stats.reb,
             stats.ast,
             stats.stl,
-            stats.blk
+            stats.blk,
+            stats.fg_pct,
+            stats.ft_pct,
+            stats.fg3m
           FROM {self._fct_game_stats_table()} stats
           JOIN selected
             ON SAFE_CAST(stats.player_id AS INT64) = selected.selected_player_id
@@ -4122,7 +4382,7 @@ class BigQueryWarehouseRepository:
             AND SAFE_CAST(stats.game_date AS DATE)
               BETWEEN DATE_SUB(selected.selected_game_date, INTERVAL 29 DAY)
                   AND selected.selected_game_date
-            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0
+            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1
         ),
         baseline AS (
           SELECT
@@ -4130,13 +4390,17 @@ class BigQueryWarehouseRepository:
             AVG(stats.reb) AS avg_reb,
             AVG(stats.ast) AS avg_ast,
             AVG(stats.stl) AS avg_stl,
-            AVG(stats.blk) AS avg_blk
+            AVG(stats.blk) AS avg_blk,
+            AVG(stats.min) AS avg_min,
+            AVG(stats.fg_pct) AS avg_fg_pct,
+            AVG(stats.ft_pct) AS avg_ft_pct,
+            AVG(stats.fg3m) AS avg_fg3m
           FROM {self._fct_game_stats_table()} stats
           JOIN selected
             ON SAFE_CAST(stats.player_id AS INT64) = selected.selected_player_id
           WHERE stats.season = @season
             AND SAFE_CAST(stats.game_date AS DATE) <= selected.selected_game_date
-            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0
+            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1
         )
         SELECT
           trend_window.*,
@@ -4144,7 +4408,11 @@ class BigQueryWarehouseRepository:
           baseline.avg_reb,
           baseline.avg_ast,
           baseline.avg_stl,
-          baseline.avg_blk
+          baseline.avg_blk,
+          baseline.avg_min,
+          baseline.avg_fg_pct,
+          baseline.avg_ft_pct,
+          baseline.avg_fg3m
         FROM trend_window
         CROSS JOIN baseline
         ORDER BY trend_window.game_date, trend_window.game_id
@@ -4224,6 +4492,35 @@ class BigQueryWarehouseRepository:
             return None
         return self._format_recent_performance_player_table_row(rows[0])
 
+    def _hydrate_recent_performance_player_detail(
+        self, item: dict[str, Any], player_id: int, *, game_id: str
+    ) -> dict[str, Any]:
+        if _recent_performance_detail_needs_hydration(item):
+            game_date = item.get("game_date")
+            if game_date:
+                initial_payload = self.get_recent_performance_initial(
+                    game_date=str(game_date),
+                    game_id=game_id,
+                    limit=500,
+                )
+                source_item = next(
+                    (
+                        player
+                        for player in initial_payload.get("players", [])
+                        if _to_int(player.get("player_id")) == player_id
+                        and str(player.get("game_id") or "") == game_id
+                    ),
+                    None,
+                )
+                if source_item is not None:
+                    item = _merge_recent_performance_detail_summary(item, source_item)
+
+        if _recent_performance_trend_needs_hydration(item):
+            trend = self._fetch_recent_performance_trend(player_id, game_id=game_id)
+            if trend.get("points"):
+                item["trend_30d"] = trend
+        return item
+
     def get_recent_performance_player(
         self, player_id: int, *, game_id: str
     ) -> dict[str, Any] | None:
@@ -4232,7 +4529,9 @@ class BigQueryWarehouseRepository:
             game_id=game_id,
         )
         if table_item is not None:
-            return table_item
+            return self._hydrate_recent_performance_player_detail(
+                table_item, player_id, game_id=game_id
+            )
 
         try:
             table_item = self._fetch_recent_performance_player_table(
@@ -4242,13 +4541,16 @@ class BigQueryWarehouseRepository:
         except BQAPIError:
             table_item = None
         if table_item is not None:
-            return table_item
+            return self._hydrate_recent_performance_player_detail(
+                table_item, player_id, game_id=game_id
+            )
 
         sql = f"""
         WITH selected AS (
           SELECT
             s.game_id,
             s.game_date,
+            s.season_type,
             s.player_id,
             s.player_name,
             s.team_abbr,
@@ -4261,12 +4563,16 @@ class BigQueryWarehouseRepository:
             s.reb,
             s.ast,
             s.stl,
-            s.blk
+            s.blk,
+            s.fg_pct,
+            s.ft_pct,
+            s.fg3m
           FROM {self._fct_game_stats_table()} s
           WHERE s.season = @season
             AND s.player_id = @player_id
             AND s.game_id = @game_id
-            AND COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) > 0
+            AND s.season_type = 'Playoffs'
+            AND COALESCE(SAFE_CAST(s.min AS FLOAT64), 0) >= 1
           LIMIT 1
         ),
         season_rows AS (
@@ -4276,7 +4582,7 @@ class BigQueryWarehouseRepository:
           WHERE stats.season = @season
             AND stats.player_id = @player_id
             AND stats.game_date <= selected.game_date
-            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) > 0
+            AND COALESCE(SAFE_CAST(stats.min AS FLOAT64), 0) >= 1
         ),
         baseline AS (
           SELECT
@@ -4286,11 +4592,19 @@ class BigQueryWarehouseRepository:
             AVG(r.ast) AS avg_ast,
             AVG(r.stl) AS avg_stl,
             AVG(r.blk) AS avg_blk,
+            AVG(r.min) AS avg_min,
+            AVG(r.fg_pct) AS avg_fg_pct,
+            AVG(r.ft_pct) AS avg_ft_pct,
+            AVG(r.fg3m) AS avg_fg3m,
             STDDEV_POP(r.pts) AS sd_pts,
             STDDEV_POP(r.reb) AS sd_reb,
             STDDEV_POP(r.ast) AS sd_ast,
             STDDEV_POP(r.stl) AS sd_stl,
             STDDEV_POP(r.blk) AS sd_blk,
+            STDDEV_POP(r.min) AS sd_min,
+            STDDEV_POP(r.fg_pct) AS sd_fg_pct,
+            STDDEV_POP(r.ft_pct) AS sd_ft_pct,
+            STDDEV_POP(r.fg3m) AS sd_fg3m,
             APPROX_QUANTILES(r.pts, 100)[OFFSET(10)] AS pts_p10,
             APPROX_QUANTILES(r.pts, 100)[OFFSET(25)] AS pts_p25,
             APPROX_QUANTILES(r.pts, 100)[OFFSET(50)] AS pts_p50,
@@ -4320,7 +4634,37 @@ class BigQueryWarehouseRepository:
             APPROX_QUANTILES(r.blk, 100)[OFFSET(50)] AS blk_p50,
             APPROX_QUANTILES(r.blk, 100)[OFFSET(75)] AS blk_p75,
             APPROX_QUANTILES(r.blk, 100)[OFFSET(90)] AS blk_p90,
-            ROUND(SAFE_DIVIDE(COUNTIF(r.blk < selected.blk) + 0.5 * COUNTIF(r.blk = selected.blk), COUNT(*)) * 100, 1) AS blk_percentile
+            ROUND(SAFE_DIVIDE(COUNTIF(r.blk < selected.blk) + 0.5 * COUNTIF(r.blk = selected.blk), COUNT(*)) * 100, 1) AS blk_percentile,
+            APPROX_QUANTILES(r.min, 100)[OFFSET(10)] AS min_p10,
+            APPROX_QUANTILES(r.min, 100)[OFFSET(25)] AS min_p25,
+            APPROX_QUANTILES(r.min, 100)[OFFSET(50)] AS min_p50,
+            APPROX_QUANTILES(r.min, 100)[OFFSET(75)] AS min_p75,
+            APPROX_QUANTILES(r.min, 100)[OFFSET(90)] AS min_p90,
+            ROUND(SAFE_DIVIDE(COUNTIF(r.min < selected.min) + 0.5 * COUNTIF(r.min = selected.min), COUNT(*)) * 100, 1) AS min_percentile,
+            APPROX_QUANTILES(r.fg_pct, 100)[OFFSET(10)] AS fg_pct_p10,
+            APPROX_QUANTILES(r.fg_pct, 100)[OFFSET(25)] AS fg_pct_p25,
+            APPROX_QUANTILES(r.fg_pct, 100)[OFFSET(50)] AS fg_pct_p50,
+            APPROX_QUANTILES(r.fg_pct, 100)[OFFSET(75)] AS fg_pct_p75,
+            APPROX_QUANTILES(r.fg_pct, 100)[OFFSET(90)] AS fg_pct_p90,
+            CASE
+              WHEN selected.fg_pct IS NULL THEN NULL
+              ELSE ROUND(SAFE_DIVIDE(COUNTIF(r.fg_pct < selected.fg_pct) + 0.5 * COUNTIF(r.fg_pct = selected.fg_pct), NULLIF(COUNTIF(r.fg_pct IS NOT NULL), 0)) * 100, 1)
+            END AS fg_pct_percentile,
+            APPROX_QUANTILES(r.ft_pct, 100)[OFFSET(10)] AS ft_pct_p10,
+            APPROX_QUANTILES(r.ft_pct, 100)[OFFSET(25)] AS ft_pct_p25,
+            APPROX_QUANTILES(r.ft_pct, 100)[OFFSET(50)] AS ft_pct_p50,
+            APPROX_QUANTILES(r.ft_pct, 100)[OFFSET(75)] AS ft_pct_p75,
+            APPROX_QUANTILES(r.ft_pct, 100)[OFFSET(90)] AS ft_pct_p90,
+            CASE
+              WHEN selected.ft_pct IS NULL THEN NULL
+              ELSE ROUND(SAFE_DIVIDE(COUNTIF(r.ft_pct < selected.ft_pct) + 0.5 * COUNTIF(r.ft_pct = selected.ft_pct), NULLIF(COUNTIF(r.ft_pct IS NOT NULL), 0)) * 100, 1)
+            END AS ft_pct_percentile,
+            APPROX_QUANTILES(r.fg3m, 100)[OFFSET(10)] AS fg3m_p10,
+            APPROX_QUANTILES(r.fg3m, 100)[OFFSET(25)] AS fg3m_p25,
+            APPROX_QUANTILES(r.fg3m, 100)[OFFSET(50)] AS fg3m_p50,
+            APPROX_QUANTILES(r.fg3m, 100)[OFFSET(75)] AS fg3m_p75,
+            APPROX_QUANTILES(r.fg3m, 100)[OFFSET(90)] AS fg3m_p90,
+            ROUND(SAFE_DIVIDE(COUNTIF(r.fg3m < selected.fg3m) + 0.5 * COUNTIF(r.fg3m = selected.fg3m), NULLIF(COUNTIF(r.fg3m IS NOT NULL), 0)) * 100, 1) AS fg3m_percentile
           FROM season_rows r
           CROSS JOIN selected
         ),
@@ -4333,11 +4677,19 @@ class BigQueryWarehouseRepository:
             ROUND(selected.ast - baseline.avg_ast, 1) AS ast_delta,
             ROUND(selected.stl - baseline.avg_stl, 1) AS stl_delta,
             ROUND(selected.blk - baseline.avg_blk, 1) AS blk_delta,
+            ROUND(selected.min - baseline.avg_min, 1) AS min_delta,
+            ROUND(selected.fg_pct - baseline.avg_fg_pct, 3) AS fg_pct_delta,
+            ROUND(selected.ft_pct - baseline.avg_ft_pct, 3) AS ft_pct_delta,
+            ROUND(selected.fg3m - baseline.avg_fg3m, 1) AS fg3m_delta,
             ROUND(SAFE_DIVIDE(selected.pts - baseline.avg_pts, NULLIF(baseline.avg_pts, 0)) * 100, 1) AS pts_delta_pct,
             ROUND(SAFE_DIVIDE(selected.reb - baseline.avg_reb, NULLIF(baseline.avg_reb, 0)) * 100, 1) AS reb_delta_pct,
             ROUND(SAFE_DIVIDE(selected.ast - baseline.avg_ast, NULLIF(baseline.avg_ast, 0)) * 100, 1) AS ast_delta_pct,
             ROUND(SAFE_DIVIDE(selected.stl - baseline.avg_stl, NULLIF(baseline.avg_stl, 0)) * 100, 1) AS stl_delta_pct,
             ROUND(SAFE_DIVIDE(selected.blk - baseline.avg_blk, NULLIF(baseline.avg_blk, 0)) * 100, 1) AS blk_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.min - baseline.avg_min, NULLIF(baseline.avg_min, 0)) * 100, 1) AS min_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.fg_pct - baseline.avg_fg_pct, NULLIF(baseline.avg_fg_pct, 0)) * 100, 1) AS fg_pct_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.ft_pct - baseline.avg_ft_pct, NULLIF(baseline.avg_ft_pct, 0)) * 100, 1) AS ft_pct_delta_pct,
+            ROUND(SAFE_DIVIDE(selected.fg3m - baseline.avg_fg3m, NULLIF(baseline.avg_fg3m, 0)) * 100, 1) AS fg3m_delta_pct,
             CASE
               WHEN baseline.sd_pts > 0 THEN SAFE_DIVIDE(selected.pts - baseline.avg_pts, baseline.sd_pts)
               WHEN selected.pts > baseline.avg_pts THEN 1.0
@@ -4637,6 +4989,9 @@ class BigQueryWarehouseRepository:
             freshness_threshold_hours=self.settings.freshness_threshold_hours,
         )
         payload["season"] = SUPPORTED_SEASON
+        coverage = self.get_season_coverage()
+        if coverage is not None:
+            payload["season_coverage"] = coverage
         return payload
 
 

@@ -22,6 +22,10 @@ values in `.env`.
 After a one-time season replay, validate the core models with:
 
 ```bash
+# In one terminal, so task execution sees the season replay overrides:
+make airflow-scheduler-season
+
+# In another terminal:
 make airflow-backfill-season
 dbt build --project-dir . --profiles-dir dbt/profiles --target dev \
   --select dim_player dim_team dim_game fct_player_game_stats fct_team_game_scores \
@@ -70,7 +74,7 @@ dbt test --project-dir . --profiles-dir dbt/profiles --target dev \
   --select workbench_compare workbench_dashboard workbench_home_dashboard workbench_player_detail
 ```
 
-Validate the recent performance UI after starting a local app server with live
+Validate the playoff performance UI after starting a local app server with live
 warehouse access:
 
 ```bash

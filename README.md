@@ -22,8 +22,9 @@ Optional portfolio paths include Redshift Serverless as a secondary warehouse.
 - **Agentic Ask flow**: `/ask` plans questions, resolves players, asks
   clarifying follow-ups, calls allowlisted semantic tools, and returns grounded
   answers with charts, tables, assumptions, and metric context.
-- **Performance insights**: `/performance` compares recent player games against
-  season baselines with filters, percentiles, and 30-day trend context.
+- **Performance insights**: `/performance` compares 2025-26 playoff player games
+  against season baselines with filters, minutes, shooting metrics, percentiles,
+  and 30-day trend context.
 - **Research views**: player detail, comparisons, rankings, leaderboards,
   recommendations, and a 3D player similarity map support deeper stat review.
 - **Analytics engineering backbone**: source contracts, dbt models,

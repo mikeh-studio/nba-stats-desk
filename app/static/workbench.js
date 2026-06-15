@@ -117,7 +117,7 @@ function formatTrackedSummary(count, cap) {
   return `${count}/${cap} tracked in this browser`;
 }
 
-function formatTimeAgo(value) {
+export function formatTimeAgo(value) {
   if (!value) {
     return "unavailable";
   }
@@ -141,23 +141,68 @@ function formatTimeAgo(value) {
   return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
+export function formatSeasonCoverage(coverage) {
+  if (!coverage || typeof coverage !== "object") {
+    return "";
+  }
+  const season = String(coverage.season || "").trim();
+  if (!season) {
+    return "";
+  }
+  if (coverage.is_full_season === true) {
+    return `${season} full season`;
+  }
+  const seasonTypes = Array.isArray(coverage.season_types)
+    ? coverage.season_types.filter(Boolean)
+    : [];
+  if (seasonTypes.length > 0) {
+    return `${season} ${seasonTypes.join(" + ")}`;
+  }
+  return `${season} season`;
+}
+
+export function formatHealthStatusText(payload, format = "default") {
+  const status = payload?.status || "unavailable";
+  const lastRefresh = payload?.last_successful_finished_at_utc || "";
+  const includeCoverage = format === "season-coverage";
+  const coverage = includeCoverage ? formatSeasonCoverage(payload?.season_coverage) : "";
+
+  let text = "Data status unavailable";
+  if (includeCoverage && lastRefresh) {
+    text = `Last refresh ${formatTimeAgo(lastRefresh)}`;
+  } else if (status === "fresh") {
+    text = "Data fresh";
+  } else if (lastRefresh) {
+    text = `Last refresh ${formatTimeAgo(lastRefresh)}`;
+  }
+
+  return coverage ? `${text} - ${coverage}` : text;
+}
+
+function formatSeasonCoverageTitle(coverage) {
+  if (!coverage || typeof coverage !== "object") {
+    return "";
+  }
+  const dates = [coverage.first_game_date, coverage.latest_game_date].filter(Boolean);
+  const gameCount = Number(coverage.game_count);
+  const gameText = Number.isFinite(gameCount) && gameCount > 0 ? `${gameCount} games` : "";
+  const dateText = dates.join(" to ");
+  return [dateText, gameText].filter(Boolean).join(" - ");
+}
+
 function renderHealthStatus(node, payload) {
   const status = payload?.status || "unavailable";
   const lastRefresh = payload?.last_successful_finished_at_utc || "";
   node.classList.toggle("loading", false);
   node.dataset.healthState = status;
-  if (lastRefresh) {
-    node.title = lastRefresh;
+  const title = [
+    lastRefresh,
+    formatSeasonCoverageTitle(payload?.season_coverage),
+  ].filter(Boolean);
+  if (title.length > 0) {
+    node.title = title.join(" | ");
   }
-  if (status === "fresh") {
-    node.textContent = "Data fresh";
-    return;
-  }
-  if (lastRefresh) {
-    node.textContent = `Last refresh ${formatTimeAgo(lastRefresh)}`;
-    return;
-  }
-  node.textContent = "Data status unavailable";
+  node.textContent = formatHealthStatusText(payload, node.dataset.healthFormat);
 }
 
 let healthStatusStarted = false;

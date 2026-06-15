@@ -21,6 +21,7 @@
   };
 
   const $ = (selector) => document.querySelector(selector);
+  const TABLE_METRICS = ["min", "pts", "reb", "ast", "fg3m", "fg_pct", "ft_pct", "stl", "blk"];
 
   function esc(value) {
     return String(value ?? "")
@@ -48,6 +49,28 @@
     if (parsed === null) return "-";
     const prefix = parsed > 0 ? "+" : "";
     return `${prefix}${parsed.toFixed(1)}`;
+  }
+
+  function isPercentMetric(metricOrKey) {
+    if (typeof metricOrKey === "string") {
+      return metricOrKey === "fg_pct" || metricOrKey === "ft_pct";
+    }
+    return metricOrKey?.format === "percent" || isPercentMetric(metricOrKey?.key);
+  }
+
+  function fmtMetric(metricOrKey, value) {
+    const parsed = asNumber(value);
+    if (parsed === null) return "-";
+    if (isPercentMetric(metricOrKey)) return `${parsed.toFixed(1)}%`;
+    return fmt(parsed);
+  }
+
+  function fmtSignedMetric(metricOrKey, value) {
+    const parsed = asNumber(value);
+    if (parsed === null) return "-";
+    const prefix = parsed > 0 ? "+" : "";
+    const suffix = isPercentMetric(metricOrKey) ? "pp" : "";
+    return `${prefix}${parsed.toFixed(1)}${suffix}`;
   }
 
   function metricByKey(item, key) {
@@ -82,12 +105,12 @@
   }
 
   function statLabel(key) {
-    const labels = { pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK" };
+    const labels = { min: "MIN", pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", fg3m: "3PM", fg_pct: "FG%", ft_pct: "FT%" };
     return labels[key] || String(key || "").toUpperCase();
   }
 
   async function fetchJson(url) {
-    const response = await fetch(url, { cache: "default" });
+    const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) {
       throw new Error(`Request failed: ${response.status}`);
     }
@@ -167,9 +190,9 @@
     const delta = asNumber(metric.delta);
     const deltaClass = delta > 0 ? "good" : delta < 0 ? "bad" : "";
     return `
-      <td>
-        <span class="metric-value">${esc(fmt(metric.value))}</span>
-        <span class="performance-delta ${deltaClass}">${esc(fmtSigned(metric.delta))}</span>
+      <td data-metric-key="${esc(metric.key || "")}">
+        <span class="metric-value">${esc(fmtMetric(metric, metric.value))}</span>
+        <span class="performance-delta ${deltaClass}">${esc(fmtSignedMetric(metric, metric.delta))}</span>
       </td>
     `;
   }
@@ -222,7 +245,7 @@
         return `
           <tr class="${state.selectedKey === key ? "is-focus" : ""}">
             <td>
-              <button class="performance-player-button" type="button" data-player-id="${esc(player.player_id)}" data-game-id="${esc(player.game_id)}">
+              <button class="performance-player-button" type="button" data-player-id="${esc(player.player_id)}" data-game-id="${esc(player.game_id)}" aria-pressed="${state.selectedKey === key ? "true" : "false"}">
                 ${playerAvatar(player)}
                 <span class="performance-player-text">
                   <span class="performance-player-name">${esc(player.player_name)}</span>
@@ -238,11 +261,7 @@
               <span class="performance-status ${esc(status)}">${esc(statusLabel(status))}</span>
               <span class="performance-delta">${esc(fmtSigned(player.performance_score))}</span>
             </td>
-            ${metricCell(metricByKey(player, "pts"))}
-            ${metricCell(metricByKey(player, "reb"))}
-            ${metricCell(metricByKey(player, "ast"))}
-            ${metricCell(metricByKey(player, "stl"))}
-            ${metricCell(metricByKey(player, "blk"))}
+            ${TABLE_METRICS.map((metricKey) => metricCell(metricByKey(player, metricKey))).join("")}
           </tr>
         `;
       })
@@ -305,7 +324,7 @@
       <div class="performance-range-row">
         <div class="performance-range-top">
           <strong>${esc(metric.label)}</strong>
-          <span class="metric-value">${esc(fmt(metric.value))}</span>
+          <span class="metric-value">${esc(fmtMetric(metric, metric.value))}</span>
         </div>
         <div class="performance-range-track" aria-label="${esc(metric.label)} percentile range">
           <span class="performance-range-typical" style="left:${typicalLeft.toFixed(1)}%;width:${Math.max(2, typicalRight - typicalLeft).toFixed(1)}%;"></span>
@@ -313,8 +332,8 @@
           <span class="performance-range-marker" style="left:${marker.toFixed(1)}%;"></span>
         </div>
         <div class="performance-range-labels">
-          <span class="meta">Typical ${esc(fmt(range.p25))} - ${esc(fmt(range.p75))}</span>
-          <span class="meta">${percentile === null ? "N/A" : `${percentile.toFixed(1)}th`} percentile - Avg ${esc(fmt(metric.season_average))}</span>
+          <span class="meta">Typical ${esc(fmtMetric(metric, range.p25))} - ${esc(fmtMetric(metric, range.p75))}</span>
+          <span class="meta">${percentile === null ? "N/A" : `${percentile.toFixed(1)}th`} percentile - Avg ${esc(fmtMetric(metric, metric.season_average))}</span>
         </div>
       </div>
     `;
@@ -345,6 +364,7 @@
       .filter((point) => point.value !== null);
     const baseline = trendBaseline(item, state.trendStat);
     const label = statLabel(state.trendStat);
+    const trendMetric = metricByKey(item, state.trendStat);
     chartEl.dataset.pointCount = String(points.length);
     chartEl.dataset.stat = state.trendStat;
     chartEl.dataset.playerId = String(item.player_id || "");
@@ -391,7 +411,7 @@
         const y = yAt(point.value).toFixed(1);
         return `
           <circle class="performance-trend-dot" cx="${x}" cy="${y}" r="4">
-            <title>${esc(point.game_date)} ${esc(point.matchup || "")} - ${esc(label)} ${esc(fmt(point.value))}</title>
+            <title>${esc(point.game_date)} ${esc(point.matchup || "")} - ${esc(label)} ${esc(fmtMetric(trendMetric, point.value))}</title>
           </circle>
         `;
       })
@@ -400,9 +420,9 @@
     const lastLabel = points[points.length - 1]?.game_date || "";
     const pointItems = points
       .map((point) => `
-        <li class="performance-trend-point-item" data-trend-date="${esc(point.game_date || "")}" data-trend-value="${esc(fmt(point.value))}">
+        <li class="performance-trend-point-item" data-trend-date="${esc(point.game_date || "")}" data-trend-value="${esc(fmtMetric(trendMetric, point.value))}">
           <span>${esc(point.game_date || "")}</span>
-          <strong>${esc(fmt(point.value))}</strong>
+          <strong>${esc(fmtMetric(trendMetric, point.value))}</strong>
         </li>
       `)
       .join("");
@@ -415,8 +435,8 @@
         ${dots}
         <text class="performance-trend-axis" x="${pad.left}" y="${height - 14}">${esc(firstLabel)}</text>
         <text class="performance-trend-axis" text-anchor="end" x="${width - pad.right}" y="${height - 14}">${esc(lastLabel)}</text>
-        <text class="performance-trend-label" x="${pad.left}" y="15">${esc(label)} ${esc(fmt(maxValue))}</text>
-        ${baselineY === null ? "" : `<text class="performance-trend-label" text-anchor="end" x="${width - pad.right}" y="${Math.max(14, baselineY - 6).toFixed(1)}">Avg ${esc(fmt(baseline))}</text>`}
+        <text class="performance-trend-label" x="${pad.left}" y="15">${esc(label)} ${esc(fmtMetric(trendMetric, maxValue))}</text>
+        ${baselineY === null ? "" : `<text class="performance-trend-label" text-anchor="end" x="${width - pad.right}" y="${Math.max(14, baselineY - 6).toFixed(1)}">Avg ${esc(fmtMetric(trendMetric, baseline))}</text>`}
       </svg>
       <div class="performance-trend-data">
         <div class="performance-trend-data-title">${esc(label)} by game</div>
@@ -448,10 +468,10 @@
         const delta = asNumber(metric.delta);
         const deltaClass = delta > 0 ? "good" : delta < 0 ? "bad" : "";
         return `
-          <div class="metric">
+          <div class="metric" data-detail-metric-key="${esc(metric.key || "")}">
             <span class="metric-label">${esc(metric.label)}</span>
-            <span class="metric-value">${esc(fmt(metric.value))}</span>
-            <span class="meta ${deltaClass}">${esc(fmtSigned(metric.delta))} vs avg ${esc(fmt(metric.season_average))}</span>
+            <span class="metric-value">${esc(fmtMetric(metric, metric.value))}</span>
+            <span class="meta ${deltaClass}">${esc(fmtSignedMetric(metric, metric.delta))} vs avg ${esc(fmtMetric(metric, metric.season_average))}</span>
           </div>
         `;
       })
@@ -464,21 +484,7 @@
     renderTrendChart(item);
   }
 
-  function renderDetailPreview(item) {
-    renderDetail(item);
-    $("#performance-detail-meta").textContent = `${statusLabel(item.performance_status)} - ${fmtSigned(item.performance_score)} score - ${item.games_sampled || 0} season games - loading detail`;
-    $("#performance-trend-meta").textContent = "Loading 30-day trend and percentile ranges.";
-    $("#performance-trend-chart").innerHTML = '<div class="empty-state"><p>Loading trend rows...</p></div>';
-  }
-
-  function showFirstPlayerDetail() {
-    if (state.players.length === 0) return;
-    const first = state.players[0];
-    renderDetailPreview(first);
-    loadPlayerDetail(first.player_id, first.game_id, { keepPreview: true });
-  }
-
-  async function loadPlayerDetail(playerId, gameId, options = {}) {
+  async function loadPlayerDetail(playerId, gameId) {
     if (!playerId || !gameId) return;
     const key = `${playerId}:${gameId}`;
     const cached = state.detailCache.get(key);
@@ -487,9 +493,7 @@
       return;
     }
     const requestId = ++state.detailRequestId;
-    if (!options.keepPreview) {
-      setDetailEmpty("Loading percentile ranges...");
-    }
+    setDetailEmpty("Loading percentile ranges...");
     try {
       const data = await fetchJson(
         `/api/performance/players/${encodeURIComponent(playerId)}?game_id=${encodeURIComponent(gameId)}`
@@ -499,12 +503,7 @@
       renderDetail(data.item);
     } catch {
       if (requestId !== state.detailRequestId) return;
-      if (options.keepPreview) {
-        $("#performance-trend-meta").textContent = "Detailed percentile ranges could not load.";
-        $("#performance-trend-chart").innerHTML = '<div class="empty-state"><p>Trend rows are unavailable.</p></div>';
-      } else {
-        setDetailEmpty("Could not load this player performance row.");
-      }
+      setDetailEmpty("Could not load this player performance row.");
     }
   }
 
@@ -529,9 +528,6 @@
       state.selectedKey = "";
       setTableBusy(false);
       renderPlayers();
-      if (state.players.length > 0) {
-        showFirstPlayerDetail();
-      }
     } catch {
       if (requestId !== state.selectionRequestId) return;
       state.players = [];
@@ -586,7 +582,6 @@
       setTableBusy(false);
       if (state.selectedDate) {
         renderPlayers();
-        showFirstPlayerDetail();
       } else {
         setEmpty("No recent game dates are available.");
       }
