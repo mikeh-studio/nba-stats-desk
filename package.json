@@ -1,6 +1,7 @@
 {
   "name": "nba-stats-desk-workbench-tests",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "test:tracking": "node --test tests_js/*.test.js"
