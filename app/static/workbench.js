@@ -240,10 +240,11 @@ function renderHeadshot(player) {
   const imageMarkup = player.headshot_url
     ? `<img src="${escHtml(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />`
     : "";
+  const fallbackHidden = player.headshot_url ? " hidden" : "";
   return `
     <div class="player-avatar" aria-hidden="true">
       ${imageMarkup}
-      <span class="player-avatar-fallback">${initials}</span>
+      <span class="player-avatar-fallback"${fallbackHidden}>${initials}</span>
     </div>
   `;
 }
@@ -270,7 +271,7 @@ function hydrateTrackedCard(item) {
       <p>${escHtml(reason)}</p>
       <div class="chip-row">
         ${player.overall_rank ? `<span class="chip">Rank #${escHtml(player.overall_rank)}</span>` : `<span class="chip">Unranked</span>`}
-        ${player.recommendation_score ? `<span class="chip">Score ${escHtml(player.recommendation_score)}</span>` : ""}
+        ${player.recommendation_score ? `<span class="chip">P-Rating ${escHtml(player.recommendation_score)}</span>` : ""}
         <a class="button-link secondary" href="/compare?player_a_id=${escHtml(player.player_id)}">Compare</a>
       </div>
     </article>

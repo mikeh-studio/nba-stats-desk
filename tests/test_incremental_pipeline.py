@@ -1094,6 +1094,112 @@ def test_get_cdn_player_game_logs_parses_live_boxscore(monkeypatch):
     assert row["PLAYER_NAME"] == "Cade Cunningham"
 
 
+def test_get_cdn_player_game_logs_falls_back_to_scheduleleague(monkeypatch):
+    class ForbiddenResponse:
+        def raise_for_status(self):
+            raise pipeline.requests.HTTPError("403 Client Error")
+
+        def json(self):
+            raise AssertionError("403 response should not be parsed")
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    class FakeSchedule:
+        def __init__(self, *, season, timeout):
+            assert season == "2025-26"
+            assert timeout == 15.0
+
+        def get_data_frames(self):
+            return [
+                pd.DataFrame(
+                    [
+                        {
+                            "gameId": "0042500101",
+                            "gameStatus": 3,
+                            "gameStatusText": "Final",
+                            "gameDate": "2026-04-19",
+                        }
+                    ]
+                )
+            ]
+
+    player_stats = {
+        "assists": 4,
+        "blocks": 1,
+        "fieldGoalsAttempted": 10,
+        "fieldGoalsMade": 5,
+        "fieldGoalsPercentage": 0.5,
+        "foulsPersonal": 2,
+        "freeThrowsAttempted": 4,
+        "freeThrowsMade": 3,
+        "freeThrowsPercentage": 0.75,
+        "minutes": "PT25M30.00S",
+        "plusMinusPoints": 7.0,
+        "points": 16,
+        "reboundsDefensive": 5,
+        "reboundsOffensive": 1,
+        "reboundsTotal": 6,
+        "steals": 2,
+        "threePointersAttempted": 6,
+        "threePointersMade": 3,
+        "threePointersPercentage": 0.5,
+        "turnovers": 1,
+    }
+    boxscore_payload = {
+        "game": {
+            "gameId": "0042500101",
+            "gameTimeLocal": "2026-04-19T18:30:00-04:00",
+            "homeTeam": {
+                "teamTricode": "DET",
+                "score": 101,
+                "players": [
+                    {
+                        "played": "1",
+                        "personId": 1630595,
+                        "name": "Cade Cunningham",
+                        "statistics": player_stats,
+                    }
+                ],
+            },
+            "awayTeam": {
+                "teamTricode": "ORL",
+                "score": 112,
+                "players": [],
+            },
+        }
+    }
+
+    def fake_get(url, **_kwargs):
+        if "scheduleLeague" in url:
+            return ForbiddenResponse()
+        if "boxscore_0042500101" in url:
+            return FakeResponse(boxscore_payload)
+        raise AssertionError(f"Unexpected URL: {url}")
+
+    monkeypatch.setattr(pipeline.requests, "get", fake_get)
+    monkeypatch.setattr(pipeline.scheduleleaguev2, "ScheduleLeagueV2", FakeSchedule)
+    monkeypatch.setattr(pipeline.time, "sleep", lambda _seconds: None)
+
+    result = pipeline.get_cdn_player_game_logs(
+        season_types=["Playoffs"],
+        start_date="2026-04-18",
+        end_date="2026-04-20",
+        delay=0,
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["GAME_ID"] == "0042500101"
+    assert result.iloc[0]["PLAYER_NAME"] == "Cade Cunningham"
+
+
 def _shot_location_api_frame():
     columns = pd.MultiIndex.from_arrays(
         [

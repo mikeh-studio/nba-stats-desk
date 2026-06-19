@@ -6,9 +6,6 @@
         <div class="eyebrow">Similar Players</div>
         <h1>Similar Players</h1>
       </div>
-      <div class="hero-actions">
-        <span class="status" data-health-status>Data status loading</span>
-      </div>
     </div>
     <p class="subhead">
       Every qualified player for {{ season }}, projected from their full
@@ -76,10 +73,10 @@
   <style>
     .map-controls {
       display: flex;
-      gap: 12px;
+      gap: 0.75rem;
       align-items: center;
       flex-wrap: wrap;
-      margin-bottom: 12px;
+      margin-bottom: 0.75rem;
     }
     .map-search {
       flex: 1 1 280px;
@@ -87,7 +84,7 @@
     .map-layout {
       display: grid;
       grid-template-columns: minmax(0, 1fr);
-      gap: 16px;
+      gap: 1rem;
     }
     @media (min-width: 960px) {
       .map-layout.has-selection {
@@ -100,27 +97,27 @@
       min-height: 420px;
     }
     .map-panel {
-      border: 1px solid var(--border, rgba(231, 224, 212, 0.15));
-      border-radius: 12px;
-      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 1rem;
     }
     .map-panel-head {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      gap: 12px;
-      margin-bottom: 8px;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
     }
     .map-panel-head h3 {
       margin: 2px 0 0;
     }
     .map-neighbor-list {
       list-style: none;
-      margin: 12px 0 0;
+      margin: 0.75rem 0 0;
       padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 0.5rem;
     }
     .map-neighbor {
       display: flex;
@@ -136,10 +133,10 @@
       opacity: 0.85;
     }
     .map-panel-foot {
-      margin-top: 12px;
+      margin-top: 0.75rem;
     }
     .similarity-note {
-      margin-top: 12px;
+      margin-top: 0.75rem;
     }
     .similarity-empty {
       padding: 48px 16px;

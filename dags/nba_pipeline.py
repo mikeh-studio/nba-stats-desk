@@ -751,6 +751,81 @@ def _extract_cdn_schedule_games(
     return games
 
 
+def _extract_scheduleleague_games(
+    frame: pd.DataFrame,
+    *,
+    season_types: Iterable[str],
+    start_date: Any = None,
+    end_date: Any = None,
+) -> list[dict[str, Any]]:
+    if frame.empty:
+        return []
+
+    requested = set(normalize_game_log_season_types(season_types))
+    start = coerce_to_date(start_date)
+    end = coerce_to_date(end_date)
+    season_start, season_end = get_season_date_bounds(SUPPORTED_SEASON)
+    if start is None:
+        start = season_start
+    if end is None:
+        end = min(date.today(), season_end)
+
+    games: list[dict[str, Any]] = []
+    for row in frame.to_dict("records"):
+        game_id = str(row.get("gameId") or row.get("GAME_ID") or "").strip()
+        season_type = _cdn_season_type_from_game_id(game_id)
+        if season_type not in requested:
+            continue
+
+        game_status = str(row.get("gameStatus") or "").strip()
+        game_status_text = str(row.get("gameStatusText") or "").strip().lower()
+        if game_status != "3" and "final" not in game_status_text:
+            continue
+
+        game_date = coerce_to_date(
+            row.get("gameDate")
+            or row.get("gameDateEst")
+            or row.get("gameDateTimeUTC")
+            or row.get("GAME_DATE")
+        )
+        if game_date is None or game_date < start or game_date > end:
+            continue
+
+        games.append(
+            {
+                "game_id": game_id,
+                "season_type": season_type,
+                "game_date": game_date,
+            }
+        )
+
+    games.sort(key=lambda item: (item["game_date"], item["game_id"]))
+    return games
+
+
+def _get_scheduleleague_completed_games(
+    *,
+    season: str,
+    season_types: Iterable[str],
+    start_date: Any = None,
+    end_date: Any = None,
+    timeout: float = NBA_API_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    schedule = scheduleleaguev2.ScheduleLeagueV2(
+        season=season,
+        timeout=timeout,
+    )
+    frames = schedule.get_data_frames()
+    if not frames:
+        return []
+    return _extract_scheduleleague_games(
+        frames[0],
+        season_types=season_types,
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
 def _metric(stats: dict[str, Any], name: str, default: Any = 0) -> Any:
     value = stats.get(name, default)
     return default if value is None else value
@@ -854,13 +929,30 @@ def get_cdn_player_game_logs(
     out but the public CDN boxscore JSON remains available.
     """
     normalized_season_types = normalize_game_log_season_types(season_types)
-    schedule_payload = _request_nba_cdn_json(NBA_CDN_SCHEDULE_URL, timeout=timeout)
-    scheduled_games = _extract_cdn_schedule_games(
-        schedule_payload,
-        season_types=normalized_season_types,
-        start_date=start_date,
-        end_date=end_date,
-    )
+    try:
+        schedule_payload = _request_nba_cdn_json(NBA_CDN_SCHEDULE_URL, timeout=timeout)
+        scheduled_games = _extract_cdn_schedule_games(
+            schedule_payload,
+            season_types=normalized_season_types,
+            start_date=start_date,
+            end_date=end_date,
+        )
+    except Exception:
+        logger.warning(
+            "NBA CDN schedule unavailable; falling back to scheduleleaguev2",
+            exc_info=True,
+        )
+        try:
+            scheduled_games = _get_scheduleleague_completed_games(
+                season=season,
+                season_types=normalized_season_types,
+                start_date=start_date,
+                end_date=end_date,
+                timeout=timeout,
+            )
+        except Exception:
+            logger.exception("Failed NBA API schedule fallback for CDN boxscores")
+            scheduled_games = []
     if not scheduled_games:
         return pd.DataFrame(columns=[field.name for field in get_game_logs_schema()])
 

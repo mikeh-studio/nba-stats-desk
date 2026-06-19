@@ -36,9 +36,11 @@ the line, there was no plain rendered trend-data surface to inspect.
 
 ## Future Guardrail
 
-For UI data bugs, verify the rendered DOM, not only the API. The acceptance
-check should assert user-visible metric cells and trend content from the
-browser-rendered page.
+The current Performance page uses the loaded player row to open a lightweight
+modal and leaves deeper trend detail on the player page. For UI data bugs,
+verify the rendered DOM, not only the API. The acceptance check should assert
+user-visible table metrics, signed P-Rating sorting, modal content, and the
+View Details link from the browser-rendered page.
 
 Run the UI check with a local server:
 

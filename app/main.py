@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.agent.conversation import get_conversation_store
+from app.agent.history import append_history_turn, clear_history, read_history
 from app.agent.observability import LOGGER_NAME, AgentTrace
 from app.agent.service import AgentDisabledError, AgentExecutionError, StatsAgent
 from app.config import (
@@ -47,7 +48,7 @@ from app.repository import (
 from app.telemetry import instrument_compare_view, instrument_player_view
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260615-season-coverage-v1"
+STATIC_VERSION = "20260619-ui-agent-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 TRACKING_CAP = 8
@@ -364,6 +365,12 @@ def _sse(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
+def _answer_delta_chunks(answer: str, *, chunk_size: int = 120):
+    text = str(answer or "")
+    for index in range(0, len(text), chunk_size):
+        yield text[index : index + chunk_size]
+
+
 AGENT_UNAVAILABLE_DETAIL = "Ask NBA Stats is unavailable."
 AGENT_FAILED_DETAIL = (
     "Ask NBA Stats failed while generating an answer. Try again shortly."
@@ -419,6 +426,29 @@ def _prepare_agent_request(
         trace.emit()
         raise
     return request_id, conversation_id, question, trace
+
+
+def _record_agent_history(
+    settings: Settings,
+    *,
+    request_id: str,
+    conversation_id: str,
+    question: str,
+    payload: dict[str, Any],
+    provider: str,
+    model: str,
+) -> None:
+    if not settings.agent_history_enabled:
+        return
+    append_history_turn(
+        settings.agent_history_path,
+        conversation_id=conversation_id,
+        request_id=request_id,
+        question=question,
+        provider=provider,
+        model=model,
+        payload=payload,
+    )
 
 
 @app.get("/api/leaderboard")
@@ -781,7 +811,17 @@ def api_agent_ask(
         trace.emit()
     answer.pop("answer_streamed", None)
     response.headers["X-Request-ID"] = request_id
-    return {"season": SUPPORTED_SEASON, "request_id": request_id, **answer}
+    final_payload = {"season": SUPPORTED_SEASON, "request_id": request_id, **answer}
+    _record_agent_history(
+        settings,
+        request_id=request_id,
+        conversation_id=conversation_id,
+        question=question,
+        payload=final_payload,
+        provider=_selected_agent_provider(payload),
+        model=trace.model,
+    )
+    return final_payload
 
 
 @app.post("/api/agent/ask/stream")
@@ -817,11 +857,21 @@ def api_agent_ask_stream(
                 answer["request_id"] = request_id
                 answer["season"] = SUPPORTED_SEASON
                 if not answer.pop("answer_streamed", False):
-                    # Word-split fallback for paths that didn't stream real
-                    # deltas (OpenAI provider, tool-loop answers).
-                    for token in str(answer.get("answer") or "").split(" "):
-                        if token:
-                            queue.put({"type": "answer_delta", "delta": f"{token} "})
+                    # Fallback for paths that did not stream real deltas
+                    # (OpenAI provider, tool-loop answers). Preserve Markdown
+                    # whitespace so headings/lists survive interim rendering.
+                    for chunk in _answer_delta_chunks(str(answer.get("answer") or "")):
+                        if chunk:
+                            queue.put({"type": "answer_delta", "delta": chunk})
+                _record_agent_history(
+                    settings,
+                    request_id=request_id,
+                    conversation_id=conversation_id,
+                    question=question,
+                    payload=answer,
+                    provider=_selected_agent_provider(payload),
+                    model=trace.model,
+                )
                 queue.put({"type": "final", "payload": answer})
             except AgentDisabledError as exc:
                 _fail_trace(trace, exc)
@@ -867,6 +917,25 @@ def api_agent_ask_stream(
         media_type="text/event-stream",
         headers={"X-Request-ID": request_id},
     )
+
+
+@app.get("/api/agent/history")
+def api_agent_history(
+    settings: Annotated[Settings, Depends(get_settings)],
+    limit: int = Query(default=25, ge=1, le=100),
+) -> dict:
+    if not settings.agent_history_enabled:
+        return {"conversations": []}
+    return read_history(settings.agent_history_path, limit=limit)
+
+
+@app.delete("/api/agent/history")
+def api_agent_history_clear(
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict:
+    if settings.agent_history_enabled:
+        clear_history(settings.agent_history_path)
+    return {"status": "ok"}
 
 
 @app.get("/ask", response_class=HTMLResponse)

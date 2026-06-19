@@ -1340,9 +1340,13 @@ def _test_settings(**overrides: object) -> Settings:
 
 
 class FakeOpenAIResponses:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        answer: str = "Tyrese Maxey resolves to a qualified 2025-26 player.",
+    ) -> None:
         self.calls = 0
         self.kwargs: list[dict] = []
+        self.answer = answer
 
     def create(self, **kwargs):
         self.calls += 1
@@ -1363,7 +1367,7 @@ class FakeOpenAIResponses:
             output=[],
             output_text=json.dumps(
                 {
-                    "answer": "Tyrese Maxey resolves to a qualified 2025-26 player.",
+                    "answer": self.answer,
                     "assumptions": ["Qualified players have at least 5 games."],
                     "tables": [],
                     "charts": [],
@@ -1381,8 +1385,11 @@ class FakeOpenAIResponses:
 
 
 class FakeOpenAIClient:
-    def __init__(self) -> None:
-        self.responses = FakeOpenAIResponses()
+    def __init__(
+        self,
+        answer: str = "Tyrese Maxey resolves to a qualified 2025-26 player.",
+    ) -> None:
+        self.responses = FakeOpenAIResponses(answer=answer)
 
 
 class FakeOpenAIDateRangeResponses:
@@ -1477,17 +1484,22 @@ def test_ask_page_smoke() -> None:
     assert response.status_code == 200
     assert "Ask NBA Stats" in response.text
     assert f"/static/agent.js?v={STATIC_VERSION}" in response.text
-    assert "data-health-status" in response.text
+    assert "data-health-status" not in response.text
     assert "data-agent-provider" in response.text
     assert "data-agent-model" in response.text
+    assert "data-agent-history-card" in response.text
+    assert "data-agent-history-list" in response.text
+    assert "data-agent-new-chat" in response.text
+    assert "data-agent-clear-history" in response.text
     assert "agent-player-profile" in response.text
+    assert "agent-answer-markdown" in response.text
     assert "gpt-5.5" in response.text
     assert "claude-fable-5" in response.text
     assert "Claude (Anthropic)" in response.text
-    assert ">Ask</a>" in response.text
-    assert ">Player Trends</a>" in response.text
-    assert ">Similar Players</a>" in response.text
-    assert ">Player Compare</a>" in response.text
+    assert ">ASK</a>" in response.text
+    assert ">TRENDS</a>" in response.text
+    assert ">SIMILAR</a>" in response.text
+    assert ">COMPARE</a>" in response.text
     assert ">Dashboard</a>" not in response.text
     assert ">Visualize</a>" not in response.text
 
@@ -1497,7 +1509,7 @@ def test_ask_page_does_not_block_on_health() -> None:
     response = client.get("/ask")
 
     assert response.status_code == 200
-    assert "Data status loading" in response.text
+    assert "Data status loading" not in response.text
 
 
 def test_api_agent_ask_returns_disabled_without_openai_key() -> None:
@@ -1570,6 +1582,104 @@ def test_api_agent_ask_runs_mocked_openai_tool_loop() -> None:
         for message in developer_messages
     )
     assert fake_openai.responses.calls == 2
+
+
+def test_api_agent_ask_writes_local_history(tmp_path: Path) -> None:
+    history_path = tmp_path / "ask_history.jsonl"
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_history_enabled=True,
+            agent_history_path=str(history_path),
+        ),
+        agent_client=FakeOpenAIClient(),
+    )
+
+    response = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers={"X-Request-ID": "req-history-json"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    records = [json.loads(line) for line in history_path.read_text().splitlines()]
+    assert len(records) == 1
+    record = records[0]
+    assert record["conversation_id"] == payload["conversation_id"]
+    assert record["request_id"] == "req-history-json"
+    assert record["question"] == "How is Tyrese Maxey trending?"
+    assert record["provider"] == "openai"
+    assert record["model"] == "gpt-5.4-mini"
+    assert record["payload"]["request_id"] == "req-history-json"
+    assert record["payload"]["answer"] == payload["answer"]
+
+
+def test_api_agent_history_is_public_safe_by_default(tmp_path: Path) -> None:
+    history_path = tmp_path / "ask_history_disabled.jsonl"
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_history_path=str(history_path),
+        ),
+        agent_client=FakeOpenAIClient(),
+    )
+
+    response = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers={"X-Request-ID": "req-history-disabled"},
+    )
+
+    assert response.status_code == 200
+    assert not history_path.exists()
+    assert client.get("/api/agent/history").json() == {"conversations": []}
+    assert client.delete("/api/agent/history").json() == {"status": "ok"}
+
+
+def test_api_agent_history_groups_full_payloads_and_clears(tmp_path: Path) -> None:
+    history_path = tmp_path / "ask_history.jsonl"
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_history_enabled=True,
+            agent_history_path=str(history_path),
+        ),
+        agent_client=FakeOpenAIClient(),
+    )
+
+    first = client.post(
+        "/api/agent/ask",
+        json={"question": "How is Tyrese Maxey trending?"},
+        headers={"X-Request-ID": "req-history-1"},
+    )
+    conversation_id = first.json()["conversation_id"]
+    second = client.post(
+        "/api/agent/ask",
+        json={
+            "question": "What changed in the last 5 games?",
+            "conversation_id": conversation_id,
+        },
+        headers={"X-Request-ID": "req-history-2"},
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    history = client.get("/api/agent/history?limit=25")
+    assert history.status_code == 200
+    conversations = history.json()["conversations"]
+    assert len(conversations) == 1
+    assert conversations[0]["conversation_id"] == conversation_id
+    assert [turn["request_id"] for turn in conversations[0]["turns"]] == [
+        "req-history-1",
+        "req-history-2",
+    ]
+    assert conversations[0]["turns"][0]["payload"]["answer"].startswith("Tyrese Maxey")
+
+    cleared = client.delete("/api/agent/history")
+    assert cleared.status_code == 200
+    assert cleared.json() == {"status": "ok"}
+    assert client.get("/api/agent/history").json() == {"conversations": []}
 
 
 def test_api_agent_ask_uses_selected_openai_model() -> None:
@@ -1802,6 +1912,35 @@ def test_api_agent_ask_stream_sends_progress_and_final_payload() -> None:
     assert '"profile_url": "/players/7"' in response.text
 
 
+def test_api_agent_ask_stream_preserves_markdown_deltas_and_logs_history(
+    tmp_path: Path,
+) -> None:
+    markdown_answer = "## Summary\n\n### Context\n\n- **PTS:** 30\n- `AST`: 7"
+    history_path = tmp_path / "stream_history.jsonl"
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_history_enabled=True,
+            agent_history_path=str(history_path),
+        ),
+        agent_client=FakeOpenAIClient(answer=markdown_answer),
+    )
+
+    response = client.post(
+        "/api/agent/ask/stream",
+        json={"question": "Summarize Tyrese Maxey in Markdown."},
+        headers={"X-Request-ID": "req-history-stream"},
+    )
+
+    assert response.status_code == 200
+    assert "event: answer_delta" in response.text
+    assert "## Summary\\n\\n### Context" in response.text
+    records = [json.loads(line) for line in history_path.read_text().splitlines()]
+    assert len(records) == 1
+    assert records[0]["request_id"] == "req-history-stream"
+    assert records[0]["payload"]["answer"] == markdown_answer
+
+
 def test_api_agent_ask_stream_rejects_overlong_question_with_request_id() -> None:
     client = build_client(
         settings=_test_settings(
@@ -1835,6 +1974,7 @@ def test_player_page_smoke() -> None:
     assert "Game Log" in response.text
     assert "Recent Windows" in response.text
     assert "League Percentiles" in response.text
+    assert "P-Rating 91.2" in response.text
     assert "Ball Security" in response.text
     assert "Box Score Index" in response.text
     assert "Primary Creator" in response.text
@@ -2030,7 +2170,7 @@ def test_player_page_logs_degraded_panel_state(caplog) -> None:
     )
 
 
-def test_compare_page_logs_stale_freshness(caplog) -> None:
+def test_compare_page_does_not_log_stale_freshness_banner(caplog) -> None:
     client = build_client(StaleRepository())
 
     with caplog.at_level("INFO", logger=LOGGER_NAME):
@@ -2042,12 +2182,7 @@ def test_compare_page_logs_stale_freshness(caplog) -> None:
         for record in caplog.records
         if "panel_degraded" in record.message
     ]
-    assert any(
-        event["panel"] == "freshness_banner"
-        and event["reason"] == "stale_freshness"
-        and event["surface"] == "compare"
-        for event in events
-    )
+    assert not any(event["panel"] == "freshness_banner" for event in events)
 
 
 def test_api_player_game_log_success() -> None:
@@ -2114,12 +2249,20 @@ def test_performance_page_smoke() -> None:
     assert "Player Trends" in response.text
     assert "/static/performance.js" in response.text
     assert f"performance.js?v={STATIC_VERSION}" in response.text
-    assert "data-health-status" in response.text
-    assert 'data-health-format="season-coverage"' in response.text
+    assert "data-health-status" not in response.text
+    assert 'data-health-format="season-coverage"' not in response.text
     assert "performance-date-select" in response.text
     assert "Player View" in response.text
+    assert "data-performance-modal" in response.text
+    assert "performance-modal-detail-link" in response.text
+    assert "View Details" in response.text
+    assert "Percentile ranges load after selecting a player." not in response.text
     assert "FG%" in response.text
     assert "3PM" in response.text
+    assert "data-performance-rating-info" in response.text
+    assert 'aria-label="How P-Rating works"' in response.text
+    assert "PTS, REB, AST, STL, and BLK are converted to z-scores" in response.text
+    assert "MIN, 3PM, FG%, and FT% are context only" in response.text
 
 
 def test_performance_page_does_not_block_on_health() -> None:
@@ -2127,7 +2270,7 @@ def test_performance_page_does_not_block_on_health() -> None:
     response = client.get("/performance")
 
     assert response.status_code == 200
-    assert "Last refresh loading" in response.text
+    assert "Last refresh loading" not in response.text
 
 
 def test_api_performance_initial_returns_boot_payload_and_uses_cache() -> None:
@@ -2381,7 +2524,7 @@ def test_similarity_map_page_smoke() -> None:
     assert response.status_code == 200
     assert "Similar Players" in response.text
     assert f"/static/similarity_map.js?v={STATIC_VERSION}" in response.text
-    assert "data-health-status" in response.text
+    assert "data-health-status" not in response.text
     assert "plotly-gl3d" in response.text
     assert 'id="map-axes-note"' in response.text
 
@@ -2391,7 +2534,7 @@ def test_similarity_map_page_does_not_block_on_health() -> None:
     response = client.get("/similarity-map")
 
     assert response.status_code == 200
-    assert "Data status loading" in response.text
+    assert "Data status loading" not in response.text
 
 
 def test_api_similarity_map_neighbors_returns_ranked_matches() -> None:

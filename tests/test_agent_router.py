@@ -89,6 +89,20 @@ def test_opponent_breakdown_appends_split_tool_to_plan() -> None:
     assert "get_player_opponent_splits" in agent_plan.required_tools
 
 
+def test_deterministic_plan_preserves_last_n_weeks_window() -> None:
+    from app.agent.planner import deterministic_query_plan
+
+    plan = deterministic_query_plan(
+        "Analyze Jalen Brunson's performance over the past 10 weeks "
+        "on a week-over-week basis."
+    )
+
+    assert plan.route == AgentRoute.PLAYER_TREND
+    assert plan.time_window.kind == "last_n_weeks"
+    assert plan.time_window.last_n_weeks == 10
+    assert plan.time_window.last_n_games is None
+
+
 def test_llm_clarify_falls_back_to_deterministic_route_for_named_player() -> None:
     from types import SimpleNamespace
 
@@ -99,7 +113,8 @@ def test_llm_clarify_falls_back_to_deterministic_route_for_named_player() -> Non
         '{"route": "clarify", "confidence": 0.9, "answer_depth": "normal",'
         ' "raw_player_mentions": ["Wembanyama"], "metrics": [],'
         ' "min_games": null, "time_window": {"kind": "last_n_games",'
-        ' "last_n_games": 20, "start_date": null, "end_date": null},'
+        ' "last_n_games": 20, "last_n_weeks": null,'
+        ' "start_date": null, "end_date": null},'
         ' "needs_clarification": true,'
         ' "clarification_question": "Which stat do you want?"}'
     )

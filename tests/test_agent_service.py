@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.agent.conversation import InMemoryConversationStore
 from app.agent.observability import AgentTrace
 from app.agent.service import (
+    SYSTEM_PROMPT,
     AgentDisabledError,
     StatsAgent,
     _AnswerFieldStream,
@@ -217,6 +218,14 @@ def test_normalize_agent_answer_handles_malformed_payloads() -> None:
     assert payload["charts"] == []
 
 
+def test_system_prompt_keeps_tables_out_of_answer_prose() -> None:
+    prompt = SYSTEM_PROMPT.lower()
+
+    assert "do not include markdown tables" in prompt
+    assert "do not repeat row-by-row values" in prompt
+    assert "tables payload" in prompt
+
+
 def test_clarification_short_circuits_without_openai() -> None:
     client = SequenceClient([])
     trace = AgentTrace("req-1", "stats", "gpt-5.4-mini")
@@ -309,6 +318,51 @@ def test_garbage_metrics_and_opponent_question_answers_from_evidence(
     )
     assert "toughest_opponent" in evidence_text
     assert "BOS" in evidence_text
+
+
+def test_week_window_does_not_collapse_to_default_ten_games(monkeypatch) -> None:
+    from app.agent import service as service_module
+    from app.agent.planner import QueryPlan, TimeWindow
+    from app.agent.router import AgentRoute
+
+    def fake_build_query_plan(question: str, **kwargs: object) -> QueryPlan:
+        return QueryPlan(
+            route=AgentRoute.PLAYER_TREND,
+            confidence=0.9,
+            raw_player_mentions=["Tyrese Maxey"],
+            metrics=[],
+            time_window=TimeWindow(kind="last_n_weeks", last_n_weeks=10),
+        )
+
+    monkeypatch.setattr(service_module, "build_query_plan", fake_build_query_plan)
+    client = SequenceClient([])
+    agent = StatsAgent(_settings(), AgentServiceFakeRepository(), client=client)
+
+    payload = agent.answer(
+        "Analyze Tyrese Maxey's performance over the past 10 weeks "
+        "on a week-over-week basis."
+    )
+
+    assert payload["query_plan"]["time_window"]["kind"] == "last_n_weeks"
+    assert payload["query_plan"]["time_window"]["last_n_weeks"] == 10
+    trend_call = next(
+        call for call in payload["tool_calls"] if call["name"] == "get_player_trends"
+    )
+    game_log_call = next(
+        call for call in payload["tool_calls"] if call["name"] == "get_player_game_log"
+    )
+    assert trend_call["args"]["limit"] == 70
+    assert game_log_call["args"]["limit"] == 70
+    evidence_text = "".join(
+        message["content"]
+        for message in client.responses.kwargs[-1]["input"]
+        if message.get("role") == "developer"
+    )
+    assert '"kind": "last_n_weeks"' in evidence_text
+    assert "last 10 weeks" in evidence_text
+    assert (
+        "Do not title or frame the answer as a last-N-games analysis" in evidence_text
+    )
 
 
 def test_vague_metric_does_not_clarify_when_player_resolves(monkeypatch) -> None:

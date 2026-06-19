@@ -21,10 +21,11 @@ Optional portfolio paths include Redshift Serverless as a secondary warehouse.
 
 - **Agentic Ask flow**: `/ask` plans questions, resolves players, asks
   clarifying follow-ups, calls allowlisted semantic tools, and returns grounded
-  answers with charts, tables, assumptions, and metric context.
+  Markdown answers with charts, tables, assumptions, metric context, and
+  browser-local chat history.
 - **Performance insights**: `/performance` compares 2025-26 playoff player games
-  against season baselines with filters, minutes, shooting metrics, percentiles,
-  and 30-day trend context.
+  against season baselines with filters, signed P-Rating, minutes, shooting
+  metrics, and a lightweight player snapshot modal.
 - **Research views**: player detail, comparisons, rankings, leaderboards,
   recommendations, and a 3D player similarity map support deeper stat review.
 - **Analytics engineering backbone**: source contracts, dbt models,
@@ -103,8 +104,11 @@ API client or the Anthropic-backed Claude API adapter. For answerable questions
 it builds a bounded query plan, resolves players from
 `nba_agent.agent_player_search`, gathers evidence through allowlisted tools, and
 asks the selected LLM to produce the final structured answer with charts, tables,
-assumptions, and metric context. Claude API requests can stream token-by-token,
-use provider prompt caching, and honor a separate
+assumptions, and metric context. The answer pane renders concise Markdown prose
+while detailed rows stay in the Tables panel. Browser history keeps recent chats
+locally; the optional server JSONL history log is disabled by default and should
+only be enabled for local development. Claude API requests can stream
+token-by-token, use provider prompt caching, and honor a separate
 `ANTHROPIC_AGENT_TIMEOUT_SECONDS` wall clock because structured answers run
 longer than the OpenAI API path's `OPENAI_AGENT_TIMEOUT_SECONDS`. Deterministic
 planning is a fallback and guardrail, and clarification-only requests can
@@ -118,7 +122,7 @@ See [Public Service](docs/public-service.md) for route and agent details.
 This repo is public-safe by design: it contains the data platform, source
 contracts, dbt feature layer, public baseline similarity model, and read-only
 app. Tuned personal-model code, generated reports, notebooks, model artifacts,
-and real credentials should stay private. See
+local chat logs, and real credentials should stay private. See
 [Public / Private Boundary](docs/public-private-boundary.md).
 
 ## Local Quickstart

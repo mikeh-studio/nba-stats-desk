@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import date, timedelta
 from time import monotonic, sleep
 from typing import Any, Callable
 
@@ -33,12 +34,14 @@ Use calculate_player_percentile for questions asking where one player ranks in a
 For "points attributed", "points created", or "points + assists * 2", use metric points_created.
 For game-by-game questions, call get_player_game_log so the response can include each game's values.
 For "how have their stats changed over the last N games" questions, read get_player_trends: describe the trajectory using trend_shape and slope_per_game, contrast the first-half vs second-half averages (prior_avg vs recent_avg), and if change_point is present call out the in-window shift (split_date, before_avg to after_avg). Note volatility/best/worst when form was streaky. Cover efficiency and impact (FG%, 3P%, TS%, +/-), not just scoring; metrics with unit "percent" are already 0-100 percentages and their deltas are percentage points.
+For "last N weeks" or "week-over-week" questions, preserve the requested week-based framing. Do not rename that window as "last N games"; summarize weekly direction from the available game-log evidence and say when exact week buckets are limited by available rows.
 For "which team did they struggle against" or opponent-matchup questions, use get_player_opponent_splits. The toughest_opponent is ranked by struggle_score (a blend of shooting efficiency and plus-minus vs the player's own average), so explain that a team can be the toughest matchup on efficiency/impact even when raw points look fine. Use toughest_opponent_games to show the individual shooting nights (fg, fg3, ts_pct, plus_minus) behind that verdict.
 For date-range questions, pass start_date and end_date as YYYY-MM-DD tool arguments; use null for an open side of the range.
 Respect explicit minimum-games filters; if the cohort is empty or the player is outside it, say that directly.
 Do not invent SQL, raw table names, injuries, transactions, or facts not present in tool data.
 If a player name is ambiguous, ask the user to choose from the matches.
 Copy relevant tool chart/table payloads into the final structured response.
+Format the answer field as concise Markdown narrative only: headings and list items must start on their own lines, do not include Markdown tables, and do not repeat row-by-row values that already appear in the structured tables payload. Summarize the takeaway in prose and reserve detailed rows for tables.
 Keep answers direct and useful for NBA fans comparing player form against the league.
 """.strip()
 
@@ -54,6 +57,48 @@ a tool fell back to default metrics or returned partial data, use it and note
 the limitation. Only decline a sub-question when no relevant evidence is
 present at all.
 """.strip()
+
+
+def _game_limit_for_time_window(window: Any) -> int:
+    if getattr(window, "last_n_games", None):
+        return int(window.last_n_games)
+    if getattr(window, "last_n_weeks", None):
+        # Fetch enough recent games to support a week-based question without
+        # silently collapsing the request into the default 10-game sample.
+        return min(82, max(10, int(window.last_n_weeks) * 7))
+    return 10
+
+
+def _requested_window_context(window: Any) -> dict[str, Any]:
+    if getattr(window, "last_n_weeks", None):
+        weeks = int(window.last_n_weeks)
+        return {
+            "kind": "last_n_weeks",
+            "label": f"last {weeks} week{'s' if weeks != 1 else ''}",
+            "weeks": weeks,
+            "tool_game_limit": _game_limit_for_time_window(window),
+            "start_date": getattr(window, "start_date", None),
+            "end_date": getattr(window, "end_date", None),
+            "instruction": (
+                "The user requested a week-based view. Do not title or frame "
+                "the answer as a last-N-games analysis."
+            ),
+        }
+    if getattr(window, "last_n_games", None):
+        games = int(window.last_n_games)
+        return {
+            "kind": "last_n_games",
+            "label": f"last {games} game{'s' if games != 1 else ''}",
+            "games": games,
+            "tool_game_limit": games,
+        }
+    if getattr(window, "kind", "") == "date_range":
+        return {
+            "kind": "date_range",
+            "start_date": getattr(window, "start_date", None),
+            "end_date": getattr(window, "end_date", None),
+        }
+    return {"kind": getattr(window, "kind", "unspecified") or "unspecified"}
 
 
 AGENT_ANSWER_SCHEMA: dict[str, Any] = {
@@ -332,6 +377,35 @@ def _resolved_players_payload(
         for resolution in resolutions
         if resolution.status == "ok" and resolution.player is not None
     ]
+
+
+def _apply_week_window_date_range(
+    query_plan: QueryPlan,
+    resolutions: list[PlayerResolution],
+) -> None:
+    window = query_plan.time_window
+    if window.kind != "last_n_weeks" or not window.last_n_weeks:
+        return
+    if window.start_date or window.end_date:
+        return
+    player = next(
+        (
+            resolution.player
+            for resolution in resolutions
+            if resolution.status == "ok" and resolution.player is not None
+        ),
+        None,
+    )
+    if player is None or not player.latest_game_date:
+        return
+    try:
+        weeks = max(1, min(52, int(window.last_n_weeks)))
+        end_date = date.fromisoformat(str(player.latest_game_date).split("T", 1)[0])
+    except (TypeError, ValueError):
+        return
+    start_date = end_date - timedelta(days=(weeks * 7) - 1)
+    window.start_date = start_date.isoformat()
+    window.end_date = end_date.isoformat()
 
 
 def _safe_json(value: Any) -> str:
@@ -950,8 +1024,10 @@ class StatsAgent:
         ]
         metrics = query_plan.metrics or None
         window = query_plan.time_window
+        _apply_week_window_date_range(query_plan, resolutions)
         evidence: dict[str, Any] = {
             "query_plan": query_plan.model_dump(mode="json"),
+            "requested_window": _requested_window_context(window),
             "resolved_players": [
                 player.model_dump(mode="json")
                 for player in players
@@ -1027,7 +1103,7 @@ class StatsAgent:
 
         start_date = window.start_date
         end_date = window.end_date
-        game_limit = window.last_n_games or 10
+        game_limit = _game_limit_for_time_window(window)
         if query_plan.route == AgentRoute.PLAYER_TREND:
             if not add_tool(
                 "get_player_trends",
@@ -1118,7 +1194,7 @@ class StatsAgent:
                 },
             ):
                 return evidence
-            if window.kind in {"recent", "last_n_games"}:
+            if window.kind in {"recent", "last_n_games", "last_n_weeks"}:
                 for player in players[:2]:
                     if player.player_id is not None:
                         if not add_tool(
@@ -1487,6 +1563,7 @@ class StatsAgent:
             max_tool_calls=max_tool_calls,
         )
         if evidence is not None:
+            agent_plan = query_plan.to_agent_plan(cleaned_question)
             if evidence.get("tool_limit_reached"):
                 payload = _default_agent_answer(
                     "I hit the tool-call limit before finishing. Try a narrower question."

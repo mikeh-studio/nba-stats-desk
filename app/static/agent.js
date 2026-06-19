@@ -6,6 +6,140 @@ function escHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+const HISTORY_STORAGE_KEY = "askChatHistory:v1";
+const HISTORY_CONVERSATION_CAP = 25;
+const HISTORY_TURN_CAP = 20;
+
+function looksLikeMarkdownTableLine(line) {
+  const trimmed = String(line || "").trim();
+  return trimmed.includes("|") && trimmed.split("|").length >= 3;
+}
+
+function looksLikeMarkdownTableSeparator(line) {
+  return /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(
+    String(line || "")
+  );
+}
+
+function stripMarkdownTables(value) {
+  const lines = String(value ?? "").split("\n");
+  const kept = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (
+      looksLikeMarkdownTableLine(line) &&
+      looksLikeMarkdownTableSeparator(lines[index + 1] || "")
+    ) {
+      index += 2;
+      while (index < lines.length && looksLikeMarkdownTableLine(lines[index])) {
+        index += 1;
+      }
+      index -= 1;
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
+function normalizeAnswerMarkdown(markdown) {
+  let text = String(markdown ?? "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/\u00a0/g, " ");
+  text = stripMarkdownTables(text);
+  text = text.replace(/([^\n])\s+(#{2,4})\s+(?=\S)/g, "$1\n\n$2 ");
+  text = text.replace(/([^\n])\s+(-{3,}|\*{3,})(?=\s|$)/g, "$1\n\n$2");
+  text = text.replace(
+    /\s+-\s+(?=(?:\*\*)?[A-Za-z0-9][^:\n]{0,42}:|\*\*)/g,
+    "\n- "
+  );
+  return text.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function renderInlineMarkdown(value) {
+  const codeSegments = [];
+  const withCodePlaceholders = escHtml(value).replace(/`([^`]+)`/g, (_, code) => {
+    const index = codeSegments.length;
+    codeSegments.push(`<code>${code}</code>`);
+    return `@@CODE${index}@@`;
+  });
+  return withCodePlaceholders
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/@@CODE(\d+)@@/g, (match, index) => codeSegments[Number(index)] || match);
+}
+
+function renderAnswerMarkdown(markdown) {
+  const lines = normalizeAnswerMarkdown(markdown).split("\n");
+  const blocks = [];
+  let paragraph = [];
+  let listType = "";
+  let listItems = [];
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    blocks.push(`<p>${renderInlineMarkdown(paragraph.join(" "))}</p>`);
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!listType || !listItems.length) return;
+    blocks.push(`<${listType}>${listItems.map((item) => `<li>${item}</li>`).join("")}</${listType}>`);
+    listType = "";
+    listItems = [];
+  }
+
+  function addListItem(type, value) {
+    flushParagraph();
+    if (listType && listType !== type) flushList();
+    listType = type;
+    listItems.push(renderInlineMarkdown(value));
+  }
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = heading[1].length <= 2 ? 3 : Math.min(5, heading[1].length + 1);
+      blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      return;
+    }
+
+    if (/^(-{3,}|\*{3,})$/.test(line)) {
+      flushParagraph();
+      flushList();
+      blocks.push("<hr />");
+      return;
+    }
+
+    const unorderedItem = /^[-*]\s+(.+)$/.exec(line);
+    if (unorderedItem) {
+      addListItem("ul", unorderedItem[1]);
+      return;
+    }
+
+    const orderedItem = /^\d+[.)]\s+(.+)$/.exec(line);
+    if (orderedItem) {
+      addListItem("ol", orderedItem[1]);
+      return;
+    }
+
+    flushList();
+    paragraph.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+  return blocks.join("") || "<p>No answer returned.</p>";
+}
+
 function formatNumber(value) {
   if (!Number.isFinite(value)) {
     return "";
@@ -284,7 +418,7 @@ function renderPlayerProfile(profile) {
     profile.archetype && typeof profile.archetype === "object" ? profile.archetype : {};
   const chips = [
     player.overall_rank ? `Rank #${player.overall_rank}` : "",
-    player.recommendation_score ? `Score ${formatNumber(Number(player.recommendation_score))}` : "",
+    player.recommendation_score ? `P-Rating ${formatNumber(Number(player.recommendation_score))}` : "",
     trend.status ? `Trend ${trend.status}` : "",
     archetype.archetype_label ? archetype.archetype_label : "",
     player.category_strengths ? `Strengths ${player.category_strengths}` : "",
@@ -293,7 +427,7 @@ function renderPlayerProfile(profile) {
   const profileUrl = String(profile.profile_url || "");
   const safeProfileUrl = /^\/players\/\d+$/.test(profileUrl) ? profileUrl : "";
   const avatar = player.headshot_url
-    ? `<img src="${escHtml(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback">${escHtml(initials)}</span>`
+    ? `<img src="${escHtml(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback" hidden>${escHtml(initials)}</span>`
     : `<span class="player-avatar-fallback">${escHtml(initials)}</span>`;
 
   return `
@@ -384,11 +518,12 @@ let activeConversationId = null;
 let lastQuestion = "";
 let currentAnswerEl = null;
 let askInFlight = false;
+let historyState = { version: 1, conversations: [] };
 
 function startTurn(label) {
   const empty = document.querySelector("[data-agent-empty]");
   const thread = document.querySelector("[data-agent-answer]");
-  if (!thread || !empty) return;
+  if (!thread || !empty) return null;
   empty.hidden = true;
   thread.hidden = false;
   const turn = document.createElement("article");
@@ -401,9 +536,10 @@ function startTurn(label) {
   currentAnswerEl = turn.querySelector(".agent-turn-answer");
   resetAuxiliaryPanels();
   turn.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  return turn;
 }
 
-function resetAuxiliaryPanels() {
+function resetAuxiliaryPanels(message = "Working&hellip;") {
   const tableCard = document.querySelector("[data-agent-table-card]");
   const tableEl = document.querySelector("[data-agent-tables]");
   const chartCard = document.querySelector("[data-agent-chart-card]");
@@ -414,7 +550,7 @@ function resetAuxiliaryPanels() {
   if (chartCard) chartCard.hidden = true;
   if (chartEl) chartEl.innerHTML = "";
   if (contextEl) {
-    contextEl.innerHTML = '<div class="empty-state"><p>Working&hellip;</p></div>';
+    contextEl.innerHTML = `<div class="empty-state"><p>${message}</p></div>`;
   }
 }
 
@@ -458,9 +594,23 @@ function renderPayload(payload) {
     return;
   }
 
-  currentAnswerEl.innerHTML = `<div class="agent-answer-text">${escHtml(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
-  bindClarifyOptions(currentAnswerEl);
+  renderAnswerPayload(payload, currentAnswerEl);
+  renderAuxiliaryPayload(payload);
+}
 
+function renderAnswerPayload(payload, targetEl) {
+  if (!targetEl) return;
+  targetEl.innerHTML = `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
+  bindClarifyOptions(targetEl);
+}
+
+function renderAuxiliaryPayload(payload) {
+  const tableCard = document.querySelector("[data-agent-table-card]");
+  const tableEl = document.querySelector("[data-agent-tables]");
+  const chartCard = document.querySelector("[data-agent-chart-card]");
+  const chartEl = document.querySelector("[data-agent-charts]");
+  const contextEl = document.querySelector("[data-agent-context]");
+  if (!tableCard || !tableEl || !chartCard || !chartEl || !contextEl) return;
   const tables = asArray(payload.tables);
   tableCard.hidden = tables.length === 0;
   tableEl.innerHTML = tables.map(renderTable).join("");
@@ -475,13 +625,369 @@ function renderPayload(payload) {
 
 function setInterimAnswer(text) {
   if (!currentAnswerEl) return;
-  currentAnswerEl.innerHTML = `<div class="agent-answer-text">${escHtml(text || "")}</div>`;
+  currentAnswerEl.innerHTML = `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(text || "")}</div>`;
 }
 
 function applyConversation(payload) {
   if (payload?.conversation_id) {
     activeConversationId = payload.conversation_id;
   }
+}
+
+function truncateText(value, maxLength = 72) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trim()}…`;
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function historyTimestamp(value) {
+  const text = String(value || "").trim();
+  return text || nowIso();
+}
+
+function formatHistoryDate(value) {
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "Saved";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function storageProvider() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeHistoryTurn(rawTurn, fallbackIndex = 0) {
+  if (!rawTurn || typeof rawTurn !== "object") return null;
+  const payload =
+    rawTurn.payload && typeof rawTurn.payload === "object" ? rawTurn.payload : {};
+  const timestamp = historyTimestamp(rawTurn.timestamp || rawTurn.created_at);
+  const requestId = String(
+    rawTurn.request_id ||
+      payload.request_id ||
+      `${timestamp}:${fallbackIndex}:${rawTurn.question || ""}`
+  );
+  return {
+    request_id: requestId,
+    question: String(rawTurn.question || "Question"),
+    provider: String(rawTurn.provider || ""),
+    model: String(rawTurn.model || ""),
+    timestamp,
+    created_at: timestamp,
+    payload,
+  };
+}
+
+function normalizeHistoryConversation(rawConversation) {
+  if (!rawConversation || typeof rawConversation !== "object") return null;
+  const id = String(
+    rawConversation.id || rawConversation.conversation_id || ""
+  ).trim();
+  if (!id) return null;
+  const turns = asArray(rawConversation.turns)
+    .map((turn, index) => normalizeHistoryTurn(turn, index))
+    .filter(Boolean)
+    .slice(-HISTORY_TURN_CAP);
+  const newestTurn = turns[turns.length - 1] || null;
+  const title = truncateText(
+    rawConversation.title || newestTurn?.question || "Ask NBA Stats chat",
+    80
+  );
+  return {
+    id,
+    conversation_id: id,
+    title,
+    updated_at: historyTimestamp(
+      rawConversation.updated_at || newestTurn?.timestamp
+    ),
+    turns,
+  };
+}
+
+function normalizeHistoryState(value) {
+  const conversations = asArray(value?.conversations)
+    .map((conversation, index) => ({
+      conversation: normalizeHistoryConversation(conversation),
+      index,
+    }))
+    .filter((item) => item.conversation)
+    .sort((a, b) => {
+      const delta =
+        Date.parse(b.conversation.updated_at) -
+        Date.parse(a.conversation.updated_at);
+      return delta || b.index - a.index;
+    })
+    .map((item) => item.conversation)
+    .slice(0, HISTORY_CONVERSATION_CAP);
+  return { version: 1, conversations };
+}
+
+function loadHistoryState() {
+  const storage = storageProvider();
+  if (!storage) return { version: 1, conversations: [] };
+  try {
+    return normalizeHistoryState(JSON.parse(storage.getItem(HISTORY_STORAGE_KEY) || "{}"));
+  } catch {
+    return { version: 1, conversations: [] };
+  }
+}
+
+function saveHistoryState(nextState) {
+  const storage = storageProvider();
+  const normalized = normalizeHistoryState(nextState);
+  historyState = normalized;
+  if (!storage) return false;
+
+  const candidate = {
+    version: 1,
+    conversations: [...normalized.conversations],
+  };
+  while (candidate.conversations.length >= 0) {
+    try {
+      storage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(candidate));
+      historyState = normalizeHistoryState(candidate);
+      return true;
+    } catch {
+      if (candidate.conversations.length === 0) return false;
+      candidate.conversations.pop();
+    }
+  }
+  return false;
+}
+
+function removeStoredHistory() {
+  const storage = storageProvider();
+  if (!storage) return;
+  try {
+    storage.removeItem(HISTORY_STORAGE_KEY);
+  } catch {
+    // History is optional; blocked storage should not affect Ask.
+  }
+}
+
+function mergeHistoryConversations(conversations) {
+  const merged = new Map();
+  historyState.conversations.forEach((conversation) => {
+    merged.set(conversation.id, {
+      ...conversation,
+      turns: [...conversation.turns],
+    });
+  });
+
+  asArray(conversations).forEach((rawConversation) => {
+    const incoming = normalizeHistoryConversation(rawConversation);
+    if (!incoming) return;
+    const existing = merged.get(incoming.id) || {
+      ...incoming,
+      turns: [],
+    };
+    const turnsById = new Map();
+    [...existing.turns, ...incoming.turns].forEach((turn) => {
+      turnsById.set(turn.request_id, turn);
+    });
+    const turns = [...turnsById.values()]
+      .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+      .slice(-HISTORY_TURN_CAP);
+    const newestTurn = turns[turns.length - 1] || null;
+    merged.set(incoming.id, {
+      ...existing,
+      ...incoming,
+      title: existing.title || incoming.title,
+      updated_at: newestTurn?.timestamp || incoming.updated_at,
+      turns,
+    });
+  });
+
+  return normalizeHistoryState({ conversations: [...merged.values()] });
+}
+
+function renderHistoryList() {
+  const list = document.querySelector("[data-agent-history-list]");
+  if (!list) return;
+  if (!historyState.conversations.length) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <p>Recent local chats will appear here.</p>
+      </div>
+    `;
+    return;
+  }
+  list.innerHTML = historyState.conversations
+    .map((conversation) => {
+      const turnCount = conversation.turns.length;
+      const active = conversation.id === activeConversationId ? " is-active" : "";
+      return `
+        <button class="agent-history-item${active}" type="button" data-history-conversation-id="${escHtml(conversation.id)}">
+          <span class="agent-history-title">${escHtml(conversation.title)}</span>
+          <span class="agent-history-meta">${escHtml(formatHistoryDate(conversation.updated_at))} · ${turnCount} turn${turnCount === 1 ? "" : "s"}</span>
+        </button>
+      `;
+    })
+    .join("");
+  list.querySelectorAll("[data-history-conversation-id]").forEach((button) => {
+    button.addEventListener("click", () => {
+      restoreConversation(button.dataset.historyConversationId || "");
+    });
+  });
+}
+
+function persistHistoryTurn(question, payload) {
+  const payloadObject = payload && typeof payload === "object" ? payload : {};
+  const conversationId = String(
+    payloadObject.conversation_id ||
+      activeConversationId ||
+      `local-${Date.now().toString(36)}`
+  );
+  activeConversationId = conversationId;
+  let provider = "";
+  let model = "";
+  try {
+    provider = selectedProvider();
+    model = selectedModel();
+  } catch {
+    provider = "";
+    model = "";
+  }
+  const turn = normalizeHistoryTurn({
+    request_id: payloadObject.request_id,
+    question,
+    provider,
+    model,
+    timestamp: nowIso(),
+    payload: payloadObject,
+  });
+  if (!turn) return;
+  const title = truncateText(question || payloadObject.answer || "Ask NBA Stats chat", 80);
+  const nextState = mergeHistoryConversations([
+    {
+      id: conversationId,
+      title,
+      updated_at: turn.timestamp,
+      turns: [turn],
+    },
+  ]);
+  saveHistoryState(nextState);
+  renderHistoryList();
+}
+
+function appendRestoredTurn(turn, isLatest) {
+  const thread = document.querySelector("[data-agent-answer]");
+  if (!thread) return null;
+  const article = document.createElement("article");
+  article.className = "agent-turn";
+  article.tabIndex = 0;
+  article.dataset.historyRequestId = turn.request_id;
+  article.innerHTML = `
+    <div class="agent-turn-question">${escHtml(turn.question)}</div>
+    <div class="agent-turn-answer"></div>
+  `;
+  const answerEl = article.querySelector(".agent-turn-answer");
+  renderAnswerPayload(turn.payload, answerEl);
+  article.addEventListener("click", () => {
+    currentAnswerEl = answerEl;
+    renderAuxiliaryPayload(turn.payload);
+  });
+  article.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      currentAnswerEl = answerEl;
+      renderAuxiliaryPayload(turn.payload);
+    }
+  });
+  thread.appendChild(article);
+  if (isLatest) currentAnswerEl = answerEl;
+  return article;
+}
+
+function restoreConversation(conversationId) {
+  const conversation = historyState.conversations.find(
+    (item) => item.id === conversationId
+  );
+  if (!conversation) return;
+  const empty = document.querySelector("[data-agent-empty]");
+  const thread = document.querySelector("[data-agent-answer]");
+  const statusEl = document.querySelector("[data-agent-status]");
+  if (!thread || !empty) return;
+  activeConversationId = conversation.id;
+  lastQuestion = conversation.turns[conversation.turns.length - 1]?.question || "";
+  currentAnswerEl = null;
+  thread.innerHTML = "";
+  empty.hidden = true;
+  thread.hidden = false;
+  conversation.turns.forEach((turn, index) => {
+    appendRestoredTurn(turn, index === conversation.turns.length - 1);
+  });
+  const latest = conversation.turns[conversation.turns.length - 1];
+  if (latest) renderAuxiliaryPayload(latest.payload);
+  if (statusEl) statusEl.textContent = "Restored";
+  renderHistoryList();
+}
+
+function startNewChat() {
+  const empty = document.querySelector("[data-agent-empty]");
+  const thread = document.querySelector("[data-agent-answer]");
+  const statusEl = document.querySelector("[data-agent-status]");
+  activeConversationId = null;
+  lastQuestion = "";
+  currentAnswerEl = null;
+  if (thread) {
+    thread.innerHTML = "";
+    thread.hidden = true;
+  }
+  if (empty) empty.hidden = false;
+  resetAuxiliaryPanels("Metric definitions and assumptions will appear after an answer.");
+  if (statusEl) statusEl.textContent = "Ready";
+  renderHistoryList();
+}
+
+async function clearHistory() {
+  historyState = { version: 1, conversations: [] };
+  removeStoredHistory();
+  startNewChat();
+  renderHistoryList();
+  try {
+    await fetch("/api/agent/history", { method: "DELETE" });
+  } catch {
+    // Server-local history is best effort and should not block the UI.
+  }
+}
+
+async function loadServerHistory() {
+  try {
+    const response = await fetch("/api/agent/history?limit=25");
+    if (!response.ok) return;
+    const payload = await response.json();
+    const merged = mergeHistoryConversations(payload.conversations);
+    saveHistoryState(merged);
+    renderHistoryList();
+  } catch {
+    // Browser-local history remains available if the local endpoint is down.
+  }
+}
+
+function initHistory() {
+  historyState = loadHistoryState();
+  renderHistoryList();
+  const newButton = document.querySelector("[data-agent-new-chat]");
+  const clearButton = document.querySelector("[data-agent-clear-history]");
+  if (newButton instanceof HTMLButtonElement) {
+    newButton.addEventListener("click", startNewChat);
+  }
+  if (clearButton instanceof HTMLButtonElement) {
+    clearButton.addEventListener("click", clearHistory);
+  }
+  loadServerHistory();
 }
 
 function handleStreamEvent(eventName, payload, state) {
@@ -511,6 +1017,7 @@ function handleStreamEvent(eventName, payload, state) {
   if (eventName === "final") {
     applyConversation(payload.payload);
     renderPayload(payload.payload || {});
+    persistHistoryTurn(lastQuestion || "Question", payload.payload || {});
     if (statusEl) statusEl.textContent = "Answered";
     state.finished = true;
     return;
@@ -665,6 +1172,7 @@ async function askQuestionJson(question, selection) {
   }
   applyConversation(payload);
   renderPayload(payload);
+  persistHistoryTurn(question, payload);
   if (statusEl) statusEl.textContent = "Answered";
 }
 
@@ -784,6 +1292,7 @@ async function askQuestion(question, selection = null) {
 function initAgentPage() {
   bindExampleButtons();
   initProviderSelect();
+  initHistory();
   const form = document.querySelector("[data-agent-form]");
   const input = document.querySelector("[data-agent-question]");
   if (!(form instanceof HTMLFormElement) || !(input instanceof HTMLTextAreaElement)) {
@@ -804,4 +1313,18 @@ function initAgentPage() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", initAgentPage);
+if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
+  globalThis.__askAgentTest = {
+    normalizeAnswerMarkdown,
+    renderAnswerMarkdown,
+    loadHistoryState,
+    saveHistoryState,
+    persistHistoryTurn,
+    restoreConversation,
+    clearHistory,
+  };
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", initAgentPage);
+}

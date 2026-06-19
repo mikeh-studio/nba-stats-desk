@@ -8,6 +8,7 @@ GCP credentials are available.
 ```bash
 python -m compileall dags app scripts tests
 PYTHONPATH=. pytest
+node --test tests_js/*.test.js
 dbt parse --project-dir . --profiles-dir dbt/profiles --target dev
 make airflow-parse
 ```
@@ -80,6 +81,10 @@ warehouse access:
 ```bash
 PERFORMANCE_BASE_URL=http://127.0.0.1:8001 scripts/check_performance_ui.sh
 ```
+
+For Ask UI work, run the JavaScript tests and a local `/ask` smoke. If you want
+server-local chat history during manual QA, set `AGENT_HISTORY_ENABLED=true` in
+`.env`; leave it disabled for public deployments.
 
 Validate injury availability models:
 
