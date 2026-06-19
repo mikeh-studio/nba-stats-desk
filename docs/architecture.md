@@ -115,7 +115,8 @@ gold read models. Player resolution for search and `/ask` starts from
 `nba_agent.agent_player_search`, which denormalizes qualified player identity,
 season averages, percentiles, trend state, availability, and an answer-context
 string into one agent-specific table. The stats agent still reaches data only
-through allowlisted application tools and does not get arbitrary SQL access.
+through allowlisted application tools before calling the selected OpenAI API or
+Claude API model, and it does not get arbitrary SQL access.
 
 ## Optional Secondary Path
 

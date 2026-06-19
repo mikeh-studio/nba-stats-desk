@@ -1,9 +1,9 @@
 # NBA Stats Desk
 
 Agentic, GCP-backed NBA intelligence workbench for the `2025-26` season. It
-pairs a natural-language `/ask` stats agent that can call OpenAI or Claude APIs
-with Performance insights for recent player form, backed by BigQuery, dbt,
-Airflow, and a Cloud Run-ready FastAPI service.
+pairs a natural-language `/ask` stats agent that can call the OpenAI API or
+Claude API with Performance insights for recent player form, backed by BigQuery,
+dbt, Airflow, and a Cloud Run-ready FastAPI service.
 
 Core flow:
 
@@ -40,7 +40,8 @@ Optional portfolio paths include Redshift Serverless as a secondary warehouse.
 - **FastAPI**: serves `/ask`, Performance, player, compare, similarity, and JSON
   APIs from curated gold, agent, and metadata tables.
 - **Agentic tools**: query planning, player resolution, clarification handling,
-  LLM API calls, semantic metric tools, and evidence-bounded answer rendering.
+  OpenAI API / Claude API calls, semantic metric tools, and evidence-bounded
+  answer rendering.
 
 ## Data Domains
 
@@ -98,16 +99,17 @@ drive it.
 The `/ask` page is enabled with `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`.
 At runtime the UI sends a provider/model pair to `/api/agent/ask`; FastAPI
 validates the pair, builds a `StatsAgent`, and the agent uses either the OpenAI
-client or the Anthropic-backed Claude adapter. For answerable questions it builds
-a bounded query plan, resolves players from `nba_agent.agent_player_search`,
-gathers evidence through allowlisted tools, and asks the selected LLM to produce
-the final structured answer with charts, tables, assumptions, and metric context.
-Claude requests can stream token-by-token, use provider prompt caching, and honor
-a separate `ANTHROPIC_AGENT_TIMEOUT_SECONDS` wall clock because structured
-answers run longer than the OpenAI path's `OPENAI_AGENT_TIMEOUT_SECONDS`.
-Deterministic planning is a fallback and guardrail, and clarification-only
-requests can short-circuit before generation, but completed answers are generated
-from the selected LLM call. Arbitrary SQL is never exposed.
+API client or the Anthropic-backed Claude API adapter. For answerable questions
+it builds a bounded query plan, resolves players from
+`nba_agent.agent_player_search`, gathers evidence through allowlisted tools, and
+asks the selected LLM to produce the final structured answer with charts, tables,
+assumptions, and metric context. Claude API requests can stream token-by-token,
+use provider prompt caching, and honor a separate
+`ANTHROPIC_AGENT_TIMEOUT_SECONDS` wall clock because structured answers run
+longer than the OpenAI API path's `OPENAI_AGENT_TIMEOUT_SECONDS`. Deterministic
+planning is a fallback and guardrail, and clarification-only requests can
+short-circuit before generation, but completed answers are generated from the
+selected OpenAI API or Claude API call. Arbitrary SQL is never exposed.
 
 See [Public Service](docs/public-service.md) for route and agent details.
 

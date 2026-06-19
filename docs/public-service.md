@@ -65,8 +65,8 @@ is true.
 ## Provider-Selectable LLM Stats Agent
 
 `/ask` adds an LLM-backed stats agent over curated warehouse outputs. Set
-`OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` to enable the OpenAI and Claude
-providers. The blocking JSON endpoint is `/api/agent/ask`; the streaming SSE
+`OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` to enable the OpenAI API and Claude
+API providers. The blocking JSON endpoint is `/api/agent/ask`; the streaming SSE
 endpoint is `/api/agent/ask/stream`.
 
 Player resolution starts from `BQ_DATASET_AGENT.agent_player_search`, a
@@ -97,8 +97,9 @@ The agent does not receive BigQuery credentials and cannot run arbitrary SQL.
 `AGENT_MAX_TOOL_CALLS` bounds one request's tool loop. The agent first builds a
 bounded query plan, uses the deterministic router as fallback, resolves player
 mentions, and builds an evidence bundle through allowlisted tools before asking
-the selected model to write the final answer. Under-specified or ambiguous
-questions return clarification options instead of calling more tools.
+the selected OpenAI API or Claude API model to write the final answer.
+Under-specified or ambiguous questions return clarification options instead of
+calling more tools.
 
 Every Ask request emits one JSON log line with `event_name:
 agent_request_summary`, request id, route, confidence, model, tool calls with
@@ -114,11 +115,12 @@ for Redis 7.x). Local and test runs fall back to an in-memory store.
 ceilings, and `AGENT_QUESTION_MAX_CHARS` caps prompt size before an LLM provider
 is called.
 
-OpenAI calls use `OPENAI_AGENT_TIMEOUT_SECONDS`, `OPENAI_AGENT_MAX_RETRIES`, and
-`OPENAI_AGENT_RETRY_BASE_DELAY_SECONDS` for bounded retries on transient
-429/5xx/timeout failures. Claude calls use `ANTHROPIC_AGENT_TIMEOUT_SECONDS`
-through the Anthropic-backed adapter. Raw exception text is logged server-side
-only; clients receive generic availability or generation failure messages.
+OpenAI API calls use `OPENAI_AGENT_TIMEOUT_SECONDS`,
+`OPENAI_AGENT_MAX_RETRIES`, and `OPENAI_AGENT_RETRY_BASE_DELAY_SECONDS` for
+bounded retries on transient 429/5xx/timeout failures. Claude API calls use
+`ANTHROPIC_AGENT_TIMEOUT_SECONDS` through the Anthropic-backed adapter. Raw
+exception text is logged server-side only; clients receive generic availability
+or generation failure messages.
 
 Conversation memory is keyed by `conversation_id` and stores recent user/answer
 turns in a pluggable in-memory backend for local use. `AGENT_CONVERSATION_MAX_TURNS`
