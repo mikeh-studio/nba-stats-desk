@@ -125,6 +125,12 @@ app. Tuned personal-model code, generated reports, notebooks, model artifacts,
 local chat logs, and real credentials should stay private. See
 [Public / Private Boundary](docs/public-private-boundary.md).
 
+## License
+
+Code and documentation are released under the [MIT License](LICENSE). NBA data,
+logos, trademarks, player headshots, and third-party API content remain subject
+to their respective owners' terms.
+
 ## Local Quickstart
 
 Create a virtual environment and install dependencies:
