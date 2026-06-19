@@ -114,7 +114,7 @@ compare, performance, dashboards, freshness, and analysis snapshots use curated
 gold read models. Player resolution for search and `/ask` starts from
 `nba_agent.agent_player_search`, which denormalizes qualified player identity,
 season averages, percentiles, trend state, availability, and an answer-context
-string into one agent-specific table. The OpenAI agent still reaches data only
+string into one agent-specific table. The stats agent still reaches data only
 through allowlisted application tools and does not get arbitrary SQL access.
 
 ## Optional Secondary Path

@@ -96,19 +96,18 @@ drive it.
 ![Player similarity map](docs/images/similarity-map.png)
 
 The `/ask` page is enabled with `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`.
-The page can switch between the OpenAI API and the Claude API, then choose a
-supported model version for the request. `.env` defaults (`OPENAI_AGENT_MODEL`
-and `ANTHROPIC_AGENT_MODEL`) apply when the UI does not send a model. Claude
-requests stream token-by-token (answers appear in the UI as they generate),
-use provider prompt caching to cut repeat-request cost, and honor a separate
-`ANTHROPIC_AGENT_TIMEOUT_SECONDS` wall clock (default 90s) since structured
-answers run longer than the OpenAI path's `OPENAI_AGENT_TIMEOUT_SECONDS`. The
-agentic flow calls the selected LLM API for planning and answer generation, but
-data access stays bounded: it resolves player names from warehouse-backed search
-context, asks for
-clarification on ambiguous requests, and can only call allowlisted app tools for
-player resolution, game logs, trends, percentiles, rankings, similarity, and
-metric leaderboards. It does not expose arbitrary SQL access.
+At runtime the UI sends a provider/model pair to `/api/agent/ask`; FastAPI
+validates the pair, builds a `StatsAgent`, and the agent uses either the OpenAI
+client or the Anthropic-backed Claude adapter. For answerable questions it builds
+a bounded query plan, resolves players from `nba_agent.agent_player_search`,
+gathers evidence through allowlisted tools, and asks the selected LLM to produce
+the final structured answer with charts, tables, assumptions, and metric context.
+Claude requests can stream token-by-token, use provider prompt caching, and honor
+a separate `ANTHROPIC_AGENT_TIMEOUT_SECONDS` wall clock because structured
+answers run longer than the OpenAI path's `OPENAI_AGENT_TIMEOUT_SECONDS`.
+Deterministic planning is a fallback and guardrail, and clarification-only
+requests can short-circuit before generation, but completed answers are generated
+from the selected LLM call. Arbitrary SQL is never exposed.
 
 See [Public Service](docs/public-service.md) for route and agent details.
 
