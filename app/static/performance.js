@@ -12,16 +12,15 @@
     nameFilter: "",
     sortKey: "score",
     sortDir: "desc",
-    trendStat: "pts",
-    currentDetail: null,
     selectionRequestId: 0,
-    detailRequestId: 0,
     renderFrame: 0,
-    detailCache: new Map(),
+    modalOpen: false,
+    lastFocusedElement: null,
   };
 
   const $ = (selector) => document.querySelector(selector);
   const TABLE_METRICS = ["min", "pts", "reb", "ast", "fg3m", "fg_pct", "ft_pct", "stl", "blk"];
+  const MODAL_METRICS = ["pts", "reb", "ast", "fg3m", "fg_pct", "ft_pct"];
 
   function esc(value) {
     return String(value ?? "")
@@ -78,7 +77,9 @@
   }
 
   function sortValue(player, key) {
-    if (key === "score") return Math.abs(asNumber(player.performance_score) || 0);
+    if (key === "score") {
+      return asNumber(player.performance_score) ?? Number.NEGATIVE_INFINITY;
+    }
     const metric = metricByKey(player, key);
     return asNumber(metric.value) ?? Number.NEGATIVE_INFINITY;
   }
@@ -124,15 +125,31 @@
     $("#performance-table-wrap").setAttribute("aria-busy", isBusy ? "true" : "false");
   }
 
-  function setDetailEmpty(message) {
-    $("#performance-detail-empty").hidden = false;
-    $("#performance-detail-empty").querySelector("p").textContent = message;
-    $("#performance-detail").hidden = true;
-    $("#performance-detail-title").textContent = "Player View";
-  }
-
   function setTableBusy(isBusy) {
     $("#performance-table-wrap").setAttribute("aria-busy", isBusy ? "true" : "false");
+  }
+
+  function findPlayerButtonByKey(key) {
+    return (
+      Array.from(document.querySelectorAll(".performance-player-button")).find(
+        (button) => `${button.dataset.playerId}:${button.dataset.gameId}` === key
+      ) || null
+    );
+  }
+
+  function clearSelectedPlayer({ restoreFocus = false, render = true } = {}) {
+    const focusKey = state.selectedKey;
+    const fallbackFocus = state.lastFocusedElement;
+    state.selectedKey = "";
+    closePlayerModal({ restoreFocus: false });
+    if (render) renderPlayers();
+    if (restoreFocus) {
+      const focusTarget = focusKey ? findPlayerButtonByKey(focusKey) : fallbackFocus;
+      if (focusTarget instanceof HTMLElement) {
+        focusTarget.focus();
+      }
+    }
+    state.lastFocusedElement = null;
   }
 
   function populateDates() {
@@ -202,7 +219,7 @@
       return `
         <div class="player-avatar" aria-hidden="true">
           <img src="${esc(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
-          <span class="player-avatar-fallback">${esc(player.player_initials || "NBA")}</span>
+          <span class="player-avatar-fallback" hidden>${esc(player.player_initials || "NBA")}</span>
         </div>
       `;
     }
@@ -216,7 +233,8 @@
   function renderSortIndicators() {
     document.querySelectorAll("[data-sort-indicator]").forEach((indicator) => {
       const key = indicator.dataset.sortIndicator;
-      indicator.textContent = key === state.sortKey ? (state.sortDir === "asc" ? "^" : "v") : "";
+      indicator.textContent =
+        key === state.sortKey ? (state.sortDir === "asc" ? "^" : "v") : "";
     });
   }
 
@@ -278,246 +296,98 @@
     });
   }
 
-  function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
+  function playerKey(player) {
+    return `${player.player_id}:${player.game_id}`;
   }
 
-  function positionFor(value, low, high) {
-    const parsed = asNumber(value);
-    if (parsed === null || high <= low) return 0;
-    return clamp(((parsed - low) / (high - low)) * 100, 0, 100);
-  }
-
-  function renderRange(metric) {
-    const range = metric.range || {};
-    const values = [
-      range.p10,
-      range.p25,
-      range.median,
-      range.p75,
-      range.p90,
-      metric.value,
-      metric.season_average,
-    ]
-      .map(asNumber)
-      .filter((value) => value !== null);
-    let low = asNumber(range.p10);
-    let high = asNumber(range.p90);
-    if (low === null && values.length) low = Math.min(...values);
-    if (high === null && values.length) high = Math.max(...values);
-    if (low === null || high === null) {
-      low = 0;
-      high = 1;
-    }
-    if (low === high) {
-      low = Math.max(0, low - 1);
-      high += 1;
-    }
-
-    const typicalLeft = positionFor(range.p25, low, high);
-    const typicalRight = positionFor(range.p75, low, high);
-    const marker = positionFor(metric.value, low, high);
-    const average = positionFor(metric.season_average, low, high);
-    const percentile = asNumber(metric.percentile);
-
+  function renderModalMetric(label, value, meta = "") {
     return `
-      <div class="performance-range-row">
-        <div class="performance-range-top">
-          <strong>${esc(metric.label)}</strong>
-          <span class="metric-value">${esc(fmtMetric(metric, metric.value))}</span>
-        </div>
-        <div class="performance-range-track" aria-label="${esc(metric.label)} percentile range">
-          <span class="performance-range-typical" style="left:${typicalLeft.toFixed(1)}%;width:${Math.max(2, typicalRight - typicalLeft).toFixed(1)}%;"></span>
-          <span class="performance-range-average" style="left:${average.toFixed(1)}%;"></span>
-          <span class="performance-range-marker" style="left:${marker.toFixed(1)}%;"></span>
-        </div>
-        <div class="performance-range-labels">
-          <span class="meta">Typical ${esc(fmtMetric(metric, range.p25))} - ${esc(fmtMetric(metric, range.p75))}</span>
-          <span class="meta">${percentile === null ? "N/A" : `${percentile.toFixed(1)}th`} percentile - Avg ${esc(fmtMetric(metric, metric.season_average))}</span>
-        </div>
+      <div class="metric">
+        <span class="metric-label">${esc(label)}</span>
+        <span class="metric-value">${esc(value)}</span>
+        ${meta ? `<span class="meta">${esc(meta)}</span>` : ""}
       </div>
     `;
   }
 
-  function trendBaseline(item, key) {
-    const trend = item.trend_30d || {};
-    const stat = (trend.stats || []).find((entry) => entry.key === key);
-    return asNumber(stat?.season_average) ?? asNumber(metricByKey(item, key).season_average);
+  function closePlayerModal({ restoreFocus = true } = {}) {
+    const modal = $("[data-performance-modal]");
+    if (!modal || modal.hidden) return;
+    modal.hidden = true;
+    state.modalOpen = false;
+    if (
+      restoreFocus &&
+      state.lastFocusedElement instanceof HTMLElement &&
+      document.contains(state.lastFocusedElement)
+    ) {
+      state.lastFocusedElement.focus();
+    }
+    state.lastFocusedElement = null;
   }
 
-  function renderTrendControls() {
-    $("#performance-trend-tabs").querySelectorAll("[data-trend-stat]").forEach((button) => {
-      const isActive = button.dataset.trendStat === state.trendStat;
-      button.classList.toggle("is-active", isActive);
-    });
-  }
-
-  function renderTrendChart(item) {
-    renderTrendControls();
-    const chartEl = $("#performance-trend-chart");
-    const trend = item.trend_30d || {};
-    const points = (trend.points || [])
-      .map((point) => ({
-        ...point,
-        value: asNumber(point[state.trendStat]),
-      }))
-      .filter((point) => point.value !== null);
-    const baseline = trendBaseline(item, state.trendStat);
-    const label = statLabel(state.trendStat);
-    const trendMetric = metricByKey(item, state.trendStat);
-    chartEl.dataset.pointCount = String(points.length);
-    chartEl.dataset.stat = state.trendStat;
-    chartEl.dataset.playerId = String(item.player_id || "");
-    chartEl.dataset.gameId = String(item.game_id || "");
-
-    if (points.length === 0) {
-      $("#performance-trend-meta").textContent = `No ${label} trend games found in the last 30 days.`;
-      chartEl.innerHTML = '<div class="empty-state"><p>No 30-day trend rows for this player.</p></div>';
-      return;
-    }
-    $("#performance-trend-meta").textContent = `${label} trend across ${points.length} ${points.length === 1 ? "game" : "games"} with season average baseline.`;
-
-    const width = 560;
-    const height = 220;
-    const pad = { top: 20, right: 20, bottom: 34, left: 38 };
-    const innerWidth = width - pad.left - pad.right;
-    const innerHeight = height - pad.top - pad.bottom;
-    const values = points.map((point) => point.value);
-    if (baseline !== null) values.push(baseline);
-    let minValue = Math.min(...values, 0);
-    let maxValue = Math.max(...values, 1);
-    if (minValue === maxValue) {
-      minValue = Math.max(0, minValue - 1);
-      maxValue += 1;
-    }
-    const range = maxValue - minValue;
-
-    function xAt(index) {
-      if (points.length === 1) return pad.left + innerWidth / 2;
-      return pad.left + (index / (points.length - 1)) * innerWidth;
-    }
-
-    function yAt(value) {
-      return pad.top + innerHeight - ((value - minValue) / range) * innerHeight;
-    }
-
-    const linePoints = points
-      .map((point, index) => `${xAt(index).toFixed(1)},${yAt(point.value).toFixed(1)}`)
-      .join(" ");
-    const baselineY = baseline === null ? null : yAt(baseline);
-    const dots = points
-      .map((point, index) => {
-        const x = xAt(index).toFixed(1);
-        const y = yAt(point.value).toFixed(1);
-        return `
-          <circle class="performance-trend-dot" cx="${x}" cy="${y}" r="4">
-            <title>${esc(point.game_date)} ${esc(point.matchup || "")} - ${esc(label)} ${esc(fmtMetric(trendMetric, point.value))}</title>
-          </circle>
-        `;
-      })
-      .join("");
-    const firstLabel = points[0]?.game_date || "";
-    const lastLabel = points[points.length - 1]?.game_date || "";
-    const pointItems = points
-      .map((point) => `
-        <li class="performance-trend-point-item" data-trend-date="${esc(point.game_date || "")}" data-trend-value="${esc(fmtMetric(trendMetric, point.value))}">
-          <span>${esc(point.game_date || "")}</span>
-          <strong>${esc(fmtMetric(trendMetric, point.value))}</strong>
-        </li>
-      `)
-      .join("");
-    chartEl.innerHTML = `
-      <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(label)} last 30 days trend">
-        <line x1="${pad.left}" x2="${width - pad.right}" y1="${pad.top + innerHeight}" y2="${pad.top + innerHeight}" stroke="rgba(255,255,255,0.16)" />
-        <line x1="${pad.left}" x2="${pad.left}" y1="${pad.top}" y2="${pad.top + innerHeight}" stroke="rgba(255,255,255,0.16)" />
-        ${baselineY === null ? "" : `<line class="performance-trend-baseline" x1="${pad.left}" x2="${width - pad.right}" y1="${baselineY.toFixed(1)}" y2="${baselineY.toFixed(1)}" />`}
-        <polyline class="performance-trend-line" points="${linePoints}" />
-        ${dots}
-        <text class="performance-trend-axis" x="${pad.left}" y="${height - 14}">${esc(firstLabel)}</text>
-        <text class="performance-trend-axis" text-anchor="end" x="${width - pad.right}" y="${height - 14}">${esc(lastLabel)}</text>
-        <text class="performance-trend-label" x="${pad.left}" y="15">${esc(label)} ${esc(fmtMetric(trendMetric, maxValue))}</text>
-        ${baselineY === null ? "" : `<text class="performance-trend-label" text-anchor="end" x="${width - pad.right}" y="${Math.max(14, baselineY - 6).toFixed(1)}">Avg ${esc(fmtMetric(trendMetric, baseline))}</text>`}
-      </svg>
-      <div class="performance-trend-data">
-        <div class="performance-trend-data-title">${esc(label)} by game</div>
-        <ul>${pointItems}</ul>
-      </div>
-    `;
-  }
-
-  function renderDetail(item) {
-    const key = `${item.player_id}:${item.game_id}`;
-    state.selectedKey = key;
-    state.currentDetail = item;
+  function openPlayerModal(player) {
+    const modal = $("[data-performance-modal]");
+    const panel = $(".performance-modal-panel");
+    if (!modal || !panel) return;
+    state.selectedKey = playerKey(player);
     renderPlayers();
 
-    $("#performance-detail-empty").hidden = true;
-    $("#performance-detail").hidden = false;
-    $("#performance-detail-title").textContent = "Player View";
-    $("#performance-detail-meta").textContent = `${statusLabel(item.performance_status)} - ${fmtSigned(item.performance_score)} score - ${item.games_sampled || 0} season games`;
-    $("#performance-detail-name").textContent = item.player_name || "Unknown player";
-    $("#performance-detail-game").textContent = `${item.team_abbr || "NBA"} - ${item.matchup || ""} - ${item.game_date || ""}`;
+    const status = player.performance_status || "near";
+    const score = fmtSigned(player.performance_score);
+    const minutes = asNumber(player.minutes) === null ? "Minutes N/A" : `${fmt(player.minutes)} MIN`;
+    const avatar = $("#performance-modal-avatar");
+    avatar.innerHTML = player.headshot_url
+      ? `<img src="${esc(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback" hidden>${esc(player.player_initials || "NBA")}</span>`
+      : `<span class="player-avatar-fallback">${esc(player.player_initials || "NBA")}</span>`;
 
-    const avatar = $("#performance-detail-avatar");
-    avatar.innerHTML = item.headshot_url
-      ? `<img src="${esc(item.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback">${esc(item.player_initials || "NBA")}</span>`
-      : `<span class="player-avatar-fallback">${esc(item.player_initials || "NBA")}</span>`;
+    $("#performance-modal-title").textContent = player.player_name || "Unknown player";
+    $("#performance-modal-meta").textContent = `${player.team_abbr || "NBA"} - ${player.matchup || "Game"} - ${player.game_date || ""}`;
+    const statusEl = $("#performance-modal-status");
+    statusEl.className = `performance-status ${status}`;
+    statusEl.textContent = statusLabel(status);
 
-    $("#performance-detail-summary").innerHTML = (item.metrics || [])
-      .map((metric) => {
-        const delta = asNumber(metric.delta);
-        const deltaClass = delta > 0 ? "good" : delta < 0 ? "bad" : "";
-        return `
-          <div class="metric" data-detail-metric-key="${esc(metric.key || "")}">
-            <span class="metric-label">${esc(metric.label)}</span>
-            <span class="metric-value">${esc(fmtMetric(metric, metric.value))}</span>
-            <span class="meta ${deltaClass}">${esc(fmtSignedMetric(metric, metric.delta))} vs avg ${esc(fmtMetric(metric, metric.season_average))}</span>
-          </div>
-        `;
-      })
-      .join("");
+    const summary = [
+      renderModalMetric("P-Rating", score, `${player.above_count ?? 0} above - ${player.below_count ?? 0} below`),
+      renderModalMetric("Minutes", minutes, "Selected game"),
+      ...MODAL_METRICS.map((metricKey) => {
+        const metric = metricByKey(player, metricKey);
+        return renderModalMetric(
+          metric.label || statLabel(metricKey),
+          fmtMetric(metric, metric.value),
+          `${fmtSignedMetric(metric, metric.delta)} vs avg ${fmtMetric(metric, metric.season_average)}`
+        );
+      }),
+    ];
+    $("#performance-modal-summary").innerHTML = summary.join("");
 
-    $("#performance-range-list").innerHTML = (item.metrics || [])
-      .map(renderRange)
-      .join("");
+    const detailLink = $("#performance-modal-detail-link");
+    const playerId = Number(player.player_id);
+    detailLink.href = Number.isFinite(playerId) && playerId > 0 ? `/players/${playerId}` : "/performance";
+    detailLink.setAttribute("aria-label", `View details for ${player.player_name || "selected player"}`);
 
-    renderTrendChart(item);
+    state.lastFocusedElement = findPlayerButtonByKey(state.selectedKey);
+    state.modalOpen = true;
+    modal.hidden = false;
+    panel.focus();
   }
 
-  async function loadPlayerDetail(playerId, gameId) {
-    if (!playerId || !gameId) return;
+  function openPlayerModalByKey(playerId, gameId) {
     const key = `${playerId}:${gameId}`;
-    const cached = state.detailCache.get(key);
-    if (cached) {
-      renderDetail(cached);
-      return;
-    }
-    const requestId = ++state.detailRequestId;
-    setDetailEmpty("Loading percentile ranges...");
-    try {
-      const data = await fetchJson(
-        `/api/performance/players/${encodeURIComponent(playerId)}?game_id=${encodeURIComponent(gameId)}`
-      );
-      if (requestId !== state.detailRequestId) return;
-      state.detailCache.set(key, data.item);
-      renderDetail(data.item);
-    } catch {
-      if (requestId !== state.detailRequestId) return;
-      setDetailEmpty("Could not load this player performance row.");
-    }
+    const player = state.players.find((item) => playerKey(item) === key);
+    if (!player) return;
+    openPlayerModal(player);
   }
 
   async function loadPlayers(requestId = state.selectionRequestId) {
     if (!state.selectedDate) {
       state.players = [];
+      clearSelectedPlayer({ restoreFocus: false, render: false });
       renderPlayers();
       return;
     }
     $("#performance-player-filter").disabled = true;
     setEmpty("Loading player rows...", true);
-    state.currentDetail = null;
-    state.detailRequestId += 1;
-    setDetailEmpty("Pick a row from the player list.");
+    clearSelectedPlayer({ restoreFocus: false, render: false });
     const params = new URLSearchParams({ game_date: state.selectedDate });
     if (state.selectedGameId) params.set("game_id", state.selectedGameId);
     try {
@@ -525,7 +395,6 @@
       if (requestId !== state.selectionRequestId) return;
       state.players = data.items || [];
       $("#performance-player-filter").disabled = false;
-      state.selectedKey = "";
       setTableBusy(false);
       renderPlayers();
     } catch {
@@ -564,7 +433,7 @@
     state.selectedGameId = "";
     $("#performance-player-filter").disabled = true;
     setEmpty("Loading player rows...", true);
-    setDetailEmpty("Pick a row from the player list.");
+    clearSelectedPlayer({ restoreFocus: false, render: false });
     const params = new URLSearchParams();
     if (dateValue) params.set("game_date", dateValue);
     try {
@@ -639,14 +508,17 @@
       if (!(target instanceof Element)) return;
       const button = target.closest(".performance-player-button");
       if (!button) return;
-      loadPlayerDetail(button.dataset.playerId, button.dataset.gameId);
+      openPlayerModalByKey(button.dataset.playerId, button.dataset.gameId);
     });
 
-    $("#performance-trend-tabs").querySelectorAll("[data-trend-stat]").forEach((button) => {
-      button.addEventListener("click", () => {
-        state.trendStat = button.dataset.trendStat || "pts";
-        if (state.currentDetail) renderTrendChart(state.currentDetail);
-      });
+    document.querySelectorAll("[data-performance-modal-close]").forEach((button) => {
+      button.addEventListener("click", () => clearSelectedPlayer());
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && state.modalOpen) {
+        clearSelectedPlayer();
+      }
     });
   }
 
@@ -655,5 +527,15 @@
     await loadInitial();
   }
 
-  document.addEventListener("DOMContentLoaded", init);
+  if (typeof window === "undefined" || window.__NBA_PERFORMANCE_TEST_HOOKS__) {
+    globalThis.__performanceTest = {
+      state,
+      comparePlayers,
+      sortValue,
+    };
+  }
+
+  if (typeof document !== "undefined") {
+    document.addEventListener("DOMContentLoaded", init);
+  }
 })();

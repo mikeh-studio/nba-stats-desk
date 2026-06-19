@@ -21,6 +21,7 @@ model layer should live in a private repo or package.
 - feature weights, thresholds, and model-selection logic
 - manual labels, evaluation sets, and scouting notes
 - generated reports under `reports/`
+- local Ask history under `local_notes/`
 - notebooks and local experiments
 - model artifacts, checkpoints, and embeddings
 - real `.env` files, service accounts, tokens, and warehouse exports
@@ -44,3 +45,5 @@ nba-personal-model/
 ```
 
 Keep any local bridge scripts ignored until they are safe to publish.
+Keep `AGENT_HISTORY_ENABLED=false` for public deployments unless the endpoint is
+put behind a real auth boundary.

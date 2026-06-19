@@ -24,6 +24,7 @@ logger = logging.getLogger("nba.agent.planner")
 class TimeWindow(BaseModel):
     kind: str = "unspecified"
     last_n_games: int | None = None
+    last_n_weeks: int | None = None
     start_date: str | None = None
     end_date: str | None = None
 
@@ -88,10 +89,17 @@ QUERY_PLAN_SCHEMA: dict[str, Any] = {
             "properties": {
                 "kind": {"type": "string"},
                 "last_n_games": {"type": ["integer", "null"]},
+                "last_n_weeks": {"type": ["integer", "null"]},
                 "start_date": {"type": ["string", "null"]},
                 "end_date": {"type": ["string", "null"]},
             },
-            "required": ["kind", "last_n_games", "start_date", "end_date"],
+            "required": [
+                "kind",
+                "last_n_games",
+                "last_n_weeks",
+                "start_date",
+                "end_date",
+            ],
             "additionalProperties": False,
         },
         "needs_clarification": {"type": "boolean"},
@@ -124,7 +132,10 @@ PLANNER_PROMPT = """
 You are a query planner for an NBA stats agent.
 Return only the requested JSON schema.
 Classify the user's intent, extract NBA player mentions exactly as written,
-extract metric words, and identify date ranges or last-N-game windows.
+extract metric words, and identify date ranges, last-N-game windows, or
+past/last-N-week windows. For week-over-week, weekly, or past N weeks requests,
+set time_window.kind to "last_n_weeks", last_n_weeks to N, and last_n_games to
+null. Never convert a week window into a game-count window.
 Extract minimum-games cohort filters such as "at least 50 games" into min_games.
 Only put concrete box-score stats in metrics (points, rebounds, assists,
 steals, blocks, turnovers, threes, minutes). For vague catch-all wording like
@@ -144,6 +155,10 @@ answer rather than a follow-up question.
 def _extract_time_window(question: str) -> TimeWindow:
     q = question.casefold()
     last_match = re.search(r"\blast\s+(\d{1,2})\s+games?\b", q)
+    week_match = re.search(
+        r"\b(?:over\s+the\s+)?(?:past|last|previous|prior)\s+(\d{1,2})[-\s]+weeks?\b",
+        q,
+    )
     dates = re.findall(r"\b20\d{2}-\d{2}-\d{2}\b", question)
     if dates:
         return TimeWindow(
@@ -153,9 +168,34 @@ def _extract_time_window(question: str) -> TimeWindow:
         )
     if last_match:
         return TimeWindow(kind="last_n_games", last_n_games=int(last_match.group(1)))
-    if any(term in q for term in ("recent", "trend", "trending", "form")):
+    if week_match:
+        return TimeWindow(
+            kind="last_n_weeks",
+            last_n_weeks=max(1, min(52, int(week_match.group(1)))),
+        )
+    if any(
+        term in q
+        for term in (
+            "recent",
+            "trend",
+            "trending",
+            "form",
+            "weekly",
+            "week-over-week",
+            "week over week",
+        )
+    ):
         return TimeWindow(kind="recent")
     return TimeWindow()
+
+
+def _metric_name_in_question(question_norm: str, name: object) -> bool:
+    name_norm = normalize_player_text(str(name))
+    if not name_norm:
+        return False
+    return (
+        re.search(rf"(?:^|\s){re.escape(name_norm)}(?:\s|$)", question_norm) is not None
+    )
 
 
 def _extract_metrics(question: str) -> list[str]:
@@ -164,7 +204,7 @@ def _extract_metrics(question: str) -> list[str]:
     q = normalize_player_text(question)
     for metric in catalog.list_metrics():
         names = [metric["key"], metric["label"], *metric.get("aliases", [])]
-        if any(normalize_player_text(str(name)) in q for name in names):
+        if any(_metric_name_in_question(q, name) for name in names):
             key = str(metric["key"])
             if key not in found:
                 found.append(key)
@@ -212,21 +252,43 @@ _MENTION_STOPWORDS = frozenset(
         # Question/sentence-leading words.
         "who", "what", "show", "compare", "which", "how", "follow",
         "previous", "question", "tell", "give", "list", "find", "rank",
+        "analyze",
         # League and cohort words.
         "nba", "league", "average", "baseline", "eastern", "western",
         "conference", "regular", "season", "playoffs", "team", "teams",
         "player", "players", "game", "games", "top", "best", "leaders",
         # Metric words.
         "points", "assists", "rebounds", "steals", "blocks", "turnovers",
-        "percentile", "trend", "trends", "stats", "minutes",
+        "percentile", "trend", "trends", "stats", "minutes", "performance",
         # Time words.
         "january", "february", "march", "april", "may", "june", "july",
         "august", "september", "october", "november", "december",
         "monday", "tuesday", "wednesday", "thursday", "friday",
         "saturday", "sunday", "last", "recent", "this", "today",
-        "yesterday", "week", "month",
+        "yesterday", "past", "week", "weeks", "weekly", "month", "basis",
     }
 )  # fmt: skip
+
+
+_MENTION_TRIM_PREFIXES = frozenset(
+    {
+        "analyze",
+        "compare",
+        "show",
+        "tell",
+        "give",
+        "list",
+        "find",
+        "rank",
+    }
+)
+
+
+def _trim_mention_phrase(phrase: str) -> str:
+    words = phrase.split()
+    while len(words) > 1 and words[0].casefold() in _MENTION_TRIM_PREFIXES:
+        words = words[1:]
+    return " ".join(words)
 
 
 def _is_stopword_phrase(phrase: str) -> bool:
@@ -250,7 +312,7 @@ def _extract_player_mentions(question: str) -> list[str]:
             ):
                 mentions.append(mention)
     for match in re.finditer(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2}\b", question):
-        phrase = match.group(0).strip()
+        phrase = _trim_mention_phrase(match.group(0).strip())
         # Every false mention costs a player-search warehouse query, so filter
         # capitalized phrases made up entirely of non-name words.
         if _is_stopword_phrase(phrase):
@@ -321,6 +383,16 @@ def _parse_plan_response(response: Any) -> QueryPlan | None:
     return plan
 
 
+def _has_explicit_time_window(window: TimeWindow) -> bool:
+    return (
+        window.kind in {"date_range", "last_n_games", "last_n_weeks"}
+        or window.last_n_games is not None
+        or window.last_n_weeks is not None
+        or window.start_date is not None
+        or window.end_date is not None
+    )
+
+
 def build_query_plan(
     question: str,
     *,
@@ -366,4 +438,6 @@ def build_query_plan(
     # rather than asking the user which stat to use.
     if plan.route == AgentRoute.CLARIFY and fallback.route != AgentRoute.CLARIFY:
         return fallback
+    if _has_explicit_time_window(fallback.time_window):
+        plan.time_window = fallback.time_window
     return plan

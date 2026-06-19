@@ -34,6 +34,7 @@ old Visualize page has been removed.
 - `/api/similarity-map/neighbors/{player_id}`
 - `/api/agent/ask`
 - `/api/agent/ask/stream`
+- `/api/agent/history` (local-only history, empty unless enabled)
 - `/api/health`
 
 ## Data Access
@@ -56,11 +57,11 @@ block with pair score, shared traits, and contrasting traits.
 
 The performance page shows 2025-26 playoff player game rows against each
 player's own season baseline, excluding players below one minute. It exposes
-date and game filters, status sorting, minutes, FG%, FT%, 3PM, percentile ranges
-for the selected row, and a 30-day game trend drawn from
-`gold.recent_performance_workbench`. The default performance payload and health
-status are prewarmed on app startup when `PERFORMANCE_CACHE_PREWARM_ENABLED`
-is true.
+date and game filters, status sorting, signed P-Rating, minutes, FG%, FT%, and
+3PM. Clicking a row opens a lightweight Player View modal from the loaded row
+data; the full player page remains the detail destination. The default
+performance payload is prewarmed on app startup when
+`PERFORMANCE_CACHE_PREWARM_ENABLED` is true.
 
 ## Provider-Selectable LLM Stats Agent
 
@@ -91,6 +92,9 @@ The agent can call allowlisted application tools for:
 - metric leaderboards
 
 The agent does not receive BigQuery credentials and cannot run arbitrary SQL.
+Answer prose is rendered as Markdown in the Ask thread. Structured table rows
+stay in the `tables` payload and Tables panel rather than being repeated as
+Markdown tables in the answer.
 
 `OPENAI_AGENT_MODEL` defaults to `gpt-5.4-mini`,
 `ANTHROPIC_AGENT_MODEL` defaults to `claude-opus-4-8`, and
@@ -127,6 +131,12 @@ turns in a pluggable in-memory backend for local use. `AGENT_CONVERSATION_MAX_TU
 caps replayed history; set it to `0` to disable replay memory. `AGENT_CACHE_TTL_SECONDS`
 controls safe process-local caching for semantic catalog-derived metric lists
 and player resolution.
+
+Ask chat history has two layers. Browser-local history is stored in
+`localStorage` under `askChatHistory:v1`. The optional server-local JSONL log is
+disabled by default for public safety; set `AGENT_HISTORY_ENABLED=true` and keep
+`AGENT_HISTORY_PATH` under ignored `local_notes/` for local development only.
+When disabled, `/api/agent/history` returns an empty list and writes no file.
 
 Agent metrics are defined in `app/agent/semantic_catalog.yml`. Base metrics map
 to curated gold fields. Derived metrics use safe arithmetic formulas over

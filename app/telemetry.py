@@ -50,12 +50,6 @@ def _emit_panel_event(
     logger.info(json.dumps(payload, sort_keys=True))
 
 
-def _freshness_reason(health: dict[str, Any]) -> str:
-    if health.get("status") == "stale":
-        return "stale_freshness"
-    return "freshness_unavailable"
-
-
 def _detail_panel_reason(panel: str, state: str, player_detail: dict[str, Any]) -> str:
     if state == STATE_INSUFFICIENT_SAMPLE:
         if panel in {"archetype", "similarity"}:
@@ -78,16 +72,6 @@ def instrument_player_view(
     *, route: str, season: str, health: dict[str, Any], player_detail: dict[str, Any]
 ) -> None:
     player_id = player_detail["player"]["player_id"]
-    if health.get("status") != STATE_FRESH:
-        _emit_panel_event(
-            route=route,
-            surface="player_detail",
-            panel="freshness_banner",
-            state=str(health.get("status")),
-            reason=_freshness_reason(health),
-            season=season,
-            player_id=player_id,
-        )
     for panel, state in player_detail.get("panel_states", {}).items():
         if state == STATE_FRESH:
             continue
@@ -122,17 +106,6 @@ def instrument_compare_view(
     health: dict[str, Any],
     comparison: dict[str, Any] | None,
 ) -> None:
-    if health.get("status") != STATE_FRESH:
-        _emit_panel_event(
-            route=route,
-            surface="compare",
-            panel="freshness_banner",
-            state=str(health.get("status")),
-            reason=_freshness_reason(health),
-            season=season,
-            window=None if comparison is None else str(comparison.get("window")),
-            focus=None if comparison is None else str(comparison.get("focus")),
-        )
     if comparison is None:
         return
     for slot in ("player_a", "player_b"):

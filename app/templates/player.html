@@ -6,8 +6,10 @@
         <div class="player-avatar large" aria-hidden="true">
           {% if player_detail.player.headshot_url %}
             <img src="{{ player_detail.player.headshot_url }}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
+            <span class="player-avatar-fallback" hidden>{{ player_detail.player.player_initials }}</span>
+          {% else %}
+            <span class="player-avatar-fallback">{{ player_detail.player.player_initials }}</span>
           {% endif %}
-          <span class="player-avatar-fallback">{{ player_detail.player.player_initials }}</span>
         </div>
         <div>
           <div class="eyebrow">Inspect</div>
@@ -30,7 +32,7 @@
         <span class="chip">{{ player_detail.player.team_abbr }}</span>
       {% endif %}
       {% if player_detail.player.recommendation_score %}
-        <span class="chip">Score {{ player_detail.player.recommendation_score }}</span>
+        <span class="chip">P-Rating {{ player_detail.player.recommendation_score }}</span>
       {% endif %}
       {% if player_detail.trend.status %}
         <span class="chip">Trend {{ player_detail.trend.status }}</span>
@@ -66,12 +68,6 @@
       </div>
       <button class="button secondary" type="submit">Search</button>
     </form>
-    {% if health.status != "fresh" %}
-      <div class="notice">
-        <strong>Player outlook is using degraded freshness.</strong>
-        <p>The latest successful warehouse refresh was <span title="{{ health.last_successful_finished_at_utc or '' }}">{{ health.last_successful_finished_at_utc | time_ago }}</span>. Read recent and opportunity context carefully.</p>
-      </div>
-    {% endif %}
     {% if player_detail.availability_state != "fresh" %}
       <div class="notice">
         <strong>This player is not currently ranked.</strong>
@@ -274,8 +270,10 @@
                     <div class="player-avatar" aria-hidden="true">
                       {% if item.headshot_url %}
                         <img src="{{ item.headshot_url }}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
+                        <span class="player-avatar-fallback" hidden>{{ item.player_initials }}</span>
+                      {% else %}
+                        <span class="player-avatar-fallback">{{ item.player_initials }}</span>
                       {% endif %}
-                      <span class="player-avatar-fallback">{{ item.player_initials }}</span>
                     </div>
                     <div>
                       <h3><a href="/players/{{ item.player_id }}">{{ item.player_name }}</a></h3>
