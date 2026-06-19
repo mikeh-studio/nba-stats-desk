@@ -62,11 +62,12 @@ for the selected row, and a 30-day game trend drawn from
 status are prewarmed on app startup when `PERFORMANCE_CACHE_PREWARM_ENABLED`
 is true.
 
-## OpenAI Stats Agent
+## Provider-Selectable LLM Stats Agent
 
-`/ask` adds an OpenAI-backed stats agent over curated warehouse outputs. Set
-`OPENAI_API_KEY` to enable it. The blocking JSON endpoint is `/api/agent/ask`;
-the streaming SSE endpoint is `/api/agent/ask/stream`.
+`/ask` adds an LLM-backed stats agent over curated warehouse outputs. Set
+`OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` to enable the OpenAI API and Claude
+API providers. The blocking JSON endpoint is `/api/agent/ask`; the streaming SSE
+endpoint is `/api/agent/ask/stream`.
 
 Player resolution starts from `BQ_DATASET_AGENT.agent_player_search`, a
 dedicated BigQuery table built by dbt for agent search. It contains qualified
@@ -91,12 +92,14 @@ The agent can call allowlisted application tools for:
 
 The agent does not receive BigQuery credentials and cannot run arbitrary SQL.
 
-`OPENAI_AGENT_MODEL` defaults to `gpt-5.4-mini`, and `AGENT_MAX_TOOL_CALLS`
-bounds one request's tool loop. The agent first builds a bounded query plan,
-uses the deterministic router as fallback, resolves player mentions, and builds
-an evidence bundle through allowlisted tools before asking the model to write the
-final answer. Under-specified or ambiguous questions return clarification
-options instead of calling more tools.
+`OPENAI_AGENT_MODEL` defaults to `gpt-5.4-mini`,
+`ANTHROPIC_AGENT_MODEL` defaults to `claude-opus-4-8`, and
+`AGENT_MAX_TOOL_CALLS` bounds one request's tool loop. The agent first builds a
+bounded query plan, uses the deterministic router as fallback, resolves player
+mentions, and builds an evidence bundle through allowlisted tools before asking
+the selected OpenAI API or Claude API model to write the final answer.
+Under-specified or ambiguous questions return clarification options instead of
+calling more tools.
 
 Every Ask request emits one JSON log line with `event_name:
 agent_request_summary`, request id, route, confidence, model, tool calls with
@@ -107,15 +110,17 @@ header.
 Rate limiting uses `AGENT_RATE_LIMIT_REDIS_URL` when set, which should point to
 Redis or Memorystore for horizontally scaled Cloud Run. The Redis path uses
 `EXPIRE key seconds NX`, which requires Redis server 7.0 or newer (Memorystore
-for Redis 7.x). Local and test runs fall back to an in-memory store. `AGENT_RATE_LIMIT_PER_MINUTE` and
-`AGENT_RATE_LIMIT_DAILY` control per-IP ceilings, and
-`AGENT_QUESTION_MAX_CHARS` caps prompt size before OpenAI is called.
+for Redis 7.x). Local and test runs fall back to an in-memory store.
+`AGENT_RATE_LIMIT_PER_MINUTE` and `AGENT_RATE_LIMIT_DAILY` control per-IP
+ceilings, and `AGENT_QUESTION_MAX_CHARS` caps prompt size before an LLM provider
+is called.
 
-OpenAI calls use `OPENAI_AGENT_TIMEOUT_SECONDS`,
+OpenAI API calls use `OPENAI_AGENT_TIMEOUT_SECONDS`,
 `OPENAI_AGENT_MAX_RETRIES`, and `OPENAI_AGENT_RETRY_BASE_DELAY_SECONDS` for
-bounded retries on transient 429/5xx/timeout failures. Raw exception text is
-logged server-side only; clients receive generic availability or generation
-failure messages.
+bounded retries on transient 429/5xx/timeout failures. Claude API calls use
+`ANTHROPIC_AGENT_TIMEOUT_SECONDS` through the Anthropic-backed adapter. Raw
+exception text is logged server-side only; clients receive generic availability
+or generation failure messages.
 
 Conversation memory is keyed by `conversation_id` and stores recent user/answer
 turns in a pluggable in-memory backend for local use. `AGENT_CONVERSATION_MAX_TURNS`

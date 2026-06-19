@@ -171,7 +171,7 @@ class AgentDisabledError(RuntimeError):
 
 
 class AgentExecutionError(RuntimeError):
-    """Raised when an OpenAI agent run fails."""
+    """Raised when an LLM provider agent run fails."""
 
 
 def _default_agent_answer(answer: str) -> dict[str, Any]:
