@@ -476,7 +476,7 @@ def _period_comparison_rows(
         )
         pct_change = (
             round((delta / comparison_avg) * 100, 1)
-            if delta is not None and comparison_avg not in (None, 0)
+            if delta is not None and comparison_avg is not None and comparison_avg != 0
             else None
         )
         rows.append(
