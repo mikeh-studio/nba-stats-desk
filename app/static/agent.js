@@ -42,17 +42,30 @@ function stripMarkdownTables(value) {
   return kept.join("\n");
 }
 
+const BLOCK_LINE_START = /^(?:#{1,4}\s|[-*]\s|\d+[.)]\s|>\s?|-{3,}$|\*{3,}$)/;
+
+// Best-effort repairs for models that cram headings/list items onto a single
+// line instead of using newlines. They run per line and only on lines that are
+// not already block-level Markdown, so prose the model formatted correctly
+// (real headings, list items, rules) is left untouched. Because each line is
+// processed in isolation, the `\s` runs here never span an existing newline.
+function repairInlineMarkdownLine(line) {
+  if (BLOCK_LINE_START.test(line.trim())) return line;
+  return line
+    .replace(/(\S)[ \t]+(#{2,4})[ \t]+(?=\S)/g, "$1\n\n$2 ")
+    .replace(/(\S)[ \t]+(-{3,}|\*{3,})(?=[ \t]|$)/g, "$1\n\n$2")
+    .replace(
+      /[ \t]+-[ \t]+(?=(?:\*\*)?[A-Za-z0-9][^:\n]{0,42}:|\*\*)/g,
+      "\n- "
+    );
+}
+
 function normalizeAnswerMarkdown(markdown) {
   let text = String(markdown ?? "")
     .replace(/\r\n?/g, "\n")
     .replace(/\u00a0/g, " ");
   text = stripMarkdownTables(text);
-  text = text.replace(/([^\n])\s+(#{2,4})\s+(?=\S)/g, "$1\n\n$2 ");
-  text = text.replace(/([^\n])\s+(-{3,}|\*{3,})(?=\s|$)/g, "$1\n\n$2");
-  text = text.replace(
-    /\s+-\s+(?=(?:\*\*)?[A-Za-z0-9][^:\n]{0,42}:|\*\*)/g,
-    "\n- "
-  );
+  text = text.split("\n").map(repairInlineMarkdownLine).join("\n");
   return text.replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -502,14 +515,9 @@ function bindExampleButtons(root = document) {
   root.querySelectorAll("[data-agent-example]").forEach((button) => {
     button.addEventListener("click", () => {
       const input = document.querySelector("[data-agent-question]");
-      const form = document.querySelector("[data-agent-form]");
       if (!(input instanceof HTMLTextAreaElement)) return;
       input.value = button.dataset.agentExample || "";
-      if (form instanceof HTMLFormElement) {
-        form.requestSubmit();
-      } else {
-        input.focus();
-      }
+      input.focus();
     });
   });
 }
@@ -1320,6 +1328,7 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     loadHistoryState,
     saveHistoryState,
     persistHistoryTurn,
+    bindExampleButtons,
     restoreConversation,
     clearHistory,
   };

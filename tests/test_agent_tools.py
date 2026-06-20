@@ -270,6 +270,153 @@ def test_agent_trends_tool_computes_from_date_filtered_game_log() -> None:
     ]
 
 
+def test_agent_trends_tool_returns_bucketed_previous_period_comparison() -> None:
+    class PeriodComparisonRepository(ToolFakeRepository):
+        def get_player_game_log(
+            self,
+            player_id: int,
+            limit: int = 30,
+            *,
+            start_date: str | None = None,
+            end_date: str | None = None,
+        ) -> dict | None:
+            if player_id != 7:
+                return None
+            games = [
+                {"game_date": "2026-01-05", "pts": "18", "ast": "5"},
+                {"game_date": "2026-01-12", "pts": "22", "ast": "7"},
+                {"game_date": "2026-02-02", "pts": "28", "ast": "9"},
+                {"game_date": "2026-02-09", "pts": "32", "ast": "11"},
+            ]
+            if start_date:
+                games = [game for game in games if game["game_date"] >= start_date]
+            if end_date:
+                games = [game for game in games if game["game_date"] <= end_date]
+            return {"games": games[:limit]}
+
+    runner = StatsToolRunner(PeriodComparisonRepository())
+
+    payload = runner.get_player_trends(
+        7,
+        ["points"],
+        start_date="2026-02-01",
+        end_date="2026-02-28",
+        granularity="week",
+        comparison_start_date="2026-01-04",
+        comparison_end_date="2026-01-31",
+    )
+
+    comparison = payload["period_analysis"]["comparison_rows"][0]
+    assert payload["granularity"] == "week"
+    assert payload["period_analysis"]["current_period"]["games"] == 2
+    assert payload["period_analysis"]["comparison_period"]["games"] == 2
+    assert comparison["current_avg"] == 30.0
+    assert comparison["comparison_avg"] == 20.0
+    assert comparison["delta"] == 10.0
+    assert len(payload["bucket_series"]) == 2
+    assert payload["trends"][0]["comparison_delta"] == 10.0
+
+
+def test_agent_trends_tool_league_baseline_comparison() -> None:
+    class BaselineRepository(ToolFakeRepository):
+        def get_player_detail(self, player_id: int) -> dict | None:
+            detail = super().get_player_detail(player_id)
+            if detail is None:
+                return None
+            detail["chart_baselines"] = {
+                "pts": {
+                    "key": "pts",
+                    "label": "PTS",
+                    "value": 25.0,
+                    "direction": "higher",
+                },
+            }
+            return detail
+
+        def get_player_game_log(
+            self,
+            player_id: int,
+            limit: int = 30,
+            *,
+            start_date: str | None = None,
+            end_date: str | None = None,
+        ) -> dict | None:
+            if player_id != 7:
+                return None
+            games = [
+                {"game_date": "2026-02-02", "pts": "28"},
+                {"game_date": "2026-02-09", "pts": "32"},
+            ]
+            if start_date:
+                games = [game for game in games if game["game_date"] >= start_date]
+            if end_date:
+                games = [game for game in games if game["game_date"] <= end_date]
+            return {"games": games[:limit]}
+
+    runner = StatsToolRunner(BaselineRepository())
+
+    payload = runner.get_player_trends(
+        7,
+        ["points"],
+        start_date="2026-02-01",
+        end_date="2026-02-28",
+        comparison_mode="league_baseline",
+    )
+
+    period = payload["period_analysis"]
+    baseline = period["baseline_rows"][0]
+    assert payload["comparison_mode"] == "league_baseline"
+    assert baseline["current_avg"] == 30.0
+    assert baseline["baseline_avg"] == 25.0
+    assert baseline["delta"] == 5.0
+    assert baseline["pct_change"] == 20.0
+    assert payload["trends"][0]["baseline_delta"] == 5.0
+    assert "comparison_rows" not in period
+    assert "comparison_period" not in period
+
+
+def test_agent_trends_tool_omits_comparison_when_mode_none() -> None:
+    class NoneModeRepository(ToolFakeRepository):
+        def get_player_game_log(
+            self,
+            player_id: int,
+            limit: int = 30,
+            *,
+            start_date: str | None = None,
+            end_date: str | None = None,
+        ) -> dict | None:
+            if player_id != 7:
+                return None
+            games = [
+                {"game_date": "2026-02-02", "pts": "28"},
+                {"game_date": "2026-02-09", "pts": "32"},
+            ]
+            if start_date:
+                games = [game for game in games if game["game_date"] >= start_date]
+            if end_date:
+                games = [game for game in games if game["game_date"] <= end_date]
+            return {"games": games[:limit]}
+
+    runner = StatsToolRunner(NoneModeRepository())
+
+    payload = runner.get_player_trends(
+        7,
+        ["points"],
+        start_date="2026-02-01",
+        end_date="2026-02-28",
+        comparison_mode="none",
+        comparison_start_date="2026-01-01",
+        comparison_end_date="2026-01-31",
+    )
+
+    period = payload["period_analysis"]
+    assert "current_period" in period
+    assert "comparison_rows" not in period
+    assert "comparison_period" not in period
+    assert "baseline_rows" not in period
+    assert "comparison_delta" not in payload["trends"][0]
+
+
 def test_metric_tiers_assign_every_metric_a_tier() -> None:
     catalog = load_semantic_catalog()
 

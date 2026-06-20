@@ -360,9 +360,45 @@ def test_week_window_does_not_collapse_to_default_ten_games(monkeypatch) -> None
     )
     assert '"kind": "last_n_weeks"' in evidence_text
     assert "last 10 weeks" in evidence_text
-    assert (
-        "Do not title or frame the answer as a last-N-games analysis" in evidence_text
+    assert "Do not rename calendar windows as last-N-games analyses" in evidence_text
+
+
+def test_day_window_anchors_to_season_latest_game_and_previous_period(
+    monkeypatch,
+) -> None:
+    from app.agent import service as service_module
+    from app.agent.planner import QueryPlan, TimeWindow
+    from app.agent.router import AgentRoute
+
+    class SeasonCoverageRepository(AgentServiceFakeRepository):
+        def get_season_coverage(self) -> dict:
+            return {"latest_game_date": "2026-06-14"}
+
+    def fake_build_query_plan(question: str, **kwargs: object) -> QueryPlan:
+        return QueryPlan(
+            route=AgentRoute.PLAYER_TREND,
+            confidence=0.9,
+            raw_player_mentions=["Tyrese Maxey"],
+            metrics=["pts"],
+            time_window=TimeWindow(kind="last_n_days", last_n_days=30),
+        )
+
+    monkeypatch.setattr(service_module, "build_query_plan", fake_build_query_plan)
+    client = SequenceClient([])
+    agent = StatsAgent(_settings(), SeasonCoverageRepository(), client=client)
+
+    payload = agent.answer("Analyze Tyrese Maxey over the last 30 days.")
+
+    trend_call = next(
+        call for call in payload["tool_calls"] if call["name"] == "get_player_trends"
     )
+    assert trend_call["args"]["start_date"] == "2026-05-16"
+    assert trend_call["args"]["end_date"] == "2026-06-14"
+    assert trend_call["args"]["granularity"] == "week"
+    assert trend_call["args"]["comparison_mode"] == "previous_period"
+    assert trend_call["args"]["comparison_start_date"] == "2026-04-16"
+    assert trend_call["args"]["comparison_end_date"] == "2026-05-15"
+    assert payload["query_plan"]["time_window"]["anchor_date"] == "2026-06-14"
 
 
 def test_vague_metric_does_not_clarify_when_player_resolves(monkeypatch) -> None:

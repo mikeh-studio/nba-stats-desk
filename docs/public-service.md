@@ -65,78 +65,39 @@ performance payload is prewarmed on app startup when
 
 ## Provider-Selectable LLM Stats Agent
 
-`/ask` adds an LLM-backed stats agent over curated warehouse outputs. Set
+`/ask` is an LLM-backed stats agent over curated warehouse outputs. Set
 `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` to enable the OpenAI API and Claude
-API providers. The blocking JSON endpoint is `/api/agent/ask`; the streaming SSE
-endpoint is `/api/agent/ask/stream`.
+API providers. Use `/api/agent/ask` for blocking JSON responses and
+`/api/agent/ask/stream` for SSE streaming.
 
-Player resolution starts from `BQ_DATASET_AGENT.agent_player_search`, a
-dedicated BigQuery table built by dbt for agent search. It contains qualified
-player identity, searchable text, season averages, percentiles, trend state,
-availability context, and a compact answer context. Deeper tool calls still use
-allowlisted gold read models for game logs, trends, rankings, percentiles, and
-similarity.
+The request path is intentionally bounded:
 
-The agent can call allowlisted application tools for:
+1. Build a query plan, with deterministic routing as fallback.
+2. Resolve player names from `BQ_DATASET_AGENT.agent_player_search`.
+3. Gather evidence through allowlisted application tools.
+4. Ask the selected provider/model to write the final answer from that evidence.
 
-- player resolution
-- game logs, including optional inclusive `start_date` / `end_date` filters
-- trends over a game window (`limit`) or `start_date` / `end_date` range:
-  first-half vs second-half averages, per-game slope, volatility, a flagged
-  within-period change point, and a rolling-average chart overlay
-- opponent splits: per-opponent averages, win/loss record, and the toughest
-  matchup ranked by an efficiency-and-impact composite (see below)
-- percentiles
-- rankings
-- similarity
-- metric leaderboards
+Allowed tools cover player resolution, game logs, trends, opponent splits,
+percentiles, rankings, similarity, and metric leaderboards. The agent does not
+receive BigQuery credentials and cannot run arbitrary SQL.
 
-The agent does not receive BigQuery credentials and cannot run arbitrary SQL.
-Answer prose is rendered as Markdown in the Ask thread. Structured table rows
-stay in the `tables` payload and Tables panel rather than being repeated as
-Markdown tables in the answer.
+Trend questions preserve the user's requested window. `last 30 days` and
+`past 10 weeks` anchor to the latest available game date in the supported
+season, choose a game/week/month breakdown from the question, and compare
+against the previous equivalent period unless the user asks for league baseline.
+Structured trend evidence includes period summaries, bucketed rows, comparison
+deltas, and chart payloads.
 
-`OPENAI_AGENT_MODEL` defaults to `gpt-5.4-mini`,
-`ANTHROPIC_AGENT_MODEL` defaults to `claude-opus-4-8`, and
-`AGENT_MAX_TOOL_CALLS` bounds one request's tool loop. The agent first builds a
-bounded query plan, uses the deterministic router as fallback, resolves player
-mentions, and builds an evidence bundle through allowlisted tools before asking
-the selected OpenAI API or Claude API model to write the final answer.
-Under-specified or ambiguous questions return clarification options instead of
-calling more tools.
+Operational controls:
 
-Every Ask request emits one JSON log line with `event_name:
-agent_request_summary`, request id, route, confidence, model, tool calls with
-arguments/result summaries/timing, token usage, latency, and final outcome. The
-API also returns `request_id` in the JSON payload and `X-Request-ID` response
-header.
-
-Rate limiting uses `AGENT_RATE_LIMIT_REDIS_URL` when set, which should point to
-Redis or Memorystore for horizontally scaled Cloud Run. The Redis path uses
-`EXPIRE key seconds NX`, which requires Redis server 7.0 or newer (Memorystore
-for Redis 7.x). Local and test runs fall back to an in-memory store.
-`AGENT_RATE_LIMIT_PER_MINUTE` and `AGENT_RATE_LIMIT_DAILY` control per-IP
-ceilings, and `AGENT_QUESTION_MAX_CHARS` caps prompt size before an LLM provider
-is called.
-
-OpenAI API calls use `OPENAI_AGENT_TIMEOUT_SECONDS`,
-`OPENAI_AGENT_MAX_RETRIES`, and `OPENAI_AGENT_RETRY_BASE_DELAY_SECONDS` for
-bounded retries on transient 429/5xx/timeout failures. Claude API calls use
-`ANTHROPIC_AGENT_TIMEOUT_SECONDS` through the Anthropic-backed adapter. Raw
-exception text is logged server-side only; clients receive generic availability
-or generation failure messages.
-
-Conversation memory is keyed by `conversation_id` and stores recent user/answer
-turns in a pluggable in-memory backend for local use. `AGENT_CONVERSATION_MAX_TURNS`
-caps replayed history; set it to `0` to disable replay memory. `AGENT_CACHE_TTL_SECONDS`
-controls safe process-local caching for semantic catalog-derived metric lists
-and player resolution.
-
-Ask chat history has two layers. Browser-local history is stored in
-`localStorage` under `askChatHistory:v1`. The optional server-local JSONL log is
-disabled by default for public safety; set `AGENT_HISTORY_ENABLED=true` and keep
-`AGENT_HISTORY_PATH` under ignored `local_notes/` for local development only.
-When disabled, `/api/agent/history` returns an empty list and writes no file.
+- `OPENAI_AGENT_MODEL` and `ANTHROPIC_AGENT_MODEL` set provider defaults.
+- `AGENT_MAX_TOOL_CALLS` bounds one request's evidence loop.
+- `AGENT_RATE_LIMIT_PER_MINUTE`, `AGENT_RATE_LIMIT_DAILY`, and
+  `AGENT_QUESTION_MAX_CHARS` protect public endpoints.
+- `AGENT_RATE_LIMIT_REDIS_URL` enables Redis-backed limits for scaled Cloud Run;
+  local and test runs use an in-memory fallback.
+- Browser history stays in `localStorage`; optional server JSONL history is
+  disabled by default and should stay under ignored `local_notes/`.
 
 Agent metrics are defined in `app/agent/semantic_catalog.yml`. Base metrics map
 to curated gold fields. Derived metrics use safe arithmetic formulas over

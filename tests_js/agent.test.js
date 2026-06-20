@@ -11,6 +11,7 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.tabIndex = 0;
+    this.focused = false;
     this._innerHTML = "";
   }
 
@@ -61,6 +62,10 @@ class FakeElement {
 
   dispatch(eventName, event = {}) {
     (this.listeners.get(eventName) || []).forEach((callback) => callback(event));
+  }
+
+  focus() {
+    this.focused = true;
   }
 
   scrollIntoView() {}
@@ -129,6 +134,19 @@ test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure"
   assert.match(html, /<ol><li><code>AST<\/code>: 7<\/li><\/ol>/);
 });
 
+test("renderAnswerMarkdown does not split block-level lines on inline markup", async () => {
+  const agent = await loadAgentModule();
+
+  // A list item whose text happens to contain "###" / "---" must stay one list
+  // item. The per-line repair skips already-block-level lines, where the old
+  // whole-text regexes would have split this into a spurious heading/rule.
+  const html = agent.renderAnswerMarkdown("- Form: hot ### still --- climbing");
+
+  assert.match(html, /<ul>/);
+  assert.doesNotMatch(html, /<h[1-6]/);
+  assert.doesNotMatch(html, /<hr \/>/);
+});
+
 test("renderAnswerMarkdown strips Markdown pipe tables from Answer prose", async () => {
   const agent = await loadAgentModule();
 
@@ -140,6 +158,34 @@ test("renderAnswerMarkdown strips Markdown pipe tables from Answer prose", async
   assert.match(html, /<h4>Takeaway<\/h4>/);
   assert.doesNotMatch(html, /\| Metric \|/);
   assert.doesNotMatch(html, /\| PTS \|/);
+});
+
+test("example buttons fill the question without submitting", async () => {
+  let submitCount = 0;
+  const input = new FakeElement("textarea");
+  const form = new FakeElement("form");
+  form.requestSubmit = () => {
+    submitCount += 1;
+  };
+  const button = new FakeElement("button");
+  button.dataset.agentExample = "Who is similar to Tyrese Maxey?";
+  const agent = await loadAgentModule({
+    elements: {
+      "[data-agent-question]": input,
+      "[data-agent-form]": form,
+    },
+  });
+
+  agent.bindExampleButtons({
+    querySelectorAll(selector) {
+      return selector === "[data-agent-example]" ? [button] : [];
+    },
+  });
+  button.dispatch("click");
+
+  assert.equal(input.value, "Who is similar to Tyrese Maxey?");
+  assert.equal(input.focused, true);
+  assert.equal(submitCount, 0);
 });
 
 test("browser history saves, dedupes, caps, and renders list rows", async () => {

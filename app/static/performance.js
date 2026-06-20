@@ -516,10 +516,40 @@
     });
 
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && state.modalOpen) {
+      if (!state.modalOpen) return;
+      if (event.key === "Escape") {
         clearSelectedPlayer();
+        return;
       }
+      if (event.key === "Tab") trapModalFocus(event);
     });
+  }
+
+  function trapModalFocus(event) {
+    const panel = $(".performance-modal-panel");
+    if (!panel) return;
+    const focusable = Array.from(
+      panel.querySelectorAll(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((node) => node.offsetParent !== null);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      panel.focus();
+      return;
+    }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey) {
+      if (active === first || active === panel || !panel.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (active === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   async function init() {
