@@ -394,14 +394,24 @@ def _date_range_days(date_range: dict[str, Any]) -> int | None:
     return (end - start).days + 1
 
 
+# Spans at least this many days collapse into weekly buckets when the grain is
+# left on "auto". Shared with app.agent.service so window planning and the trend
+# tool resolve the same grain for a given span.
+_WEEK_GRANULARITY_MIN_DAYS = 21
+
+
+def _auto_grain_for_days(days: int) -> str:
+    return "week" if days >= _WEEK_GRANULARITY_MIN_DAYS else "game"
+
+
 def _resolve_granularity(granularity: Any, date_range: dict[str, Any]) -> str:
     requested = str(granularity or "auto").casefold()
     if requested in {"game", "week", "month"}:
         return requested
     days = _date_range_days(date_range)
-    if days is not None and days >= 21:
-        return "week"
-    return "game"
+    if days is None:
+        return "game"
+    return _auto_grain_for_days(days)
 
 
 def _bucket_key(game_date: date, granularity: str) -> tuple[str, date, date]:
@@ -477,6 +487,44 @@ def _period_comparison_rows(
                 "unit": metric.unit,
                 "current_avg": current_avg,
                 "comparison_avg": comparison_avg,
+                "delta": delta,
+                "pct_change": pct_change,
+                "direction_is_good": metric.higher_is_better,
+            }
+        )
+    return rows
+
+
+def _league_baseline_rows(
+    current_games: list[dict[str, Any]],
+    metrics: list[MetricDefinition],
+    league_baselines: dict[str, Any],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for metric in metrics:
+        # chart_baselines are keyed by the lowercase metric key (pts/reb/...),
+        # matching _format_chart_baselines, not the uppercase trend_stat.
+        baseline = league_baselines.get(metric.key)
+        baseline_avg = _to_float(baseline.get("value")) if baseline else None
+        if baseline_avg is None:
+            continue
+        current_avg = _metric_average_for_games(current_games, metric)
+        delta = (
+            round(current_avg - baseline_avg, 1) if current_avg is not None else None
+        )
+        pct_change = (
+            round((delta / baseline_avg) * 100, 1)
+            if delta is not None and baseline_avg != 0
+            else None
+        )
+        rows.append(
+            {
+                "metric": metric.key,
+                "stat": metric.trend_stat,
+                "label": metric.label,
+                "unit": metric.unit,
+                "current_avg": current_avg,
+                "baseline_avg": baseline_avg,
                 "delta": delta,
                 "pct_change": pct_change,
                 "direction_is_good": metric.higher_is_better,
@@ -1339,10 +1387,15 @@ class StatsToolRunner:
             game_log = detail.get("game_log") or {}
         games = list(game_log.get("games") or [])
         resolved_granularity = _resolve_granularity(granularity, date_range)
-        comparison_games: list[dict[str, Any]] = []
-        if str(comparison_mode or "previous_period") == "previous_period" and (
+        mode = str(comparison_mode or "previous_period")
+        league_baselines = detail.get("chart_baselines") or {}
+        # Only fetch a previous period when one was actually requested with a
+        # range; other modes (none/league_baseline) compute no period comparison.
+        has_prev_comparison = mode == "previous_period" and bool(
             comparison_range["start_date"] or comparison_range["end_date"]
-        ):
+        )
+        comparison_games: list[dict[str, Any]] = []
+        if has_prev_comparison:
             comparison_log = (
                 self.repo.get_player_game_log(
                     player_id_int,
@@ -1360,16 +1413,42 @@ class StatsToolRunner:
             derived_trend = _build_game_log_trend_row(games, metric)
             if derived_trend is not None:
                 trends.append(derived_trend)
-        comparison_rows = _period_comparison_rows(games, comparison_games, selected)
-        comparison_by_stat = {row["stat"]: row for row in comparison_rows}
-        for row in trends:
-            comparison = comparison_by_stat.get(row.get("stat"))
-            if comparison is None:
-                continue
-            row["comparison_avg"] = comparison["comparison_avg"]
-            row["comparison_delta"] = comparison["delta"]
-            row["comparison_pct_change"] = comparison["pct_change"]
-            row["comparison_games"] = len(comparison_games)
+        # Build period_analysis with comparison/baseline rows only when the
+        # requested mode actually produces one, so the payload never advertises a
+        # comparison that was not computed.
+        period_analysis: dict[str, Any] = {
+            "current_period": {
+                **date_range,
+                **_period_metric_summary(games, selected),
+            },
+        }
+        if has_prev_comparison:
+            comparison_rows = _period_comparison_rows(games, comparison_games, selected)
+            comparison_by_stat = {row["stat"]: row for row in comparison_rows}
+            for row in trends:
+                comparison = comparison_by_stat.get(row.get("stat"))
+                if comparison is None:
+                    continue
+                row["comparison_avg"] = comparison["comparison_avg"]
+                row["comparison_delta"] = comparison["delta"]
+                row["comparison_pct_change"] = comparison["pct_change"]
+                row["comparison_games"] = len(comparison_games)
+            period_analysis["comparison_period"] = {
+                **comparison_range,
+                **_period_metric_summary(comparison_games, selected),
+            }
+            period_analysis["comparison_rows"] = comparison_rows
+        elif mode == "league_baseline":
+            baseline_rows = _league_baseline_rows(games, selected, league_baselines)
+            baseline_by_stat = {row["stat"]: row for row in baseline_rows}
+            for row in trends:
+                baseline = baseline_by_stat.get(row.get("stat"))
+                if baseline is None:
+                    continue
+                row["baseline_avg"] = baseline["baseline_avg"]
+                row["baseline_delta"] = baseline["delta"]
+                row["baseline_pct_change"] = baseline["pct_change"]
+            period_analysis["baseline_rows"] = baseline_rows
         bucket_series = _build_bucket_series(games, selected, resolved_granularity)
         player = detail.get("player") or {}
         # Percentage and plus-minus metrics live on different scales than the
@@ -1402,24 +1481,14 @@ class StatsToolRunner:
             "player": _compact_player(player),
             "date_range": date_range,
             "granularity": resolved_granularity,
-            "comparison_mode": comparison_mode or "previous_period",
+            "comparison_mode": mode,
             "comparison_range": comparison_range,
-            "period_analysis": {
-                "current_period": {
-                    **date_range,
-                    **_period_metric_summary(games, selected),
-                },
-                "comparison_period": {
-                    **comparison_range,
-                    **_period_metric_summary(comparison_games, selected),
-                },
-                "comparison_rows": comparison_rows,
-            },
+            "period_analysis": period_analysis,
             "bucket_series": bucket_series,
             "trends": trends,
             "ignored_metrics": invalid,
             "charts": charts,
-            "league_baselines": detail.get("chart_baselines") or {},
+            "league_baselines": league_baselines,
         }
 
     def get_player_percentiles(

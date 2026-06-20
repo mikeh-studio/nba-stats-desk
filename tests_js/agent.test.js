@@ -134,6 +134,19 @@ test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure"
   assert.match(html, /<ol><li><code>AST<\/code>: 7<\/li><\/ol>/);
 });
 
+test("renderAnswerMarkdown does not split block-level lines on inline markup", async () => {
+  const agent = await loadAgentModule();
+
+  // A list item whose text happens to contain "###" / "---" must stay one list
+  // item. The per-line repair skips already-block-level lines, where the old
+  // whole-text regexes would have split this into a spurious heading/rule.
+  const html = agent.renderAnswerMarkdown("- Form: hot ### still --- climbing");
+
+  assert.match(html, /<ul>/);
+  assert.doesNotMatch(html, /<h[1-6]/);
+  assert.doesNotMatch(html, /<hr \/>/);
+});
+
 test("renderAnswerMarkdown strips Markdown pipe tables from Answer prose", async () => {
   const agent = await loadAgentModule();
 

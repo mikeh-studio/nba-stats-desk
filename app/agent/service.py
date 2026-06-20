@@ -22,7 +22,11 @@ from app.agent.player_resolver import (
     PlayerResolver,
 )
 from app.agent.router import AgentRoute, build_agent_plan
-from app.agent.tools import StatsToolRunner, get_tool_schemas
+from app.agent.tools import (
+    StatsToolRunner,
+    _auto_grain_for_days,
+    get_tool_schemas,
+)
 from app.config import Settings
 from app.repository import WarehouseRepository
 
@@ -34,7 +38,7 @@ Use calculate_player_percentile for questions asking where one player ranks in a
 For "points attributed", "points created", or "points + assists * 2", use metric points_created.
 For game-by-game questions, call get_player_game_log so the response can include each game's values.
 For "how have their stats changed over the last N games" questions, read get_player_trends: describe the trajectory using trend_shape and slope_per_game, contrast the first-half vs second-half averages (prior_avg vs recent_avg), and if change_point is present call out the in-window shift (split_date, before_avg to after_avg). Note volatility/best/worst when form was streaky. Cover efficiency and impact (FG%, 3P%, TS%, +/-), not just scoring; metrics with unit "percent" are already 0-100 percentages and their deltas are percentage points.
-For "last N weeks", "last N days", or date-range performance questions, preserve the requested calendar framing. Use period_analysis, bucket_series, and comparison_period from get_player_trends when present: name the requested period, the aggregation grain, and the comparison period before describing metric deltas. Do not rename calendar windows as last-N-games analyses.
+For "last N weeks", "last N days", or date-range performance questions, preserve the requested calendar framing. Use period_analysis, bucket_series, and comparison_rows (previous period) or baseline_rows (league baseline) from get_player_trends when present: name the requested period, the aggregation grain, and the comparison before describing metric deltas. Do not rename calendar windows as last-N-games analyses.
 For "which team did they struggle against" or opponent-matchup questions, use get_player_opponent_splits. The toughest_opponent is ranked by struggle_score (a blend of shooting efficiency and plus-minus vs the player's own average), so explain that a team can be the toughest matchup on efficiency/impact even when raw points look fine. Use toughest_opponent_games to show the individual shooting nights (fg, fg3, ts_pct, plus_minus) behind that verdict.
 For date-range questions, pass start_date and end_date as YYYY-MM-DD tool arguments; use null for an open side of the range.
 Respect explicit minimum-games filters; if the cohort is empty or the player is outside it, say that directly.
@@ -489,17 +493,14 @@ def _apply_relative_window_date_range(
                 window.end_date = anchor.isoformat()
                 window.start_date = (anchor - timedelta(days=days - 1)).isoformat()
         if window.granularity == "auto":
-            window.granularity = "week" if int(window.last_n_days) >= 21 else "game"
+            window.granularity = _auto_grain_for_days(int(window.last_n_days))
     elif window.kind == "date_range":
         if window.granularity == "auto":
             start_date = _parse_iso_date_value(window.start_date)
             end_date = _parse_iso_date_value(window.end_date)
             if start_date is not None and end_date is not None:
                 days = (end_date - start_date).days + 1
-                if days >= 21:
-                    window.granularity = "week"
-                else:
-                    window.granularity = "game"
+                window.granularity = _auto_grain_for_days(days)
     _apply_period_comparison(window)
 
 
