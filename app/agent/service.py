@@ -34,7 +34,7 @@ Use calculate_player_percentile for questions asking where one player ranks in a
 For "points attributed", "points created", or "points + assists * 2", use metric points_created.
 For game-by-game questions, call get_player_game_log so the response can include each game's values.
 For "how have their stats changed over the last N games" questions, read get_player_trends: describe the trajectory using trend_shape and slope_per_game, contrast the first-half vs second-half averages (prior_avg vs recent_avg), and if change_point is present call out the in-window shift (split_date, before_avg to after_avg). Note volatility/best/worst when form was streaky. Cover efficiency and impact (FG%, 3P%, TS%, +/-), not just scoring; metrics with unit "percent" are already 0-100 percentages and their deltas are percentage points.
-For "last N weeks" or "week-over-week" questions, preserve the requested week-based framing. Do not rename that window as "last N games"; summarize weekly direction from the available game-log evidence and say when exact week buckets are limited by available rows.
+For "last N weeks", "last N days", or date-range performance questions, preserve the requested calendar framing. Use period_analysis, bucket_series, and comparison_period from get_player_trends when present: name the requested period, the aggregation grain, and the comparison period before describing metric deltas. Do not rename calendar windows as last-N-games analyses.
 For "which team did they struggle against" or opponent-matchup questions, use get_player_opponent_splits. The toughest_opponent is ranked by struggle_score (a blend of shooting efficiency and plus-minus vs the player's own average), so explain that a team can be the toughest matchup on efficiency/impact even when raw points look fine. Use toughest_opponent_games to show the individual shooting nights (fg, fg3, ts_pct, plus_minus) behind that verdict.
 For date-range questions, pass start_date and end_date as YYYY-MM-DD tool arguments; use null for an open side of the range.
 Respect explicit minimum-games filters; if the cohort is empty or the player is outside it, say that directly.
@@ -66,13 +66,24 @@ def _game_limit_for_time_window(window: Any) -> int:
         # Fetch enough recent games to support a week-based question without
         # silently collapsing the request into the default 10-game sample.
         return min(82, max(10, int(window.last_n_weeks) * 7))
+    if getattr(window, "last_n_days", None):
+        return min(82, max(10, int(window.last_n_days)))
     return 10
 
 
 def _requested_window_context(window: Any) -> dict[str, Any]:
+    base = {
+        "granularity": getattr(window, "granularity", "auto") or "auto",
+        "comparison_mode": getattr(window, "comparison_mode", "previous_period")
+        or "previous_period",
+        "comparison_start_date": getattr(window, "comparison_start_date", None),
+        "comparison_end_date": getattr(window, "comparison_end_date", None),
+        "anchor_date": getattr(window, "anchor_date", None),
+    }
     if getattr(window, "last_n_weeks", None):
         weeks = int(window.last_n_weeks)
         return {
+            **base,
             "kind": "last_n_weeks",
             "label": f"last {weeks} week{'s' if weeks != 1 else ''}",
             "weeks": weeks,
@@ -80,13 +91,29 @@ def _requested_window_context(window: Any) -> dict[str, Any]:
             "start_date": getattr(window, "start_date", None),
             "end_date": getattr(window, "end_date", None),
             "instruction": (
-                "The user requested a week-based view. Do not title or frame "
-                "the answer as a last-N-games analysis."
+                "The user requested a week-based view. Do not rename calendar "
+                "windows as last-N-games analyses."
+            ),
+        }
+    if getattr(window, "last_n_days", None):
+        days = int(window.last_n_days)
+        return {
+            **base,
+            "kind": "last_n_days",
+            "label": f"last {days} day{'s' if days != 1 else ''}",
+            "days": days,
+            "tool_game_limit": _game_limit_for_time_window(window),
+            "start_date": getattr(window, "start_date", None),
+            "end_date": getattr(window, "end_date", None),
+            "instruction": (
+                "The user requested a day-based view. Preserve the day window "
+                "and use the selected granularity for the breakdown."
             ),
         }
     if getattr(window, "last_n_games", None):
         games = int(window.last_n_games)
         return {
+            **base,
             "kind": "last_n_games",
             "label": f"last {games} game{'s' if games != 1 else ''}",
             "games": games,
@@ -94,11 +121,12 @@ def _requested_window_context(window: Any) -> dict[str, Any]:
         }
     if getattr(window, "kind", "") == "date_range":
         return {
+            **base,
             "kind": "date_range",
             "start_date": getattr(window, "start_date", None),
             "end_date": getattr(window, "end_date", None),
         }
-    return {"kind": getattr(window, "kind", "unspecified") or "unspecified"}
+    return {**base, "kind": getattr(window, "kind", "unspecified") or "unspecified"}
 
 
 AGENT_ANSWER_SCHEMA: dict[str, Any] = {
@@ -379,33 +407,100 @@ def _resolved_players_payload(
     ]
 
 
-def _apply_week_window_date_range(
+def _parse_iso_date_value(value: Any) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value).split("T", 1)[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _season_anchor_date(
+    repo: WarehouseRepository,
+    resolutions: list[PlayerResolution],
+) -> date | None:
+    coverage_getter = getattr(repo, "get_season_coverage", None)
+    if callable(coverage_getter):
+        try:
+            coverage = coverage_getter()
+        except Exception:
+            coverage = None
+        if isinstance(coverage, dict):
+            parsed = _parse_iso_date_value(coverage.get("latest_game_date"))
+            if parsed is not None:
+                return parsed
+    player_dates = [
+        _parse_iso_date_value(resolution.player.latest_game_date)
+        for resolution in resolutions
+        if resolution.status == "ok"
+        and resolution.player is not None
+        and resolution.player.latest_game_date
+    ]
+    return max((item for item in player_dates if item is not None), default=None)
+
+
+def _apply_period_comparison(window: Any) -> None:
+    if (
+        getattr(window, "comparison_mode", "previous_period") != "previous_period"
+        or getattr(window, "comparison_start_date", None)
+        or getattr(window, "comparison_end_date", None)
+    ):
+        return
+    start_date = _parse_iso_date_value(getattr(window, "start_date", None))
+    end_date = _parse_iso_date_value(getattr(window, "end_date", None))
+    if start_date is None or end_date is None or end_date < start_date:
+        return
+    days = (end_date - start_date).days + 1
+    comparison_end = start_date - timedelta(days=1)
+    comparison_start = comparison_end - timedelta(days=days - 1)
+    window.comparison_start_date = comparison_start.isoformat()
+    window.comparison_end_date = comparison_end.isoformat()
+
+
+def _apply_relative_window_date_range(
     query_plan: QueryPlan,
     resolutions: list[PlayerResolution],
+    repo: WarehouseRepository,
 ) -> None:
     window = query_plan.time_window
-    if window.kind != "last_n_weeks" or not window.last_n_weeks:
-        return
-    if window.start_date or window.end_date:
-        return
-    player = next(
-        (
-            resolution.player
-            for resolution in resolutions
-            if resolution.status == "ok" and resolution.player is not None
-        ),
-        None,
-    )
-    if player is None or not player.latest_game_date:
-        return
-    try:
-        weeks = max(1, min(52, int(window.last_n_weeks)))
-        end_date = date.fromisoformat(str(player.latest_game_date).split("T", 1)[0])
-    except (TypeError, ValueError):
-        return
-    start_date = end_date - timedelta(days=(weeks * 7) - 1)
-    window.start_date = start_date.isoformat()
-    window.end_date = end_date.isoformat()
+    if not getattr(window, "granularity", None):
+        window.granularity = "auto"
+    if not getattr(window, "comparison_mode", None):
+        window.comparison_mode = "previous_period"
+    if window.kind == "last_n_weeks" and window.last_n_weeks:
+        if not window.start_date and not window.end_date:
+            anchor = _season_anchor_date(repo, resolutions)
+            if anchor is not None:
+                weeks = max(1, min(52, int(window.last_n_weeks)))
+                window.anchor_date = anchor.isoformat()
+                window.end_date = anchor.isoformat()
+                window.start_date = (
+                    anchor - timedelta(days=(weeks * 7) - 1)
+                ).isoformat()
+        if window.granularity == "auto":
+            window.granularity = "week"
+    elif window.kind == "last_n_days" and window.last_n_days:
+        if not window.start_date and not window.end_date:
+            anchor = _season_anchor_date(repo, resolutions)
+            if anchor is not None:
+                days = max(1, min(365, int(window.last_n_days)))
+                window.anchor_date = anchor.isoformat()
+                window.end_date = anchor.isoformat()
+                window.start_date = (anchor - timedelta(days=days - 1)).isoformat()
+        if window.granularity == "auto":
+            window.granularity = "week" if int(window.last_n_days) >= 21 else "game"
+    elif window.kind == "date_range":
+        if window.granularity == "auto":
+            start_date = _parse_iso_date_value(window.start_date)
+            end_date = _parse_iso_date_value(window.end_date)
+            if start_date is not None and end_date is not None:
+                days = (end_date - start_date).days + 1
+                if days >= 21:
+                    window.granularity = "week"
+                else:
+                    window.granularity = "game"
+    _apply_period_comparison(window)
 
 
 def _safe_json(value: Any) -> str:
@@ -1024,7 +1119,7 @@ class StatsAgent:
         ]
         metrics = query_plan.metrics or None
         window = query_plan.time_window
-        _apply_week_window_date_range(query_plan, resolutions)
+        _apply_relative_window_date_range(query_plan, resolutions, self.repo)
         evidence: dict[str, Any] = {
             "query_plan": query_plan.model_dump(mode="json"),
             "requested_window": _requested_window_context(window),
@@ -1113,6 +1208,10 @@ class StatsAgent:
                     "start_date": start_date,
                     "end_date": end_date,
                     "limit": game_limit,
+                    "granularity": window.granularity,
+                    "comparison_mode": window.comparison_mode,
+                    "comparison_start_date": window.comparison_start_date,
+                    "comparison_end_date": window.comparison_end_date,
                 },
             ):
                 return evidence
@@ -1563,6 +1662,10 @@ class StatsAgent:
             max_tool_calls=max_tool_calls,
         )
         if evidence is not None:
+            # Rebuild the agent plan after evidence gathering so it reflects any
+            # in-place mutation of query_plan.time_window (e.g. a last_n_weeks
+            # window expanded into a concrete start/end date_range), keeping the
+            # plan's date_range consistent with the evidence we actually fetched.
             agent_plan = query_plan.to_agent_plan(cleaned_question)
             if evidence.get("tool_limit_reached"):
                 payload = _default_agent_answer(

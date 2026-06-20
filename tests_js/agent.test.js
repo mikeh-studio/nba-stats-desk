@@ -11,6 +11,7 @@ class FakeElement {
     this.textContent = "";
     this.className = "";
     this.tabIndex = 0;
+    this.focused = false;
     this._innerHTML = "";
   }
 
@@ -61,6 +62,10 @@ class FakeElement {
 
   dispatch(eventName, event = {}) {
     (this.listeners.get(eventName) || []).forEach((callback) => callback(event));
+  }
+
+  focus() {
+    this.focused = true;
   }
 
   scrollIntoView() {}
@@ -140,6 +145,34 @@ test("renderAnswerMarkdown strips Markdown pipe tables from Answer prose", async
   assert.match(html, /<h4>Takeaway<\/h4>/);
   assert.doesNotMatch(html, /\| Metric \|/);
   assert.doesNotMatch(html, /\| PTS \|/);
+});
+
+test("example buttons fill the question without submitting", async () => {
+  let submitCount = 0;
+  const input = new FakeElement("textarea");
+  const form = new FakeElement("form");
+  form.requestSubmit = () => {
+    submitCount += 1;
+  };
+  const button = new FakeElement("button");
+  button.dataset.agentExample = "Who is similar to Tyrese Maxey?";
+  const agent = await loadAgentModule({
+    elements: {
+      "[data-agent-question]": input,
+      "[data-agent-form]": form,
+    },
+  });
+
+  agent.bindExampleButtons({
+    querySelectorAll(selector) {
+      return selector === "[data-agent-example]" ? [button] : [];
+    },
+  });
+  button.dispatch("click");
+
+  assert.equal(input.value, "Who is similar to Tyrese Maxey?");
+  assert.equal(input.focused, true);
+  assert.equal(submitCount, 0);
 });
 
 test("browser history saves, dedupes, caps, and renders list rows", async () => {

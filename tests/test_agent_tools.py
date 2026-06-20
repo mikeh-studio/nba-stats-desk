@@ -270,6 +270,53 @@ def test_agent_trends_tool_computes_from_date_filtered_game_log() -> None:
     ]
 
 
+def test_agent_trends_tool_returns_bucketed_previous_period_comparison() -> None:
+    class PeriodComparisonRepository(ToolFakeRepository):
+        def get_player_game_log(
+            self,
+            player_id: int,
+            limit: int = 30,
+            *,
+            start_date: str | None = None,
+            end_date: str | None = None,
+        ) -> dict | None:
+            if player_id != 7:
+                return None
+            games = [
+                {"game_date": "2026-01-05", "pts": "18", "ast": "5"},
+                {"game_date": "2026-01-12", "pts": "22", "ast": "7"},
+                {"game_date": "2026-02-02", "pts": "28", "ast": "9"},
+                {"game_date": "2026-02-09", "pts": "32", "ast": "11"},
+            ]
+            if start_date:
+                games = [game for game in games if game["game_date"] >= start_date]
+            if end_date:
+                games = [game for game in games if game["game_date"] <= end_date]
+            return {"games": games[:limit]}
+
+    runner = StatsToolRunner(PeriodComparisonRepository())
+
+    payload = runner.get_player_trends(
+        7,
+        ["points"],
+        start_date="2026-02-01",
+        end_date="2026-02-28",
+        granularity="week",
+        comparison_start_date="2026-01-04",
+        comparison_end_date="2026-01-31",
+    )
+
+    comparison = payload["period_analysis"]["comparison_rows"][0]
+    assert payload["granularity"] == "week"
+    assert payload["period_analysis"]["current_period"]["games"] == 2
+    assert payload["period_analysis"]["comparison_period"]["games"] == 2
+    assert comparison["current_avg"] == 30.0
+    assert comparison["comparison_avg"] == 20.0
+    assert comparison["delta"] == 10.0
+    assert len(payload["bucket_series"]) == 2
+    assert payload["trends"][0]["comparison_delta"] == 10.0
+
+
 def test_metric_tiers_assign_every_metric_a_tier() -> None:
     catalog = load_semantic_catalog()
 

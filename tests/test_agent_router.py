@@ -103,6 +103,27 @@ def test_deterministic_plan_preserves_last_n_weeks_window() -> None:
     assert plan.time_window.last_n_games is None
 
 
+def test_deterministic_plan_extracts_day_window_and_grain() -> None:
+    from app.agent.planner import deterministic_query_plan
+
+    plan = deterministic_query_plan(
+        "Analyze Jalen Brunson's performance over the last 30 days."
+    )
+
+    assert plan.route == AgentRoute.PLAYER_TREND
+    assert plan.time_window.kind == "last_n_days"
+    assert plan.time_window.last_n_days == 30
+    assert plan.time_window.granularity == "auto"
+    assert plan.time_window.comparison_mode == "previous_period"
+
+    game_plan = deterministic_query_plan(
+        "Show Jalen Brunson game-by-game over the last 30 days."
+    )
+
+    assert game_plan.time_window.kind == "last_n_days"
+    assert game_plan.time_window.granularity == "game"
+
+
 def test_llm_clarify_falls_back_to_deterministic_route_for_named_player() -> None:
     from types import SimpleNamespace
 

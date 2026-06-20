@@ -25,8 +25,14 @@ class TimeWindow(BaseModel):
     kind: str = "unspecified"
     last_n_games: int | None = None
     last_n_weeks: int | None = None
+    last_n_days: int | None = None
     start_date: str | None = None
     end_date: str | None = None
+    granularity: str = "auto"
+    comparison_mode: str = "previous_period"
+    comparison_start_date: str | None = None
+    comparison_end_date: str | None = None
+    anchor_date: str | None = None
 
 
 class QueryPlan(BaseModel):
@@ -90,15 +96,33 @@ QUERY_PLAN_SCHEMA: dict[str, Any] = {
                 "kind": {"type": "string"},
                 "last_n_games": {"type": ["integer", "null"]},
                 "last_n_weeks": {"type": ["integer", "null"]},
+                "last_n_days": {"type": ["integer", "null"]},
                 "start_date": {"type": ["string", "null"]},
                 "end_date": {"type": ["string", "null"]},
+                "granularity": {
+                    "type": "string",
+                    "enum": ["auto", "game", "week", "month"],
+                },
+                "comparison_mode": {
+                    "type": "string",
+                    "enum": ["previous_period", "league_baseline", "none"],
+                },
+                "comparison_start_date": {"type": ["string", "null"]},
+                "comparison_end_date": {"type": ["string", "null"]},
+                "anchor_date": {"type": ["string", "null"]},
             },
             "required": [
                 "kind",
                 "last_n_games",
                 "last_n_weeks",
+                "last_n_days",
                 "start_date",
                 "end_date",
+                "granularity",
+                "comparison_mode",
+                "comparison_start_date",
+                "comparison_end_date",
+                "anchor_date",
             ],
             "additionalProperties": False,
         },
@@ -132,10 +156,18 @@ PLANNER_PROMPT = """
 You are a query planner for an NBA stats agent.
 Return only the requested JSON schema.
 Classify the user's intent, extract NBA player mentions exactly as written,
-extract metric words, and identify date ranges, last-N-game windows, or
-past/last-N-week windows. For week-over-week, weekly, or past N weeks requests,
-set time_window.kind to "last_n_weeks", last_n_weeks to N, and last_n_games to
-null. Never convert a week window into a game-count window.
+extract metric words, and identify date ranges, last-N-game windows,
+last-N-day windows, or past/last-N-week windows. For week-over-week, weekly, or
+past N weeks requests, set time_window.kind to "last_n_weeks", last_n_weeks to
+N, granularity to "week", and last_n_games to null. Never convert a week window
+into a game-count window. For "last N days" or "past N days", set
+time_window.kind to "last_n_days", last_n_days to N, and use granularity "auto"
+unless the user explicitly asks game-by-game, weekly, or monthly. Set
+granularity to "game" for game-by-game/per-game breakdown requests, "week" for
+weekly/week-over-week requests, "month" for monthly requests, otherwise "auto".
+Use comparison_mode "league_baseline" only when the user explicitly asks for
+league average or baseline; otherwise use "previous_period" for relative or
+date-range trend windows.
 Extract minimum-games cohort filters such as "at least 50 games" into min_games.
 Only put concrete box-score stats in metrics (points, rebounds, assists,
 steals, blocks, turnovers, threes, minutes). For vague catch-all wording like
@@ -152,11 +184,37 @@ answer rather than a follow-up question.
 """.strip()
 
 
+def _extract_granularity(question: str) -> str:
+    q = question.casefold()
+    if re.search(r"\b(game[-\s]?by[-\s]?game|per game|each game|every game)\b", q):
+        return "game"
+    if re.search(r"\b(week[-\s]?over[-\s]?week|weekly|by week|week by week)\b", q):
+        return "week"
+    if re.search(
+        r"\b(month[-\s]?over[-\s]?month|monthly|by month|month by month)\b", q
+    ):
+        return "month"
+    return "auto"
+
+
+def _extract_comparison_mode(question: str) -> str:
+    q = question.casefold()
+    if re.search(r"\b(league average|league baseline|baseline)\b", q):
+        return "league_baseline"
+    return "previous_period"
+
+
 def _extract_time_window(question: str) -> TimeWindow:
     q = question.casefold()
+    granularity = _extract_granularity(question)
+    comparison_mode = _extract_comparison_mode(question)
     last_match = re.search(r"\blast\s+(\d{1,2})\s+games?\b", q)
     week_match = re.search(
         r"\b(?:over\s+the\s+)?(?:past|last|previous|prior)\s+(\d{1,2})[-\s]+weeks?\b",
+        q,
+    )
+    day_match = re.search(
+        r"\b(?:over\s+the\s+|in\s+the\s+)?(?:past|last|previous|prior)\s+(\d{1,3})[-\s]+days?\b",
         q,
     )
     dates = re.findall(r"\b20\d{2}-\d{2}-\d{2}\b", question)
@@ -165,13 +223,29 @@ def _extract_time_window(question: str) -> TimeWindow:
             kind="date_range",
             start_date=dates[0],
             end_date=dates[1] if len(dates) > 1 else None,
+            granularity=granularity,
+            comparison_mode=comparison_mode,
         )
     if last_match:
-        return TimeWindow(kind="last_n_games", last_n_games=int(last_match.group(1)))
+        return TimeWindow(
+            kind="last_n_games",
+            last_n_games=int(last_match.group(1)),
+            granularity="game" if granularity == "auto" else granularity,
+            comparison_mode=comparison_mode,
+        )
     if week_match:
         return TimeWindow(
             kind="last_n_weeks",
             last_n_weeks=max(1, min(52, int(week_match.group(1)))),
+            granularity="week" if granularity == "auto" else granularity,
+            comparison_mode=comparison_mode,
+        )
+    if day_match:
+        return TimeWindow(
+            kind="last_n_days",
+            last_n_days=max(1, min(365, int(day_match.group(1)))),
+            granularity=granularity,
+            comparison_mode=comparison_mode,
         )
     if any(
         term in q
@@ -185,8 +259,8 @@ def _extract_time_window(question: str) -> TimeWindow:
             "week over week",
         )
     ):
-        return TimeWindow(kind="recent")
-    return TimeWindow()
+        return TimeWindow(kind="recent", granularity=granularity)
+    return TimeWindow(granularity=granularity)
 
 
 def _metric_name_in_question(question_norm: str, name: object) -> bool:
@@ -385,9 +459,10 @@ def _parse_plan_response(response: Any) -> QueryPlan | None:
 
 def _has_explicit_time_window(window: TimeWindow) -> bool:
     return (
-        window.kind in {"date_range", "last_n_games", "last_n_weeks"}
+        window.kind in {"date_range", "last_n_games", "last_n_weeks", "last_n_days"}
         or window.last_n_games is not None
         or window.last_n_weeks is not None
+        or window.last_n_days is not None
         or window.start_date is not None
         or window.end_date is not None
     )

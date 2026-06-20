@@ -95,25 +95,18 @@ similarity vectors: players cluster by archetype, selecting one traces edges to
 its true cosine-nearest matches, and each axis is labeled with the features that
 drive it.
 
+![Ask page](docs/images/ask-page.png)
+
+![Player trends page](docs/images/player-trends.png)
+
 ![Player similarity map](docs/images/similarity-map.png)
 
 The `/ask` page is enabled with `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`.
-At runtime the UI sends a provider/model pair to `/api/agent/ask`; FastAPI
-validates the pair, builds a `StatsAgent`, and the agent uses either the OpenAI
-API client or the Anthropic-backed Claude API adapter. For answerable questions
-it builds a bounded query plan, resolves players from
-`nba_agent.agent_player_search`, gathers evidence through allowlisted tools, and
-asks the selected LLM to produce the final structured answer with charts, tables,
-assumptions, and metric context. The answer pane renders concise Markdown prose
-while detailed rows stay in the Tables panel. Browser history keeps recent chats
-locally; the optional server JSONL history log is disabled by default and should
-only be enabled for local development. Claude API requests can stream
-token-by-token, use provider prompt caching, and honor a separate
-`ANTHROPIC_AGENT_TIMEOUT_SECONDS` wall clock because structured answers run
-longer than the OpenAI API path's `OPENAI_AGENT_TIMEOUT_SECONDS`. Deterministic
-planning is a fallback and guardrail, and clarification-only requests can
-short-circuit before generation, but completed answers are generated from the
-selected OpenAI API or Claude API call. Arbitrary SQL is never exposed.
+It plans the question, resolves players from `nba_agent.agent_player_search`,
+gathers evidence through allowlisted tools, and sends the final bounded context
+to the selected OpenAI API or Claude API model. Answers render as concise
+Markdown, while detailed chart/table payloads stay in the side panels. Browser
+history is local by default, and arbitrary SQL is never exposed.
 
 See [Public Service](docs/public-service.md) for route and agent details.
 

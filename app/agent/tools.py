@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from threading import Lock
 from time import monotonic
 from typing import Any
@@ -377,6 +377,192 @@ def _build_line_chart(
     }
 
 
+def _parse_game_date(value: Any) -> date | None:
+    if value is None:
+        return None
+    try:
+        return date.fromisoformat(str(value).split("T", 1)[0])
+    except ValueError:
+        return None
+
+
+def _date_range_days(date_range: dict[str, Any]) -> int | None:
+    start = _parse_game_date(date_range.get("start_date"))
+    end = _parse_game_date(date_range.get("end_date"))
+    if start is None or end is None or end < start:
+        return None
+    return (end - start).days + 1
+
+
+def _resolve_granularity(granularity: Any, date_range: dict[str, Any]) -> str:
+    requested = str(granularity or "auto").casefold()
+    if requested in {"game", "week", "month"}:
+        return requested
+    days = _date_range_days(date_range)
+    if days is not None and days >= 21:
+        return "week"
+    return "game"
+
+
+def _bucket_key(game_date: date, granularity: str) -> tuple[str, date, date]:
+    if granularity == "month":
+        start = game_date.replace(day=1)
+        if start.month == 12:
+            next_month = start.replace(year=start.year + 1, month=1)
+        else:
+            next_month = start.replace(month=start.month + 1)
+        end = next_month - timedelta(days=1)
+        return start.isoformat(), start, end
+    if granularity == "week":
+        start = game_date - timedelta(days=game_date.weekday())
+        end = start + timedelta(days=6)
+        return start.isoformat(), start, end
+    return game_date.isoformat(), game_date, game_date
+
+
+def _metric_average_for_games(
+    games: list[dict[str, Any]],
+    metric: MetricDefinition,
+) -> float | None:
+    values = [
+        value
+        for value in (_game_metric_value(game, metric) for game in games)
+        if value is not None
+    ]
+    return _average(values)
+
+
+def _period_metric_summary(
+    games: list[dict[str, Any]],
+    metrics: list[MetricDefinition],
+) -> dict[str, Any]:
+    return {
+        "games": len(games),
+        "metrics": {
+            metric.key: {
+                "label": metric.label,
+                "stat": metric.trend_stat,
+                "avg": _metric_average_for_games(games, metric),
+                "unit": metric.unit,
+            }
+            for metric in metrics
+        },
+    }
+
+
+def _period_comparison_rows(
+    current_games: list[dict[str, Any]],
+    comparison_games: list[dict[str, Any]],
+    metrics: list[MetricDefinition],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for metric in metrics:
+        current_avg = _metric_average_for_games(current_games, metric)
+        comparison_avg = _metric_average_for_games(comparison_games, metric)
+        delta = (
+            round(current_avg - comparison_avg, 1)
+            if current_avg is not None and comparison_avg is not None
+            else None
+        )
+        pct_change = (
+            round((delta / comparison_avg) * 100, 1)
+            if delta is not None and comparison_avg not in (None, 0)
+            else None
+        )
+        rows.append(
+            {
+                "metric": metric.key,
+                "stat": metric.trend_stat,
+                "label": metric.label,
+                "unit": metric.unit,
+                "current_avg": current_avg,
+                "comparison_avg": comparison_avg,
+                "delta": delta,
+                "pct_change": pct_change,
+                "direction_is_good": metric.higher_is_better,
+            }
+        )
+    return rows
+
+
+def _build_bucket_series(
+    games: list[dict[str, Any]],
+    metrics: list[MetricDefinition],
+    granularity: str,
+) -> list[dict[str, Any]]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for game in games:
+        parsed = _parse_game_date(game.get("game_date"))
+        if parsed is None:
+            continue
+        key, start, end = _bucket_key(parsed, granularity)
+        bucket = buckets.setdefault(
+            key,
+            {"start_date": start, "end_date": end, "games": []},
+        )
+        bucket["games"].append(game)
+    rows: list[dict[str, Any]] = []
+    for key in sorted(buckets):
+        bucket = buckets[key]
+        bucket_games = bucket["games"]
+        row: dict[str, Any] = {
+            "key": key,
+            "start_date": bucket["start_date"].isoformat(),
+            "end_date": bucket["end_date"].isoformat(),
+            "label": (
+                key
+                if granularity == "game"
+                else f"{bucket['start_date'].isoformat()} to {bucket['end_date'].isoformat()}"
+            ),
+            "games": len(bucket_games),
+            "metrics": {},
+        }
+        if granularity == "game" and bucket_games:
+            row["matchup"] = bucket_games[0].get("matchup")
+            row["wl"] = bucket_games[0].get("wl")
+        for metric in metrics:
+            row["metrics"][metric.key] = {
+                "label": metric.label,
+                "avg": _metric_average_for_games(bucket_games, metric),
+                "unit": metric.unit,
+            }
+        rows.append(row)
+    return rows
+
+
+def _build_bucket_line_chart(
+    *,
+    title: str,
+    buckets: list[dict[str, Any]],
+    metrics: list[MetricDefinition],
+    granularity: str,
+) -> dict[str, Any]:
+    series = []
+    for metric in metrics:
+        points = []
+        for bucket in buckets:
+            metric_payload = bucket.get("metrics", {}).get(metric.key, {})
+            value = metric_payload.get("avg")
+            if value is None:
+                continue
+            points.append(
+                {
+                    "x": bucket.get("label") or bucket.get("key"),
+                    "y": value,
+                    "meta": f"{bucket.get('games', 0)} game(s)",
+                }
+            )
+        if points:
+            series.append({"key": metric.key, "label": metric.label, "points": points})
+    return {
+        "type": "line",
+        "title": title,
+        "x_label": f"{granularity.title()} bucket",
+        "y_label": "Stat value",
+        "series": series,
+    }
+
+
 def _percentile_meta(row: dict[str, Any]) -> str:
     percentile = _to_float(row.get("percentile"))
     average = _to_float(row.get("average"))
@@ -530,10 +716,9 @@ def get_tool_schemas() -> list[dict[str, Any]]:
             "type": "function",
             "name": "get_player_trends",
             "description": (
-                "Analyze a player's trend over a game window: first-half vs "
-                "second-half averages, per-game slope, volatility, a flagged "
-                "within-period change point, and chart data with a rolling "
-                "average. Pass limit to scope the window (e.g. last 20 games)."
+                "Analyze a player's trend over a game or calendar window. "
+                "Returns within-window trend rows, optional bucketed game/week/"
+                "month summaries, and optional comparison-period deltas."
             ),
             "strict": True,
             "parameters": {
@@ -547,6 +732,18 @@ def get_tool_schemas() -> list[dict[str, Any]]:
                         "type": ["integer", "null"],
                         "description": "Window size in games, 1-82 (e.g. 20 for last 20).",
                     },
+                    "granularity": {
+                        "type": "string",
+                        "enum": ["auto", "game", "week", "month"],
+                        "description": "Requested analysis grain for breakdown rows.",
+                    },
+                    "comparison_mode": {
+                        "type": "string",
+                        "enum": ["previous_period", "league_baseline", "none"],
+                        "description": "How to compare the requested window.",
+                    },
+                    "comparison_start_date": date_filter,
+                    "comparison_end_date": date_filter,
                 },
                 "required": [
                     "player_id",
@@ -554,6 +751,10 @@ def get_tool_schemas() -> list[dict[str, Any]]:
                     "start_date",
                     "end_date",
                     "limit",
+                    "granularity",
+                    "comparison_mode",
+                    "comparison_start_date",
+                    "comparison_end_date",
                 ],
                 "additionalProperties": False,
             },
@@ -677,6 +878,10 @@ class StatsToolRunner:
                 args.get("start_date"),
                 args.get("end_date"),
                 args.get("limit"),
+                args.get("granularity"),
+                args.get("comparison_mode"),
+                args.get("comparison_start_date"),
+                args.get("comparison_end_date"),
             )
         if name == "get_player_percentiles":
             return self.get_player_percentiles(
@@ -1071,6 +1276,10 @@ class StatsToolRunner:
         start_date: Any = None,
         end_date: Any = None,
         limit: Any = None,
+        granularity: Any = "auto",
+        comparison_mode: Any = "previous_period",
+        comparison_start_date: Any = None,
+        comparison_end_date: Any = None,
     ) -> dict[str, Any]:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
@@ -1082,6 +1291,17 @@ class StatsToolRunner:
                 "status": "error",
                 "message": date_error,
                 "date_range": date_range,
+            }
+        comparison_range, comparison_error = _coerce_date_range(
+            comparison_start_date,
+            comparison_end_date,
+        )
+        if comparison_error:
+            return {
+                "status": "error",
+                "message": comparison_error,
+                "date_range": date_range,
+                "comparison_range": comparison_range,
             }
         player_id_int = _to_int(player_id) or -1
         detail = self.repo.get_player_detail(player_id_int)
@@ -1118,6 +1338,21 @@ class StatsToolRunner:
             ]
             game_log = detail.get("game_log") or {}
         games = list(game_log.get("games") or [])
+        resolved_granularity = _resolve_granularity(granularity, date_range)
+        comparison_games: list[dict[str, Any]] = []
+        if str(comparison_mode or "previous_period") == "previous_period" and (
+            comparison_range["start_date"] or comparison_range["end_date"]
+        ):
+            comparison_log = (
+                self.repo.get_player_game_log(
+                    player_id_int,
+                    limit=82,
+                    start_date=comparison_range["start_date"],
+                    end_date=comparison_range["end_date"],
+                )
+                or {}
+            )
+            comparison_games = list(comparison_log.get("games") or [])
         existing_stats = {row.get("stat") for row in trends}
         for metric in selected:
             if metric.trend_stat in existing_stats:
@@ -1125,6 +1360,17 @@ class StatsToolRunner:
             derived_trend = _build_game_log_trend_row(games, metric)
             if derived_trend is not None:
                 trends.append(derived_trend)
+        comparison_rows = _period_comparison_rows(games, comparison_games, selected)
+        comparison_by_stat = {row["stat"]: row for row in comparison_rows}
+        for row in trends:
+            comparison = comparison_by_stat.get(row.get("stat"))
+            if comparison is None:
+                continue
+            row["comparison_avg"] = comparison["comparison_avg"]
+            row["comparison_delta"] = comparison["delta"]
+            row["comparison_pct_change"] = comparison["pct_change"]
+            row["comparison_games"] = len(comparison_games)
+        bucket_series = _build_bucket_series(games, selected, resolved_granularity)
         player = detail.get("player") or {}
         # Percentage and plus-minus metrics live on different scales than the
         # counting stats, so the line chart plots only count metrics to stay
@@ -1134,20 +1380,45 @@ class StatsToolRunner:
             for metric in selected
             if metric.unit == "count" and metric.key != "plus_minus"
         ] or selected
+        charts = [
+            _build_line_chart(
+                title=f"{player.get('player_name')} trend",
+                games=games,
+                metrics=chart_metrics,
+                rolling_window=_ROLLING_WINDOW,
+            )
+        ]
+        if bucket_series and resolved_granularity != "game":
+            charts.append(
+                _build_bucket_line_chart(
+                    title=f"{player.get('player_name')} {resolved_granularity} trend",
+                    buckets=bucket_series,
+                    metrics=chart_metrics,
+                    granularity=resolved_granularity,
+                )
+            )
         return {
             "status": "ok",
             "player": _compact_player(player),
             "date_range": date_range,
+            "granularity": resolved_granularity,
+            "comparison_mode": comparison_mode or "previous_period",
+            "comparison_range": comparison_range,
+            "period_analysis": {
+                "current_period": {
+                    **date_range,
+                    **_period_metric_summary(games, selected),
+                },
+                "comparison_period": {
+                    **comparison_range,
+                    **_period_metric_summary(comparison_games, selected),
+                },
+                "comparison_rows": comparison_rows,
+            },
+            "bucket_series": bucket_series,
             "trends": trends,
             "ignored_metrics": invalid,
-            "charts": [
-                _build_line_chart(
-                    title=f"{player.get('player_name')} trend",
-                    games=games,
-                    metrics=chart_metrics,
-                    rolling_window=_ROLLING_WINDOW,
-                )
-            ],
+            "charts": charts,
             "league_baselines": detail.get("chart_baselines") or {},
         }
 
