@@ -61,6 +61,8 @@ def _player_reference_row(**overrides):
         "LAST_AFFILIATION": "",
         "HEIGHT": "6-9",
         "WEIGHT": 250,
+        "WINGSPAN": 84.0,
+        "WINGSPAN_FT_IN": "7-0",
         "SEASON_EXP": 22,
         "JERSEY": "23",
         "POSITION": "Forward",

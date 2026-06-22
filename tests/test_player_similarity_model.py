@@ -4,6 +4,7 @@ import json
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
@@ -27,6 +28,7 @@ def _feature_row(
     usage: float,
     height_inches: float = 78,
     weight_lbs: float = 210,
+    wingspan_inches: float = 80,
     season_exp: float = 4,
     team_abbr: str = "TST",
     team_offense_rank: int = 99,
@@ -97,6 +99,7 @@ def _feature_row(
             "season_avg_min": 30 + usage * 10,
             "height_inches": height_inches,
             "weight_lbs": weight_lbs,
+            "wingspan_inches": wingspan_inches,
             "season_exp": season_exp,
             "recent_pts": pts + 1,
             "recent_reb": reb,
@@ -191,6 +194,7 @@ def _training_frame() -> pd.DataFrame:
                 usage=0.18,
                 height_inches=83,
                 weight_lbs=245,
+                wingspan_inches=88,
             ),
             _feature_row(
                 6,
@@ -207,6 +211,7 @@ def _training_frame() -> pd.DataFrame:
                 usage=0.16,
                 height_inches=84,
                 weight_lbs=250,
+                wingspan_inches=89,
             ),
         ]
     )
@@ -226,12 +231,14 @@ def test_train_player_similarity_model_returns_diagnostics_and_new_style_feature
     assert "season_ts_pct" in result.diagnostics["feature_columns"]
     assert "shot_rim_rate" in result.diagnostics["feature_columns"]
     assert "height_inches" in result.diagnostics["feature_columns"]
+    assert "wingspan_inches" in result.diagnostics["feature_columns"]
     assert "second_half_pts_delta" in result.diagnostics["feature_columns"]
     assert result.features["player_id"].tolist() == [1, 2, 3, 4, 5, 6]
     assert "norm_season_ts_pct" in result.features.columns
     assert "norm_season_fg3a_rate" in result.features.columns
     assert "norm_shot_rim_rate" in result.features.columns
     assert "norm_height_inches" in result.features.columns
+    assert "norm_wingspan_inches" in result.features.columns
     assert "norm_second_half_pts_delta" in result.features.columns
     assert "team_offense_contribution_rank" in result.features.columns
     assert "team_defense_contribution_rank" in result.archetypes.columns
@@ -239,6 +246,16 @@ def test_train_player_similarity_model_returns_diagnostics_and_new_style_feature
     assert set(
         result.archetypes["archetype_label"].str.split(" - ", n=1).str[0]
     ).issubset(model.BASE_ARCHETYPE_LABELS)
+
+
+def test_cluster_evaluation_gives_no_silhouette_credit_to_all_noise_labels():
+    values = np.array([[0.0, 0.1], [0.1, 0.0], [5.0, 5.0]])
+    evaluation = model._evaluate_cluster_labels(values, np.array([-1, -1, -1]))
+
+    assert evaluation["score"] == 0.0
+    assert evaluation["silhouette_normalized"] == 0.0
+    assert evaluation["coverage_score"] == 0.0
+    assert evaluation["unclassified_player_count"] == 3
 
 
 def test_train_player_similarity_model_enforces_cluster_floor_when_supported():
@@ -260,6 +277,7 @@ def test_train_player_similarity_model_enforces_cluster_floor_when_supported():
                 usage=0.08 + (index % 8) * 0.025,
                 height_inches=72 + index,
                 weight_lbs=180 + index * 6,
+                wingspan_inches=74 + index,
                 season_exp=index % 10,
                 second_half_pts_delta=(index % 5) - 2,
                 second_half_min_delta=(index % 7) - 3,
@@ -411,12 +429,118 @@ def test_label_cluster_uses_physical_size_as_interior_context():
             "season_avg_blk": 0.2,
             "height_inches": 1.5,
             "weight_lbs": 1.2,
+            "wingspan_inches": 1.4,
             "recent_points_share_of_team": 0.0,
             "season_ast_to_tov": -0.1,
         }
     )
 
     assert label == "Interior Big"
+
+
+def test_label_cluster_splits_shooting_fallback_from_connector_wing():
+    label = model._label_cluster(
+        {
+            "season_avg_pts": 0.1,
+            "season_avg_fga": 0.1,
+            "season_avg_ast": 0.0,
+            "season_avg_stl": 0.0,
+            "season_avg_reb": 0.0,
+            "season_avg_blk": 0.0,
+            "season_avg_fg3m": 0.42,
+            "season_fg3a_rate": 0.38,
+            "shot_corner3_rate": 0.35,
+            "shot_above_break3_rate": 0.44,
+            "team_offense_contribution_rate": 0.05,
+            "team_defense_contribution_rate": 0.0,
+        }
+    )
+
+    assert label == "Spacing Wing"
+
+
+def test_label_cluster_splits_secondary_creator_from_connector_wing():
+    label = model._label_cluster(
+        {
+            "season_avg_pts": 0.1,
+            "season_avg_fga": 0.1,
+            "season_avg_ast": 0.48,
+            "recent_ast": 0.44,
+            "team_ast_contribution_rate": 0.36,
+            "team_offense_contribution_rate": 0.22,
+            "season_avg_fg3m": 0.0,
+            "season_fg3a_rate": 0.0,
+            "season_avg_stl": 0.0,
+            "season_avg_reb": 0.0,
+            "season_avg_blk": 0.0,
+        }
+    )
+
+    assert label == "Secondary Creator"
+
+
+def test_hdbscan_noise_players_are_split_into_emerging_profiles():
+    rows = []
+    for player_id, player_name, signals in [
+        (
+            10,
+            "Outlier Shooter",
+            {"season_avg_fg3m": 1.1, "shot_above_break3_rate": 0.9},
+        ),
+        (
+            11,
+            "Outlier Creator",
+            {"season_avg_ast": 1.0, "team_ast_contribution_rate": 0.8},
+        ),
+    ]:
+        row = {
+            "season": "2025-26",
+            "player_id": player_id,
+            "player_name": player_name,
+        }
+        for feature_name in model.SIMILARITY_FEATURE_COLUMNS:
+            row[feature_name] = 0.0
+            row[f"norm_{feature_name}"] = 0.0
+        for feature_name, value in signals.items():
+            row[feature_name] = value
+            row[f"norm_{feature_name}"] = value
+        rows.append(row)
+
+    assignments = model._build_model_assignment_results(
+        pd.DataFrame(rows),
+        labels=np.array([-1, -1]),
+        confidences=[0.0, 0.0],
+        model_key="hdbscan",
+    )
+
+    assert [item["base_archetype_label"] for item in assignments] == [
+        "Emerging Shooter",
+        "Emerging Creator",
+    ]
+    assert len({item["archetype_id"] for item in assignments}) == 2
+    assert all("outlier profile" in item["archetype_summary"] for item in assignments)
+
+
+def test_player_base_archetype_refines_broad_cluster_families():
+    label = model._player_base_archetype_label(
+        cluster_base_label="Utility Forward",
+        normalized_values={
+            "season_avg_pts": 0.0,
+            "season_avg_fga": 0.0,
+            "season_avg_ast": 0.62,
+            "recent_ast": 0.58,
+            "team_ast_contribution_rate": 0.54,
+            "team_offense_contribution_rate": 0.24,
+            "season_avg_fg3m": 0.0,
+            "season_fg3a_rate": 0.0,
+            "season_avg_stl": 0.0,
+            "season_avg_reb": 0.0,
+            "season_avg_blk": 0.0,
+        },
+        raw_values={},
+    )
+
+    assert label == "Secondary Creator"
 
 
 def test_train_player_similarity_model_emits_projection_columns() -> None:

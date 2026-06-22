@@ -198,6 +198,8 @@ _RAW_TABLE_SPECS = {
             ("last_affiliation", "VARCHAR(200)"),
             ("height", "VARCHAR(20)"),
             ("weight", "BIGINT"),
+            ("wingspan", "DOUBLE PRECISION"),
+            ("wingspan_ft_in", "VARCHAR(20)"),
             ("season_exp", "BIGINT"),
             ("jersey", "VARCHAR(20)"),
             ("position", "VARCHAR(50)"),

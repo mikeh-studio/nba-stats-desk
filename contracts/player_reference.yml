@@ -17,6 +17,8 @@ columns:
   LAST_AFFILIATION: string
   HEIGHT: string
   WEIGHT: int64
+  WINGSPAN: float64
+  WINGSPAN_FT_IN: string
   SEASON_EXP: int64
   JERSEY: string
   POSITION: string
@@ -56,6 +58,13 @@ rules:
     column: WEIGHT
     min: 120
     max: 400
+    allow_null: true
+    severity: warning
+  - name: player_wingspan_bounds
+    check: between
+    column: WINGSPAN
+    min: 60
+    max: 100
     allow_null: true
     severity: warning
   - name: season_exp_bounds

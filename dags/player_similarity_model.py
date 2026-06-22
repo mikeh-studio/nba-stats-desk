@@ -14,12 +14,25 @@ from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
-MODEL_VERSION = "public_similarity_baseline_v1"
+MODEL_VERSION = "public_similarity_multi_model_v1"
 RANDOM_STATE = 42
 MINIMUM_ARCHETYPE_CLUSTERS = 8
 KMEANS_N_INIT = 10
 FEATURE_SCALER = "standard"
 MODEL_VECTOR_NORMALIZATION = "l2_equal_weight"
+BASELINE_MODEL_KEY = "kmeans"
+SIMILARITY_MODEL_LABELS = {
+    "kmeans": "KMeans baseline",
+    "gmm": "Gaussian mixture",
+    "agglomerative": "Hierarchy",
+    "hdbscan": "Density scan",
+}
+SIMILARITY_MODEL_DESCRIPTIONS = {
+    "kmeans": "Fast, deterministic baseline that forces every player into a role.",
+    "gmm": "Soft clustering for hybrid player profiles.",
+    "agglomerative": "Hierarchy-style grouping that favors explainable role families.",
+    "hdbscan": "Density-based grouping that can leave unusual profiles unclassified.",
+}
 
 # 3D map projection. PCA is deterministic and reproducible across pipeline runs
 # (unlike t-SNE/UMAP), so the published coordinates are stable. The projection
@@ -150,6 +163,9 @@ SIMILARITY_FEATURE_SPECS: Tuple[SimilarityFeatureSpec, ...] = (
     SimilarityFeatureSpec(
         "weight_lbs", "physical_profile", trait_label="frame strength"
     ),
+    SimilarityFeatureSpec(
+        "wingspan_inches", "physical_profile", trait_label="wingspan"
+    ),
     SimilarityFeatureSpec("season_exp", "career_context", trait_label="experience"),
     SimilarityFeatureSpec("recent_pts", "recent_form", trait_label="recent scoring"),
     SimilarityFeatureSpec("recent_reb", "recent_form", trait_label="recent rebounding"),
@@ -206,12 +222,25 @@ SIMILARITY_TRAIT_LABELS: Dict[str, str] = {
 BASE_ARCHETYPE_LABELS = {
     "Primary Creator",
     "Scoring Guard",
+    "Role Scorer",
+    "Secondary Creator",
     "Two-Way Wing",
+    "Spacing Wing",
+    "Defensive Specialist",
     "Connector Wing",
+    "Utility Forward",
     "Stretch Big",
     "Interior Big",
+    "Emerging Role",
+    "Emerging Scorer",
+    "Emerging Shooter",
+    "Emerging Creator",
+    "Emerging Stopper",
+    "Emerging Big",
+    "Emerging Connector",
 }
 ALLOWED_ARCHETYPE_LABELS = BASE_ARCHETYPE_LABELS
+BROAD_ARCHETYPE_LABELS = {"Connector Wing", "Spacing Wing", "Utility Forward"}
 
 OUTPUT_ID_COLUMNS = [
     "season",
@@ -317,35 +346,149 @@ def _rank_similarity_traits(
     return [label for label, _ in ranked[:limit]]
 
 
+def _feature_signal(values: Dict[str, float], *feature_names: str) -> float:
+    scores = []
+    for feature_name in feature_names:
+        value = values.get(feature_name, 0.0)
+        if value in (None, ""):
+            continue
+        try:
+            if pd.isna(value):
+                continue
+        except TypeError:
+            pass
+        scores.append(float(value))
+    return max(scores) if scores else 0.0
+
+
+def _role_signal_scores(values: Dict[str, float]) -> Dict[str, float]:
+    scoring = _feature_signal(
+        values,
+        "season_avg_pts",
+        "season_avg_fga",
+        "recent_pts",
+        "recent_points_share_of_team",
+        "recent_points_share_of_game",
+        "team_points_contribution_rate",
+        "team_fga_contribution_rate",
+        "second_half_pts_delta",
+    )
+    creation = _feature_signal(
+        values,
+        "season_avg_ast",
+        "recent_ast",
+        "season_ast_to_tov",
+        "team_ast_contribution_rate",
+    )
+    spacing = _feature_signal(
+        values,
+        "season_avg_fg3m",
+        "recent_fg3m",
+        "season_fg3a_rate",
+        "shot_corner3_rate",
+        "shot_above_break3_rate",
+        "shot_corner3_fg_pct",
+        "second_half_ts_delta",
+    )
+    defense = _feature_signal(
+        values,
+        "season_avg_stl",
+        "recent_stl",
+        "team_stl_contribution_rate",
+        "team_defense_contribution_rate",
+    )
+    interior = _feature_signal(
+        values,
+        "season_avg_reb",
+        "season_avg_blk",
+        "recent_reb",
+        "recent_blk",
+        "team_reb_contribution_rate",
+        "team_blk_contribution_rate",
+        "height_inches",
+        "weight_lbs",
+        "wingspan_inches",
+    )
+    offense_context = _feature_signal(
+        values,
+        "team_offense_contribution_rate",
+        "team_points_contribution_rate",
+        "team_fga_contribution_rate",
+        "team_ast_contribution_rate",
+    )
+    return {
+        "scoring": scoring,
+        "creation": creation,
+        "spacing": spacing,
+        "defense": defense,
+        "interior": interior,
+        "offense_context": offense_context,
+    }
+
+
+def _fallback_role_label(scores: Dict[str, float]) -> str:
+    scoring = scores["scoring"]
+    creation = scores["creation"]
+    spacing = scores["spacing"]
+    defense = scores["defense"]
+    interior = scores["interior"]
+    offense_context = scores["offense_context"]
+
+    if scoring >= 0.45 and creation < 0.55:
+        return "Role Scorer"
+    if creation >= 0.35 and offense_context >= 0.10:
+        return "Secondary Creator"
+    if spacing >= 0.25:
+        return "Spacing Wing"
+    if defense >= 0.25:
+        return "Defensive Specialist"
+    if interior >= 0.25:
+        return "Utility Forward"
+    if scoring >= 0.25:
+        return "Role Scorer"
+
+    fallback_options = [
+        ("spacing", "Spacing Wing"),
+        ("creation", "Secondary Creator"),
+        ("defense", "Defensive Specialist"),
+        ("interior", "Utility Forward"),
+        ("scoring", "Role Scorer"),
+    ]
+    signal_name, label = max(fallback_options, key=lambda item: scores[item[0]])
+    if scores[signal_name] >= 0.10:
+        return label
+    return "Connector Wing"
+
+
+def _emerging_base_archetype_label(normalized_values: Dict[str, float]) -> str:
+    scores = _role_signal_scores(normalized_values)
+    emerging_options = [
+        ("scoring", "Emerging Scorer"),
+        ("spacing", "Emerging Shooter"),
+        ("creation", "Emerging Creator"),
+        ("defense", "Emerging Stopper"),
+        ("interior", "Emerging Big"),
+    ]
+    signal_name, label = max(emerging_options, key=lambda item: scores[item[0]])
+    best_score = scores[signal_name]
+    if best_score >= 0.15:
+        return label
+    if best_score >= 0.0:
+        return "Emerging Connector"
+    return "Emerging Role"
+
+
 def _label_cluster(
     center_values: Dict[str, float], *, allow_primary_creator: bool = True
 ) -> str:
     """Map a baseline cluster center to a human-readable public archetype."""
-    points = float(center_values.get("season_avg_pts", 0.0))
-    shot_volume = float(center_values.get("season_avg_fga", 0.0))
-    assists = float(center_values.get("season_avg_ast", 0.0))
-    rebounds = float(center_values.get("season_avg_reb", 0.0))
-    steals = float(center_values.get("season_avg_stl", 0.0))
-    blocks = float(center_values.get("season_avg_blk", 0.0))
-    threes = float(center_values.get("season_avg_fg3m", 0.0))
-    three_rate = float(center_values.get("season_fg3a_rate", 0.0))
-    usage = float(center_values.get("recent_points_share_of_team", 0.0))
-    team_points = float(center_values.get("team_points_contribution_rate", 0.0))
-    team_shots = float(center_values.get("team_fga_contribution_rate", 0.0))
-    team_assists = float(center_values.get("team_ast_contribution_rate", 0.0))
-    team_offense = float(center_values.get("team_offense_contribution_rate", 0.0))
-    team_defense = float(center_values.get("team_defense_contribution_rate", 0.0))
-    team_rebounds = float(center_values.get("team_reb_contribution_rate", 0.0))
-    team_blocks = float(center_values.get("team_blk_contribution_rate", 0.0))
-    height = float(center_values.get("height_inches", 0.0))
-    weight = float(center_values.get("weight_lbs", 0.0))
-
-    scoring = max(points, shot_volume, usage, team_points, team_shots)
-    creation = max(assists, team_assists)
-    spacing = max(threes, three_rate)
-    defense = max(steals, team_defense)
-    interior = max(rebounds, blocks, team_rebounds, team_blocks, height, weight)
-    offense_context = max(team_offense, team_points, team_shots, team_assists)
+    scores = _role_signal_scores(center_values)
+    scoring = scores["scoring"]
+    creation = scores["creation"]
+    spacing = scores["spacing"]
+    defense = scores["defense"]
+    interior = scores["interior"]
+    offense_context = scores["offense_context"]
 
     if interior >= 0.7 and spacing >= 0.15:
         return "Stretch Big"
@@ -357,7 +500,17 @@ def _label_cluster(
         return "Scoring Guard"
     if defense >= 0.2 and spacing >= 0.1:
         return "Two-Way Wing"
-    return "Connector Wing"
+    return _fallback_role_label(scores)
+
+
+def _archetype_id_suffix(label: str) -> str:
+    return (
+        label.lower()
+        .replace(" - ", "_")
+        .replace("/", "_")
+        .replace(" ", "_")
+        .replace("-", "_")
+    )
 
 
 def _numeric_value(values: Dict[str, Any], name: str, default: float = 0.0) -> float:
@@ -378,17 +531,20 @@ def _player_base_archetype_label(
     normalized_values: Dict[str, float],
     raw_values: Dict[str, Any],
 ) -> str:
-    if cluster_base_label != "Primary Creator":
-        return cluster_base_label
+    if cluster_base_label == "Primary Creator":
+        team_offense_rank = _numeric_value(
+            raw_values,
+            "team_offense_contribution_rank",
+            default=999.0,
+        )
+        if team_offense_rank <= 1:
+            return "Primary Creator"
+        return _label_cluster(normalized_values, allow_primary_creator=False)
 
-    team_offense_rank = _numeric_value(
-        raw_values,
-        "team_offense_contribution_rank",
-        default=999.0,
-    )
-    if team_offense_rank <= 1:
-        return "Primary Creator"
-    return _label_cluster(normalized_values, allow_primary_creator=False)
+    if cluster_base_label in BROAD_ARCHETYPE_LABELS:
+        return _label_cluster(normalized_values, allow_primary_creator=False)
+
+    return cluster_base_label
 
 
 def _player_archetype_display(
@@ -520,6 +676,253 @@ def _project_similarity_vectors(
     return np.round(coords, 5), axes
 
 
+def _centroid_confidence(model_values: Any, labels: Any) -> List[float]:
+    import numpy as np
+
+    labels = np.asarray(labels)
+    confidence = np.zeros(len(labels), dtype=float)
+    for label in sorted(set(labels.tolist())):
+        mask = labels == label
+        if label < 0 or not mask.any():
+            continue
+        cluster_values = model_values[mask]
+        center = cluster_values.mean(axis=0)
+        distances = np.linalg.norm(cluster_values - center, axis=1)
+        max_distance = float(distances.max()) if len(distances) else 0.0
+        if max_distance <= 1e-9:
+            confidence[mask] = 1.0
+        else:
+            confidence[mask] = 1.0 - distances / max_distance
+    return [round(float(max(0.0, min(value, 1.0))), 4) for value in confidence]
+
+
+def _evaluate_cluster_labels(model_values: Any, labels: Any) -> Dict[str, Any]:
+    import numpy as np
+    from sklearn.metrics import silhouette_score
+
+    labels = np.asarray(labels)
+    row_count = int(len(labels))
+    assigned_mask = labels >= 0
+    assigned_count = int(assigned_mask.sum())
+    coverage = assigned_count / row_count if row_count else 0.0
+    assigned_labels = labels[assigned_mask]
+    cluster_counts = {
+        str(int(label)): int(count)
+        for label, count in zip(
+            *np.unique(assigned_labels, return_counts=True), strict=False
+        )
+    }
+    noise_count = int(row_count - assigned_count)
+    cluster_count = len(cluster_counts)
+    max_share = (
+        max(cluster_counts.values()) / assigned_count
+        if assigned_count and cluster_counts
+        else 1.0
+    )
+    balance_score = max(0.0, 1.0 - max_share)
+
+    silhouette = 0.0
+    silhouette_normalized = 0.0
+    if cluster_count >= 2 and assigned_count > cluster_count:
+        try:
+            silhouette = float(
+                silhouette_score(model_values[assigned_mask], assigned_labels)
+            )
+            silhouette_normalized = max(0.0, min((silhouette + 1.0) / 2.0, 1.0))
+        except ValueError:
+            silhouette = 0.0
+    score = 0.55 * silhouette_normalized + 0.25 * balance_score + 0.20 * coverage
+    return {
+        "score": round(float(score), 4),
+        "silhouette": round(float(silhouette), 4),
+        "silhouette_normalized": round(float(silhouette_normalized), 4),
+        "balance_score": round(float(balance_score), 4),
+        "coverage_score": round(float(coverage), 4),
+        "assigned_player_count": assigned_count,
+        "unclassified_player_count": noise_count,
+        "cluster_count": cluster_count,
+        "cluster_counts": cluster_counts,
+    }
+
+
+def _fit_similarity_model_candidates(
+    model_values: Any,
+    *,
+    effective_clusters: int,
+) -> Dict[str, Dict[str, Any]]:
+    import numpy as np
+    from sklearn.cluster import HDBSCAN, AgglomerativeClustering, KMeans
+    from sklearn.mixture import GaussianMixture
+
+    candidates: Dict[str, Dict[str, Any]] = {}
+
+    kmeans = KMeans(
+        n_clusters=effective_clusters,
+        n_init=KMEANS_N_INIT,
+        random_state=RANDOM_STATE,
+    )
+    kmeans_labels = kmeans.fit_predict(model_values)
+    distances = np.linalg.norm(
+        model_values - kmeans.cluster_centers_[kmeans_labels], axis=1
+    )
+    confidence_by_row: List[float] = []
+    for row_index, cluster_index in enumerate(kmeans_labels):
+        cluster_distances = distances[kmeans_labels == cluster_index]
+        max_distance = float(cluster_distances.max()) if len(cluster_distances) else 0.0
+        if max_distance <= 1e-9:
+            confidence = 1.0
+        else:
+            confidence = 1.0 - float(distances[row_index]) / max_distance
+        confidence_by_row.append(round(max(0.0, min(confidence, 1.0)), 4))
+    candidates["kmeans"] = {
+        "labels": kmeans_labels,
+        "confidence": confidence_by_row,
+        "metadata": {"n_init": KMEANS_N_INIT},
+    }
+
+    gmm = GaussianMixture(
+        n_components=effective_clusters,
+        covariance_type="full",
+        n_init=KMEANS_N_INIT,
+        random_state=RANDOM_STATE,
+    )
+    gmm_labels = gmm.fit_predict(model_values)
+    gmm_probs = gmm.predict_proba(model_values).max(axis=1)
+    candidates["gmm"] = {
+        "labels": gmm_labels,
+        "confidence": [round(float(value), 4) for value in gmm_probs],
+        "metadata": {"n_components": effective_clusters},
+    }
+
+    agglomerative = AgglomerativeClustering(n_clusters=effective_clusters)
+    agglomerative_labels = agglomerative.fit_predict(model_values)
+    candidates["agglomerative"] = {
+        "labels": agglomerative_labels,
+        "confidence": _centroid_confidence(model_values, agglomerative_labels),
+        "metadata": {"n_clusters": effective_clusters},
+    }
+
+    min_cluster_size = max(2, min(8, len(model_values) // 6 or 2))
+    hdbscan = HDBSCAN(min_cluster_size=min_cluster_size, min_samples=1)
+    hdbscan_labels = hdbscan.fit_predict(model_values)
+    probabilities = getattr(hdbscan, "probabilities_", None)
+    if probabilities is None:
+        hdbscan_confidence = [
+            0.0 if int(label) < 0 else 1.0 for label in hdbscan_labels
+        ]
+    else:
+        hdbscan_confidence = [round(float(value), 4) for value in probabilities]
+    candidates["hdbscan"] = {
+        "labels": hdbscan_labels,
+        "confidence": hdbscan_confidence,
+        "metadata": {"min_cluster_size": min_cluster_size, "min_samples": 1},
+    }
+
+    for key, payload in candidates.items():
+        payload["evaluation"] = _evaluate_cluster_labels(
+            model_values, payload["labels"]
+        )
+        payload["evaluation"]["model_key"] = key
+        payload["evaluation"]["model_label"] = SIMILARITY_MODEL_LABELS[key]
+        payload["evaluation"]["description"] = SIMILARITY_MODEL_DESCRIPTIONS[key]
+
+    return candidates
+
+
+def _select_recommended_model_key(candidates: Dict[str, Dict[str, Any]]) -> str:
+    order = list(SIMILARITY_MODEL_LABELS)
+    return max(
+        candidates,
+        key=lambda key: (
+            candidates[key]["evaluation"]["score"],
+            -order.index(key),
+        ),
+    )
+
+
+def _build_model_assignment_results(
+    modeling: pd.DataFrame,
+    *,
+    labels: Any,
+    confidences: List[float],
+    model_key: str,
+) -> List[Dict[str, Any]]:
+    import numpy as np
+
+    labels = np.asarray(labels)
+    cluster_summaries: Dict[int, Dict[str, Any]] = {}
+    for cluster_index in sorted(set(labels.tolist())):
+        cluster_rows = modeling[labels == cluster_index]
+        center = {
+            feature_name: float(cluster_rows[f"norm_{feature_name}"].mean())
+            for feature_name in SIMILARITY_FEATURE_COLUMNS
+        }
+        top_traits = _rank_similarity_traits(center, limit=3, positive_only=True)
+        base_label = "Emerging Role" if cluster_index < 0 else _label_cluster(center)
+        cluster_summaries[int(cluster_index)] = {
+            "archetype_id": f"{model_key}_{'unclassified' if cluster_index < 0 else int(cluster_index)}",
+            "base_archetype_label": base_label,
+            "top_traits": ", ".join(top_traits),
+            "center": center,
+            "cluster_size": int(len(cluster_rows)),
+        }
+
+    results: List[Dict[str, Any]] = []
+    for row_index, (_, row) in enumerate(modeling.iterrows()):
+        cluster_index = int(labels[row_index])
+        normalized_values = {
+            feature_name: float(row[f"norm_{feature_name}"])
+            for feature_name in SIMILARITY_FEATURE_COLUMNS
+        }
+        raw_values = {
+            feature_name: row.get(feature_name)
+            for feature_name in SIMILARITY_FEATURE_COLUMNS
+        }
+        raw_values.update({column: row.get(column) for column in TEAM_CONTEXT_COLUMNS})
+        cluster_summary = cluster_summaries[cluster_index]
+        if cluster_index < 0:
+            base_label = _emerging_base_archetype_label(normalized_values)
+        else:
+            base_label = _player_base_archetype_label(
+                cluster_base_label=str(cluster_summary["base_archetype_label"]),
+                normalized_values=normalized_values,
+                raw_values=raw_values,
+            )
+        label, summary, top_traits = _player_archetype_display(
+            base_label=base_label,
+            normalized_values=normalized_values,
+            cluster_index=cluster_index,
+        )
+        if cluster_index < 0:
+            summary = (
+                f"{label} is an outlier profile for this model; it did not find "
+                "a dense enough peer group."
+            )
+            archetype_id = f"{model_key}_{_archetype_id_suffix(base_label)}"
+        else:
+            archetype_id = cluster_summary["archetype_id"]
+        results.append(
+            {
+                "model_key": model_key,
+                "model_label": SIMILARITY_MODEL_LABELS[model_key],
+                "description": SIMILARITY_MODEL_DESCRIPTIONS[model_key],
+                "archetype_id": archetype_id,
+                "archetype_label": label,
+                "base_archetype_label": label.split(" - ", maxsplit=1)[0],
+                "cluster_confidence": round(float(confidences[row_index]), 4),
+                "top_traits": top_traits,
+                "contrasting_traits": ", ".join(
+                    _rank_similarity_traits(
+                        normalized_values, limit=2, negative_only=True
+                    )
+                ),
+                "archetype_summary": summary,
+                "cluster_size": cluster_summary["cluster_size"],
+            }
+        )
+    return results
+
+
 def train_player_similarity_model(
     feature_df: pd.DataFrame,
     *,
@@ -527,8 +930,6 @@ def train_player_similarity_model(
     minimum_cluster_count: int = MINIMUM_ARCHETYPE_CLUSTERS,
 ) -> SimilarityTrainingResult:
     """Train the public reference archetype baseline."""
-    import numpy as np
-    from sklearn.cluster import KMeans
     from sklearn.impute import SimpleImputer
     from sklearn.preprocessing import StandardScaler, normalize
 
@@ -559,17 +960,6 @@ def train_player_similarity_model(
     if effective_clusters <= 0:
         raise ValueError("Cannot choose clusters for an empty feature matrix")
 
-    kmeans = KMeans(
-        n_clusters=effective_clusters,
-        n_init=KMEANS_N_INIT,
-        random_state=RANDOM_STATE,
-    )
-    raw_cluster_ids = kmeans.fit_predict(model_values)
-    distances = np.linalg.norm(
-        model_values - kmeans.cluster_centers_[raw_cluster_ids], axis=1
-    )
-
-    modeling["cluster_index"] = raw_cluster_ids
     normalized_columns = {
         f"norm_{feature_name}": scaled_values[:, index]
         for index, feature_name in enumerate(SIMILARITY_FEATURE_COLUMNS)
@@ -583,75 +973,67 @@ def train_player_similarity_model(
     # so the serving layer can read it from the projection table.
     modeling["projection_axes"] = json.dumps(projection_axes)
 
-    cluster_summaries: Dict[int, Dict[str, Any]] = {}
-    for cluster_index in sorted(modeling["cluster_index"].unique()):
-        cluster_rows = modeling[modeling["cluster_index"] == cluster_index]
-        center = {
-            feature_name: float(cluster_rows[f"norm_{feature_name}"].mean())
-            for feature_name in SIMILARITY_FEATURE_COLUMNS
+    candidates = _fit_similarity_model_candidates(
+        model_values,
+        effective_clusters=effective_clusters,
+    )
+    recommended_model_key = _select_recommended_model_key(candidates)
+    model_evaluations = [
+        candidates[key]["evaluation"] for key in SIMILARITY_MODEL_LABELS
+    ]
+    model_evaluation_json = json.dumps(
+        {
+            "recommended_model_key": recommended_model_key,
+            "baseline_model_key": BASELINE_MODEL_KEY,
+            "models": model_evaluations,
         }
-        top_traits = _rank_similarity_traits(center, limit=3, positive_only=True)
-        archetype_label = _label_cluster(center)
-        cluster_summaries[int(cluster_index)] = {
-            "archetype_id": f"cluster_{int(cluster_index)}",
-            "base_archetype_label": archetype_label,
-            "top_traits": ", ".join(top_traits),
-            "center": center,
-        }
+    )
 
-    confidence_by_row: List[float] = []
-    for row_index, cluster_index in enumerate(raw_cluster_ids):
-        cluster_mask = raw_cluster_ids == cluster_index
-        cluster_distances = distances[cluster_mask]
-        max_distance = float(cluster_distances.max()) if len(cluster_distances) else 0.0
-        if max_distance <= 1e-9:
-            confidence = 1.0
-        else:
-            confidence = 1.0 - float(distances[row_index]) / max_distance
-        confidence_by_row.append(round(max(0.0, min(confidence, 1.0)), 4))
+    per_model_assignments = {
+        model_key: _build_model_assignment_results(
+            modeling,
+            labels=payload["labels"],
+            confidences=payload["confidence"],
+            model_key=model_key,
+        )
+        for model_key, payload in candidates.items()
+    }
+    active_assignments = per_model_assignments[recommended_model_key]
+    modeling["active_model_key"] = recommended_model_key
+    modeling["recommended_model_key"] = recommended_model_key
+    modeling["model_evaluation_json"] = model_evaluation_json
+    modeling["model_results_json"] = [
+        json.dumps(
+            {
+                "recommended_model_key": recommended_model_key,
+                "baseline_model_key": BASELINE_MODEL_KEY,
+                "models": [
+                    {
+                        **per_model_assignments[model_key][row_index],
+                        "is_recommended": model_key == recommended_model_key,
+                        "is_baseline": model_key == BASELINE_MODEL_KEY,
+                    }
+                    for model_key in SIMILARITY_MODEL_LABELS
+                ],
+            }
+        )
+        for row_index in range(len(modeling))
+    ]
 
-    player_top_traits: List[str] = []
-    player_bottom_traits: List[str] = []
-    archetype_ids: List[str] = []
-    archetype_labels: List[str] = []
-    archetype_summaries: List[str] = []
-    for _, row in modeling.iterrows():
-        normalized_values = {
-            feature_name: float(row[f"norm_{feature_name}"])
-            for feature_name in SIMILARITY_FEATURE_COLUMNS
-        }
-        raw_values = {
-            feature_name: row.get(feature_name)
-            for feature_name in SIMILARITY_FEATURE_COLUMNS
-        }
-        raw_values.update({column: row.get(column) for column in TEAM_CONTEXT_COLUMNS})
-        player_bottom_traits.append(
-            ", ".join(
-                _rank_similarity_traits(normalized_values, limit=2, negative_only=True)
-            )
-        )
-        cluster_summary = cluster_summaries[int(row["cluster_index"])]
-        base_label = _player_base_archetype_label(
-            cluster_base_label=str(cluster_summary["base_archetype_label"]),
-            normalized_values=normalized_values,
-            raw_values=raw_values,
-        )
-        label, summary, top_traits = _player_archetype_display(
-            base_label=base_label,
-            normalized_values=normalized_values,
-            cluster_index=int(row["cluster_index"]),
-        )
-        player_top_traits.append(top_traits)
-        archetype_ids.append(cluster_summary["archetype_id"])
-        archetype_labels.append(label)
-        archetype_summaries.append(summary)
-
-    modeling["cluster_confidence"] = confidence_by_row
-    modeling["top_traits"] = player_top_traits
-    modeling["contrasting_traits"] = player_bottom_traits
-    modeling["archetype_id"] = archetype_ids
-    modeling["archetype_label"] = archetype_labels
-    modeling["archetype_summary"] = archetype_summaries
+    modeling["cluster_confidence"] = [
+        item["cluster_confidence"] for item in active_assignments
+    ]
+    modeling["top_traits"] = [item["top_traits"] for item in active_assignments]
+    modeling["contrasting_traits"] = [
+        item["contrasting_traits"] for item in active_assignments
+    ]
+    modeling["archetype_id"] = [item["archetype_id"] for item in active_assignments]
+    modeling["archetype_label"] = [
+        item["archetype_label"] for item in active_assignments
+    ]
+    modeling["archetype_summary"] = [
+        item["archetype_summary"] for item in active_assignments
+    ]
 
     features_df = modeling[
         [
@@ -663,6 +1045,10 @@ def train_player_similarity_model(
             "top_traits",
             "contrasting_traits",
             "archetype_summary",
+            "active_model_key",
+            "recommended_model_key",
+            "model_results_json",
+            "model_evaluation_json",
             *SIMILARITY_FEATURE_COLUMNS,
             *[f"norm_{feature_name}" for feature_name in SIMILARITY_FEATURE_COLUMNS],
             *PROJECTION_COLUMNS,
@@ -679,12 +1065,16 @@ def train_player_similarity_model(
             "cluster_confidence",
             "top_traits",
             "archetype_summary",
+            "active_model_key",
+            "recommended_model_key",
+            "model_results_json",
+            "model_evaluation_json",
         ]
     ].copy()
 
     diagnostics = {
         "model_version": MODEL_VERSION,
-        "model_scope": "public_reference_baseline",
+        "model_scope": "public_reference_multi_model",
         "input_rows": int(len(working)),
         "trained_rows": int(len(modeling)),
         "requested_clusters": int(cluster_count),
@@ -700,15 +1090,18 @@ def train_player_similarity_model(
         "feature_weighting": "equal",
         "feature_scaler": FEATURE_SCALER,
         "vector_normalization": MODEL_VECTOR_NORMALIZATION,
+        "baseline_model_key": BASELINE_MODEL_KEY,
+        "candidate_models": list(SIMILARITY_MODEL_LABELS),
+        "recommended_model_key": recommended_model_key,
+        "model_evaluations": model_evaluations,
         "projection_method": PROJECTION_METHOD,
         "projection_components": int(min(PROJECTION_COMPONENTS, len(modeling))),
         "projection_explained_variance": [axis["variance"] for axis in projection_axes],
         "projection_axes": projection_axes,
         "empty_imputed_features": empty_columns,
-        "cluster_counts": {
-            str(cluster_index): int(count)
-            for cluster_index, count in modeling["cluster_index"].value_counts().items()
-        },
+        "cluster_counts": candidates[recommended_model_key]["evaluation"][
+            "cluster_counts"
+        ],
         "kmeans_n_init": int(KMEANS_N_INIT),
     }
 

@@ -31,6 +31,10 @@ Optional portfolio paths include Redshift Serverless as a secondary warehouse.
 - **Analytics engineering backbone**: source contracts, dbt models,
   orchestration, metadata, and read-only serving keep the public app tied to
   curated warehouse outputs.
+- **Similarity model lifecycle**: the public KMeans baseline is paired with
+  Gaussian mixture, hierarchy, and density-scan candidate models, plus a
+  BigQuery-native MLOps plan for versioned features, candidate evaluation,
+  promotion gates, and drift checks.
 
 ## Stack
 
@@ -77,6 +81,8 @@ The current warehouse is centered on the `2025-26` season.
   deterministic analysis snapshots.
 
 See [Architecture](docs/architecture.md) for the detailed table layout.
+See [Player Similarity MLOps](docs/similarity-mlops.md) for the formal
+feature-store, registry, evaluation, and promotion plan.
 
 ## Public App
 
@@ -93,7 +99,9 @@ pages one click away.
 The similarity map (`/similarity-map`) is a 3D PCA projection of the player
 similarity vectors: players cluster by archetype, selecting one traces edges to
 its true cosine-nearest matches, and each axis is labeled with the features that
-drive it.
+drive it. A model selector lets readers compare the KMeans baseline, Gaussian
+mixture, hierarchy, and density-scan groupings without moving the underlying
+player coordinates.
 
 ![Ask page](docs/images/ask-page.png)
 

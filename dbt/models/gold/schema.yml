@@ -475,6 +475,7 @@ models:
       - name: shot_corner3_fg_pct
       - name: height_inches
       - name: weight_lbs
+      - name: wingspan_inches
       - name: season_exp
       - name: first_half_games
       - name: second_half_games

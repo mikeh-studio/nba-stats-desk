@@ -15,6 +15,8 @@ select
     cast(last_affiliation as {{ varchar_type() }}) as last_affiliation,
     cast(height as {{ varchar_type() }}) as height,
     cast(weight as {{ int64_type() }}) as weight,
+    cast(wingspan as {{ float64_type() }}) as wingspan,
+    cast(wingspan_ft_in as {{ varchar_type() }}) as wingspan_ft_in,
     cast(season_exp as {{ int64_type() }}) as season_exp,
     cast(jersey as {{ varchar_type() }}) as jersey,
     cast(position as {{ varchar_type() }}) as position,

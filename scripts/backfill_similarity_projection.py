@@ -17,8 +17,10 @@ values the app/pipeline use (BQ_PROJECT, BQ_DATASET_GOLD, BQ_LOCATION).
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,6 +39,42 @@ import nba_pipeline as pipeline  # noqa: E402
 
 DEFAULT_SEASON = "2025-26"
 PROJECTION_COLUMNS = ("proj_x", "proj_y", "proj_z")
+
+
+def _base_archetype_label(label: str | None) -> str:
+    if not label:
+        return "Unclassified"
+    return str(label).split(" - ", maxsplit=1)[0]
+
+
+def _print_model_distributions(features) -> None:
+    if "model_results_json" not in features:
+        return
+
+    counts_by_model: dict[str, Counter[str]] = {}
+    labels_by_model: dict[str, str] = {}
+    for raw_payload in features["model_results_json"].dropna():
+        payload = json.loads(raw_payload)
+        for assignment in payload.get("models", []):
+            model_key = str(assignment.get("model_key") or "unknown")
+            model_label = str(assignment.get("model_label") or model_key)
+            base_label = str(
+                assignment.get("base_archetype_label")
+                or _base_archetype_label(assignment.get("archetype_label"))
+            )
+            counts_by_model.setdefault(model_key, Counter())[base_label] += 1
+            labels_by_model[model_key] = model_label
+
+    if not counts_by_model:
+        return
+
+    total = len(features)
+    print("\nBase archetype distribution by model:")
+    for model_key, counts in counts_by_model.items():
+        print(f"{labels_by_model[model_key]} ({model_key})")
+        for label, count in counts.most_common():
+            share = count / total if total else 0.0
+            print(f"  {label:<24} {count:>3} {share:>5.1%}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -89,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
     if present:
         preview = features[["player_id", "player_name", *present]].head(5)
         print(preview.to_string(index=False))
+    _print_model_distributions(features)
 
     if not args.write:
         print("\nDry run only. Re-run with --write to publish to BigQuery.")
