@@ -13,6 +13,10 @@ learning/portfolio path, not a replacement for the default runtime.
 - FastAPI serves the public read-only site and API.
 - Terraform manages GCP infrastructure and optional AWS Redshift infrastructure.
 - Analysis output is deterministic and template-based.
+- Player similarity MLOps is offline-first and BigQuery-native: active serving
+  outputs stay in gold tables, while versioned feature snapshots, model runs,
+  evaluations, registry state, and drift checks belong in feature and ML
+  metadata datasets.
 - Media sentiment ingestion is deferred until source, cost, and retention rules
   are explicit.
 
@@ -92,13 +96,16 @@ Agent serving models:
 Similarity outputs:
 
 - `player_similarity_feature_input`
-- `player_similarity_features` (also carries the 3D map projection `proj_x/y/z`
-  and per-axis driver metadata `projection_axes`)
+- `player_similarity_features` (also carries the selected public archetype
+  assignment, per-model comparison metadata, the 3D map projection
+  `proj_x/y/z`, and per-axis driver metadata `projection_axes`)
 - `player_archetypes`
 
 The public baseline and publish contract are documented in
-[`docs/player-similarity-model.md`](player-similarity-model.md). Tuned
-personal-model work should stay outside the public repo; see
+[`docs/player-similarity-model.md`](player-similarity-model.md). The target
+feature-store and MLOps lifecycle is documented in
+[`docs/similarity-mlops.md`](similarity-mlops.md). Tuned personal-model work
+should stay outside the public repo; see
 [`docs/public-private-boundary.md`](public-private-boundary.md).
 
 Metadata tables:
@@ -106,6 +113,15 @@ Metadata tables:
 - `ingestion_state`
 - `pipeline_run_log`
 - `source_contract_results`
+
+Planned similarity lifecycle tables:
+
+- `nba_features.player_similarity_feature_values`
+- `nba_features.feature_view_registry`
+- `nba_ml.similarity_model_runs`
+- `nba_ml.similarity_eval_results`
+- `nba_ml.similarity_model_registry`
+- `nba_ml.similarity_drift_checks`
 
 ## Serving Path
 

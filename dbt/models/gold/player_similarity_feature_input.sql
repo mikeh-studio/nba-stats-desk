@@ -70,6 +70,7 @@ player_dimension as (
         safe_cast(split(coalesce(trim(height), ''), '-')[safe_offset(0)] as {{ int64_type() }}) * 12
             + safe_cast(split(coalesce(trim(height), ''), '-')[safe_offset(1)] as {{ int64_type() }}) as height_inches,
         weight as weight_lbs,
+        wingspan as wingspan_inches,
         season_exp
     from {{ ref('dim_player') }}
 ),
@@ -267,6 +268,7 @@ select
     d.position,
     d.height_inches,
     d.weight_lbs,
+    d.wingspan_inches,
     d.season_exp,
     coalesce(c.games_sampled, f.season_games, 0) as games_sampled,
     case

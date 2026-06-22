@@ -505,26 +505,9 @@ class BigQueryWarehouseRepository:
         return f"SQRT({' + '.join(terms)})"
 
     def _fetch_similarity_anchor(self, player_id: int) -> dict[str, Any] | None:
-        normalized_fields = ",\n          ".join(
-            [f"norm_{feature_name}" for feature_name in SIMILARITY_FEATURE_COLUMNS]
-        )
         sql = f"""
         SELECT
-          season,
-          as_of_date,
-          player_id,
-          player_name,
-          team_abbr,
-          position,
-          games_sampled,
-          sample_status,
-          archetype_id,
-          archetype_label,
-          cluster_confidence,
-          top_traits,
-          contrasting_traits,
-          archetype_summary,
-          {normalized_fields}
+          *
         FROM {self._similarity_feature_table()}
         WHERE season = @season
           AND player_id = @player_id
@@ -1088,6 +1071,8 @@ class BigQueryWarehouseRepository:
             "cluster_confidence": None,
             "top_traits": [],
             "summary": None,
+            "active_model_key": None,
+            "recommended_model_key": None,
         }
         if archetype_row is not None:
             archetype_state = _similarity_state_from_sample_status(
@@ -1102,7 +1087,16 @@ class BigQueryWarehouseRepository:
                 ),
                 "top_traits": _split_display_list(archetype_row.get("top_traits")),
                 "summary": archetype_row.get("archetype_summary"),
+                "active_model_key": archetype_row.get("active_model_key"),
+                "recommended_model_key": archetype_row.get("recommended_model_key"),
             }
+
+        similarity_models = self._parse_similarity_model_results(
+            archetype_row.get("model_results_json") if archetype_row else None
+        )
+        similarity_model_evaluation = self._parse_similarity_model_evaluation(
+            archetype_row.get("model_evaluation_json") if archetype_row else None
+        )
 
         game_log_state = STATE_FRESH if game_log.get("games") else STATE_UNAVAILABLE
         trends_state = STATE_FRESH if trends else STATE_UNAVAILABLE
@@ -1159,6 +1153,8 @@ class BigQueryWarehouseRepository:
                 "trends": trends,
                 "opportunity": None,
                 "archetype": archetype_payload,
+                "similarity_models": similarity_models,
+                "similarity_model_evaluation": similarity_model_evaluation,
                 "similarity_reason": similarity_reason,
                 "similar_players": similar_players,
             }
@@ -1268,6 +1264,8 @@ class BigQueryWarehouseRepository:
             "trends": trends,
             "opportunity": opportunity,
             "archetype": archetype_payload,
+            "similarity_models": similarity_models,
+            "similarity_model_evaluation": similarity_model_evaluation,
             "similarity_reason": similarity_reason,
             "similar_players": similar_players,
         }
@@ -1318,7 +1316,101 @@ class BigQueryWarehouseRepository:
             "opportunity": opportunity,
         }
 
+    @staticmethod
+    def _parse_similarity_model_results(value: Any) -> list[dict[str, Any]]:
+        if not value:
+            return []
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else value
+        except (TypeError, ValueError):
+            return []
+        models = parsed.get("models") if isinstance(parsed, dict) else parsed
+        if not isinstance(models, list):
+            return []
+        results: list[dict[str, Any]] = []
+        for item in models:
+            if not isinstance(item, dict):
+                continue
+            results.append(
+                {
+                    "model_key": item.get("model_key"),
+                    "model_label": item.get("model_label"),
+                    "description": item.get("description"),
+                    "archetype_id": item.get("archetype_id"),
+                    "archetype_label": item.get("archetype_label"),
+                    "base_archetype_label": item.get("base_archetype_label"),
+                    "cluster_confidence": _to_float(item.get("cluster_confidence")),
+                    "top_traits": _split_display_list(item.get("top_traits")),
+                    "contrasting_traits": _split_display_list(
+                        item.get("contrasting_traits")
+                    ),
+                    "archetype_summary": item.get("archetype_summary"),
+                    "cluster_size": _to_int(item.get("cluster_size")),
+                    "is_recommended": bool(item.get("is_recommended")),
+                    "is_baseline": bool(item.get("is_baseline")),
+                }
+            )
+        return results
+
+    @staticmethod
+    def _parse_similarity_model_evaluation(value: Any) -> dict[str, Any]:
+        if not value:
+            return {"recommended_model_key": None, "models": []}
+        try:
+            parsed = json.loads(value) if isinstance(value, str) else value
+        except (TypeError, ValueError):
+            return {"recommended_model_key": None, "models": []}
+        if not isinstance(parsed, dict):
+            return {"recommended_model_key": None, "models": []}
+        models = []
+        for item in parsed.get("models", []):
+            if not isinstance(item, dict):
+                continue
+            models.append(
+                {
+                    "model_key": item.get("model_key"),
+                    "model_label": item.get("model_label"),
+                    "description": item.get("description"),
+                    "score": _to_float(item.get("score")),
+                    "silhouette": _to_float(item.get("silhouette")),
+                    "balance_score": _to_float(item.get("balance_score")),
+                    "coverage_score": _to_float(item.get("coverage_score")),
+                    "cluster_count": _to_int(item.get("cluster_count")),
+                    "unclassified_player_count": _to_int(
+                        item.get("unclassified_player_count")
+                    ),
+                }
+            )
+        return {
+            "recommended_model_key": parsed.get("recommended_model_key"),
+            "baseline_model_key": parsed.get("baseline_model_key"),
+            "models": models,
+        }
+
     def _decorate_similarity_map_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        model_assignments = self._parse_similarity_model_results(
+            row.get("model_results_json")
+        )
+        if not model_assignments:
+            model_assignments = [
+                {
+                    "model_key": row.get("active_model_key") or "active",
+                    "model_label": "Active model",
+                    "description": "Current published archetype assignment.",
+                    "archetype_id": row.get("archetype_id"),
+                    "archetype_label": row.get("archetype_label") or "Unclassified",
+                    "base_archetype_label": self._base_archetype_label(
+                        row.get("archetype_label")
+                    ),
+                    "cluster_confidence": _to_float(row.get("cluster_confidence")),
+                    "top_traits": _split_display_list(row.get("top_traits")),
+                    "contrasting_traits": [],
+                    "archetype_summary": row.get("archetype_summary"),
+                    "cluster_size": None,
+                    "is_recommended": True,
+                    "is_baseline": True,
+                }
+            ]
         return {
             "player_id": _to_int(row.get("player_id")),
             "player_name": row.get("player_name"),
@@ -1327,6 +1419,9 @@ class BigQueryWarehouseRepository:
             "archetype_label": row.get("archetype_label") or "Unclassified",
             "cluster_confidence": _to_float(row.get("cluster_confidence")),
             "top_traits": _split_display_list(row.get("top_traits")),
+            "active_model_key": row.get("active_model_key"),
+            "recommended_model_key": row.get("recommended_model_key"),
+            "model_assignments": model_assignments,
             "games_sampled": _to_int(row.get("games_sampled")),
             "sample_status": row.get("sample_status"),
             "x": _to_float(row.get("proj_x")),
@@ -1381,6 +1476,25 @@ class BigQueryWarehouseRepository:
             )
         ]
 
+    @staticmethod
+    def _similarity_model_options(
+        players: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        options: dict[str, dict[str, Any]] = {}
+        for player in players:
+            for assignment in player.get("model_assignments", []):
+                key = assignment.get("model_key")
+                if not key or key in options:
+                    continue
+                options[key] = {
+                    "model_key": key,
+                    "model_label": assignment.get("model_label") or key,
+                    "description": assignment.get("description"),
+                    "is_recommended": bool(assignment.get("is_recommended")),
+                    "is_baseline": bool(assignment.get("is_baseline")),
+                }
+        return list(options.values())
+
     def get_similarity_map(self) -> dict[str, Any]:
         """Read the precomputed 3D similarity projection for the season.
 
@@ -1390,18 +1504,7 @@ class BigQueryWarehouseRepository:
         """
         sql = f"""
         SELECT
-          player_id,
-          player_name,
-          team_abbr,
-          archetype_id,
-          archetype_label,
-          cluster_confidence,
-          top_traits,
-          games_sampled,
-          sample_status,
-          proj_x,
-          proj_y,
-          proj_z
+          *
         FROM {self._similarity_feature_table()}
         WHERE season = @season
           AND sample_status IN ('ready', 'limited_sample')
@@ -1420,14 +1523,21 @@ class BigQueryWarehouseRepository:
                 "season": SUPPORTED_SEASON,
                 "players": [],
                 "archetypes": [],
+                "models": [],
+                "model_evaluation": {"recommended_model_key": None, "models": []},
                 "axes": [],
             }
 
         players = [self._decorate_similarity_map_row(row) for row in rows]
+        model_evaluation = self._parse_similarity_model_evaluation(
+            rows[0].get("model_evaluation_json") if rows else None
+        )
         return {
             "season": SUPPORTED_SEASON,
             "players": players,
             "archetypes": self._summarize_map_archetypes(players),
+            "models": self._similarity_model_options(players),
+            "model_evaluation": model_evaluation,
             "axes": self._fetch_projection_axes(),
         }
 

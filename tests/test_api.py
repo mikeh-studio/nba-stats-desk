@@ -422,6 +422,35 @@ class FakeRepository(WarehouseRepository):
                     "cluster_confidence": 0.92,
                     "top_traits": ["playmaking", "usage share", "scoring volume"],
                     "summary": "Primary Creator driven by playmaking, usage share, scoring volume.",
+                    "active_model_key": "gmm",
+                    "recommended_model_key": "gmm",
+                },
+                "similarity_models": [
+                    {
+                        "model_key": "kmeans",
+                        "model_label": "KMeans baseline",
+                        "description": "Fast deterministic baseline.",
+                        "archetype_label": "Primary Creator",
+                        "cluster_confidence": 0.82,
+                        "top_traits": ["playmaking", "usage share"],
+                        "is_recommended": False,
+                        "is_baseline": True,
+                    },
+                    {
+                        "model_key": "gmm",
+                        "model_label": "Gaussian mixture",
+                        "description": "Soft clustering for hybrid profiles.",
+                        "archetype_label": "Primary Creator",
+                        "cluster_confidence": 0.92,
+                        "top_traits": ["playmaking", "usage share"],
+                        "is_recommended": True,
+                        "is_baseline": False,
+                    },
+                ],
+                "similarity_model_evaluation": {
+                    "recommended_model_key": "gmm",
+                    "baseline_model_key": "kmeans",
+                    "models": [],
                 },
                 "similarity_reason": None,
                 "similar_players": [
@@ -497,6 +526,13 @@ class FakeRepository(WarehouseRepository):
                     "cluster_confidence": None,
                     "top_traits": [],
                     "summary": None,
+                    "active_model_key": None,
+                    "recommended_model_key": None,
+                },
+                "similarity_models": [],
+                "similarity_model_evaluation": {
+                    "recommended_model_key": None,
+                    "models": [],
                 },
                 "similarity_reason": "Similarity profile is unavailable.",
                 "similar_players": [],
@@ -1143,6 +1179,20 @@ class FakeRepository(WarehouseRepository):
                     "archetype_label": "Scoring Guard",
                     "cluster_confidence": 0.82,
                     "top_traits": ["scoring volume", "true shooting"],
+                    "active_model_key": "kmeans",
+                    "recommended_model_key": "kmeans",
+                    "model_assignments": [
+                        {
+                            "model_key": "kmeans",
+                            "model_label": "KMeans baseline",
+                            "description": "Fast deterministic baseline.",
+                            "archetype_label": "Scoring Guard",
+                            "cluster_confidence": 0.82,
+                            "top_traits": ["scoring volume"],
+                            "is_recommended": True,
+                            "is_baseline": True,
+                        }
+                    ],
                     "games_sampled": 20,
                     "sample_status": "ready",
                     "x": 0.12,
@@ -1151,6 +1201,26 @@ class FakeRepository(WarehouseRepository):
                 }
             ],
             "archetypes": [{"archetype_label": "Scoring Guard", "count": 1}],
+            "models": [
+                {
+                    "model_key": "kmeans",
+                    "model_label": "KMeans baseline",
+                    "description": "Fast deterministic baseline.",
+                    "is_recommended": True,
+                    "is_baseline": True,
+                }
+            ],
+            "model_evaluation": {
+                "recommended_model_key": "kmeans",
+                "baseline_model_key": "kmeans",
+                "models": [
+                    {
+                        "model_key": "kmeans",
+                        "model_label": "KMeans baseline",
+                        "score": 0.78,
+                    }
+                ],
+            },
             "axes": [
                 {
                     "key": "proj_x",
@@ -1967,7 +2037,8 @@ def test_player_page_smoke() -> None:
     assert response.status_code == 200
     assert "Why This Player Matters" in response.text
     assert "Archetype" in response.text
-    assert "Similar Players" in response.text
+    assert "<h2>Similar</h2>" in response.text
+    assert "Gaussian mixture" in response.text
     assert "Compare player" in response.text
     assert "Find qualified player" in response.text
     assert "Performance" in response.text
@@ -2513,6 +2584,11 @@ def test_api_similarity_map_returns_players_and_archetypes() -> None:
     assert payload["players"][0]["player_name"] == "Alpha Guard"
     assert payload["players"][0]["x"] == 0.12
     assert payload["archetypes"] == [{"archetype_label": "Scoring Guard", "count": 1}]
+    assert payload["models"][0]["model_key"] == "kmeans"
+    assert (
+        payload["players"][0]["model_assignments"][0]["model_label"]
+        == "KMeans baseline"
+    )
     assert payload["axes"][0]["key"] == "proj_x"
     assert payload["axes"][0]["drivers"] == ["scoring volume", "usage"]
 
@@ -2527,6 +2603,7 @@ def test_similarity_map_page_smoke() -> None:
     assert "data-health-status" not in response.text
     assert "plotly-gl3d" in response.text
     assert 'id="map-axes-note"' in response.text
+    assert 'id="map-model-controls"' in response.text
 
 
 def test_similarity_map_page_does_not_block_on_health() -> None:

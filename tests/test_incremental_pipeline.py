@@ -1491,6 +1491,8 @@ def test_get_player_reference_passes_timeout_to_nba_api(monkeypatch):
     assert captured == {"player_id": 7, "timeout": 6}
     assert len(result) == 1
     assert result.iloc[0]["PLAYER_NAME"] == "Test Player"
+    assert "WINGSPAN" in result.columns
+    assert pd.isna(result.iloc[0]["WINGSPAN"])
 
 
 def test_get_player_reference_accepts_dict_keys_available_data(monkeypatch):
@@ -1512,6 +1514,90 @@ def test_get_player_reference_accepts_dict_keys_available_data(monkeypatch):
 
     assert len(result) == 1
     assert result.iloc[0]["PLAYER_NAME"] == "Test Player"
+
+
+def test_get_draft_combine_anthro_normalizes_wingspan(monkeypatch):
+    captured = {}
+
+    class FakeDraftCombinePlayerAnthro:
+        def __init__(self, *, season_year, timeout):
+            captured["season_year"] = season_year
+            captured["timeout"] = timeout
+
+        def get_available_data(self):
+            return ["Results"]
+
+        def get_data_frames(self):
+            return [
+                pd.DataFrame(
+                    [
+                        {
+                            "PLAYER_ID": "7",
+                            "WINGSPAN": "79.5",
+                            "WINGSPAN_FT_IN": "6-7.5",
+                        }
+                    ]
+                )
+            ]
+
+    monkeypatch.setattr(
+        pipeline.draftcombineplayeranthro,
+        "DraftCombinePlayerAnthro",
+        FakeDraftCombinePlayerAnthro,
+    )
+
+    result = pipeline.get_draft_combine_anthro(2023, timeout=4, retries=1)
+
+    assert captured == {"season_year": 2023, "timeout": 4}
+    assert result.iloc[0]["PLAYER_ID"] == 7
+    assert result.iloc[0]["WINGSPAN"] == 79.5
+    assert result.iloc[0]["WINGSPAN_FT_IN"] == "6-7.5"
+
+
+def test_get_all_player_references_enriches_wingspan_from_draft_year(monkeypatch):
+    def fake_get_player_reference(player_id: int, **_kwargs):
+        frame = _player_reference_api_frame()
+        frame["PERSON_ID"] = player_id
+        frame["DRAFT_YEAR"] = "2023"
+        frame = frame.rename(
+            columns={
+                "PERSON_ID": "PLAYER_ID",
+                "DISPLAY_FIRST_LAST": "PLAYER_NAME",
+                "TEAM_ABBREVIATION": "TEAM_ABBR",
+                "ROSTERSTATUS": "ROSTER_STATUS",
+            }
+        )
+        frame["WINGSPAN"] = pd.NA
+        frame["WINGSPAN_FT_IN"] = pd.NA
+        frame["INGESTED_AT_UTC"] = "2026-02-10T12:00:00+00:00"
+        return frame[[field.name for field in pipeline.get_player_reference_schema()]]
+
+    def fake_get_draft_combine_anthro(season_year: int, **_kwargs):
+        assert season_year == 2023
+        return pd.DataFrame(
+            [
+                {
+                    "PLAYER_ID": 7,
+                    "WINGSPAN": 79.5,
+                    "WINGSPAN_FT_IN": "6-7.5",
+                }
+            ]
+        )
+
+    monkeypatch.setattr(pipeline, "get_player_reference", fake_get_player_reference)
+    monkeypatch.setattr(
+        pipeline, "get_draft_combine_anthro", fake_get_draft_combine_anthro
+    )
+    monkeypatch.setattr(pipeline.time, "sleep", lambda _seconds: None)
+
+    result = pipeline.get_all_player_references(
+        [{"id": 7, "full_name": "Test Player"}],
+        delay=0,
+    )
+
+    assert len(result) == 1
+    assert result.iloc[0]["WINGSPAN"] == 79.5
+    assert result.iloc[0]["WINGSPAN_FT_IN"] == "6-7.5"
 
 
 def test_get_player_reference_soft_fails_after_retries(monkeypatch):
@@ -1692,6 +1778,13 @@ def test_get_all_player_references_dedupes_by_player_id(monkeypatch):
         )
 
     monkeypatch.setattr(pipeline, "get_player_reference", fake_get_player_reference)
+    monkeypatch.setattr(
+        pipeline,
+        "get_draft_combine_anthro",
+        lambda *_args, **_kwargs: pd.DataFrame(
+            columns=["PLAYER_ID", "WINGSPAN", "WINGSPAN_FT_IN"]
+        ),
+    )
     players = [
         {"id": 7, "full_name": "Test Player"},
         {"id": 7, "full_name": "Test Player"},
@@ -2566,3 +2659,80 @@ def test_write_player_similarity_tables_allows_schema_field_additions():
             pipeline.bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION
             in job_config.schema_update_options
         )
+
+
+def test_create_similarity_mlops_tables_defines_lifecycle_contract():
+    class FakeClient:
+        def __init__(self):
+            self.tables = []
+
+        def create_table(self, table, *, exists_ok):
+            self.tables.append(table)
+            assert exists_ok is True
+            return table
+
+    client = FakeClient()
+
+    pipeline.create_similarity_mlops_tables(
+        client,
+        feature_values_table="demo.nba_features.player_similarity_feature_values",
+        feature_view_registry_table="demo.nba_features.feature_view_registry",
+        model_runs_table="demo.nba_ml.similarity_model_runs",
+        eval_results_table="demo.nba_ml.similarity_eval_results",
+        model_registry_table="demo.nba_ml.similarity_model_registry",
+        drift_checks_table="demo.nba_ml.similarity_drift_checks",
+    )
+
+    tables = {
+        f"{table.project}.{table.dataset_id}.{table.table_id}": table
+        for table in client.tables
+    }
+
+    assert set(tables) == {
+        "demo.nba_features.player_similarity_feature_values",
+        "demo.nba_features.feature_view_registry",
+        "demo.nba_ml.similarity_model_runs",
+        "demo.nba_ml.similarity_eval_results",
+        "demo.nba_ml.similarity_model_registry",
+        "demo.nba_ml.similarity_drift_checks",
+    }
+
+    feature_table = tables["demo.nba_features.player_similarity_feature_values"]
+    feature_columns = {field.name for field in feature_table.schema}
+    assert feature_table.time_partitioning.field == "as_of_date"
+    assert feature_table.clustering_fields == ["season", "player_id"]
+    assert {
+        "feature_set_version",
+        "feature_run_id",
+        "source_run_id",
+        "dbt_invocation_id",
+        "git_sha",
+        "feature_quality_status",
+        "feature_payload_json",
+        "season_ts_pct",
+    } <= feature_columns
+
+    model_runs = tables["demo.nba_ml.similarity_model_runs"]
+    model_run_columns = {field.name for field in model_runs.schema}
+    assert model_runs.time_partitioning.field == "trained_at_utc"
+    assert model_runs.clustering_fields == ["season", "status"]
+    assert {
+        "model_run_id",
+        "model_version",
+        "feature_set_version",
+        "effective_cluster_count",
+        "diagnostics_json",
+    } <= model_run_columns
+
+    eval_results = tables["demo.nba_ml.similarity_eval_results"]
+    assert eval_results.time_partitioning.field == "evaluated_at_utc"
+    assert eval_results.clustering_fields == ["season", "model_run_id", "status"]
+
+    registry = tables["demo.nba_ml.similarity_model_registry"]
+    registry_columns = {field.name for field in registry.schema}
+    assert registry.time_partitioning.field == "created_at_utc"
+    assert {"serving_surface", "status", "promoted_at_utc"} <= registry_columns
+
+    drift_checks = tables["demo.nba_ml.similarity_drift_checks"]
+    assert drift_checks.time_partitioning.field == "checked_at_utc"
+    assert drift_checks.clustering_fields == ["season", "model_run_id", "status"]

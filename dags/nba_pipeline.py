@@ -24,6 +24,7 @@ from google.cloud import bigquery, storage
 from nba_api.stats.endpoints import (
     boxscoresummaryv2,
     commonplayerinfo,
+    draftcombineplayeranthro,
     leaguedashplayershotlocations,
     leaguegamelog,
     playergamelog,
@@ -1773,6 +1774,8 @@ def get_player_reference(
                 .astype(int)
                 .astype(bool)
             )
+            out["WINGSPAN"] = pd.NA
+            out["WINGSPAN_FT_IN"] = pd.NA
             out["INGESTED_AT_UTC"] = pd.Timestamp.now(tz="UTC")
             return out[[field.name for field in get_player_reference_schema()]]
         except Exception:
@@ -1796,6 +1799,142 @@ def get_player_reference(
             )
 
     return empty.copy()
+
+
+def get_draft_combine_anthro(
+    season_year: int,
+    *,
+    retries: int = NBA_API_RETRIES,
+    delay: Optional[float] = None,
+    timeout: float = NBA_API_TIMEOUT_SECONDS,
+    retry_base_delay: float = NBA_API_RETRY_BASE_DELAY_SECONDS,
+    retry_backoff_multiplier: float = NBA_API_RETRY_BACKOFF_MULTIPLIER,
+    retry_max_delay: float = NBA_API_RETRY_MAX_DELAY_SECONDS,
+) -> pd.DataFrame:
+    """Get combine anthropometric rows for a draft year."""
+    retries = normalize_nba_api_retries(retries)
+    if delay is not None:
+        retry_base_delay = delay
+    expected_cols = ["PLAYER_ID", "WINGSPAN", "WINGSPAN_FT_IN"]
+    empty = pd.DataFrame(columns=expected_cols)
+
+    for attempt in range(1, retries + 1):
+        try:
+            endpoint = draftcombineplayeranthro.DraftCombinePlayerAnthro(
+                season_year=int(season_year),
+                timeout=timeout,
+            )
+            available = list(endpoint.get_available_data())
+            if "Results" not in available:
+                return empty.copy()
+            frame = endpoint.get_data_frames()[available.index("Results")].copy()
+            if frame.empty:
+                return empty.copy()
+            missing_cols = [c for c in expected_cols if c not in frame.columns]
+            if missing_cols:
+                raise ValueError(
+                    f"Missing expected draft combine anthro columns: {missing_cols}"
+                )
+            out = frame[expected_cols].copy()
+            out["PLAYER_ID"] = pd.to_numeric(out["PLAYER_ID"], errors="coerce")
+            out = out.dropna(subset=["PLAYER_ID"]).copy()
+            out["PLAYER_ID"] = out["PLAYER_ID"].astype("Int64")
+            out["WINGSPAN"] = pd.to_numeric(out["WINGSPAN"], errors="coerce")
+            out["WINGSPAN_FT_IN"] = out["WINGSPAN_FT_IN"].astype("string")
+            return out.drop_duplicates(subset=["PLAYER_ID"])[expected_cols]
+        except Exception:
+            if attempt == retries:
+                logger.exception(
+                    "Failed NBA API draft combine anthro season_year=%s after %s attempts timeout=%.1fs",
+                    season_year,
+                    retries,
+                    timeout,
+                )
+                return empty.copy()
+            _sleep_before_nba_api_retry(
+                domain="draft_combine_anthro",
+                identifier=season_year,
+                attempt=attempt,
+                retries=retries,
+                timeout=timeout,
+                retry_base_delay=retry_base_delay,
+                retry_backoff_multiplier=retry_backoff_multiplier,
+                retry_max_delay=retry_max_delay,
+            )
+
+    return empty.copy()
+
+
+def _draft_years_from_player_reference(profile_df: pd.DataFrame) -> list[int]:
+    years: list[int] = []
+    if profile_df.empty or "DRAFT_YEAR" not in profile_df.columns:
+        return years
+    for value in profile_df["DRAFT_YEAR"].dropna().unique():
+        text = str(value).strip()
+        if not text.isdigit():
+            continue
+        year = int(text)
+        if 1900 <= year <= SUPPORTED_SEASON_END.year:
+            years.append(year)
+    return sorted(set(years))
+
+
+def enrich_player_reference_with_anthro(
+    profile_df: pd.DataFrame,
+    *,
+    delay: float = 0.4,
+    retries: int = NBA_API_RETRIES,
+    timeout: float = NBA_API_TIMEOUT_SECONDS,
+    retry_base_delay: float = NBA_API_RETRY_BASE_DELAY_SECONDS,
+    retry_backoff_multiplier: float = NBA_API_RETRY_BACKOFF_MULTIPLIER,
+    retry_max_delay: float = NBA_API_RETRY_MAX_DELAY_SECONDS,
+) -> pd.DataFrame:
+    """Add nullable draft-combine wingspan fields to player reference rows."""
+    if profile_df.empty:
+        return profile_df.copy()
+
+    enriched = profile_df.copy()
+    if "WINGSPAN" not in enriched.columns:
+        enriched["WINGSPAN"] = pd.NA
+    if "WINGSPAN_FT_IN" not in enriched.columns:
+        enriched["WINGSPAN_FT_IN"] = pd.NA
+
+    years = _draft_years_from_player_reference(enriched)
+    if not years:
+        return enriched[[field.name for field in get_player_reference_schema()]]
+
+    anthro_frames: list[pd.DataFrame] = []
+    for year in years:
+        frame = get_draft_combine_anthro(
+            year,
+            retries=retries,
+            timeout=timeout,
+            retry_base_delay=retry_base_delay,
+            retry_backoff_multiplier=retry_backoff_multiplier,
+            retry_max_delay=retry_max_delay,
+        )
+        if not frame.empty:
+            anthro_frames.append(frame)
+        time.sleep(delay)
+
+    if not anthro_frames:
+        return enriched[[field.name for field in get_player_reference_schema()]]
+
+    anthro = pd.concat(anthro_frames, ignore_index=True)
+    anthro = anthro.drop_duplicates(subset=["PLAYER_ID"]).copy()
+    enriched = enriched.merge(
+        anthro, on="PLAYER_ID", how="left", suffixes=("", "_ANTHRO")
+    )
+    for column in ("WINGSPAN", "WINGSPAN_FT_IN"):
+        anthro_column = f"{column}_ANTHRO"
+        if anthro_column in enriched.columns:
+            enriched[column] = enriched[column].where(
+                enriched[column].notna(), enriched[anthro_column]
+            )
+            enriched = enriched.drop(columns=[anthro_column])
+    enriched["WINGSPAN"] = pd.to_numeric(enriched["WINGSPAN"], errors="coerce")
+    enriched["WINGSPAN_FT_IN"] = enriched["WINGSPAN_FT_IN"].astype("string")
+    return enriched[[field.name for field in get_player_reference_schema()]]
 
 
 def get_all_player_references(
@@ -1856,7 +1995,15 @@ def get_all_player_references(
     combined = pd.concat(all_profiles, ignore_index=True)
     combined = combined.drop_duplicates(subset=["PLAYER_ID"]).copy()
     combined = combined.sort_values(["PLAYER_ID"]).reset_index(drop=True)
-    return combined[[field.name for field in get_player_reference_schema()]]
+    return enrich_player_reference_with_anthro(
+        combined,
+        delay=delay,
+        retries=retries,
+        timeout=timeout,
+        retry_base_delay=retry_base_delay,
+        retry_backoff_multiplier=retry_backoff_multiplier,
+        retry_max_delay=retry_max_delay,
+    )
 
 
 def upload_df_to_gcs(
@@ -1984,6 +2131,8 @@ def get_player_reference_schema() -> List[bigquery.SchemaField]:
         bigquery.SchemaField("LAST_AFFILIATION", "STRING"),
         bigquery.SchemaField("HEIGHT", "STRING"),
         bigquery.SchemaField("WEIGHT", "INTEGER"),
+        bigquery.SchemaField("WINGSPAN", "FLOAT"),
+        bigquery.SchemaField("WINGSPAN_FT_IN", "STRING"),
         bigquery.SchemaField("SEASON_EXP", "INTEGER"),
         bigquery.SchemaField("JERSEY", "STRING"),
         bigquery.SchemaField("POSITION", "STRING"),
@@ -2956,6 +3105,8 @@ def derive_player_reference_from_game_logs(
                 "LAST_AFFILIATION": None,
                 "HEIGHT": None,
                 "WEIGHT": None,
+                "WINGSPAN": None,
+                "WINGSPAN_FT_IN": None,
                 "SEASON_EXP": None,
                 "JERSEY": None,
                 "POSITION": None,
@@ -3280,6 +3431,8 @@ def create_bronze_bootstrap_player_reference_staging(
       CAST(NULL AS STRING) AS last_affiliation,
       CAST(NULL AS STRING) AS height,
       CAST(NULL AS INT64) AS weight,
+      CAST(NULL AS FLOAT64) AS wingspan,
+      CAST(NULL AS STRING) AS wingspan_ft_in,
       CAST(NULL AS INT64) AS season_exp,
       CAST(NULL AS STRING) AS jersey,
       CAST(NULL AS STRING) AS position,
@@ -4462,6 +4615,8 @@ def create_and_merge_player_reference_table(
       last_affiliation STRING,
       height STRING,
       weight INT64,
+      wingspan FLOAT64,
+      wingspan_ft_in STRING,
       season_exp INT64,
       jersey STRING,
       position STRING,
@@ -4491,6 +4646,8 @@ def create_and_merge_player_reference_table(
       OR COALESCE(T.last_affiliation, '') != COALESCE(S.last_affiliation, '')
       OR COALESCE(T.height, '') != COALESCE(S.height, '')
       OR COALESCE(T.weight, -1) != COALESCE(S.weight, -1)
+      OR COALESCE(T.wingspan, -1.0) != COALESCE(S.wingspan, -1.0)
+      OR COALESCE(T.wingspan_ft_in, '') != COALESCE(S.wingspan_ft_in, '')
       OR COALESCE(T.season_exp, -1) != COALESCE(S.season_exp, -1)
       OR COALESCE(T.jersey, '') != COALESCE(S.jersey, '')
       OR COALESCE(T.position, '') != COALESCE(S.position, '')
@@ -4530,6 +4687,8 @@ def create_and_merge_player_reference_table(
         last_affiliation = S.last_affiliation,
         height = S.height,
         weight = S.weight,
+        wingspan = S.wingspan,
+        wingspan_ft_in = S.wingspan_ft_in,
         season_exp = S.season_exp,
         jersey = S.jersey,
         position = S.position,
@@ -4548,7 +4707,8 @@ def create_and_merge_player_reference_table(
     WHEN NOT MATCHED THEN
       INSERT (
         player_id, first_name, last_name, player_name, player_slug, birthdate,
-        school, country, last_affiliation, height, weight, season_exp, jersey,
+        school, country, last_affiliation, height, weight, wingspan,
+        wingspan_ft_in, season_exp, jersey,
         position, roster_status, team_id, team_name, team_abbr, team_code,
         team_city, from_year, to_year, draft_year, draft_round, draft_number,
         ingested_at_utc
@@ -4556,9 +4716,10 @@ def create_and_merge_player_reference_table(
       VALUES (
         S.player_id, S.first_name, S.last_name, S.player_name, S.player_slug,
         S.birthdate, S.school, S.country, S.last_affiliation, S.height, S.weight,
-        S.season_exp, S.jersey, S.position, S.roster_status, S.team_id, S.team_name,
-        S.team_abbr, S.team_code, S.team_city, S.from_year, S.to_year, S.draft_year,
-        S.draft_round, S.draft_number, S.ingested_at_utc
+        S.wingspan, S.wingspan_ft_in, S.season_exp, S.jersey, S.position,
+        S.roster_status, S.team_id, S.team_name, S.team_abbr, S.team_code,
+        S.team_city, S.from_year, S.to_year, S.draft_year, S.draft_round,
+        S.draft_number, S.ingested_at_utc
       )
     """
 
@@ -5827,6 +5988,191 @@ BASE_ARCHETYPE_LABELS = player_similarity_model.BASE_ARCHETYPE_LABELS
 ALLOWED_ARCHETYPE_LABELS = player_similarity_model.ALLOWED_ARCHETYPE_LABELS
 
 
+def _create_bq_table(
+    bq_client: bigquery.Client,
+    table_id: str,
+    schema: List[bigquery.SchemaField],
+    *,
+    partition_field: str | None = None,
+    clustering_fields: List[str] | None = None,
+) -> None:
+    table = bigquery.Table(table_id, schema=schema)
+    if partition_field:
+        table.time_partitioning = bigquery.TimePartitioning(
+            type_=bigquery.TimePartitioningType.DAY,
+            field=partition_field,
+        )
+    if clustering_fields:
+        table.clustering_fields = clustering_fields
+    bq_client.create_table(table, exists_ok=True)
+
+
+def _similarity_feature_values_schema() -> List[bigquery.SchemaField]:
+    fields = [
+        bigquery.SchemaField("season", "STRING"),
+        bigquery.SchemaField("as_of_date", "DATE"),
+        bigquery.SchemaField("player_id", "INT64"),
+        bigquery.SchemaField("player_name", "STRING"),
+        bigquery.SchemaField("team_abbr", "STRING"),
+        bigquery.SchemaField("position", "STRING"),
+        bigquery.SchemaField("feature_set_version", "STRING"),
+        bigquery.SchemaField("feature_run_id", "STRING"),
+        bigquery.SchemaField("source_run_id", "STRING"),
+        bigquery.SchemaField("source_watermark", "DATE"),
+        bigquery.SchemaField("dbt_invocation_id", "STRING"),
+        bigquery.SchemaField("git_sha", "STRING"),
+        bigquery.SchemaField("created_at", "TIMESTAMP"),
+        bigquery.SchemaField("games_sampled", "INT64"),
+        bigquery.SchemaField("sample_status", "STRING"),
+        bigquery.SchemaField("feature_null_count", "INT64"),
+        bigquery.SchemaField("feature_quality_status", "STRING"),
+        bigquery.SchemaField("feature_quality_notes", "STRING"),
+        bigquery.SchemaField("feature_payload_json", "STRING"),
+    ]
+    for feature_name in SIMILARITY_FEATURE_COLUMNS:
+        fields.append(bigquery.SchemaField(feature_name, "FLOAT64"))
+    return fields
+
+
+def _feature_view_registry_schema() -> List[bigquery.SchemaField]:
+    return [
+        bigquery.SchemaField("feature_view_name", "STRING"),
+        bigquery.SchemaField("feature_set_version", "STRING"),
+        bigquery.SchemaField("owner", "STRING"),
+        bigquery.SchemaField("entity_grain", "STRING"),
+        bigquery.SchemaField("source_models_json", "STRING"),
+        bigquery.SchemaField("feature_columns_json", "STRING"),
+        bigquery.SchemaField("expected_ranges_json", "STRING"),
+        bigquery.SchemaField("freshness_sla_hours", "INT64"),
+        bigquery.SchemaField("compatibility_status", "STRING"),
+        bigquery.SchemaField("created_at_utc", "TIMESTAMP"),
+        bigquery.SchemaField("retired_at_utc", "TIMESTAMP"),
+        bigquery.SchemaField("notes", "STRING"),
+    ]
+
+
+def _similarity_model_runs_schema() -> List[bigquery.SchemaField]:
+    return [
+        bigquery.SchemaField("model_run_id", "STRING"),
+        bigquery.SchemaField("model_version", "STRING"),
+        bigquery.SchemaField("feature_set_version", "STRING"),
+        bigquery.SchemaField("status", "STRING"),
+        bigquery.SchemaField("season", "STRING"),
+        bigquery.SchemaField("trained_at_utc", "TIMESTAMP"),
+        bigquery.SchemaField("source_run_id", "STRING"),
+        bigquery.SchemaField("git_sha", "STRING"),
+        bigquery.SchemaField("artifact_uri", "STRING"),
+        bigquery.SchemaField("input_row_count", "INT64"),
+        bigquery.SchemaField("eligible_player_count", "INT64"),
+        bigquery.SchemaField("cluster_count", "INT64"),
+        bigquery.SchemaField("effective_cluster_count", "INT64"),
+        bigquery.SchemaField("diagnostics_json", "STRING"),
+    ]
+
+
+def _similarity_eval_results_schema() -> List[bigquery.SchemaField]:
+    return [
+        bigquery.SchemaField("model_run_id", "STRING"),
+        bigquery.SchemaField("season", "STRING"),
+        bigquery.SchemaField("gate_name", "STRING"),
+        bigquery.SchemaField("status", "STRING"),
+        bigquery.SchemaField("metric_value", "FLOAT64"),
+        bigquery.SchemaField("threshold_value", "FLOAT64"),
+        bigquery.SchemaField("reason", "STRING"),
+        bigquery.SchemaField("details_json", "STRING"),
+        bigquery.SchemaField("evaluated_at_utc", "TIMESTAMP"),
+    ]
+
+
+def _similarity_model_registry_schema() -> List[bigquery.SchemaField]:
+    return [
+        bigquery.SchemaField("serving_surface", "STRING"),
+        bigquery.SchemaField("season", "STRING"),
+        bigquery.SchemaField("model_run_id", "STRING"),
+        bigquery.SchemaField("model_version", "STRING"),
+        bigquery.SchemaField("feature_set_version", "STRING"),
+        bigquery.SchemaField("status", "STRING"),
+        bigquery.SchemaField("created_at_utc", "TIMESTAMP"),
+        bigquery.SchemaField("promoted_at_utc", "TIMESTAMP"),
+        bigquery.SchemaField("retired_at_utc", "TIMESTAMP"),
+        bigquery.SchemaField("decision_reason", "STRING"),
+        bigquery.SchemaField("decision_by", "STRING"),
+        bigquery.SchemaField("details_json", "STRING"),
+    ]
+
+
+def _similarity_drift_checks_schema() -> List[bigquery.SchemaField]:
+    return [
+        bigquery.SchemaField("drift_check_id", "STRING"),
+        bigquery.SchemaField("model_run_id", "STRING"),
+        bigquery.SchemaField("season", "STRING"),
+        bigquery.SchemaField("feature_set_version", "STRING"),
+        bigquery.SchemaField("check_name", "STRING"),
+        bigquery.SchemaField("status", "STRING"),
+        bigquery.SchemaField("metric_value", "FLOAT64"),
+        bigquery.SchemaField("baseline_value", "FLOAT64"),
+        bigquery.SchemaField("current_value", "FLOAT64"),
+        bigquery.SchemaField("threshold_value", "FLOAT64"),
+        bigquery.SchemaField("details_json", "STRING"),
+        bigquery.SchemaField("checked_at_utc", "TIMESTAMP"),
+    ]
+
+
+def create_similarity_mlops_tables(
+    bq_client: bigquery.Client,
+    *,
+    feature_values_table: str,
+    feature_view_registry_table: str,
+    model_runs_table: str,
+    eval_results_table: str,
+    model_registry_table: str,
+    drift_checks_table: str,
+) -> None:
+    """Create BigQuery tables for the similarity feature-store lifecycle."""
+    _create_bq_table(
+        bq_client,
+        feature_values_table,
+        _similarity_feature_values_schema(),
+        partition_field="as_of_date",
+        clustering_fields=["season", "player_id"],
+    )
+    _create_bq_table(
+        bq_client,
+        feature_view_registry_table,
+        _feature_view_registry_schema(),
+        partition_field="created_at_utc",
+        clustering_fields=["feature_view_name", "feature_set_version"],
+    )
+    _create_bq_table(
+        bq_client,
+        model_runs_table,
+        _similarity_model_runs_schema(),
+        partition_field="trained_at_utc",
+        clustering_fields=["season", "status"],
+    )
+    _create_bq_table(
+        bq_client,
+        eval_results_table,
+        _similarity_eval_results_schema(),
+        partition_field="evaluated_at_utc",
+        clustering_fields=["season", "model_run_id", "status"],
+    )
+    _create_bq_table(
+        bq_client,
+        model_registry_table,
+        _similarity_model_registry_schema(),
+        partition_field="created_at_utc",
+        clustering_fields=["season", "serving_surface", "status"],
+    )
+    _create_bq_table(
+        bq_client,
+        drift_checks_table,
+        _similarity_drift_checks_schema(),
+        partition_field="checked_at_utc",
+        clustering_fields=["season", "model_run_id", "status"],
+    )
+
+
 def _coerce_similarity_feature_frame(feature_df: pd.DataFrame) -> pd.DataFrame:
     """Normalize dtypes for player similarity feature engineering."""
     if feature_df.empty:
@@ -5994,6 +6340,10 @@ def _player_similarity_feature_schema() -> List[bigquery.SchemaField]:
             bigquery.SchemaField("top_traits", "STRING"),
             bigquery.SchemaField("contrasting_traits", "STRING"),
             bigquery.SchemaField("archetype_summary", "STRING"),
+            bigquery.SchemaField("active_model_key", "STRING"),
+            bigquery.SchemaField("recommended_model_key", "STRING"),
+            bigquery.SchemaField("model_results_json", "STRING"),
+            bigquery.SchemaField("model_evaluation_json", "STRING"),
         ]
     )
     for feature_name in SIMILARITY_FEATURE_COLUMNS:
@@ -6025,6 +6375,10 @@ def _player_archetype_schema() -> List[bigquery.SchemaField]:
         bigquery.SchemaField("cluster_confidence", "FLOAT64"),
         bigquery.SchemaField("top_traits", "STRING"),
         bigquery.SchemaField("archetype_summary", "STRING"),
+        bigquery.SchemaField("active_model_key", "STRING"),
+        bigquery.SchemaField("recommended_model_key", "STRING"),
+        bigquery.SchemaField("model_results_json", "STRING"),
+        bigquery.SchemaField("model_evaluation_json", "STRING"),
     ]
 
 

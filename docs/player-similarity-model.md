@@ -15,21 +15,23 @@ The public code owns:
 
 - the dbt feature input table
 - the BigQuery output schemas
-- deterministic baseline clustering
+- deterministic baseline clustering plus public candidate-model comparison
 - equal-weight serving-time similarity
 - contract tests for the public output shape
 
 The private model package should own:
 
 - tuned feature weights
-- model-selection experiments
+- private model-selection experiments beyond the public comparison harness
 - thresholds and role-gating rules
 - evaluation reports
 - notebooks, labels, and generated grouping reports
 - model artifacts and checkpoints
 
 See [`docs/public-private-boundary.md`](public-private-boundary.md) for the
-repo-level boundary.
+repo-level boundary. See [`docs/similarity-mlops.md`](similarity-mlops.md) for
+the target feature-store, model registry, promotion-gate, and drift-monitoring
+contract.
 
 ## Feature Contract
 
@@ -46,7 +48,8 @@ The public feature layer includes:
 - team offensive and defensive contribution shares
 - recent form
 - season split trend
-- physical and career context
+- physical and career context, including nullable draft-combine wingspan when
+  the NBA combine source has a matching player row
 
 Team contribution fields are part of the public data contract because they are
 basic basketball context, not private model IP. They keep role labels grounded
@@ -68,8 +71,15 @@ The baseline path:
    to zero and reported in diagnostics.
 5. Applies standard scaling.
 6. L2-normalizes equal-weight vectors.
-7. Trains deterministic KMeans with the configured cluster count.
-8. Projects the L2-normalized vectors to 3D with PCA (`proj_x/proj_y/proj_z`)
+7. Trains the public comparison set on the same normalized vectors:
+   deterministic KMeans baseline, Gaussian mixture, agglomerative hierarchy,
+   and HDBSCAN density clustering.
+8. Scores each model with public-safe diagnostics: silhouette, cluster balance,
+   player coverage, unclassified-player count, and a composite selection score.
+   The highest-scoring model writes the active archetype fields, while every
+   row also carries `model_results_json` and `model_evaluation_json` so the UI
+   can show the alternatives.
+9. Projects the L2-normalized vectors to 3D with PCA (`proj_x/proj_y/proj_z`)
    for the similarity map. PCA is used instead of t-SNE/UMAP so the published
    coordinates are deterministic and reproducible across runs. The projection
    is an approximate map only; the cosine similarity score remains the source
@@ -77,11 +87,16 @@ The baseline path:
    gets its top driving features (from the PCA loadings, mapped to trait
    labels), published as a `projection_axes` JSON column so the map can label
    PC1/PC2/PC3 with what actually separates players.
-9. Publishes normalized feature vectors, projection coordinates, archetype
-   labels, confidence, top traits, and table diagnostics.
+10. Publishes normalized feature vectors, projection coordinates, selected
+    archetype labels, confidence, top traits, per-model comparison metadata,
+    and table diagnostics.
 
-This baseline deliberately does not publish tuned feature weights, detailed
-thresholds, experimental scoring rules, or model-selection heuristics.
+This comparison harness deliberately does not publish tuned feature weights,
+detailed thresholds, private labels, or private model-selection heuristics.
+Public labels are intentionally descriptive rather than canonical scouting
+grades: broad connector/outlier profiles are split with public-safe role
+signals into scoring, spacing, creation, defense, and interior families so the
+served archetype mix does not collapse into one catch-all bucket.
 
 ## Publish Contract
 
@@ -89,12 +104,19 @@ thresholds, experimental scoring rules, or model-selection heuristics.
 the model output. The feature table load allows additive schema changes so new
 `norm_*` and `proj_*` fields can be published without dropping the existing
 table. The 3D projection is served read-only at `/similarity-map` (Plotly
-`scatter3d`) and `/api/similarity-map`. Selecting a player calls
+`scatter3d`) and `/api/similarity-map`. The map keeps one stable PCA position
+per player and lets readers switch the color/legend assignment between the
+baseline and candidate models. Selecting a player calls
 `/api/similarity-map/neighbors/{player_id}`, which returns the player's true
 cosine-nearest matches from the served similarity scoring. The map draws edges
 to those matches by their projected coordinates, so an edge can point to a
 player who sits visually far away — the projection is a map, the cosine score
 is the truth.
+
+The target MLOps lifecycle keeps these gold tables as the active public serving
+contract. Candidate models should write run metadata, evaluation results, and
+registry status first, then rewrite the active gold tables only after promotion
+gates pass.
 
 To populate `proj_*` immediately (instead of waiting for the next scheduled
 run), recompute and republish with the existing pipeline path:

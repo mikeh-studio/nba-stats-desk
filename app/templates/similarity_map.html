@@ -40,6 +40,8 @@
           Clear selection
         </button>
       </div>
+      <div class="map-model-controls" id="map-model-controls" aria-label="Similarity model options"></div>
+      <p class="meta similarity-note" id="map-model-note"></p>
 
       <div class="map-layout">
         <div id="similarity-plot" class="similarity-plot" role="img"
@@ -80,6 +82,20 @@
     }
     .map-search {
       flex: 1 1 280px;
+      max-width: 38rem;
+    }
+    .map-search .input {
+      width: 100%;
+      min-width: 18rem;
+    }
+    .map-model-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 0 0 0.75rem;
+    }
+    .map-model-controls .tab-button {
+      min-height: 36px;
     }
     .map-layout {
       display: grid;
@@ -141,6 +157,11 @@
     .similarity-empty {
       padding: 48px 16px;
       text-align: center;
+    }
+    @media (max-width: 720px) {
+      .map-search .input {
+        min-width: 0;
+      }
     }
   </style>
 

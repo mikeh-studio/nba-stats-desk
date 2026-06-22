@@ -591,6 +591,46 @@
         font-size: 1rem;
         color: var(--highlight);
       }
+      .similarity-model-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 0.75rem;
+        margin-bottom: 1rem;
+      }
+      .similarity-model-card {
+        display: grid;
+        gap: 0.5rem;
+        padding: 0.85rem;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .similarity-model-card.is-selected {
+        border-color: rgba(240, 78, 35, 0.55);
+        background: rgba(240, 78, 35, 0.09);
+      }
+      .similarity-model-card p {
+        margin: 0;
+      }
+      .similarity-model-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 0.75rem;
+      }
+      .confidence-meter {
+        height: 0.55rem;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .confidence-meter span {
+        display: block;
+        height: 100%;
+        min-width: 0.2rem;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--accent-hot), var(--highlight));
+      }
       .good {
         color: var(--success);
       }

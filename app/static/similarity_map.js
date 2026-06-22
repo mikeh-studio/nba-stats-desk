@@ -30,6 +30,8 @@
   const metaEl = document.getElementById("map-meta");
   const noteEl = document.getElementById("map-note");
   const axesNoteEl = document.getElementById("map-axes-note");
+  const modelControlsEl = document.getElementById("map-model-controls");
+  const modelNoteEl = document.getElementById("map-model-note");
   const layoutEl = document.querySelector(".map-layout");
   const panelEl = document.getElementById("map-panel");
   const panelName = document.getElementById("map-panel-name");
@@ -52,6 +54,11 @@
   let baseTraceCount = 0;
   let extraIndices = [];
   let selectedId = null;
+  let selectedModelKey = null;
+  let loadedPlayers = [];
+  let loadedAxes = [];
+  let plotLayout = null;
+  let plotConfig = null;
 
   function setMeta(text) {
     if (metaEl) {
@@ -76,7 +83,27 @@
     return games.map((g) => 4 + ((g - min) / (max - min)) * 7);
   }
 
+  function assignmentFor(player) {
+    const assignments = Array.isArray(player.model_assignments)
+      ? player.model_assignments
+      : [];
+    if (!assignments.length) {
+      return {
+        archetype_label: player.archetype_label,
+        top_traits: player.top_traits || [],
+        model_label: "Active model",
+        cluster_confidence: player.cluster_confidence,
+      };
+    }
+    return (
+      assignments.find((item) => item.model_key === selectedModelKey) ||
+      assignments.find((item) => item.is_recommended) ||
+      assignments[0]
+    );
+  }
+
   function hoverText(player) {
+    const assignment = assignmentFor(player);
     const lines = [];
     lines.push("<b>" + (player.player_name || "Unknown") + "</b>");
     const teamBits = [];
@@ -89,11 +116,14 @@
     if (teamBits.length) {
       lines.push(teamBits.join(" · "));
     }
-    if (player.archetype_label) {
-      lines.push(player.archetype_label);
+    if (assignment.model_label) {
+      lines.push(assignment.model_label);
     }
-    if (Array.isArray(player.top_traits) && player.top_traits.length) {
-      lines.push(player.top_traits.join(", "));
+    if (assignment.archetype_label) {
+      lines.push(assignment.archetype_label);
+    }
+    if (Array.isArray(assignment.top_traits) && assignment.top_traits.length) {
+      lines.push(assignment.top_traits.join(", "));
     }
     return lines.join("<br>");
   }
@@ -109,7 +139,8 @@
   function buildTraces(players) {
     const byLabel = new Map();
     players.forEach((player) => {
-      const label = baseArchetype(player.archetype_label);
+      const assignment = assignmentFor(player);
+      const label = baseArchetype(assignment.archetype_label);
       if (!byLabel.has(label)) {
         byLabel.set(label, []);
       }
@@ -222,11 +253,15 @@
   }
 
   function renderPanel(anchor, payload) {
+    const assignment = assignmentFor(anchor);
     const neighbors = (payload.neighbors || []).filter(
       (n) => typeof n.player_id === "number" || typeof n.player_id === "string",
     );
     panelName.textContent = anchor.player_name || payload.player_name || "Player";
-    panelArchetype.textContent = anchor.archetype_label || "";
+    panelArchetype.textContent = [
+      assignment.model_label,
+      assignment.archetype_label,
+    ].filter(Boolean).join(" · ");
     panelDetail.setAttribute("href", "/players/" + anchor.player_id);
 
     if (!neighbors.length) {
@@ -461,6 +496,67 @@
     }
   }
 
+  function renderModelControls(models, evaluation) {
+    if (!modelControlsEl) {
+      return;
+    }
+    const options = Array.isArray(models) ? models : [];
+    if (!options.length) {
+      modelControlsEl.innerHTML = "";
+      if (modelNoteEl) {
+        modelNoteEl.textContent = "";
+      }
+      return;
+    }
+    if (!selectedModelKey) {
+      const recommended = options.find((item) => item.is_recommended);
+      selectedModelKey = (recommended || options[0]).model_key;
+    }
+    modelControlsEl.innerHTML = "";
+    options.forEach((option) => {
+      const button = document.createElement("button");
+      button.className =
+        "tab-button" + (option.model_key === selectedModelKey ? " is-active" : "");
+      button.type = "button";
+      button.dataset.modelKey = option.model_key;
+      button.textContent =
+        option.model_label + (option.is_recommended ? " · recommended" : "");
+      button.title = option.description || option.model_label;
+      button.addEventListener("click", () => {
+        selectedModelKey = option.model_key;
+        renderModelControls(options, evaluation);
+        drawBasePlot();
+      });
+      modelControlsEl.appendChild(button);
+    });
+    if (modelNoteEl) {
+      const selectedEval = (evaluation?.models || []).find(
+        (item) => item.model_key === selectedModelKey,
+      );
+      const selectedOption = options.find((item) => item.model_key === selectedModelKey);
+      const score =
+        selectedEval && typeof selectedEval.score === "number"
+          ? " Model score " + Math.round(selectedEval.score * 100) + "/100."
+          : "";
+      modelNoteEl.textContent =
+        (selectedOption?.description || "Model assignment view.") + score;
+    }
+  }
+
+  function drawBasePlot() {
+    clearExtras();
+    const traces = buildTraces(loadedPlayers);
+    baseTraceCount = traces.length;
+    window.Plotly.react(plotEl, traces, plotLayout, plotConfig);
+    const model = assignmentFor(loadedPlayers[0] || {}).model_label || "Active model";
+    setMeta(
+      loadedPlayers.length + " players · " + traces.length + " groups · " + model,
+    );
+    if (selectedId !== null) {
+      selectPlayer(selectedId);
+    }
+  }
+
   function render(data) {
     const players = (data.players || []).filter(
       (p) =>
@@ -477,14 +573,13 @@
       return;
     }
 
+    loadedPlayers = players;
+    loadedAxes = Array.isArray(data.axes) ? data.axes : [];
     indexPlayers(players);
-    const traces = buildTraces(players);
-    baseTraceCount = traces.length;
+    renderAxesCaption(loadedAxes);
+    renderModelControls(data.models || [], data.model_evaluation || {});
 
-    const axes = Array.isArray(data.axes) ? data.axes : [];
-    renderAxesCaption(axes);
-
-    const layout = {
+    plotLayout = {
       paper_bgcolor: AXIS_BG,
       plot_bgcolor: AXIS_BG,
       font: { color: FONT_COLOR },
@@ -496,15 +591,15 @@
         itemsizing: "constant",
       },
       scene: {
-        xaxis: axis(axisTitle(axes[0], "PC1")),
-        yaxis: axis(axisTitle(axes[1], "PC2")),
-        zaxis: axis(axisTitle(axes[2], "PC3")),
+        xaxis: axis(axisTitle(loadedAxes[0], "PC1")),
+        yaxis: axis(axisTitle(loadedAxes[1], "PC2")),
+        zaxis: axis(axisTitle(loadedAxes[2], "PC3")),
         aspectmode: "cube",
       },
     };
 
-    const config = { responsive: true, displaylogo: false };
-    window.Plotly.newPlot(plotEl, traces, layout, config);
+    plotConfig = { responsive: true, displaylogo: false };
+    drawBasePlot();
 
     plotEl.on("plotly_click", (event) => {
       if (!event || !event.points || !event.points.length) {
@@ -521,7 +616,6 @@
     });
 
     wireControls();
-    setMeta(players.length + " players · " + traces.length + " archetypes");
   }
 
   function init() {

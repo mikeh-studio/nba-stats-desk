@@ -259,8 +259,36 @@
 
       <article class="card">
         <div class="card-header">
-          <h2>Similar Players</h2>
+          <div>
+            <h2>Similar</h2>
+            {% if player_detail.similarity_model_evaluation.recommended_model_key %}
+              <p class="meta">Selected model: {{ player_detail.similarity_model_evaluation.recommended_model_key }}</p>
+            {% endif %}
+          </div>
         </div>
+        {% if player_detail.similarity_models %}
+          <div class="similarity-model-grid">
+            {% for model in player_detail.similarity_models %}
+              <article class="similarity-model-card{% if model.is_recommended %} is-selected{% endif %}">
+                <div class="similarity-model-top">
+                  <strong>{{ model.model_label }}</strong>
+                  {% if model.is_recommended %}
+                    <span class="status">Selected</span>
+                  {% elif model.is_baseline %}
+                    <span class="status">Baseline</span>
+                  {% endif %}
+                </div>
+                <p>{{ model.archetype_label }}</p>
+                <div class="confidence-meter" aria-label="Cluster confidence">
+                  <span style="width: {{ (model.cluster_confidence or 0) * 100 }}%"></span>
+                </div>
+                {% if model.top_traits %}
+                  <p class="meta">{{ model.top_traits | join(", ") }}</p>
+                {% endif %}
+              </article>
+            {% endfor %}
+          </div>
+        {% endif %}
         {% if player_detail.panel_states.similarity == "fresh" and player_detail.similar_players %}
           <div class="stack-list">
             {% for item in player_detail.similar_players %}
