@@ -31,7 +31,11 @@ from app.repository._constants import (
     CompareWindow,
 )
 
-_BIG_ARCHETYPE_BASE_LABELS = {"Stretch Big", "Interior Big"}
+_GUARD_ARCHETYPE_LABELS = {"Scoring Guard", "Spacing Guard"}
+_LARGE_GUARD_ARCHETYPE_LABELS = {"Big Guard"}
+_WING_ARCHETYPE_LABELS = {"Two-Way Wing", "Spacing Wing", "Connector Wing"}
+_FORWARD_ARCHETYPE_LABELS = {"Utility Forward", "Stretch Forward", "Interior Forward"}
+_BIG_ARCHETYPE_LABELS = {"Stretch Big", "Interior Big", "Emerging Big"}
 
 
 def _get_agent_metric_leader_config(metric: str) -> dict[str, str] | None:
@@ -173,15 +177,31 @@ def _has_large_guard_physical_profile(source: dict[str, Any]) -> bool:
     )
 
 
-def _served_big_role_eligible(source: dict[str, Any]) -> bool:
+def _position_buckets(source: dict[str, Any]) -> set[str]:
     position_tokens = _position_tokens(source.get("position"))
+    buckets: set[str] = set()
     if _is_guard_only_position(position_tokens):
-        return False
+        buckets.add("guard")
+        if _has_large_guard_physical_profile(source):
+            buckets.add("large_guard")
+        return buckets
+
     if "C" in position_tokens:
-        return True
+        buckets.add("big")
+        return buckets
+
+    if "G" in position_tokens:
+        buckets.update({"guard", "wing"})
     if "F" in position_tokens:
-        return _has_big_physical_profile(source)
-    return _has_big_physical_profile(source)
+        buckets.update({"wing", "forward"})
+
+    if _has_big_physical_profile(source):
+        buckets.add("big")
+    elif _has_forward_physical_profile(source):
+        buckets.add("forward")
+        buckets.add("wing")
+
+    return buckets or {"unknown"}
 
 
 def _source_feature_value(source: dict[str, Any], feature_name: str) -> float:
@@ -258,7 +278,25 @@ def _role_signal_scores(source: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def _fallback_non_big_label(scores: dict[str, float]) -> str:
+def _base_archetype_eligible(base_label: str, source: dict[str, Any]) -> bool:
+    buckets = _position_buckets(source)
+    if "unknown" in buckets:
+        return True
+    if base_label in _GUARD_ARCHETYPE_LABELS:
+        return "guard" in buckets and "big" not in buckets
+    if base_label in _LARGE_GUARD_ARCHETYPE_LABELS:
+        return "large_guard" in buckets and "big" not in buckets
+    if base_label in _WING_ARCHETYPE_LABELS:
+        return bool({"guard", "wing"} & buckets) and "big" not in buckets
+    if base_label in _FORWARD_ARCHETYPE_LABELS:
+        return "forward" in buckets and "big" not in buckets
+    if base_label in _BIG_ARCHETYPE_LABELS:
+        return "big" in buckets
+    return True
+
+
+def _role_candidate_scores(source: dict[str, Any]) -> dict[str, float]:
+    scores = _role_signal_scores(source)
     scoring = scores["scoring"]
     creation = scores["creation"]
     spacing = scores["spacing"]
@@ -266,57 +304,42 @@ def _fallback_non_big_label(scores: dict[str, float]) -> str:
     interior = scores["interior"]
     offense_context = scores["offense_context"]
 
-    if scoring >= 0.7 and creation < 0.9:
-        return "Scoring Guard"
-    if defense >= 0.2 and spacing >= 0.1:
-        return "Two-Way Wing"
-    if scoring >= 0.45 and creation < 0.55:
-        return "Role Scorer"
-    if creation >= 0.35 and offense_context >= 0.10:
-        return "Secondary Creator"
-    if spacing >= 0.25:
-        return "Spacing Wing"
-    if defense >= 0.25:
-        return "Defensive Specialist"
-    if interior >= 0.25:
-        return "Utility Forward"
-    if scoring >= 0.25:
-        return "Role Scorer"
-
-    fallback_options = [
-        ("spacing", "Spacing Wing"),
-        ("creation", "Secondary Creator"),
-        ("defense", "Defensive Specialist"),
-        ("interior", "Utility Forward"),
-        ("scoring", "Role Scorer"),
-    ]
-    signal_name, label = max(fallback_options, key=lambda item: scores[item[0]])
-    if scores[signal_name] >= 0.10:
-        return label
-    return "Connector Wing"
+    return {
+        "Scoring Guard": scoring if creation < 0.9 else scoring * 0.4,
+        "Spacing Guard": spacing,
+        "Big Guard": max(scoring, creation, spacing),
+        "Role Scorer": max(scoring, scoring * 0.9 if creation < 0.55 else 0.0),
+        "Secondary Creator": max(creation, creation + offense_context * 0.25),
+        "Two-Way Wing": defense + spacing * 0.5,
+        "Spacing Wing": spacing,
+        "Connector Wing": max(creation, spacing, defense, 0.05),
+        "Defensive Specialist": defense,
+        "Utility Forward": max(interior, defense),
+        "Stretch Forward": spacing + interior * 0.5,
+        "Interior Forward": interior,
+        "Stretch Big": interior + spacing * 0.75,
+        "Interior Big": interior,
+    }
 
 
-def _position_guarded_non_big_label(source: dict[str, Any]) -> str:
-    scores = _role_signal_scores(source)
-    position_tokens = _position_tokens(source.get("position"))
+def _position_eligible_fallback_label(source: dict[str, Any]) -> str:
+    candidates = _role_candidate_scores(source)
+    ranked = sorted(candidates.items(), key=lambda item: item[1], reverse=True)
+    for label, score in ranked:
+        if score >= 0.10 and _base_archetype_eligible(label, source):
+            return label
 
-    if _is_guard_only_position(position_tokens):
-        if scores["creation"] >= 0.35 and scores["offense_context"] >= 0.10:
-            return "Secondary Creator"
-        if scores["scoring"] >= 0.45 and scores["creation"] < 0.55:
-            return "Scoring Guard"
-        if scores["spacing"] >= 0.25:
-            return "Spacing Guard"
-        if _has_large_guard_physical_profile(source):
-            return "Big Guard"
-
-    if "F" in position_tokens and "C" not in position_tokens:
-        if scores["spacing"] >= 0.25 and _has_forward_physical_profile(source):
-            return "Stretch Forward"
-        if scores["interior"] >= 0.25 and _has_forward_physical_profile(source):
-            return "Interior Forward"
-
-    return _fallback_non_big_label(scores)
+    for label in (
+        "Role Scorer",
+        "Secondary Creator",
+        "Defensive Specialist",
+        "Utility Forward",
+        "Connector Wing",
+        "Interior Big",
+    ):
+        if _base_archetype_eligible(label, source):
+            return label
+    return "Role Scorer"
 
 
 def _guard_served_archetype_label(
@@ -327,12 +350,11 @@ def _guard_served_archetype_label(
     text = str(label)
     if source is None:
         return text
-    if _archetype_base_label(text) not in _BIG_ARCHETYPE_BASE_LABELS:
-        return text
-    if _served_big_role_eligible(source):
+    base_label = _archetype_base_label(text)
+    if _base_archetype_eligible(base_label, source):
         return text
 
-    replacement = _position_guarded_non_big_label(source)
+    replacement = _position_eligible_fallback_label(source)
     parts = text.split(" - ", 1)
     if len(parts) == 2 and parts[1].strip():
         return f"{replacement} - {parts[1].strip()}"

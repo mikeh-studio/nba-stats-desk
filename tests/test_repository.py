@@ -1717,6 +1717,64 @@ def test_player_detail_guards_stale_big_archetype_for_point_guard() -> None:
     )
 
 
+def test_player_detail_guards_stale_guard_archetype_for_center() -> None:
+    repo = _build_repository()
+    stale_label = "Scoring Guard - Shot Volume"
+    archetype_row = {
+        "sample_status": "ready",
+        "archetype_id": "cluster_guard",
+        "archetype_label": stale_label,
+        "archetype_summary": f"{stale_label} driven by shot volume.",
+        "position": "C",
+        "height_inches": 83,
+        "weight_lbs": 245,
+        "wingspan_inches": 88,
+        "norm_season_avg_pts": 0.78,
+        "norm_season_avg_fga": 0.74,
+        "norm_season_avg_reb": 0.68,
+        "norm_season_avg_blk": 0.61,
+        "norm_season_avg_fg3m": 0.36,
+        "norm_season_fg3a_rate": 0.34,
+        "model_results_json": json.dumps(
+            {
+                "models": [
+                    {
+                        "model_key": "gmm",
+                        "model_label": "Gaussian mixture",
+                        "archetype_label": stale_label,
+                        "archetype_summary": f"{stale_label} driven by shot volume.",
+                        "is_recommended": True,
+                    }
+                ]
+            }
+        ),
+    }
+
+    payload = repo._build_player_detail_payload(
+        identity={
+            "player_id": 99,
+            "player_name": "Test Center",
+            "latest_season": "2025-26",
+            "latest_team_abbr": "TST",
+            "games_sampled": 20,
+            "sample_status": "ready",
+            "is_qualified": True,
+        },
+        row=None,
+        archetype_row=archetype_row,
+        similarity_state="fresh",
+        similarity_reason=None,
+        similar_players=[],
+        game_log={"games": []},
+        trends=[],
+        chart_baselines={},
+    )
+
+    assert payload["archetype"]["archetype_label"].startswith("Stretch Big")
+    assert "Scoring Guard" not in payload["archetype"]["summary"]
+    assert payload["similarity_models"][0]["archetype_label"].startswith("Stretch Big")
+
+
 def test_get_similar_players_guards_stale_big_candidate_label(monkeypatch) -> None:
     repo = _build_repository()
     anchor = {
