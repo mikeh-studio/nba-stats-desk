@@ -246,6 +246,11 @@ BASE_ARCHETYPE_LABELS = {
 }
 ALLOWED_ARCHETYPE_LABELS = BASE_ARCHETYPE_LABELS
 BROAD_ARCHETYPE_LABELS = {"Connector Wing", "Spacing Wing", "Utility Forward"}
+GUARD_ARCHETYPE_LABELS = {"Scoring Guard", "Spacing Guard"}
+LARGE_GUARD_ARCHETYPE_LABELS = {"Big Guard"}
+WING_ARCHETYPE_LABELS = {"Two-Way Wing", "Spacing Wing", "Connector Wing"}
+FORWARD_ARCHETYPE_LABELS = {"Utility Forward", "Stretch Forward", "Interior Forward"}
+BIG_ARCHETYPE_LABELS = {"Stretch Big", "Interior Big", "Emerging Big"}
 
 OUTPUT_ID_COLUMNS = [
     "season",
@@ -625,56 +630,105 @@ def _has_large_guard_physical_profile(raw_values: Dict[str, Any]) -> bool:
     )
 
 
-def _is_big_role_eligible(raw_values: Dict[str, Any]) -> bool:
+def _position_buckets(raw_values: Dict[str, Any]) -> set[str]:
     position_tokens = _position_tokens(raw_values.get("position"))
+    buckets: set[str] = set()
     if _is_guard_only_position(position_tokens):
-        return False
+        buckets.add("guard")
+        if _has_large_guard_physical_profile(raw_values):
+            buckets.add("large_guard")
+        return buckets
+
     if "C" in position_tokens:
-        return True
+        buckets.add("big")
+        return buckets
+
+    if "G" in position_tokens:
+        buckets.update({"guard", "wing"})
     if "F" in position_tokens:
-        return _has_big_physical_profile(raw_values)
-    return _has_big_physical_profile(raw_values)
+        buckets.update({"wing", "forward"})
+
+    if _has_big_physical_profile(raw_values):
+        buckets.add("big")
+    elif _has_forward_physical_profile(raw_values):
+        buckets.update({"forward", "wing"})
+
+    return buckets or {"unknown"}
 
 
-def _position_guarded_non_big_label(
+def _base_archetype_eligible(base_label: str, raw_values: Dict[str, Any]) -> bool:
+    buckets = _position_buckets(raw_values)
+    if "unknown" in buckets:
+        return True
+    if base_label in GUARD_ARCHETYPE_LABELS:
+        return "guard" in buckets and "big" not in buckets
+    if base_label in LARGE_GUARD_ARCHETYPE_LABELS:
+        return "large_guard" in buckets and "big" not in buckets
+    if base_label in WING_ARCHETYPE_LABELS:
+        return bool({"guard", "wing"} & buckets) and "big" not in buckets
+    if base_label in FORWARD_ARCHETYPE_LABELS:
+        return "forward" in buckets and "big" not in buckets
+    if base_label in BIG_ARCHETYPE_LABELS:
+        return "big" in buckets
+    return True
+
+
+def _role_candidate_scores(normalized_values: Dict[str, float]) -> Dict[str, float]:
+    scores = _role_signal_scores(normalized_values)
+    scoring = scores["scoring"]
+    creation = scores["creation"]
+    spacing = scores["spacing"]
+    defense = scores["defense"]
+    interior = scores["interior"]
+    offense_context = scores["offense_context"]
+    return {
+        "Scoring Guard": scoring if creation < 0.9 else scoring * 0.4,
+        "Spacing Guard": spacing,
+        "Big Guard": max(scoring, creation, spacing),
+        "Role Scorer": max(scoring, scoring * 0.9 if creation < 0.55 else 0.0),
+        "Secondary Creator": max(creation, creation + offense_context * 0.25),
+        "Two-Way Wing": defense + spacing * 0.5,
+        "Spacing Wing": spacing,
+        "Connector Wing": max(creation, spacing, defense, 0.05),
+        "Defensive Specialist": defense,
+        "Utility Forward": max(interior, defense),
+        "Stretch Forward": spacing + interior * 0.5,
+        "Interior Forward": interior,
+        "Stretch Big": interior + spacing * 0.75,
+        "Interior Big": interior,
+    }
+
+
+def _position_eligible_fallback_label(
     normalized_values: Dict[str, float],
     raw_values: Dict[str, Any],
 ) -> str:
-    scores = _role_signal_scores(normalized_values)
-    position_tokens = _position_tokens(raw_values.get("position"))
+    candidates = _role_candidate_scores(normalized_values)
+    ranked = sorted(candidates.items(), key=lambda item: item[1], reverse=True)
+    for label, score in ranked:
+        if score >= 0.10 and _base_archetype_eligible(label, raw_values):
+            return label
 
-    if _is_guard_only_position(position_tokens):
-        if scores["creation"] >= 0.35 and scores["offense_context"] >= 0.10:
-            return "Secondary Creator"
-        if scores["scoring"] >= 0.45 and scores["creation"] < 0.55:
-            return "Scoring Guard"
-        if scores["spacing"] >= 0.25:
-            return "Spacing Guard"
-        if _has_large_guard_physical_profile(raw_values):
-            return "Big Guard"
-
-    if "F" in position_tokens and "C" not in position_tokens:
-        if scores["spacing"] >= 0.25 and _has_forward_physical_profile(raw_values):
-            return "Stretch Forward"
-        if scores["interior"] >= 0.25 and _has_forward_physical_profile(raw_values):
-            return "Interior Forward"
-
-    return _label_cluster(
-        normalized_values,
-        allow_primary_creator=False,
-        allow_big=False,
-    )
+    for label in (
+        "Role Scorer",
+        "Secondary Creator",
+        "Defensive Specialist",
+        "Utility Forward",
+        "Connector Wing",
+        "Interior Big",
+    ):
+        if _base_archetype_eligible(label, raw_values):
+            return label
+    return "Role Scorer"
 
 
-def _position_guard_big_label(
+def _position_guard_label(
     candidate_label: str,
     normalized_values: Dict[str, float],
     raw_values: Dict[str, Any],
 ) -> str:
-    if candidate_label in {"Stretch Big", "Interior Big"} and not _is_big_role_eligible(
-        raw_values
-    ):
-        return _position_guarded_non_big_label(normalized_values, raw_values)
+    if not _base_archetype_eligible(candidate_label, raw_values):
+        return _position_eligible_fallback_label(normalized_values, raw_values)
     return candidate_label
 
 
@@ -692,25 +746,23 @@ def _player_base_archetype_label(
         )
         if team_offense_rank <= 1:
             return "Primary Creator"
-        return _position_guard_big_label(
+        return _position_guard_label(
             _label_cluster(normalized_values, allow_primary_creator=False),
             normalized_values,
             raw_values,
         )
 
     if cluster_base_label in {"Stretch Big", "Interior Big"}:
-        if _is_big_role_eligible(raw_values):
-            return cluster_base_label
-        return _position_guarded_non_big_label(normalized_values, raw_values)
+        return _position_guard_label(cluster_base_label, normalized_values, raw_values)
 
     if cluster_base_label in BROAD_ARCHETYPE_LABELS:
-        return _position_guard_big_label(
+        return _position_guard_label(
             _label_cluster(normalized_values, allow_primary_creator=False),
             normalized_values,
             raw_values,
         )
 
-    return cluster_base_label
+    return _position_guard_label(cluster_base_label, normalized_values, raw_values)
 
 
 def _player_archetype_display(
@@ -759,6 +811,26 @@ def _validate_similarity_output_frames(
     if invalid_labels:
         raise ValueError(
             f"Unexpected archetype labels detected: {sorted(invalid_labels)}"
+        )
+
+    invalid_position_assignments: List[str] = []
+    for source_name, frame in (
+        ("player_similarity_features", features_df),
+        ("player_archetypes", archetypes_df),
+    ):
+        for _, row in frame.iterrows():
+            label = str(row.get("archetype_label") or "")
+            base_label = label.split(" - ", maxsplit=1)[0]
+            raw_values = row.to_dict()
+            if _base_archetype_eligible(base_label, raw_values):
+                continue
+            invalid_position_assignments.append(
+                f"{source_name}:{row.get('player_id')}:{row.get('player_name')}:{label}"
+            )
+    if invalid_position_assignments:
+        raise ValueError(
+            "Archetype labels require eligible position and physical profile: "
+            f"{invalid_position_assignments[:10]}"
         )
 
 

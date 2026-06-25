@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
 
@@ -513,6 +514,71 @@ def test_player_base_archetype_splits_non_big_forward_from_stretch_big():
     )
 
     assert label == "Stretch Forward"
+
+
+def test_player_base_archetype_blocks_scoring_guard_for_center_profile():
+    label = model._player_base_archetype_label(
+        cluster_base_label="Scoring Guard",
+        normalized_values={
+            "season_avg_pts": 0.78,
+            "season_avg_fga": 0.74,
+            "season_avg_ast": 0.12,
+            "season_avg_fg3m": 0.36,
+            "season_fg3a_rate": 0.34,
+            "season_avg_reb": 0.68,
+            "season_avg_blk": 0.61,
+            "height_inches": 1.2,
+            "weight_lbs": 1.1,
+            "wingspan_inches": 1.2,
+        },
+        raw_values={
+            "position": "C",
+            "height_inches": 83,
+            "weight_lbs": 245,
+            "wingspan_inches": 88,
+        },
+    )
+
+    assert label == "Stretch Big"
+
+
+def test_similarity_output_validation_rejects_position_ineligible_assignments():
+    rows = [
+        {
+            "season": "2025-26",
+            "as_of_date": "2026-02-11",
+            "player_id": 1642277,
+            "player_name": "Dylan Harper",
+            "team_abbr": "SAS",
+            "position": "PG",
+            "height_inches": 78,
+            "weight_lbs": 215,
+            "wingspan_inches": 82,
+            "archetype_id": "cluster_big",
+            "archetype_label": "Stretch Big - Rebounding",
+        }
+    ]
+    center_rows = [
+        {
+            "season": "2025-26",
+            "as_of_date": "2026-02-11",
+            "player_id": 99,
+            "player_name": "Test Center",
+            "team_abbr": "TST",
+            "position": "C",
+            "height_inches": 83,
+            "weight_lbs": 245,
+            "wingspan_inches": 88,
+            "archetype_id": "cluster_guard",
+            "archetype_label": "Scoring Guard - Shot Volume",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="Archetype labels require eligible position"):
+        model._validate_similarity_output_frames(
+            pd.DataFrame(rows),
+            pd.DataFrame(center_rows),
+        )
 
 
 def test_label_cluster_splits_shooting_fallback_from_connector_wing():
