@@ -761,6 +761,27 @@ def _validate_similarity_output_frames(
             f"Unexpected archetype labels detected: {sorted(invalid_labels)}"
         )
 
+    invalid_big_assignments: List[str] = []
+    for source_name, frame in (
+        ("player_similarity_features", features_df),
+        ("player_archetypes", archetypes_df),
+    ):
+        for _, row in frame.iterrows():
+            label = str(row.get("archetype_label") or "")
+            if label.split(" - ", maxsplit=1)[0] not in {"Stretch Big", "Interior Big"}:
+                continue
+            raw_values = row.to_dict()
+            if _is_big_role_eligible(raw_values):
+                continue
+            invalid_big_assignments.append(
+                f"{source_name}:{row.get('player_id')}:{row.get('player_name')}:{label}"
+            )
+    if invalid_big_assignments:
+        raise ValueError(
+            "Big archetype labels require eligible position and physical profile: "
+            f"{invalid_big_assignments[:10]}"
+        )
+
 
 def _effective_cluster_count(
     *, requested_clusters: int, row_count: int, minimum_clusters: int

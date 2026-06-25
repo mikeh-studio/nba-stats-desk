@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 from math import sqrt
 from typing import Any
@@ -29,6 +30,8 @@ from app.repository._constants import (
     CompareFocus,
     CompareWindow,
 )
+
+_BIG_ARCHETYPE_BASE_LABELS = {"Stretch Big", "Interior Big"}
 
 
 def _get_agent_metric_leader_config(metric: str) -> dict[str, str] | None:
@@ -76,6 +79,288 @@ def _to_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return int(float(value))
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result == result else None
+
+
+def _archetype_base_label(label: Any) -> str:
+    text = str(label or "").split(" - ", 1)[0].strip()
+    return text or "Unclassified"
+
+
+def _position_tokens(position: Any) -> set[str]:
+    if position in (None, ""):
+        return set()
+    tokens = re.split(r"[^a-z0-9]+", str(position).lower())
+    resolved: set[str] = set()
+    for token in tokens:
+        if token in {"g", "pg", "sg", "guard", "guards"}:
+            resolved.add("G")
+        elif token in {"f", "sf", "pf", "forward", "forwards"}:
+            resolved.add("F")
+        elif token in {"c", "center", "centre", "centers", "centres"}:
+            resolved.add("C")
+    return resolved
+
+
+def _is_guard_only_position(position_tokens: set[str]) -> bool:
+    return "G" in position_tokens and not ({"F", "C"} & position_tokens)
+
+
+def _meets_physical_profile(
+    source: dict[str, Any],
+    *,
+    height_inches: float,
+    weight_lbs: float,
+    wingspan_inches: float,
+    required_hits: int = 2,
+) -> bool:
+    checks = []
+    height = _optional_float(source.get("height_inches"))
+    weight = _optional_float(source.get("weight_lbs"))
+    wingspan = _optional_float(source.get("wingspan_inches"))
+    if height is not None:
+        checks.append(height >= height_inches)
+    if weight is not None:
+        checks.append(weight >= weight_lbs)
+    if wingspan is not None:
+        checks.append(wingspan >= wingspan_inches)
+    if not checks:
+        return False
+    return sum(checks) >= min(required_hits, len(checks))
+
+
+def _has_big_physical_profile(source: dict[str, Any]) -> bool:
+    height = _optional_float(source.get("height_inches"))
+    wingspan = _optional_float(source.get("wingspan_inches"))
+    return (
+        _meets_physical_profile(
+            source,
+            height_inches=80.0,
+            weight_lbs=230.0,
+            wingspan_inches=84.0,
+        )
+        or (height is not None and height >= 82.0)
+        or (wingspan is not None and wingspan >= 86.0)
+    )
+
+
+def _has_forward_physical_profile(source: dict[str, Any]) -> bool:
+    height = _optional_float(source.get("height_inches"))
+    return _meets_physical_profile(
+        source,
+        height_inches=78.0,
+        weight_lbs=215.0,
+        wingspan_inches=81.0,
+    ) or (height is not None and height >= 80.0)
+
+
+def _has_large_guard_physical_profile(source: dict[str, Any]) -> bool:
+    return _meets_physical_profile(
+        source,
+        height_inches=77.0,
+        weight_lbs=210.0,
+        wingspan_inches=80.0,
+        required_hits=1,
+    )
+
+
+def _served_big_role_eligible(source: dict[str, Any]) -> bool:
+    position_tokens = _position_tokens(source.get("position"))
+    if _is_guard_only_position(position_tokens):
+        return False
+    if "C" in position_tokens:
+        return True
+    if "F" in position_tokens:
+        return _has_big_physical_profile(source)
+    return _has_big_physical_profile(source)
+
+
+def _source_feature_value(source: dict[str, Any], feature_name: str) -> float:
+    for column_name in (f"norm_{feature_name}", feature_name):
+        value = _optional_float(source.get(column_name))
+        if value is not None:
+            return value
+    return 0.0
+
+
+def _feature_signal(source: dict[str, Any], *feature_names: str) -> float:
+    values = [
+        _source_feature_value(source, feature_name) for feature_name in feature_names
+    ]
+    return max(values) if values else 0.0
+
+
+def _role_signal_scores(source: dict[str, Any]) -> dict[str, float]:
+    return {
+        "scoring": _feature_signal(
+            source,
+            "season_avg_pts",
+            "season_avg_fga",
+            "recent_pts",
+            "recent_points_share_of_team",
+            "recent_points_share_of_game",
+            "team_points_contribution_rate",
+            "team_fga_contribution_rate",
+            "second_half_pts_delta",
+        ),
+        "creation": _feature_signal(
+            source,
+            "season_avg_ast",
+            "recent_ast",
+            "season_ast_to_tov",
+            "team_ast_contribution_rate",
+        ),
+        "spacing": _feature_signal(
+            source,
+            "season_avg_fg3m",
+            "recent_fg3m",
+            "season_fg3a_rate",
+            "shot_corner3_rate",
+            "shot_above_break3_rate",
+            "shot_corner3_fg_pct",
+            "second_half_ts_delta",
+        ),
+        "defense": _feature_signal(
+            source,
+            "season_avg_stl",
+            "recent_stl",
+            "team_stl_contribution_rate",
+            "team_defense_contribution_rate",
+        ),
+        "interior": _feature_signal(
+            source,
+            "season_avg_reb",
+            "season_avg_blk",
+            "recent_reb",
+            "recent_blk",
+            "team_reb_contribution_rate",
+            "team_blk_contribution_rate",
+            "height_inches",
+            "weight_lbs",
+            "wingspan_inches",
+        ),
+        "offense_context": _feature_signal(
+            source,
+            "team_offense_contribution_rate",
+            "team_points_contribution_rate",
+            "team_fga_contribution_rate",
+            "team_ast_contribution_rate",
+        ),
+    }
+
+
+def _fallback_non_big_label(scores: dict[str, float]) -> str:
+    scoring = scores["scoring"]
+    creation = scores["creation"]
+    spacing = scores["spacing"]
+    defense = scores["defense"]
+    interior = scores["interior"]
+    offense_context = scores["offense_context"]
+
+    if scoring >= 0.7 and creation < 0.9:
+        return "Scoring Guard"
+    if defense >= 0.2 and spacing >= 0.1:
+        return "Two-Way Wing"
+    if scoring >= 0.45 and creation < 0.55:
+        return "Role Scorer"
+    if creation >= 0.35 and offense_context >= 0.10:
+        return "Secondary Creator"
+    if spacing >= 0.25:
+        return "Spacing Wing"
+    if defense >= 0.25:
+        return "Defensive Specialist"
+    if interior >= 0.25:
+        return "Utility Forward"
+    if scoring >= 0.25:
+        return "Role Scorer"
+
+    fallback_options = [
+        ("spacing", "Spacing Wing"),
+        ("creation", "Secondary Creator"),
+        ("defense", "Defensive Specialist"),
+        ("interior", "Utility Forward"),
+        ("scoring", "Role Scorer"),
+    ]
+    signal_name, label = max(fallback_options, key=lambda item: scores[item[0]])
+    if scores[signal_name] >= 0.10:
+        return label
+    return "Connector Wing"
+
+
+def _position_guarded_non_big_label(source: dict[str, Any]) -> str:
+    scores = _role_signal_scores(source)
+    position_tokens = _position_tokens(source.get("position"))
+
+    if _is_guard_only_position(position_tokens):
+        if scores["creation"] >= 0.35 and scores["offense_context"] >= 0.10:
+            return "Secondary Creator"
+        if scores["scoring"] >= 0.45 and scores["creation"] < 0.55:
+            return "Scoring Guard"
+        if scores["spacing"] >= 0.25:
+            return "Spacing Guard"
+        if _has_large_guard_physical_profile(source):
+            return "Big Guard"
+
+    if "F" in position_tokens and "C" not in position_tokens:
+        if scores["spacing"] >= 0.25 and _has_forward_physical_profile(source):
+            return "Stretch Forward"
+        if scores["interior"] >= 0.25 and _has_forward_physical_profile(source):
+            return "Interior Forward"
+
+    return _fallback_non_big_label(scores)
+
+
+def _guard_served_archetype_label(
+    label: Any, source: dict[str, Any] | None
+) -> str | None:
+    if label in (None, ""):
+        return None
+    text = str(label)
+    if source is None:
+        return text
+    if _archetype_base_label(text) not in _BIG_ARCHETYPE_BASE_LABELS:
+        return text
+    if _served_big_role_eligible(source):
+        return text
+
+    replacement = _position_guarded_non_big_label(source)
+    parts = text.split(" - ", 1)
+    if len(parts) == 2 and parts[1].strip():
+        return f"{replacement} - {parts[1].strip()}"
+    return replacement
+
+
+def _guard_served_archetype_summary(
+    summary: Any,
+    *,
+    original_label: Any,
+    guarded_label: Any,
+) -> Any:
+    if not isinstance(summary, str) or not summary:
+        return summary
+    if (
+        not original_label
+        or not guarded_label
+        or str(original_label) == str(guarded_label)
+    ):
+        return summary
+    replacements = (
+        (str(original_label), str(guarded_label)),
+        (_archetype_base_label(original_label), _archetype_base_label(guarded_label)),
+    )
+    for original, guarded in replacements:
+        if original and summary.startswith(original):
+            return f"{guarded}{summary[len(original) :]}"
+    return summary
 
 
 def _to_bool(value: Any) -> bool | None:

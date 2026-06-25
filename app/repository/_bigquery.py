@@ -47,6 +47,8 @@ from app.repository._helpers import (
     _format_stat_percentiles,
     _format_trend_row,
     _get_agent_metric_leader_config,
+    _guard_served_archetype_label,
+    _guard_served_archetype_summary,
     _has_chart_baselines,
     _merge_recent_performance_detail_summary,
     _opportunity_state_from_row,
@@ -579,6 +581,10 @@ class BigQueryWarehouseRepository:
             candidate.player_id,
             candidate.player_name,
             candidate.team_abbr,
+            candidate.position,
+            candidate.height_inches,
+            candidate.weight_lbs,
+            candidate.wingspan_inches,
             candidate.archetype_label,
             candidate.cluster_confidence,
             candidate.top_traits,
@@ -626,7 +632,9 @@ class BigQueryWarehouseRepository:
                     "headshot_url": build_headshot_url(row.get("player_id")),
                     "player_initials": build_player_initials(row.get("player_name")),
                     "similarity_score": _to_float(row.get("similarity_score")),
-                    "archetype_label": row.get("archetype_label"),
+                    "archetype_label": _guard_served_archetype_label(
+                        row.get("archetype_label"), row
+                    ),
                     "shared_traits": shared_traits,
                     "contrasting_traits": _contrasting_similarity_traits(anchor, row),
                 }
@@ -683,28 +691,29 @@ class BigQueryWarehouseRepository:
                 "shared_traits": [],
                 "contrasting_traits": [],
             }
-        same_archetype = player_a.get("archetype_label") is not None and player_a.get(
-            "archetype_label"
-        ) == player_b.get("archetype_label")
+        player_a_label = _guard_served_archetype_label(
+            player_a.get("archetype_label"), player_a
+        )
+        player_b_label = _guard_served_archetype_label(
+            player_b.get("archetype_label"), player_b
+        )
+        same_archetype = player_a_label is not None and player_a_label == player_b_label
         if same_archetype:
             summary = (
-                f"Shared archetype: {player_a.get('archetype_label')}. "
+                f"Shared archetype: {player_a_label}. "
                 f"Current stat-profile similarity is {score}."
             )
         else:
             summary = (
-                f"Archetypes diverge: {player_a.get('archetype_label')} vs "
-                f"{player_b.get('archetype_label')}. Current stat-profile similarity is {score}."
+                f"Archetypes diverge: {player_a_label} vs "
+                f"{player_b_label}. Current stat-profile similarity is {score}."
             )
         return {
             "state": STATE_FRESH,
             "score": score,
             "summary": summary,
             "same_archetype": same_archetype,
-            "archetype_labels": [
-                player_a.get("archetype_label"),
-                player_b.get("archetype_label"),
-            ],
+            "archetype_labels": [player_a_label, player_b_label],
             "shared_traits": _shared_similarity_traits(player_a, player_b),
             "contrasting_traits": _contrasting_similarity_traits(player_a, player_b),
         }
@@ -1078,21 +1087,30 @@ class BigQueryWarehouseRepository:
             archetype_state = _similarity_state_from_sample_status(
                 archetype_row.get("sample_status")
             )
+            original_archetype_label = archetype_row.get("archetype_label")
+            guarded_archetype_label = _guard_served_archetype_label(
+                original_archetype_label, archetype_row
+            )
             archetype_payload = {
                 "state": archetype_state,
                 "archetype_id": archetype_row.get("archetype_id"),
-                "archetype_label": archetype_row.get("archetype_label"),
+                "archetype_label": guarded_archetype_label,
                 "cluster_confidence": _to_float(
                     archetype_row.get("cluster_confidence")
                 ),
                 "top_traits": _split_display_list(archetype_row.get("top_traits")),
-                "summary": archetype_row.get("archetype_summary"),
+                "summary": _guard_served_archetype_summary(
+                    archetype_row.get("archetype_summary"),
+                    original_label=original_archetype_label,
+                    guarded_label=guarded_archetype_label,
+                ),
                 "active_model_key": archetype_row.get("active_model_key"),
                 "recommended_model_key": archetype_row.get("recommended_model_key"),
             }
 
         similarity_models = self._parse_similarity_model_results(
-            archetype_row.get("model_results_json") if archetype_row else None
+            archetype_row.get("model_results_json") if archetype_row else None,
+            archetype_row,
         )
         similarity_model_evaluation = self._parse_similarity_model_evaluation(
             archetype_row.get("model_evaluation_json") if archetype_row else None
@@ -1316,8 +1334,9 @@ class BigQueryWarehouseRepository:
             "opportunity": opportunity,
         }
 
-    @staticmethod
-    def _parse_similarity_model_results(value: Any) -> list[dict[str, Any]]:
+    def _parse_similarity_model_results(
+        self, value: Any, source: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         if not value:
             return []
         try:
@@ -1331,20 +1350,28 @@ class BigQueryWarehouseRepository:
         for item in models:
             if not isinstance(item, dict):
                 continue
+            original_label = item.get("archetype_label")
+            guarded_label = _guard_served_archetype_label(
+                original_label, source or item
+            )
             results.append(
                 {
                     "model_key": item.get("model_key"),
                     "model_label": item.get("model_label"),
                     "description": item.get("description"),
                     "archetype_id": item.get("archetype_id"),
-                    "archetype_label": item.get("archetype_label"),
-                    "base_archetype_label": item.get("base_archetype_label"),
+                    "archetype_label": guarded_label,
+                    "base_archetype_label": self._base_archetype_label(guarded_label),
                     "cluster_confidence": _to_float(item.get("cluster_confidence")),
                     "top_traits": _split_display_list(item.get("top_traits")),
                     "contrasting_traits": _split_display_list(
                         item.get("contrasting_traits")
                     ),
-                    "archetype_summary": item.get("archetype_summary"),
+                    "archetype_summary": _guard_served_archetype_summary(
+                        item.get("archetype_summary"),
+                        original_label=original_label,
+                        guarded_label=guarded_label,
+                    ),
                     "cluster_size": _to_int(item.get("cluster_size")),
                     "is_recommended": bool(item.get("is_recommended")),
                     "is_baseline": bool(item.get("is_baseline")),
@@ -1389,7 +1416,11 @@ class BigQueryWarehouseRepository:
 
     def _decorate_similarity_map_row(self, row: dict[str, Any]) -> dict[str, Any]:
         model_assignments = self._parse_similarity_model_results(
-            row.get("model_results_json")
+            row.get("model_results_json"), row
+        )
+        original_archetype_label = row.get("archetype_label")
+        guarded_archetype_label = _guard_served_archetype_label(
+            original_archetype_label, row
         )
         if not model_assignments:
             model_assignments = [
@@ -1398,14 +1429,18 @@ class BigQueryWarehouseRepository:
                     "model_label": "Active model",
                     "description": "Current published archetype assignment.",
                     "archetype_id": row.get("archetype_id"),
-                    "archetype_label": row.get("archetype_label") or "Unclassified",
+                    "archetype_label": guarded_archetype_label or "Unclassified",
                     "base_archetype_label": self._base_archetype_label(
-                        row.get("archetype_label")
+                        guarded_archetype_label
                     ),
                     "cluster_confidence": _to_float(row.get("cluster_confidence")),
                     "top_traits": _split_display_list(row.get("top_traits")),
                     "contrasting_traits": [],
-                    "archetype_summary": row.get("archetype_summary"),
+                    "archetype_summary": _guard_served_archetype_summary(
+                        row.get("archetype_summary"),
+                        original_label=original_archetype_label,
+                        guarded_label=guarded_archetype_label,
+                    ),
                     "cluster_size": None,
                     "is_recommended": True,
                     "is_baseline": True,
@@ -1416,7 +1451,7 @@ class BigQueryWarehouseRepository:
             "player_name": row.get("player_name"),
             "team_abbr": row.get("team_abbr"),
             "archetype_id": row.get("archetype_id"),
-            "archetype_label": row.get("archetype_label") or "Unclassified",
+            "archetype_label": guarded_archetype_label or "Unclassified",
             "cluster_confidence": _to_float(row.get("cluster_confidence")),
             "top_traits": _split_display_list(row.get("top_traits")),
             "active_model_key": row.get("active_model_key"),

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
 
@@ -513,6 +514,30 @@ def test_player_base_archetype_splits_non_big_forward_from_stretch_big():
     )
 
     assert label == "Stretch Forward"
+
+
+def test_similarity_output_validation_rejects_guard_only_big_assignment():
+    rows = [
+        {
+            "season": "2025-26",
+            "as_of_date": "2026-02-11",
+            "player_id": 1642277,
+            "player_name": "Dylan Harper",
+            "team_abbr": "SAS",
+            "position": "PG",
+            "height_inches": 78,
+            "weight_lbs": 215,
+            "wingspan_inches": 82,
+            "archetype_id": "cluster_big",
+            "archetype_label": "Stretch Big - Rebounding",
+        }
+    ]
+
+    with pytest.raises(ValueError, match="Big archetype labels require eligible"):
+        model._validate_similarity_output_frames(
+            pd.DataFrame(rows),
+            pd.DataFrame(rows),
+        )
 
 
 def test_label_cluster_splits_shooting_fallback_from_connector_wing():
