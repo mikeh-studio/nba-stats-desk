@@ -22,6 +22,7 @@ from app.main import (
     _payload_cache_lock,
     _payload_refreshing,
     _performance_initial_cache_key,
+    _player_detail_cache_key,
     _prewarm_performance_flow,
     _store_payload_locked,
     app,
@@ -978,6 +979,10 @@ class FakeRepository(WarehouseRepository):
             "last_7": "Last 7",
             "prior_5": "Prior 5",
             "last_10": "Last 10",
+            "regular_season": "Regular Season",
+            "regular_season_first_half": "First Half Regular Season",
+            "regular_season_second_half": "Second Half Regular Season",
+            "playoffs": "Playoffs",
         }
         expected_games = {
             "last_3": 3,
@@ -985,6 +990,21 @@ class FakeRepository(WarehouseRepository):
             "last_7": 7,
             "prior_5": 5,
             "last_10": 10,
+            "regular_season": None,
+            "regular_season_first_half": None,
+            "regular_season_second_half": None,
+            "playoffs": None,
+        }
+        games_in_window = {
+            "last_3": 3,
+            "last_5": 5,
+            "last_7": 7,
+            "prior_5": 5,
+            "last_10": 10,
+            "regular_season": 82,
+            "regular_season_first_half": 41,
+            "regular_season_second_half": 41,
+            "playoffs": 12,
         }
         focus_rows = {
             "balanced": [
@@ -1085,7 +1105,7 @@ class FakeRepository(WarehouseRepository):
                     "window_label": window_labels[window],
                     "state": "fresh",
                     "state_reason": None,
-                    "games_in_window": expected_games[window],
+                    "games_in_window": games_in_window[window],
                     "window_games_expected": expected_games[window],
                     "has_full_window": True,
                     "availability_state": "fresh",
@@ -1360,6 +1380,15 @@ class CountingPerformanceRepository(FakeRepository):
             game_id=game_id,
             limit=limit,
         )
+
+
+class CountingPlayerDetailRepository(FakeRepository):
+    def __init__(self) -> None:
+        self.detail_calls: list[int] = []
+
+    def get_player_detail(self, player_id: int) -> dict | None:
+        self.detail_calls.append(player_id)
+        return super().get_player_detail(player_id)
 
 
 class ExplodingPrewarmRepository(FakeRepository):
@@ -2049,7 +2078,10 @@ def test_player_page_smoke() -> None:
     assert "Ball Security" in response.text
     assert "Box Score Index" in response.text
     assert "Primary Creator" in response.text
+    assert "PHI vs. NYK" in response.text
     assert "Jalen Brunson" in response.text
+    assert "Loading game log." not in response.text
+    assert "data-player-detail-hydrate" not in response.text
     assert "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png" in response.text
 
 
@@ -2061,6 +2093,14 @@ def test_player_page_unavailable_state_smoke() -> None:
     assert "This player is not currently ranked." in response.text
 
 
+def test_player_page_does_not_block_on_health() -> None:
+    client = build_client(repo=HealthExplodingRepository())
+    response = client.get("/players/7")
+
+    assert response.status_code == 200
+    assert "Jalen Brunson" in response.text
+
+
 def test_compare_page_with_only_player_a() -> None:
     client = build_client()
     response = client.get("/compare?player_a_id=7")
@@ -2068,6 +2108,10 @@ def test_compare_page_with_only_player_a() -> None:
     assert response.status_code == 200
     assert "Build Comparison" in response.text
     assert "Pick a second player to finish the comparison." in response.text
+    assert "Regular Season" in response.text
+    assert "First Half Regular Season" in response.text
+    assert "Second Half Regular Season" in response.text
+    assert "Playoffs" in response.text
 
 
 def test_compare_page_full_surface() -> None:
@@ -2085,6 +2129,16 @@ def test_compare_page_full_surface() -> None:
     assert "Box Score Index" in response.text
     assert "Last 7" in response.text
     assert "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png" in response.text
+
+
+def test_compare_page_supports_regular_season_window() -> None:
+    client = build_client()
+    response = client.get("/compare?player_a_id=7&player_b_id=9&window=regular_season")
+
+    assert response.status_code == 200
+    assert "Window Regular Season" in response.text
+    assert "82 games" in response.text
+    assert "82/None games" not in response.text
 
 
 def test_compare_page_duplicate_validation() -> None:
@@ -2160,6 +2214,43 @@ def test_api_player_detail_available_player() -> None:
     assert payload["item"]["similar_players"][0]["player_name"] == "Jalen Brunson"
 
 
+def test_player_detail_cache_reuses_full_payload_for_page_and_api() -> None:
+    repo = CountingPlayerDetailRepository()
+    key = _player_detail_cache_key(repo, 7)
+    with _payload_cache_lock:
+        _payload_cache.pop(key, None)
+        _payload_refreshing.discard(key)
+        building = _payload_building.pop(key, None)
+    if building is not None:
+        building.set()
+
+    try:
+        client = build_client(repo)
+
+        first_page = client.get("/players/7")
+        second_page = client.get("/players/7")
+        first_api = client.get("/api/players/7")
+        second_api = client.get("/api/players/7")
+
+        assert first_page.status_code == 200
+        assert second_page.status_code == 200
+        assert first_api.status_code == 200
+        assert second_api.status_code == 200
+        assert repo.detail_calls == [7]
+        assert "Jalen Brunson" in first_page.text
+        assert (
+            first_api.json()["item"]["similar_players"][0]["player_name"]
+            == "Jalen Brunson"
+        )
+    finally:
+        with _payload_cache_lock:
+            _payload_cache.pop(key, None)
+            _payload_refreshing.discard(key)
+            building = _payload_building.pop(key, None)
+        if building is not None:
+            building.set()
+
+
 def test_api_player_detail_unavailable_known_player() -> None:
     client = build_client()
     response = client.get("/api/players/9")
@@ -2191,6 +2282,18 @@ def test_api_compare_smoke() -> None:
     assert payload["comparison"]["player_a"]["player_name"] == "Tyrese Maxey"
     assert payload["comparison"]["player_a"]["metric_rows"][1]["label"] == "PTS"
     assert payload["comparison"]["player_b"]["state"] == "unavailable"
+
+
+def test_api_compare_supports_playoff_window() -> None:
+    client = build_client()
+    response = client.get("/api/compare?player_a_id=7&player_b_id=9&window=playoffs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["window"] == "playoffs"
+    assert payload["window_label"] == "Playoffs"
+    assert payload["comparison"]["player_a"]["games_in_window"] == 12
+    assert payload["comparison"]["player_a"]["window_games_expected"] is None
 
 
 def test_api_compare_rejects_duplicate_selection() -> None:
@@ -2239,6 +2342,22 @@ def test_player_page_logs_degraded_panel_state(caplog) -> None:
         and event["player_id"] == 7
         for event in events
     )
+
+
+def test_player_page_logs_degraded_heavy_panel_states(caplog) -> None:
+    client = build_client()
+
+    with caplog.at_level("INFO", logger=LOGGER_NAME):
+        response = client.get("/players/9")
+
+    assert response.status_code == 200
+    events = [
+        json.loads(record.message)
+        for record in caplog.records
+        if "panel_degraded" in record.message
+    ]
+    panels = {event["panel"] for event in events}
+    assert {"game_log", "trends", "similarity"}.issubset(panels)
 
 
 def test_compare_page_does_not_log_stale_freshness_banner(caplog) -> None:

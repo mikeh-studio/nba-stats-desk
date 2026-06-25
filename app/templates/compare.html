@@ -167,7 +167,11 @@
                 <div class="chip-row">
                   <span class="chip">State {{ side.state }}</span>
                   {% if side.games_in_window is not none %}
-                    <span class="chip">{{ side.games_in_window }}/{{ side.window_games_expected }} games</span>
+                    {% if side.window_games_expected is not none %}
+                      <span class="chip">{{ side.games_in_window }}/{{ side.window_games_expected }} games</span>
+                    {% else %}
+                      <span class="chip">{{ side.games_in_window }} games</span>
+                    {% endif %}
                   {% endif %}
                 </div>
                 {% if side.state_reason %}

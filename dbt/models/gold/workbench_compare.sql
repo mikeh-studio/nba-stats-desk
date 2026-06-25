@@ -12,6 +12,7 @@ with scored_games as (
         player_name,
         team_abbr,
         game_date,
+        season_type,
         min,
         pts,
         reb,
@@ -33,7 +34,14 @@ with scored_games as (
         row_number() over (
             partition by season, player_id
             order by game_date desc
-        ) as game_num
+        ) as game_num,
+        row_number() over (
+            partition by season, player_id, season_type
+            order by game_date asc
+        ) as season_type_game_num,
+        count(*) over (
+            partition by season, player_id, season_type
+        ) as season_type_games
     from {{ ref('fct_player_game_stats') }}
 ),
 season_stats as (
@@ -156,6 +164,84 @@ windowed as (
         fantasy_proxy_score
     from scored_games
     where game_num <= 10
+
+    union all
+
+    select
+        season,
+        player_id,
+        'regular_season' as window_key,
+        cast(null as {{ int64_type() }}) as window_games_expected,
+        min,
+        pts,
+        reb,
+        ast,
+        stl,
+        blk,
+        fg3m,
+        tov,
+        fantasy_proxy_score
+    from scored_games
+    where season_type = 'Regular Season'
+
+    union all
+
+    select
+        season,
+        player_id,
+        'regular_season_first_half' as window_key,
+        cast(null as {{ int64_type() }}) as window_games_expected,
+        min,
+        pts,
+        reb,
+        ast,
+        stl,
+        blk,
+        fg3m,
+        tov,
+        fantasy_proxy_score
+    from scored_games
+    where season_type = 'Regular Season'
+      and season_type_game_num <= cast(ceil(season_type_games / 2.0) as {{ int64_type() }})
+
+    union all
+
+    select
+        season,
+        player_id,
+        'regular_season_second_half' as window_key,
+        cast(null as {{ int64_type() }}) as window_games_expected,
+        min,
+        pts,
+        reb,
+        ast,
+        stl,
+        blk,
+        fg3m,
+        tov,
+        fantasy_proxy_score
+    from scored_games
+    where season_type = 'Regular Season'
+      and season_type_game_num > cast(ceil(season_type_games / 2.0) as {{ int64_type() }})
+
+    union all
+
+    select
+        season,
+        player_id,
+        'playoffs' as window_key,
+        cast(null as {{ int64_type() }}) as window_games_expected,
+        min,
+        pts,
+        reb,
+        ast,
+        stl,
+        blk,
+        fg3m,
+        tov,
+        fantasy_proxy_score
+    from scored_games
+    where season_type = 'Playoffs'
 ),
 aggregated as (
     select
@@ -187,7 +273,12 @@ select
     a.window_key,
     a.window_games_expected,
     a.games_in_window,
-    cast(a.games_in_window = a.window_games_expected as {{ bool_type() }}) as has_full_window,
+    cast(
+        case
+            when a.window_games_expected is null then true
+            else a.games_in_window = a.window_games_expected
+        end as {{ bool_type() }}
+    ) as has_full_window,
     a.avg_min,
     a.avg_pts,
     a.avg_reb,

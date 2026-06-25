@@ -546,7 +546,16 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ['last_3', 'last_5', 'last_7', 'prior_5', 'last_10']
+                values:
+                  - last_3
+                  - last_5
+                  - last_7
+                  - prior_5
+                  - last_10
+                  - regular_season
+                  - regular_season_first_half
+                  - regular_season_second_half
+                  - playoffs
   - name: workbench_dashboard
     columns:
       - name: as_of_date

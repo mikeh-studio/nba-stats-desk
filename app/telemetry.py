@@ -69,7 +69,7 @@ def _detail_panel_reason(panel: str, state: str, player_detail: dict[str, Any]) 
 
 
 def instrument_player_view(
-    *, route: str, season: str, health: dict[str, Any], player_detail: dict[str, Any]
+    *, route: str, season: str, player_detail: dict[str, Any]
 ) -> None:
     player_id = player_detail["player"]["player_id"]
     for panel, state in player_detail.get("panel_states", {}).items():

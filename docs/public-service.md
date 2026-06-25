@@ -53,7 +53,9 @@ archetype context, and similar-player panels when the sample is stable.
 
 The compare page supports direct `player_a_id` links and first-player search
 when no initial player is provided. Compare responses can include a similarity
-block with pair score, shared traits, and contrasting traits.
+block with pair score, shared traits, and contrasting traits. Supported windows
+include last-game presets plus regular season, first-half regular season,
+second-half regular season, and playoffs.
 
 The performance page shows 2025-26 playoff player game rows against each
 player's own season baseline, excluding players below one minute. It exposes

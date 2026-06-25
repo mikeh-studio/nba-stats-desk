@@ -139,7 +139,7 @@ Feature versions should be explicit and boring:
 
 ```text
 feature_set_version = player_similarity_features_v1
-model_version       = public_similarity_multi_model_v1
+model_version       = public_similarity_position_guarded_v1
 model_run_id        = similarity_YYYYMMDDTHHMMSSZ_<short_sha>
 ```
 

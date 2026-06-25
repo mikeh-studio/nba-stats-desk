@@ -11,7 +11,17 @@ STATE_INSUFFICIENT_SAMPLE = "insufficient_sample"
 STATE_UNAVAILABLE = "unavailable"
 FULL_SEASON_TYPES = ("Regular Season", "Playoffs")
 
-CompareWindow = Literal["last_3", "last_5", "last_7", "prior_5", "last_10"]
+CompareWindow = Literal[
+    "last_3",
+    "last_5",
+    "last_7",
+    "prior_5",
+    "last_10",
+    "regular_season",
+    "regular_season_first_half",
+    "regular_season_second_half",
+    "playoffs",
+]
 CompareFocus = Literal["balanced", "scoring", "playmaking", "defense"]
 
 COMPARE_WINDOW_CONFIG: dict[CompareWindow, dict[str, Any]] = {
@@ -20,6 +30,16 @@ COMPARE_WINDOW_CONFIG: dict[CompareWindow, dict[str, Any]] = {
     "last_7": {"label": "Last 7", "expected_games": 7},
     "prior_5": {"label": "Prior 5", "expected_games": 5},
     "last_10": {"label": "Last 10", "expected_games": 10},
+    "regular_season": {"label": "Regular Season", "expected_games": None},
+    "regular_season_first_half": {
+        "label": "First Half Regular Season",
+        "expected_games": None,
+    },
+    "regular_season_second_half": {
+        "label": "Second Half Regular Season",
+        "expected_games": None,
+    },
+    "playoffs": {"label": "Playoffs", "expected_games": None},
 }
 
 COMPARE_METRIC_LABELS: dict[str, str] = {

@@ -165,7 +165,7 @@ def get_compare_window_options() -> list[dict[str, Any]]:
         {
             "key": key,
             "label": str(config["label"]),
-            "expected_games": int(config["expected_games"]),
+            "expected_games": config["expected_games"],
         }
         for key, config in COMPARE_WINDOW_CONFIG.items()
     ]
@@ -186,8 +186,9 @@ def _compare_window_label(window: CompareWindow) -> str:
     return str(COMPARE_WINDOW_CONFIG[window]["label"])
 
 
-def _compare_window_expected_games(window: CompareWindow) -> int:
-    return int(COMPARE_WINDOW_CONFIG[window]["expected_games"])
+def _compare_window_expected_games(window: CompareWindow) -> int | None:
+    value = COMPARE_WINDOW_CONFIG[window]["expected_games"]
+    return int(value) if value is not None else None
 
 
 def _empty_compare_metrics() -> dict[str, Any]:
