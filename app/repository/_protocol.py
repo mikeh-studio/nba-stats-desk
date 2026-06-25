@@ -28,9 +28,7 @@ class WarehouseRepository(Protocol):
         self, limit: int = 1000
     ) -> list[dict[str, Any]]: ...
 
-    def get_player_detail(
-        self, player_id: int, *, include_heavy: bool = True
-    ) -> dict[str, Any] | None: ...
+    def get_player_detail(self, player_id: int) -> dict[str, Any] | None: ...
 
     def get_compare(
         self,

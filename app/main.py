@@ -223,10 +223,9 @@ def _performance_initial_cache_key(
 
 
 def _player_detail_cache_key(
-    repo: WarehouseRepository, player_id: int, *, include_heavy: bool
+    repo: WarehouseRepository, player_id: int
 ) -> tuple[Any, ...]:
-    variant = "full" if include_heavy else "shell"
-    return (_repo_cache_token(repo), "player_detail", variant, player_id)
+    return (_repo_cache_token(repo), "player_detail", player_id)
 
 
 def _store_payload_locked(key: tuple[Any, ...], payload: Any) -> None:
@@ -315,12 +314,12 @@ def _set_public_cache_header(response: Response, ttl_seconds: int) -> None:
 
 
 def _get_cached_player_detail(
-    repo: WarehouseRepository, player_id: int, *, include_heavy: bool
+    repo: WarehouseRepository, player_id: int
 ) -> dict[str, Any] | None:
     return _get_cached_payload(
-        _player_detail_cache_key(repo, player_id, include_heavy=include_heavy),
+        _player_detail_cache_key(repo, player_id),
         PLAYER_DETAIL_CACHE_TTL_SECONDS,
-        lambda: repo.get_player_detail(player_id, include_heavy=include_heavy),
+        lambda: repo.get_player_detail(player_id),
         stale_ttl_seconds=PLAYER_DETAIL_STALE_TTL_SECONDS,
     )
 
@@ -531,7 +530,7 @@ def api_player_detail(
     player_id: int,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
 ) -> dict:
-    detail = _get_cached_player_detail(repo, player_id, include_heavy=True)
+    detail = _get_cached_player_detail(repo, player_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Player not found")
     return {"season": SUPPORTED_SEASON, "item": detail}
@@ -574,7 +573,7 @@ def player_page(
     request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
 ) -> HTMLResponse:
-    player_detail = _get_cached_player_detail(repo, player_id, include_heavy=False)
+    player_detail = _get_cached_player_detail(repo, player_id)
     if player_detail is None:
         raise HTTPException(status_code=404, detail="Player not found")
     instrument_player_view(

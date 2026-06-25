@@ -76,11 +76,7 @@
     {% endif %}
   </section>
 
-  <section
-    class="workspace"
-    data-player-detail-hydrate
-    data-player-id="{{ player_detail.player.player_id }}"
-  >
+  <section class="workspace">
     <div class="main-stack">
       <article class="card">
         <div class="card-header">
@@ -141,26 +137,88 @@
             <button class="tab-button" type="button" data-stat-key="blk">BLK</button>
             <button class="tab-button" type="button" data-stat-key="tov">TOV</button>
           </div>
-          <div class="trend-chart" data-player-trend-chart data-player-trend-lazy="true">
-            <div class="empty-state">
-              <strong>Loading trend chart.</strong>
-              <p class="meta">Game-level history loads after the profile shell.</p>
-            </div>
+          <div class="trend-chart" data-player-trend-chart>
+            <script type="application/json" data-trend-data>{{ player_detail.game_log.games | tojson }}</script>
+            <script type="application/json" data-baseline-data>{{ player_detail.chart_baselines | tojson }}</script>
           </div>
-          <div data-player-trends-panel>
-            <div class="empty-state">
-              <strong>Loading trend table.</strong>
-              <p class="meta">Recent versus prior windows load in the background.</p>
+          {% if player_detail.trends %}
+            <div class="table-scroll">
+              <table class="data-table compact">
+                <thead>
+                  <tr>
+                    <th>Stat</th>
+                    <th>Recent</th>
+                    <th>Prior</th>
+                    <th>Delta</th>
+                    <th>Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for item in player_detail.trends %}
+                    <tr>
+                      <td>{{ item.label }}</td>
+                      <td>{{ item.recent_avg }}</td>
+                      <td>{{ item.prior_avg }}</td>
+                      <td class="{% if item.direction_is_good %}good{% elif item.direction_is_good is not none %}bad{% endif %}">{{ item.delta }}</td>
+                      <td>{{ item.pct_change }}%</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
             </div>
-          </div>
+          {% endif %}
         </section>
         <section class="tab-panel" data-tab-panel="game-log" hidden>
-          <div data-player-game-log-panel>
-            <div class="empty-state">
-              <strong>Loading game log.</strong>
-              <p class="meta">Box-score rows load after the profile shell.</p>
+          {% if player_detail.game_log.games %}
+            <div class="table-scroll">
+              <table class="data-table game-log-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Matchup</th>
+                    <th>MIN</th>
+                    <th>PTS</th>
+                    <th>REB</th>
+                    <th>AST</th>
+                    <th>STL</th>
+                    <th>BLK</th>
+                    <th>TOV</th>
+                    <th>3PM</th>
+                    <th>FG</th>
+                    <th>FT</th>
+                    <th>Box</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for game in player_detail.game_log.games|reverse %}
+                    <tr>
+                      <td>{{ game.game_date }}</td>
+                      <td>
+                        {{ game.matchup or game.opponent_abbr }}
+                        {% if game.wl %}<span class="meta">{{ game.wl }}</span>{% endif %}
+                      </td>
+                      <td>{{ game.min }}</td>
+                      <td>{{ game.pts }}</td>
+                      <td>{{ game.reb }}</td>
+                      <td>{{ game.ast }}</td>
+                      <td>{{ game.stl }}</td>
+                      <td>{{ game.blk }}</td>
+                      <td>{{ game.tov }}</td>
+                      <td>{{ game.fg3m }}</td>
+                      <td>{{ game.fgm }}/{{ game.fga }}</td>
+                      <td>{{ game.ftm }}/{{ game.fta }}</td>
+                      <td>{{ game.fantasy_points_simple }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
             </div>
-          </div>
+          {% else %}
+            <div class="empty-state">
+              <strong>Game log is unavailable.</strong>
+              <p class="meta">No game-level rows are available for this qualified player yet.</p>
+            </div>
+          {% endif %}
         </section>
         <section class="tab-panel" data-tab-panel="windows" hidden>
           <div class="table-scroll">
@@ -231,12 +289,45 @@
             {% endfor %}
           </div>
         {% endif %}
-        <div data-similar-players-panel>
-          <div class="empty-state">
-            <strong>Loading similar-player matches.</strong>
-            <p class="meta">Nearest stat-profile matches load after the profile shell.</p>
+        {% if player_detail.panel_states.similarity == "fresh" and player_detail.similar_players %}
+          <div class="stack-list">
+            {% for item in player_detail.similar_players %}
+              <article class="tracked-card">
+                <div class="card-header">
+                  <div class="identity-row">
+                    <div class="player-avatar" aria-hidden="true">
+                      {% if item.headshot_url %}
+                        <img src="{{ item.headshot_url }}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" />
+                        <span class="player-avatar-fallback" hidden>{{ item.player_initials }}</span>
+                      {% else %}
+                        <span class="player-avatar-fallback">{{ item.player_initials }}</span>
+                      {% endif %}
+                    </div>
+                    <div>
+                      <h3><a href="/players/{{ item.player_id }}">{{ item.player_name }}</a></h3>
+                      <p class="meta">{{ item.team_abbr }} · {{ item.archetype_label }}</p>
+                    </div>
+                  </div>
+                  <span class="status">Similarity {{ item.similarity_score }}</span>
+                </div>
+                <div class="chip-row">
+                  {% for trait in item.shared_traits %}
+                    <span class="chip">Shared {{ trait }}</span>
+                  {% endfor %}
+                  {% for trait in item.contrasting_traits %}
+                    <span class="chip">Diff {{ trait }}</span>
+                  {% endfor %}
+                  <a class="button-link secondary" href="/compare?player_a_id={{ player_detail.player.player_id }}&player_b_id={{ item.player_id }}">Compare</a>
+                </div>
+              </article>
+            {% endfor %}
           </div>
-        </div>
+        {% else %}
+          <div class="empty-state">
+            <strong>Similar-player matches are unavailable.</strong>
+            <p class="meta">{{ player_detail.similarity_reason or "The similarity model does not have a stable profile for this player yet." }}</p>
+          </div>
+        {% endif %}
       </article>
     </div>
 

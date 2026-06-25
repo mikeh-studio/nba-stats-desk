@@ -48,9 +48,8 @@ threshold.
 
 ## Player and Compare Experience
 
-Player pages render a lightweight profile shell first, then hydrate game logs,
-recent trend context, and similar-player panels from `/api/players/{player_id}`.
-Percentile, archetype, and opportunity context stay in the initial shell.
+Player pages render game logs, recent trend context, percentile summaries,
+archetype context, and similar-player panels when the sample is stable.
 
 The compare page supports direct `player_a_id` links and first-player search
 when no initial player is provided. Compare responses can include a similarity

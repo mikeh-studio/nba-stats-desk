@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import sys
 import time
-from copy import deepcopy
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
@@ -233,31 +232,9 @@ class FakeRepository(WarehouseRepository):
             }
         ][:limit]
 
-    @staticmethod
-    def _strip_lazy_player_detail(detail: dict) -> dict:
-        item = deepcopy(detail)
-        player = item["player"]
-        item["game_log"] = {
-            "player_id": player["player_id"],
-            "player_name": player["player_name"],
-            "season": player["season"],
-            "games": [],
-            "games_returned": 0,
-            "limit": 0,
-            "order": "chronological",
-            "date_range": {"start_date": None, "end_date": None},
-        }
-        item["trends"] = []
-        item["similar_players"] = []
-        for panel in ("game_log", "trends", "similarity"):
-            item["panel_states"].pop(panel, None)
-        return item
-
-    def get_player_detail(
-        self, player_id: int, *, include_heavy: bool = True
-    ) -> dict | None:
+    def get_player_detail(self, player_id: int) -> dict | None:
         if player_id == 7:
-            detail = {
+            return {
                 "player": {
                     "season": "2025-26",
                     "player_id": 7,
@@ -491,9 +468,8 @@ class FakeRepository(WarehouseRepository):
                     }
                 ],
             }
-            return detail if include_heavy else self._strip_lazy_player_detail(detail)
         if player_id == 9:
-            detail = {
+            return {
                 "player": {
                     "season": "2025-26",
                     "player_id": 9,
@@ -562,7 +538,6 @@ class FakeRepository(WarehouseRepository):
                 "similarity_reason": "Similarity profile is unavailable.",
                 "similar_players": [],
             }
-            return detail if include_heavy else self._strip_lazy_player_detail(detail)
         return None
 
     def get_player_game_log(
@@ -1409,13 +1384,11 @@ class CountingPerformanceRepository(FakeRepository):
 
 class CountingPlayerDetailRepository(FakeRepository):
     def __init__(self) -> None:
-        self.detail_calls: list[tuple[int, bool]] = []
+        self.detail_calls: list[int] = []
 
-    def get_player_detail(
-        self, player_id: int, *, include_heavy: bool = True
-    ) -> dict | None:
-        self.detail_calls.append((player_id, include_heavy))
-        return super().get_player_detail(player_id, include_heavy=include_heavy)
+    def get_player_detail(self, player_id: int) -> dict | None:
+        self.detail_calls.append(player_id)
+        return super().get_player_detail(player_id)
 
 
 class ExplodingPrewarmRepository(FakeRepository):
@@ -1438,10 +1411,8 @@ class MissingOpportunityRepository(FakeRepository):
         payload["opportunity"] = []
         return payload
 
-    def get_player_detail(
-        self, player_id: int, *, include_heavy: bool = True
-    ) -> dict | None:
-        detail = super().get_player_detail(player_id, include_heavy=include_heavy)
+    def get_player_detail(self, player_id: int) -> dict | None:
+        detail = super().get_player_detail(player_id)
         if detail is None:
             return None
         if player_id == 7:
@@ -2107,10 +2078,10 @@ def test_player_page_smoke() -> None:
     assert "Ball Security" in response.text
     assert "Box Score Index" in response.text
     assert "Primary Creator" in response.text
-    assert "Loading game log." in response.text
-    assert "Loading similar-player matches." in response.text
-    assert "data-player-detail-hydrate" in response.text
-    assert "Jalen Brunson" not in response.text
+    assert "PHI vs. NYK" in response.text
+    assert "Jalen Brunson" in response.text
+    assert "Loading game log." not in response.text
+    assert "data-player-detail-hydrate" not in response.text
     assert "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png" in response.text
 
 
@@ -2127,7 +2098,7 @@ def test_player_page_does_not_block_on_health() -> None:
     response = client.get("/players/7")
 
     assert response.status_code == 200
-    assert "Loading game log." in response.text
+    assert "Jalen Brunson" in response.text
 
 
 def test_compare_page_with_only_player_a() -> None:
@@ -2243,20 +2214,15 @@ def test_api_player_detail_available_player() -> None:
     assert payload["item"]["similar_players"][0]["player_name"] == "Jalen Brunson"
 
 
-def test_player_detail_cache_separates_shell_and_full_variants() -> None:
+def test_player_detail_cache_reuses_full_payload_for_page_and_api() -> None:
     repo = CountingPlayerDetailRepository()
-    shell_key = _player_detail_cache_key(repo, 7, include_heavy=False)
-    full_key = _player_detail_cache_key(repo, 7, include_heavy=True)
+    key = _player_detail_cache_key(repo, 7)
     with _payload_cache_lock:
-        _payload_cache.pop(shell_key, None)
-        _payload_cache.pop(full_key, None)
-        _payload_refreshing.discard(shell_key)
-        _payload_refreshing.discard(full_key)
-        shell_building = _payload_building.pop(shell_key, None)
-        full_building = _payload_building.pop(full_key, None)
-    for building in (shell_building, full_building):
-        if building is not None:
-            building.set()
+        _payload_cache.pop(key, None)
+        _payload_refreshing.discard(key)
+        building = _payload_building.pop(key, None)
+    if building is not None:
+        building.set()
 
     try:
         client = build_client(repo)
@@ -2270,23 +2236,19 @@ def test_player_detail_cache_separates_shell_and_full_variants() -> None:
         assert second_page.status_code == 200
         assert first_api.status_code == 200
         assert second_api.status_code == 200
-        assert repo.detail_calls == [(7, False), (7, True)]
-        assert "Jalen Brunson" not in first_page.text
+        assert repo.detail_calls == [7]
+        assert "Jalen Brunson" in first_page.text
         assert (
             first_api.json()["item"]["similar_players"][0]["player_name"]
             == "Jalen Brunson"
         )
     finally:
         with _payload_cache_lock:
-            _payload_cache.pop(shell_key, None)
-            _payload_cache.pop(full_key, None)
-            _payload_refreshing.discard(shell_key)
-            _payload_refreshing.discard(full_key)
-            shell_building = _payload_building.pop(shell_key, None)
-            full_building = _payload_building.pop(full_key, None)
-        for building in (shell_building, full_building):
-            if building is not None:
-                building.set()
+            _payload_cache.pop(key, None)
+            _payload_refreshing.discard(key)
+            building = _payload_building.pop(key, None)
+        if building is not None:
+            building.set()
 
 
 def test_api_player_detail_unavailable_known_player() -> None:
@@ -2380,6 +2342,22 @@ def test_player_page_logs_degraded_panel_state(caplog) -> None:
         and event["player_id"] == 7
         for event in events
     )
+
+
+def test_player_page_logs_degraded_heavy_panel_states(caplog) -> None:
+    client = build_client()
+
+    with caplog.at_level("INFO", logger=LOGGER_NAME):
+        response = client.get("/players/9")
+
+    assert response.status_code == 200
+    events = [
+        json.loads(record.message)
+        for record in caplog.records
+        if "panel_degraded" in record.message
+    ]
+    panels = {event["panel"] for event in events}
+    assert {"game_log", "trends", "similarity"}.issubset(panels)
 
 
 def test_compare_page_does_not_log_stale_freshness_banner(caplog) -> None:
