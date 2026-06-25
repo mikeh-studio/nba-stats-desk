@@ -1848,28 +1848,61 @@ class BigQueryWarehouseRepository:
         except BQAPIError:
             return []
 
-    def get_player_detail(self, player_id: int) -> dict[str, Any] | None:
+    def _empty_player_game_log_payload(
+        self, identity: dict[str, Any], *, limit: int = 0
+    ) -> dict[str, Any]:
+        return {
+            "player_id": _to_int(identity.get("player_id")),
+            "player_name": identity.get("player_name"),
+            "season": identity.get("latest_season", SUPPORTED_SEASON),
+            "games": [],
+            "games_returned": 0,
+            "limit": limit,
+            "order": "chronological",
+            "date_range": {"start_date": None, "end_date": None},
+        }
+
+    def get_player_detail(
+        self, player_id: int, *, include_heavy: bool = True
+    ) -> dict[str, Any] | None:
         identity = self._fetch_player_identity(player_id)
         if identity is None:
             return None
 
         row = self._fetch_player_detail_row(player_id)
-        game_log = self._fetch_player_game_log_payload(identity, limit=30)
-        trends = self._fetch_player_trends(player_id)
+        if include_heavy:
+            game_log = self._fetch_player_game_log_payload(identity, limit=30)
+            trends = self._fetch_player_trends(player_id)
+        else:
+            game_log = self._empty_player_game_log_payload(identity)
+            trends = []
         baseline_fallback = (
-            {} if _has_chart_baselines(row) else self._fetch_chart_baseline_row()
+            {}
+            if _has_chart_baselines(row) or not include_heavy
+            else self._fetch_chart_baseline_row()
         )
         chart_baselines = _format_chart_baselines(row or {}, baseline_fallback)
         anchor = self._fetch_similarity_anchor(player_id)
-        (
-            similarity_state,
-            similarity_reason,
-            similar_players,
-        ) = self._get_similar_players(
-            player_id,
-            anchor=anchor,
-        )
-        return self._build_player_detail_payload(
+        if include_heavy:
+            (
+                similarity_state,
+                similarity_reason,
+                similar_players,
+            ) = self._get_similar_players(
+                player_id,
+                anchor=anchor,
+            )
+        elif anchor is None:
+            similarity_state = STATE_UNAVAILABLE
+            similarity_reason = "Similarity profile is unavailable."
+            similar_players = []
+        else:
+            similarity_state = _similarity_state_from_sample_status(
+                anchor.get("sample_status")
+            )
+            similarity_reason = None
+            similar_players = []
+        payload = self._build_player_detail_payload(
             identity=identity,
             row=row,
             archetype_row=anchor,
@@ -1880,6 +1913,10 @@ class BigQueryWarehouseRepository:
             trends=trends,
             chart_baselines=chart_baselines,
         )
+        if not include_heavy:
+            for panel in ("game_log", "trends", "similarity"):
+                payload["panel_states"].pop(panel, None)
+        return payload
 
     def get_compare(
         self,

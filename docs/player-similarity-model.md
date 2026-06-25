@@ -97,6 +97,10 @@ Public labels are intentionally descriptive rather than canonical scouting
 grades: broad connector/outlier profiles are split with public-safe role
 signals into scoring, spacing, creation, defense, and interior families so the
 served archetype mix does not collapse into one catch-all bucket.
+Big-family labels are guarded at the player level by roster position plus raw
+height, weight, and wingspan context. Guard-only players who land in an
+interior-heavy cluster are relabeled through guard/creator/shooter fallbacks
+instead of inheriting `Stretch Big` or `Interior Big` from the cluster.
 
 ## Publish Contract
 

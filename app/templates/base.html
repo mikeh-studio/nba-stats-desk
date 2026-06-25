@@ -109,23 +109,42 @@
       .nav-tabs {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 1.4rem;
+        gap: 0.25rem;
         min-width: 0;
+        padding: 0.25rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--line);
+        border-radius: 999px;
       }
       .nav-tabs a {
-        display: block;
-        padding: 0.3rem 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.35rem;
+        padding: 0.45rem 0.4rem;
+        border-radius: 999px;
         color: var(--muted);
-        font-size: 0.82rem;
-        font-weight: 760;
-        letter-spacing: 0.14em;
-        line-height: 1.35;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        line-height: 1;
         text-align: center;
         text-decoration: none;
+        white-space: nowrap;
+        transition: color 160ms ease, background-color 160ms ease;
       }
       .nav-tabs a:hover,
       .nav-tabs a:focus-visible {
         color: var(--highlight);
+        background: rgba(255, 255, 255, 0.07);
+      }
+      .nav-tabs a.is-active {
+        color: #fff;
+        background: var(--accent);
+      }
+      .nav-tabs a.is-active:hover,
+      .nav-tabs a.is-active:focus-visible {
+        background: var(--accent-hot);
       }
       .season-tag,
       .mono {
@@ -842,7 +861,6 @@
         }
         .nav-tabs {
           grid-column: 1 / -1;
-          gap: 0.75rem;
           width: 100%;
         }
         .nav-player-search {
@@ -865,13 +883,10 @@
         .player-search-form {
           width: 100%;
         }
-        .nav-tabs {
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 0.35rem;
-        }
         .nav-tabs a {
-          font-size: 0.68rem;
-          letter-spacing: 0.08em;
+          min-height: 2.6rem;
+          font-size: 0.74rem;
+          letter-spacing: 0.06em;
         }
         .nav-links {
           grid-template-columns: 1fr;
@@ -900,11 +915,12 @@
             <span class="brand-title">NBA Stats Desk</span>
           </div>
           <div class="nav-links">
+            {% set nav_path = request.url.path if request else '' %}
             <div class="nav-tabs">
-              <a href="/ask">ASK</a>
-              <a href="/performance">TRENDS</a>
-              <a href="/similarity-map">SIMILAR</a>
-              <a href="/compare">COMPARE</a>
+              <a href="/ask"{% if nav_path.startswith('/ask') %} class="is-active" aria-current="page"{% endif %}>ASK</a>
+              <a href="/performance"{% if nav_path.startswith('/performance') %} class="is-active" aria-current="page"{% endif %}>TRENDS</a>
+              <a href="/similarity-map"{% if nav_path.startswith('/similarity-map') %} class="is-active" aria-current="page"{% endif %}>SIMILAR</a>
+              <a href="/compare"{% if nav_path.startswith('/compare') %} class="is-active" aria-current="page"{% endif %}>COMPARE</a>
             </div>
             <form class="player-search-form nav-player-search" data-player-search-form role="search">
               <label class="sr-only">Find qualified player</label>

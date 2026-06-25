@@ -9,12 +9,13 @@ private model package.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 
-MODEL_VERSION = "public_similarity_multi_model_v1"
+MODEL_VERSION = "public_similarity_position_guarded_v1"
 RANDOM_STATE = 42
 MINIMUM_ARCHETYPE_CLUSTERS = 8
 KMEANS_N_INIT = 10
@@ -222,6 +223,8 @@ SIMILARITY_TRAIT_LABELS: Dict[str, str] = {
 BASE_ARCHETYPE_LABELS = {
     "Primary Creator",
     "Scoring Guard",
+    "Spacing Guard",
+    "Big Guard",
     "Role Scorer",
     "Secondary Creator",
     "Two-Way Wing",
@@ -229,6 +232,8 @@ BASE_ARCHETYPE_LABELS = {
     "Defensive Specialist",
     "Connector Wing",
     "Utility Forward",
+    "Stretch Forward",
+    "Interior Forward",
     "Stretch Big",
     "Interior Big",
     "Emerging Role",
@@ -479,7 +484,10 @@ def _emerging_base_archetype_label(normalized_values: Dict[str, float]) -> str:
 
 
 def _label_cluster(
-    center_values: Dict[str, float], *, allow_primary_creator: bool = True
+    center_values: Dict[str, float],
+    *,
+    allow_primary_creator: bool = True,
+    allow_big: bool = True,
 ) -> str:
     """Map a baseline cluster center to a human-readable public archetype."""
     scores = _role_signal_scores(center_values)
@@ -490,9 +498,9 @@ def _label_cluster(
     interior = scores["interior"]
     offense_context = scores["offense_context"]
 
-    if interior >= 0.7 and spacing >= 0.15:
+    if allow_big and interior >= 0.7 and spacing >= 0.15:
         return "Stretch Big"
-    if interior >= 0.7:
+    if allow_big and interior >= 0.7:
         return "Interior Big"
     if allow_primary_creator and creation >= 0.75 and offense_context >= 0.35:
         return "Primary Creator"
@@ -525,6 +533,151 @@ def _numeric_value(values: Dict[str, Any], name: str, default: float = 0.0) -> f
     return float(value)
 
 
+def _optional_numeric_value(values: Dict[str, Any], name: str) -> float | None:
+    value = values.get(name)
+    if value in (None, ""):
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _position_tokens(position: Any) -> set[str]:
+    if position in (None, ""):
+        return set()
+    tokens = re.split(r"[^a-z0-9]+", str(position).lower())
+    resolved: set[str] = set()
+    for token in tokens:
+        if token in {"g", "pg", "sg", "guard", "guards"}:
+            resolved.add("G")
+        elif token in {"f", "sf", "pf", "forward", "forwards"}:
+            resolved.add("F")
+        elif token in {"c", "center", "centre", "centers", "centres"}:
+            resolved.add("C")
+    return resolved
+
+
+def _is_guard_only_position(position_tokens: set[str]) -> bool:
+    return "G" in position_tokens and not ({"F", "C"} & position_tokens)
+
+
+def _meets_physical_profile(
+    raw_values: Dict[str, Any],
+    *,
+    height_inches: float,
+    weight_lbs: float,
+    wingspan_inches: float,
+    required_hits: int = 2,
+) -> bool:
+    checks = []
+    height = _optional_numeric_value(raw_values, "height_inches")
+    weight = _optional_numeric_value(raw_values, "weight_lbs")
+    wingspan = _optional_numeric_value(raw_values, "wingspan_inches")
+    if height is not None:
+        checks.append(height >= height_inches)
+    if weight is not None:
+        checks.append(weight >= weight_lbs)
+    if wingspan is not None:
+        checks.append(wingspan >= wingspan_inches)
+    if not checks:
+        return False
+    return sum(checks) >= min(required_hits, len(checks))
+
+
+def _has_big_physical_profile(raw_values: Dict[str, Any]) -> bool:
+    height = _optional_numeric_value(raw_values, "height_inches")
+    wingspan = _optional_numeric_value(raw_values, "wingspan_inches")
+    return (
+        _meets_physical_profile(
+            raw_values,
+            height_inches=80.0,
+            weight_lbs=230.0,
+            wingspan_inches=84.0,
+        )
+        or (height is not None and height >= 82.0)
+        or (wingspan is not None and wingspan >= 86.0)
+    )
+
+
+def _has_forward_physical_profile(raw_values: Dict[str, Any]) -> bool:
+    height = _optional_numeric_value(raw_values, "height_inches")
+    return _meets_physical_profile(
+        raw_values,
+        height_inches=78.0,
+        weight_lbs=215.0,
+        wingspan_inches=81.0,
+    ) or (height is not None and height >= 80.0)
+
+
+def _has_large_guard_physical_profile(raw_values: Dict[str, Any]) -> bool:
+    return _meets_physical_profile(
+        raw_values,
+        height_inches=77.0,
+        weight_lbs=210.0,
+        wingspan_inches=80.0,
+        required_hits=1,
+    )
+
+
+def _is_big_role_eligible(raw_values: Dict[str, Any]) -> bool:
+    position_tokens = _position_tokens(raw_values.get("position"))
+    if _is_guard_only_position(position_tokens):
+        return False
+    if "C" in position_tokens:
+        return True
+    if "F" in position_tokens:
+        return _has_big_physical_profile(raw_values)
+    return _has_big_physical_profile(raw_values)
+
+
+def _position_guarded_non_big_label(
+    normalized_values: Dict[str, float],
+    raw_values: Dict[str, Any],
+) -> str:
+    scores = _role_signal_scores(normalized_values)
+    position_tokens = _position_tokens(raw_values.get("position"))
+
+    if _is_guard_only_position(position_tokens):
+        if scores["creation"] >= 0.35 and scores["offense_context"] >= 0.10:
+            return "Secondary Creator"
+        if scores["scoring"] >= 0.45 and scores["creation"] < 0.55:
+            return "Scoring Guard"
+        if scores["spacing"] >= 0.25:
+            return "Spacing Guard"
+        if _has_large_guard_physical_profile(raw_values):
+            return "Big Guard"
+
+    if "F" in position_tokens and "C" not in position_tokens:
+        if scores["spacing"] >= 0.25 and _has_forward_physical_profile(raw_values):
+            return "Stretch Forward"
+        if scores["interior"] >= 0.25 and _has_forward_physical_profile(raw_values):
+            return "Interior Forward"
+
+    return _label_cluster(
+        normalized_values,
+        allow_primary_creator=False,
+        allow_big=False,
+    )
+
+
+def _position_guard_big_label(
+    candidate_label: str,
+    normalized_values: Dict[str, float],
+    raw_values: Dict[str, Any],
+) -> str:
+    if candidate_label in {"Stretch Big", "Interior Big"} and not _is_big_role_eligible(
+        raw_values
+    ):
+        return _position_guarded_non_big_label(normalized_values, raw_values)
+    return candidate_label
+
+
 def _player_base_archetype_label(
     *,
     cluster_base_label: str,
@@ -539,10 +692,23 @@ def _player_base_archetype_label(
         )
         if team_offense_rank <= 1:
             return "Primary Creator"
-        return _label_cluster(normalized_values, allow_primary_creator=False)
+        return _position_guard_big_label(
+            _label_cluster(normalized_values, allow_primary_creator=False),
+            normalized_values,
+            raw_values,
+        )
+
+    if cluster_base_label in {"Stretch Big", "Interior Big"}:
+        if _is_big_role_eligible(raw_values):
+            return cluster_base_label
+        return _position_guarded_non_big_label(normalized_values, raw_values)
 
     if cluster_base_label in BROAD_ARCHETYPE_LABELS:
-        return _label_cluster(normalized_values, allow_primary_creator=False)
+        return _position_guard_big_label(
+            _label_cluster(normalized_values, allow_primary_creator=False),
+            normalized_values,
+            raw_values,
+        )
 
     return cluster_base_label
 
@@ -878,6 +1044,7 @@ def _build_model_assignment_results(
             feature_name: row.get(feature_name)
             for feature_name in SIMILARITY_FEATURE_COLUMNS
         }
+        raw_values["position"] = row.get("position")
         raw_values.update({column: row.get(column) for column in TEAM_CONTEXT_COLUMNS})
         cluster_summary = cluster_summaries[cluster_index]
         if cluster_index < 0:

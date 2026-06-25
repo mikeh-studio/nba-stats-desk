@@ -55,6 +55,8 @@ TRACKING_CAP = 8
 HEALTH_CACHE_TTL_SECONDS = 60
 PERFORMANCE_CACHE_TTL_SECONDS = 900
 PERFORMANCE_STALE_TTL_SECONDS = 3600
+PLAYER_DETAIL_CACHE_TTL_SECONDS = 300
+PLAYER_DETAIL_STALE_TTL_SECONDS = 900
 PERFORMANCE_INITIAL_DEFAULT_LIMIT = 240
 PAYLOAD_CACHE_MAX_ENTRIES = 256
 _health_cache: dict[int, tuple[float, dict[str, Any]]] = {}
@@ -220,6 +222,13 @@ def _performance_initial_cache_key(
     return (_repo_cache_token(repo), "performance_initial", game_date, game_id, limit)
 
 
+def _player_detail_cache_key(
+    repo: WarehouseRepository, player_id: int, *, include_heavy: bool
+) -> tuple[Any, ...]:
+    variant = "full" if include_heavy else "shell"
+    return (_repo_cache_token(repo), "player_detail", variant, player_id)
+
+
 def _store_payload_locked(key: tuple[Any, ...], payload: Any) -> None:
     # A deep copy is stored so later builder/caller mutations cannot reach the
     # cache; reads hand out the cached object directly, so handlers must treat
@@ -303,6 +312,17 @@ def _refresh_cached_payload(key: tuple[Any, ...], builder: Any) -> None:
 
 def _set_public_cache_header(response: Response, ttl_seconds: int) -> None:
     response.headers["Cache-Control"] = f"public, max-age={ttl_seconds}"
+
+
+def _get_cached_player_detail(
+    repo: WarehouseRepository, player_id: int, *, include_heavy: bool
+) -> dict[str, Any] | None:
+    return _get_cached_payload(
+        _player_detail_cache_key(repo, player_id, include_heavy=include_heavy),
+        PLAYER_DETAIL_CACHE_TTL_SECONDS,
+        lambda: repo.get_player_detail(player_id, include_heavy=include_heavy),
+        stale_ttl_seconds=PLAYER_DETAIL_STALE_TTL_SECONDS,
+    )
 
 
 def _agent_rate_limit_key(request: Request) -> str:
@@ -511,7 +531,7 @@ def api_player_detail(
     player_id: int,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
 ) -> dict:
-    detail = repo.get_player_detail(player_id)
+    detail = _get_cached_player_detail(repo, player_id, include_heavy=True)
     if detail is None:
         raise HTTPException(status_code=404, detail="Player not found")
     return {"season": SUPPORTED_SEASON, "item": detail}
@@ -554,14 +574,12 @@ def player_page(
     request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
 ) -> HTMLResponse:
-    player_detail = repo.get_player_detail(player_id)
+    player_detail = _get_cached_player_detail(repo, player_id, include_heavy=False)
     if player_detail is None:
         raise HTTPException(status_code=404, detail="Player not found")
-    health = repo.get_health()
     instrument_player_view(
         route="/players/{player_id}",
         season=SUPPORTED_SEASON,
-        health=health,
         player_detail=player_detail,
     )
     context = {
@@ -569,7 +587,6 @@ def player_page(
         "page_title": f"{player_detail['player']['player_name']} Stats Outlook",
         "season": SUPPORTED_SEASON,
         "player_detail": player_detail,
-        "health": health,
         "tracking_cap": TRACKING_CAP,
     }
     return templates.TemplateResponse(request, "player.html", context)

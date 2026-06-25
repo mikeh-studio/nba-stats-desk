@@ -438,6 +438,83 @@ def test_label_cluster_uses_physical_size_as_interior_context():
     assert label == "Interior Big"
 
 
+def test_player_base_archetype_blocks_stretch_big_for_point_guard_profile():
+    label = model._player_base_archetype_label(
+        cluster_base_label="Stretch Big",
+        normalized_values={
+            "season_avg_pts": 0.35,
+            "season_avg_fga": 0.32,
+            "season_avg_ast": 0.62,
+            "recent_ast": 0.60,
+            "team_ast_contribution_rate": 0.52,
+            "team_offense_contribution_rate": 0.24,
+            "season_avg_fg3m": 0.34,
+            "season_fg3a_rate": 0.31,
+            "season_avg_reb": 0.72,
+            "season_avg_blk": 0.41,
+            "height_inches": 1.0,
+            "weight_lbs": 0.45,
+            "wingspan_inches": 1.0,
+        },
+        raw_values={
+            "position": "PG",
+            "height_inches": 78,
+            "weight_lbs": 215,
+            "wingspan_inches": 82,
+        },
+    )
+
+    assert label == "Secondary Creator"
+
+
+def test_player_base_archetype_allows_stretch_big_for_center_profile():
+    label = model._player_base_archetype_label(
+        cluster_base_label="Stretch Big",
+        normalized_values={
+            "season_avg_fg3m": 0.30,
+            "season_fg3a_rate": 0.35,
+            "season_avg_reb": 0.82,
+            "season_avg_blk": 0.74,
+            "height_inches": 1.2,
+            "weight_lbs": 1.1,
+            "wingspan_inches": 1.2,
+        },
+        raw_values={
+            "position": "C",
+            "height_inches": 83,
+            "weight_lbs": 245,
+            "wingspan_inches": 88,
+        },
+    )
+
+    assert label == "Stretch Big"
+
+
+def test_player_base_archetype_splits_non_big_forward_from_stretch_big():
+    label = model._player_base_archetype_label(
+        cluster_base_label="Stretch Big",
+        normalized_values={
+            "season_avg_fg3m": 0.45,
+            "season_fg3a_rate": 0.42,
+            "shot_corner3_rate": 0.34,
+            "shot_above_break3_rate": 0.44,
+            "season_avg_reb": 0.66,
+            "season_avg_blk": 0.35,
+            "height_inches": 0.8,
+            "weight_lbs": 0.5,
+            "wingspan_inches": 0.75,
+        },
+        raw_values={
+            "position": "F",
+            "height_inches": 79,
+            "weight_lbs": 220,
+            "wingspan_inches": 82,
+        },
+    )
+
+    assert label == "Stretch Forward"
+
+
 def test_label_cluster_splits_shooting_fallback_from_connector_wing():
     label = model._label_cluster(
         {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+from copy import deepcopy
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
@@ -22,6 +23,7 @@ from app.main import (
     _payload_cache_lock,
     _payload_refreshing,
     _performance_initial_cache_key,
+    _player_detail_cache_key,
     _prewarm_performance_flow,
     _store_payload_locked,
     app,
@@ -231,9 +233,31 @@ class FakeRepository(WarehouseRepository):
             }
         ][:limit]
 
-    def get_player_detail(self, player_id: int) -> dict | None:
+    @staticmethod
+    def _strip_lazy_player_detail(detail: dict) -> dict:
+        item = deepcopy(detail)
+        player = item["player"]
+        item["game_log"] = {
+            "player_id": player["player_id"],
+            "player_name": player["player_name"],
+            "season": player["season"],
+            "games": [],
+            "games_returned": 0,
+            "limit": 0,
+            "order": "chronological",
+            "date_range": {"start_date": None, "end_date": None},
+        }
+        item["trends"] = []
+        item["similar_players"] = []
+        for panel in ("game_log", "trends", "similarity"):
+            item["panel_states"].pop(panel, None)
+        return item
+
+    def get_player_detail(
+        self, player_id: int, *, include_heavy: bool = True
+    ) -> dict | None:
         if player_id == 7:
-            return {
+            detail = {
                 "player": {
                     "season": "2025-26",
                     "player_id": 7,
@@ -467,8 +491,9 @@ class FakeRepository(WarehouseRepository):
                     }
                 ],
             }
+            return detail if include_heavy else self._strip_lazy_player_detail(detail)
         if player_id == 9:
-            return {
+            detail = {
                 "player": {
                     "season": "2025-26",
                     "player_id": 9,
@@ -537,6 +562,7 @@ class FakeRepository(WarehouseRepository):
                 "similarity_reason": "Similarity profile is unavailable.",
                 "similar_players": [],
             }
+            return detail if include_heavy else self._strip_lazy_player_detail(detail)
         return None
 
     def get_player_game_log(
@@ -978,6 +1004,10 @@ class FakeRepository(WarehouseRepository):
             "last_7": "Last 7",
             "prior_5": "Prior 5",
             "last_10": "Last 10",
+            "regular_season": "Regular Season",
+            "regular_season_first_half": "First Half Regular Season",
+            "regular_season_second_half": "Second Half Regular Season",
+            "playoffs": "Playoffs",
         }
         expected_games = {
             "last_3": 3,
@@ -985,6 +1015,21 @@ class FakeRepository(WarehouseRepository):
             "last_7": 7,
             "prior_5": 5,
             "last_10": 10,
+            "regular_season": None,
+            "regular_season_first_half": None,
+            "regular_season_second_half": None,
+            "playoffs": None,
+        }
+        games_in_window = {
+            "last_3": 3,
+            "last_5": 5,
+            "last_7": 7,
+            "prior_5": 5,
+            "last_10": 10,
+            "regular_season": 82,
+            "regular_season_first_half": 41,
+            "regular_season_second_half": 41,
+            "playoffs": 12,
         }
         focus_rows = {
             "balanced": [
@@ -1085,7 +1130,7 @@ class FakeRepository(WarehouseRepository):
                     "window_label": window_labels[window],
                     "state": "fresh",
                     "state_reason": None,
-                    "games_in_window": expected_games[window],
+                    "games_in_window": games_in_window[window],
                     "window_games_expected": expected_games[window],
                     "has_full_window": True,
                     "availability_state": "fresh",
@@ -1362,6 +1407,17 @@ class CountingPerformanceRepository(FakeRepository):
         )
 
 
+class CountingPlayerDetailRepository(FakeRepository):
+    def __init__(self) -> None:
+        self.detail_calls: list[tuple[int, bool]] = []
+
+    def get_player_detail(
+        self, player_id: int, *, include_heavy: bool = True
+    ) -> dict | None:
+        self.detail_calls.append((player_id, include_heavy))
+        return super().get_player_detail(player_id, include_heavy=include_heavy)
+
+
 class ExplodingPrewarmRepository(FakeRepository):
     def get_health(self) -> dict:
         raise RuntimeError("health unavailable")
@@ -1382,8 +1438,10 @@ class MissingOpportunityRepository(FakeRepository):
         payload["opportunity"] = []
         return payload
 
-    def get_player_detail(self, player_id: int) -> dict | None:
-        detail = super().get_player_detail(player_id)
+    def get_player_detail(
+        self, player_id: int, *, include_heavy: bool = True
+    ) -> dict | None:
+        detail = super().get_player_detail(player_id, include_heavy=include_heavy)
         if detail is None:
             return None
         if player_id == 7:
@@ -2049,7 +2107,10 @@ def test_player_page_smoke() -> None:
     assert "Ball Security" in response.text
     assert "Box Score Index" in response.text
     assert "Primary Creator" in response.text
-    assert "Jalen Brunson" in response.text
+    assert "Loading game log." in response.text
+    assert "Loading similar-player matches." in response.text
+    assert "data-player-detail-hydrate" in response.text
+    assert "Jalen Brunson" not in response.text
     assert "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png" in response.text
 
 
@@ -2061,6 +2122,14 @@ def test_player_page_unavailable_state_smoke() -> None:
     assert "This player is not currently ranked." in response.text
 
 
+def test_player_page_does_not_block_on_health() -> None:
+    client = build_client(repo=HealthExplodingRepository())
+    response = client.get("/players/7")
+
+    assert response.status_code == 200
+    assert "Loading game log." in response.text
+
+
 def test_compare_page_with_only_player_a() -> None:
     client = build_client()
     response = client.get("/compare?player_a_id=7")
@@ -2068,6 +2137,10 @@ def test_compare_page_with_only_player_a() -> None:
     assert response.status_code == 200
     assert "Build Comparison" in response.text
     assert "Pick a second player to finish the comparison." in response.text
+    assert "Regular Season" in response.text
+    assert "First Half Regular Season" in response.text
+    assert "Second Half Regular Season" in response.text
+    assert "Playoffs" in response.text
 
 
 def test_compare_page_full_surface() -> None:
@@ -2085,6 +2158,16 @@ def test_compare_page_full_surface() -> None:
     assert "Box Score Index" in response.text
     assert "Last 7" in response.text
     assert "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png" in response.text
+
+
+def test_compare_page_supports_regular_season_window() -> None:
+    client = build_client()
+    response = client.get("/compare?player_a_id=7&player_b_id=9&window=regular_season")
+
+    assert response.status_code == 200
+    assert "Window Regular Season" in response.text
+    assert "82 games" in response.text
+    assert "82/None games" not in response.text
 
 
 def test_compare_page_duplicate_validation() -> None:
@@ -2160,6 +2243,52 @@ def test_api_player_detail_available_player() -> None:
     assert payload["item"]["similar_players"][0]["player_name"] == "Jalen Brunson"
 
 
+def test_player_detail_cache_separates_shell_and_full_variants() -> None:
+    repo = CountingPlayerDetailRepository()
+    shell_key = _player_detail_cache_key(repo, 7, include_heavy=False)
+    full_key = _player_detail_cache_key(repo, 7, include_heavy=True)
+    with _payload_cache_lock:
+        _payload_cache.pop(shell_key, None)
+        _payload_cache.pop(full_key, None)
+        _payload_refreshing.discard(shell_key)
+        _payload_refreshing.discard(full_key)
+        shell_building = _payload_building.pop(shell_key, None)
+        full_building = _payload_building.pop(full_key, None)
+    for building in (shell_building, full_building):
+        if building is not None:
+            building.set()
+
+    try:
+        client = build_client(repo)
+
+        first_page = client.get("/players/7")
+        second_page = client.get("/players/7")
+        first_api = client.get("/api/players/7")
+        second_api = client.get("/api/players/7")
+
+        assert first_page.status_code == 200
+        assert second_page.status_code == 200
+        assert first_api.status_code == 200
+        assert second_api.status_code == 200
+        assert repo.detail_calls == [(7, False), (7, True)]
+        assert "Jalen Brunson" not in first_page.text
+        assert (
+            first_api.json()["item"]["similar_players"][0]["player_name"]
+            == "Jalen Brunson"
+        )
+    finally:
+        with _payload_cache_lock:
+            _payload_cache.pop(shell_key, None)
+            _payload_cache.pop(full_key, None)
+            _payload_refreshing.discard(shell_key)
+            _payload_refreshing.discard(full_key)
+            shell_building = _payload_building.pop(shell_key, None)
+            full_building = _payload_building.pop(full_key, None)
+        for building in (shell_building, full_building):
+            if building is not None:
+                building.set()
+
+
 def test_api_player_detail_unavailable_known_player() -> None:
     client = build_client()
     response = client.get("/api/players/9")
@@ -2191,6 +2320,18 @@ def test_api_compare_smoke() -> None:
     assert payload["comparison"]["player_a"]["player_name"] == "Tyrese Maxey"
     assert payload["comparison"]["player_a"]["metric_rows"][1]["label"] == "PTS"
     assert payload["comparison"]["player_b"]["state"] == "unavailable"
+
+
+def test_api_compare_supports_playoff_window() -> None:
+    client = build_client()
+    response = client.get("/api/compare?player_a_id=7&player_b_id=9&window=playoffs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["window"] == "playoffs"
+    assert payload["window_label"] == "Playoffs"
+    assert payload["comparison"]["player_a"]["games_in_window"] == 12
+    assert payload["comparison"]["player_a"]["window_games_expected"] is None
 
 
 def test_api_compare_rejects_duplicate_selection() -> None:
