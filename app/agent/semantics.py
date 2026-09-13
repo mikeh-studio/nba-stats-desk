@@ -7,6 +7,7 @@ coverage and provenance; absence of rows alone never proves coverage.
 
 from __future__ import annotations
 
+import calendar
 import math
 from dataclasses import asdict, dataclass
 from dataclasses import field as dataclass_field
@@ -236,12 +237,18 @@ class Query:
             "last_n_games",
             "prior_n_games",
             "last_n_days",
+            "last_n_months",
             "last_week",
             "last_month",
             "date_range",
         ):
             raise SemanticError("invalid_scope", "Unsupported window")
-        if self.window in ("last_n_games", "prior_n_games", "last_n_days"):
+        if self.window in (
+            "last_n_games",
+            "prior_n_games",
+            "last_n_days",
+            "last_n_months",
+        ):
             if type(self.n) is not int or self.n < 1:
                 raise SemanticError(
                     "invalid_scope", "Window requires positive integer n"
@@ -282,6 +289,18 @@ def _window(query: Query, anchor: date) -> tuple[date | None, date]:
     if query.window == "last_n_days":
         assert query.n is not None
         start = anchor - timedelta(days=query.n - 1)
+    elif query.window == "last_n_months":
+        assert query.n is not None
+        month_index = anchor.year * 12 + anchor.month - 1 - query.n
+        year, month = divmod(month_index, 12)
+        if year < 1:
+            raise SemanticError("invalid_scope", "Requested month window is too large")
+        month += 1
+        boundary = date(
+            year, month, min(anchor.day, calendar.monthrange(year, month)[1])
+        )
+        # Trailing interval is (the same calendar date N months ago, anchor].
+        start = boundary + timedelta(days=1)
     elif query.window == "last_week":
         end = anchor - timedelta(days=anchor.weekday() + 1)
         start = end - timedelta(days=6)

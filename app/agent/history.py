@@ -13,6 +13,21 @@ _history_lock = Lock()
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def saved_context_question(question: str, payload: dict[str, Any]) -> str:
+    """Freeze overview dates for future follow-ups; never rerun a relative window."""
+    evidence = payload.get("semantic_evidence") or {}
+    if evidence.get("kind") == "player_comparison":
+        return evidence.get("context_question") or question
+    scope = evidence.get("scope") or {}
+    player = (payload.get("player_profile") or {}).get("player") or {}
+    if evidence.get("metrics") and player.get("player_name") and scope.get("start"):
+        return (
+            f"{player['player_name']} performance from {scope['start']} "
+            f"through {scope['end']} ({' + '.join(scope['phases'])})"
+        )
+    return question
+
+
 def _history_path(raw_path: str | Path) -> Path:
     path = Path(raw_path)
     if not path.is_absolute():
@@ -63,7 +78,15 @@ def append_history_turn(
         LOGGER.warning("Could not write Ask history log: %s", exc)
 
 
-def read_history(raw_path: str | Path, *, limit: int = 25) -> dict[str, Any]:
+def read_history(
+    raw_path: str | Path,
+    *,
+    limit: int = 25,
+    offset: int = 0,
+    query: str = "",
+    conversation_id: str | None = None,
+) -> dict[str, Any]:
+    requested_id = conversation_id
     if not raw_path:
         return {"conversations": []}
     path = _history_path(raw_path)
@@ -111,11 +134,29 @@ def read_history(raw_path: str | Path, *, limit: int = 25) -> dict[str, Any]:
             existing["title"] = question
         existing["updated_at"] = turn["created_at"] or existing.get("updated_at") or ""
         existing["turns"].append(turn)
-        existing["turns"] = existing["turns"][-20:]
         conversations[conversation_id] = existing
 
-    items = list(reversed(list(conversations.values())))[: max(1, limit)]
-    return {"conversations": items}
+    items = list(reversed(list(conversations.values())))
+    if requested_id:
+        items = [item for item in items if item["conversation_id"] == requested_id]
+    terms = query.casefold().split()
+    if terms:
+        items = [
+            item
+            for item in items
+            if all(
+                term
+                in " ".join(
+                    [item["title"], *(turn["question"] for turn in item["turns"])]
+                ).casefold()
+                for term in terms
+            )
+        ]
+    page = items[max(0, offset) : max(0, offset) + max(1, limit)]
+    return {
+        "conversations": page,
+        "next_offset": offset + limit if offset + limit < len(items) else None,
+    }
 
 
 def clear_history(raw_path: str | Path) -> None:

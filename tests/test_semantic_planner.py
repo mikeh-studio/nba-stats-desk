@@ -307,3 +307,30 @@ def test_distinct_comparison_ranges_are_not_silently_overwritten():
     )
     assert result["status"] == "clarification_required"
     assert result["queries"] == []
+
+
+def test_past_twelve_months_repairs_missing_model_window_count():
+    raw = query_plan()
+    raw["queries"][0].update(window="last_n_days", n=None)
+    plan = plan_question(
+        client_for(raw),
+        model="test",
+        question="Tell me how Jalen Johnson has been performing the past 12 months",
+        selected_season="2025-26",
+    )
+    assert plan["queries"][0]["window"] == "last_n_months"
+    assert plan["queries"][0]["n"] == 12
+
+
+@pytest.mark.parametrize(
+    "baseline", ["last 3 months", "last 5 games", "previous 12 months"]
+)
+def test_month_comparisons_do_not_overwrite_distinct_windows(baseline):
+    raw = {"status": "compare", "message": "", "queries": [{}, {}]}
+    plan = plan_question(
+        client_for(raw),
+        model="test",
+        question=f"Compare points in the past 12 months versus {baseline}",
+        selected_season="2025-26",
+    )
+    assert plan["status"] == "clarification_required"

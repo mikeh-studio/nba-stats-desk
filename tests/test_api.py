@@ -1490,12 +1490,14 @@ def test_ask_page_smoke() -> None:
     assert "data-health-status" in response.text
     assert "data-agent-provider" in response.text
     assert "data-agent-model" in response.text
-    assert "data-agent-history-card" in response.text
+    assert "data-chat-tabs" in response.text
+    assert "data-chat-more" in response.text
+    assert "data-followup-form" in response.text
     assert "data-agent-history-list" in response.text
     assert "data-agent-new-chat" in response.text
-    assert "data-agent-clear-history" in response.text
-    assert "agent-player-profile" in response.text
-    assert "agent-answer-markdown" in response.text
+    assert "data-history-search" in response.text
+    assert "data-agent-profile" in response.text
+    assert f"/static/ask.css?v={STATIC_VERSION}" in response.text
     assert "gpt-6-astra" in response.text
     assert "gpt-5.6-sol" in response.text
     assert "gpt-5.6-terra" in response.text
@@ -1704,6 +1706,65 @@ def test_api_agent_ask_uses_selected_openai_model() -> None:
     assert response.status_code == 200
     assert fake_openai.responses.calls == 2
     assert all(call["model"] == "gpt-6-astra" for call in fake_openai.responses.kwargs)
+
+
+def test_saved_history_rehydrates_followup_context_after_restart(tmp_path, monkeypatch):
+    from app import main as main_module
+    from app.agent.conversation import InMemoryConversationStore
+    from app.agent.history import append_history_turn
+
+    history_path = tmp_path / "saved.jsonl"
+    append_history_turn(
+        history_path,
+        conversation_id="saved-chat",
+        request_id="saved-turn",
+        question="Jalen Johnson performance past 12 months",
+        provider="test",
+        model="fixture",
+        payload={
+            "status": "ok",
+            "answer": "Saved answer",
+            "player_profile": {"player": {"player_name": "Jalen Johnson"}},
+            "semantic_evidence": {
+                "metrics": [1],
+                "scope": {
+                    "start": "2025-09-13",
+                    "end": "2026-09-12",
+                    "phases": ["Regular Season"],
+                },
+            },
+        },
+    )
+    store = InMemoryConversationStore()
+    monkeypatch.setattr(main_module, "_season_conversation_store", lambda season: store)
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_history_enabled=True,
+            agent_history_path=str(history_path),
+        ),
+        agent_client=FakeOpenAIClient(),
+    )
+    result = client.post(
+        "/api/agent/ask",
+        json={"question": "How about his assists?", "conversation_id": "saved-chat"},
+    )
+    assert result.status_code == 200
+    turns = store.get_turns("saved-chat", max_turns=10)
+    assert (
+        turns[0].question
+        == "Jalen Johnson performance from 2025-09-13 through 2026-09-12 (Regular Season)"
+    )
+    assert (
+        client.get("/api/agent/history?q=Jalen&limit=1").json()["conversations"][0][
+            "conversation_id"
+        ]
+        == "saved-chat"
+    )
+    assert (
+        client.get("/api/agent/history?conversation_id=absent").json()["conversations"]
+        == []
+    )
 
 
 def test_api_agent_ask_rejects_model_for_wrong_provider(caplog) -> None:

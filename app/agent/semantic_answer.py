@@ -6,6 +6,19 @@ import re
 from time import monotonic
 from typing import Any
 
+from app.agent.history import saved_context_question
+from app.agent.performance_overview import (
+    build_overview,
+    identity_profile,
+    overview_scope,
+    resolve_overview_player,
+    wants_overview,
+)
+from app.agent.player_comparison import (
+    build_comparison,
+    comparison_scope,
+    comparison_sides,
+)
 from app.agent.semantic_planner import execute_plan, plan_question
 from app.agent.semantic_serving import requested_seasons, source_players
 from app.agent.semantics import SemanticError
@@ -72,6 +85,13 @@ def render_answer(
             "unit": metric["unit"],
         }
         context = f"{scope['season']} {scope['season_type']}; {scope['window']}; as of {scope['as_of']}"
+        if scope["window"] == "last_n_months":
+            statements.append(
+                f"Past {scope['n']} calendar months: {scope['window_start']} through "
+                f"{scope['window_end']}, anchored to the source date. "
+                f"Includes only {scope['season']} {scope['season_type']} games; "
+                "other seasons and phases are excluded."
+            )
         payload["assumptions"].append(context)
         payload["assumptions"].append(f"Metric contract: {section['contract_version']}")
         if scope.get("team_abbr"):
@@ -237,6 +257,11 @@ def render_answer(
         or "Results are shown below for the stated scope and qualification."
     )
     payload["metric_definitions"] = list(definitions.values())
+    ids = {q.get("player_id") for q in result["resolved_queries"] if q.get("player_id")}
+    if len(ids) == 1:
+        player = next((p for p in players if p["player_id"] in ids), None)
+        if player:
+            payload["player_profile"] = identity_profile(player, [])
     return payload
 
 
@@ -261,6 +286,10 @@ class SemanticAsk:
         original = question
         store = self.store if conversation_id else None
         pending = store.get_pending_clarification(conversation_id) if store else None
+        if pending and not selected_player and comparison_sides(question):
+            # A fully restated comparison replaces a scope clarification rather
+            # than remaining trapped behind the unsupported original scope.
+            pending = None
         if pending:
             if selected_player:
                 question = pending.question
@@ -284,14 +313,30 @@ class SemanticAsk:
                 }
             )
         try:
-            seasons = requested_seasons(question, self.settings.season)
+            comparison = comparison_sides(question)
+            overview = (
+                comparison_scope(question, self.settings.season)
+                if comparison
+                else overview_scope(question, self.settings.season)
+                if wants_overview(question)
+                else None
+            )
+            seasons = (
+                overview["seasons"]
+                if overview
+                else requested_seasons(question, self.settings.season)
+            )
             snapshot, evidence = self.warehouse.load(seasons)
             players = (
                 self.warehouse.players(evidence)
                 if hasattr(self.warehouse, "players")
                 else source_players(evidence)
             )
-            if selected_player:
+            if pending and not selected_player and not overview:
+                resolved = resolve_overview_player(question, players, evidence.rows)
+                if len(resolved) == 1:
+                    selected_player = resolved[0]
+            if selected_player and not comparison:
                 matches = [
                     p
                     for p in players
@@ -312,27 +357,66 @@ class SemanticAsk:
                         else p["aliases"],
                     )
                     for p in players
+                    if p["player_id"] == chosen["player_id"]
+                    or p["player_name"].casefold() != chosen["player_name"].casefold()
                 ]
-            plan = plan_question(
-                client,
-                model=model,
-                question=question,
-                selected_season=seasons[0]
-                if len(seasons) == 1
-                else self.settings.season,
-                usage_callback=trace.add_usage if trace else None,
-                players=players,
-                teams=sorted(
-                    {
-                        r[k]
-                        for r in evidence.rows
-                        for k in ("team_abbr", "opponent_abbr")
-                        if r.get(k)
-                    }
-                ),
-            )
-            result = execute_plan(plan, evidence, players)
-            payload = render_answer(result, players)
+            if overview:
+                if comparison:
+                    payload = build_comparison(
+                        question,
+                        evidence,
+                        players,
+                        overview,
+                        selected_player,
+                        (pending.query_plan or {}).get("comparison_choices")
+                        if pending
+                        else None,
+                    )
+                else:
+                    payload = build_overview(
+                        question, evidence, players, overview, selected_player
+                    )
+                plan = {
+                    "status": payload["status"],
+                    "queries": [],
+                    "message": "Player comparison"
+                    if comparison
+                    else "Performance overview",
+                    "model_calls": 0,
+                    "comparison_choices": payload.get("comparison_choices", {}),
+                }
+                result = {"status": payload["status"]}
+            else:
+                plan = plan_question(
+                    client,
+                    model=model,
+                    question=question,
+                    selected_season=seasons[0]
+                    if len(seasons) == 1
+                    else self.settings.season,
+                    usage_callback=trace.add_usage if trace else None,
+                    players=players,
+                    teams=sorted(
+                        {
+                            r[k]
+                            for r in evidence.rows
+                            for k in ("team_abbr", "opponent_abbr")
+                            if r.get(k)
+                        }
+                    ),
+                )
+                result = execute_plan(plan, evidence, players)
+                payload = render_answer(result, players)
+                if payload.get("player_profile"):
+                    player = payload["player_profile"]["player"]
+                    payload["player_profile"] = identity_profile(player, evidence.rows)
+                for option in payload.get("clarification_options", []):
+                    option["team_abbr"] = identity_profile(option, evidence.rows)[
+                        "player"
+                    ].get("team_abbr")
+                    option["label"] = (
+                        f"{option['player_name']} (ID {option['player_id']})"
+                    )
             payload["semantic_plan"] = plan
             payload["source_query"] = {
                 k: v for k, v in snapshot.get("capture", {}).items() if k != "sql"
@@ -371,6 +455,8 @@ class SemanticAsk:
                 }
             )
         payload["conversation_id"] = conversation_id
+        if payload["status"] == "clarification_required":
+            payload["clarification_question"] = question
         payload["agent_plan"] = {
             "route": "governed_metrics",
             "confidence": 1.0,
@@ -396,7 +482,7 @@ class SemanticAsk:
                 store.clear_pending_clarification(conversation_id)
             store.append_turn(
                 conversation_id,
-                question=original,
+                question=saved_context_question(original, payload),
                 answer=payload["answer"],
                 max_turns=self.settings.agent_conversation_max_turns,
             )

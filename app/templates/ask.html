@@ -1,409 +1,52 @@
 {% extends "base.html" %}
 {% block content %}
-  <section class="hero ask-hero">
-    <div class="hero-top">
-      <div>
-        <div class="eyebrow">Ask</div>
-        <h1>Ask NBA Stats</h1>
-      </div>
-    </div>
-
-    <form class="ask-form" data-agent-form>
-      <label class="sr-only" for="agent-question">Question</label>
-      <textarea
-        id="agent-question"
-        class="input ask-input"
-        name="question"
-        rows="3"
-        maxlength="500"
-        placeholder="How is Tyrese Maxey trending in points and assists?"
-        data-agent-question
-      ></textarea>
-      <div class="ask-actions">
-        <button class="button" type="submit" data-agent-submit>Ask</button>
-        <button class="button secondary" type="button" data-agent-example="Who is similar to Tyrese Maxey?">Similar players</button>
-        <button class="button secondary" type="button" data-agent-example="Show the top 10 players by assists percentile.">Top assists</button>
-        <button class="button secondary" type="button" data-agent-example="Compare LeBron's last 10 games against league baseline for points.">Trend check</button>
-        <label class="meta agent-provider-label">Provider
-          <select class="input agent-provider-select" data-agent-provider>
-            <option value="openai">GPT (OpenAI)</option>
-            <option value="claude">Claude (Anthropic)</option>
-          </select>
-        </label>
-        <label class="meta agent-provider-label">Model
-          <select class="input agent-provider-select" data-agent-model></select>
-        </label>
-        <span class="meta">Enter to ask &middot; Shift+Enter for a new line</span>
-      </div>
-    </form>
-    <script type="application/json" data-agent-model-options>{{ agent_model_options | tojson }}</script>
-    <script type="application/json" data-agent-default-models>{{ agent_default_models | tojson }}</script>
-
-    {% if not agent_enabled %}
-      <div class="notice" data-agent-config-state>
-        <strong>Ask NBA Stats is disabled.</strong>
-        <span class="meta">Set OPENAI_AGENT_ENABLED=true to enable it.</span>
-      </div>
-    {% elif not agent_configured %}
-      <div class="notice" data-agent-config-state>
-        <strong>Ask NBA Stats needs an API key.</strong>
-        <span class="meta">Set OPENAI_API_KEY or ANTHROPIC_API_KEY before using this page.</span>
-      </div>
-    {% endif %}
-  </section>
-
-  <div class="workspace ask-workspace">
-    <section class="main-stack">
-      <div class="card" data-agent-answer-card>
-        <div class="card-header">
-          <h2>Answer</h2>
-          <span class="meta" data-agent-status>Ready</span>
-        </div>
-        <div class="empty-state" data-agent-empty>
-          <p>Ask about player trends, percentiles, rankings, game logs, or similar players.</p>
-        </div>
-        <div class="agent-answer" data-agent-answer hidden></div>
-      </div>
-
-      <div class="card" data-agent-chart-card hidden>
-        <div class="card-header">
-          <h2>Charts</h2>
-        </div>
-        <div class="agent-chart-grid" data-agent-charts></div>
-      </div>
-
-      <div class="card" data-agent-table-card hidden>
-        <div class="card-header">
-          <h2>Tables</h2>
-        </div>
-        <div class="stack" data-agent-tables></div>
-      </div>
-    </section>
-
-    <aside class="rail-stack">
-      <div class="card agent-history-card" data-agent-history-card>
-        <div class="card-header">
-          <h2>History</h2>
-          <div class="agent-history-actions">
-            <button class="button secondary" type="button" data-agent-new-chat>New Chat</button>
-            <button class="button secondary" type="button" data-agent-clear-history>Clear</button>
-          </div>
-        </div>
-        <div class="agent-history-list" data-agent-history-list>
-          <div class="empty-state">
-            <p>Recent local chats will appear here.</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header">
-          <h2>Context</h2>
-        </div>
-        <div class="stack-list" data-agent-context>
-          <div class="empty-state">
-            <p>Metric definitions and assumptions will appear after an answer.</p>
-          </div>
-        </div>
-      </div>
-    </aside>
+<link rel="stylesheet" href="/static/ask.css?v={{ static_version }}" />
+<section class="ask-desk" aria-label="Ask NBA Stats">
+  <div class="chat-tab-strip">
+    <div class="chat-tabs" role="tablist" aria-label="Open chats" data-chat-tabs></div>
+    <button class="chat-more" type="button" data-chat-more aria-controls="chat-history">More…</button>
+    <button class="chat-new" type="button" data-agent-new-chat aria-label="New chat" title="New chat"><img src="/static/icons/plus.svg" alt="" /></button>
   </div>
-
-  <style>
-    .ask-hero {
-      gap: 1.1rem;
-    }
-    .ask-form {
-      display: grid;
-      gap: 0.8rem;
-    }
-    .ask-input {
-      width: 100%;
-      min-height: 7rem;
-      resize: vertical;
-      border-radius: 0;
-      line-height: 1.5;
-    }
-    .ask-actions {
-      display: flex;
-      gap: 0.55rem;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    .agent-answer {
-      display: grid;
-      gap: 0;
-      line-height: 1.6;
-    }
-    .agent-answer-text {
-      white-space: normal;
-    }
-    .agent-answer-markdown {
-      display: grid;
-      gap: 0.85rem;
-      color: var(--ink);
-      overflow-wrap: anywhere;
-    }
-    .agent-answer-markdown :where(h3, h4, h5, p, ul, ol) {
-      margin: 0;
-    }
-    .agent-answer-markdown h3 {
-      color: var(--highlight);
-      font-size: clamp(1.08rem, 1.2vw, 1.35rem);
-      line-height: 1.3;
-    }
-    .agent-answer-markdown h4 {
-      color: var(--highlight);
-      font-size: 1rem;
-      line-height: 1.35;
-    }
-    .agent-answer-markdown h5 {
-      color: var(--highlight);
-      font-size: 0.94rem;
-      line-height: 1.35;
-    }
-    .agent-answer-markdown p {
-      color: var(--ink);
-    }
-    .agent-answer-markdown ul,
-    .agent-answer-markdown ol {
-      display: grid;
-      gap: 0.28rem;
-      padding-left: 1.2rem;
-    }
-    .agent-answer-markdown li {
-      padding-left: 0.15rem;
-    }
-    .agent-answer-markdown strong {
-      color: var(--highlight);
-      font-weight: 750;
-    }
-    .agent-answer-markdown code {
-      padding: 0.08rem 0.28rem;
-      border: 1px solid var(--line);
-      border-radius: 0;
-      color: var(--highlight);
-      background: rgba(255, 255, 255, 0.05);
-      font-family: var(--font-mono);
-      font-size: 0.9em;
-    }
-    .agent-answer-markdown hr {
-      width: 100%;
-      height: 1px;
-      margin: 0.25rem 0;
-      border: 0;
-      background: var(--line);
-    }
-    .agent-turn {
-      display: grid;
-      gap: 0.95rem;
-      padding: 0.95rem 0;
-      border-top: 1px solid var(--line);
-    }
-    .agent-turn:first-child {
-      border-top: 0;
-      padding-top: 0;
-    }
-    .agent-turn-question {
-      justify-self: end;
-      max-width: 85%;
-      padding: 0.5rem 0.85rem;
-      border-radius: 0;
-      background: rgba(30, 35, 41, 0.72);
-      border: 1px solid var(--line);
-      color: var(--highlight);
-      white-space: pre-wrap;
-    }
-    .agent-turn-answer {
-      display: grid;
-      gap: 0.6rem;
-    }
-    .agent-clarify-options {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-    }
-    .agent-provider-label {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.4rem;
-      margin-left: auto;
-    }
-    .agent-provider-select {
-      width: auto;
-      padding: 0.3rem 0.5rem;
-    }
-    .agent-history-card {
-      gap: 0.8rem;
-    }
-    .agent-history-actions {
-      display: flex;
-      gap: 0.45rem;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-    .agent-history-actions .button {
-      padding: 0.35rem 0.55rem;
-      font-size: 0.72rem;
-    }
-    .agent-history-list {
-      display: grid;
-      gap: 0.45rem;
-    }
-    .agent-history-item {
-      display: grid;
-      gap: 0.18rem;
-      width: 100%;
-      border: 1px solid var(--line);
-      border-radius: 0;
-      padding: 0.55rem 0.65rem;
-      color: var(--ink);
-      background: rgba(255, 255, 255, 0.035);
-      text-align: left;
-      cursor: pointer;
-    }
-    .agent-history-item:hover,
-    .agent-history-item:focus-visible,
-    .agent-history-item.is-active {
-      border-color: rgba(255, 81, 43, 0.48);
-      background: rgba(255, 81, 43, 0.08);
-    }
-    .agent-history-title {
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 700;
-    }
-    .agent-history-meta {
-      color: var(--muted);
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      text-transform: uppercase;
-    }
-    .agent-player-profile {
-      display: grid;
-      gap: 0.75rem;
-      padding: 0.85rem 0 0 0.85rem;
-      border-top: 1px solid var(--line);
-      border-left: 3px solid rgba(62, 166, 255, 0.55);
-    }
-    .agent-profile-top {
-      display: flex;
-      gap: 0.75rem;
-      align-items: center;
-      justify-content: space-between;
-      min-width: 0;
-    }
-    .agent-profile-copy {
-      min-width: 0;
-    }
-    .agent-profile-copy h3 {
-      margin: 0;
-      overflow-wrap: anywhere;
-    }
-    .agent-profile-link {
-      flex-shrink: 0;
-      white-space: nowrap;
-    }
-    .agent-profile-chips .chip {
-      max-width: 100%;
-    }
-    .agent-chart-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 0.9rem;
-    }
-    .agent-chart {
-      min-height: 250px;
-      border: 1px solid var(--line);
-      border-radius: 0;
-      background: rgba(30, 35, 41, 0.52);
-      overflow: hidden;
-    }
-    .agent-chart svg {
-      display: block;
-      width: 100%;
-      height: auto;
-    }
-    .agent-chart-title {
-      padding: 0.8rem 0.9rem 0;
-      color: var(--highlight);
-      font-weight: 600;
-    }
-    .agent-axis,
-    .agent-point-label {
-      fill: var(--muted);
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-    }
-    .agent-line {
-      fill: none;
-      stroke: var(--accent-hot);
-      stroke-width: 3;
-    }
-    .agent-bar {
-      fill: var(--accent);
-    }
-    .agent-bar.is-above {
-      fill: var(--accent-hot);
-    }
-    .agent-bar.is-below {
-      fill: rgba(167, 175, 183, 0.6);
-    }
-    .agent-bar-value {
-      fill: var(--ink);
-      font-family: var(--font-mono);
-      font-size: 0.82rem;
-      font-weight: 600;
-    }
-    .agent-grid {
-      stroke: rgba(255, 255, 255, 0.08);
-    }
-    .agent-axis-title {
-      fill: var(--muted);
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-    }
-    .agent-reference {
-      stroke: var(--highlight);
-      stroke-width: 2;
-      stroke-dasharray: 6 5;
-    }
-    .agent-reference-label {
-      fill: var(--highlight);
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      font-weight: 600;
-    }
-    .agent-dot {
-      fill: var(--highlight);
-      stroke: var(--accent);
-      stroke-width: 2;
-    }
-    .agent-tooltip {
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 120ms ease;
-    }
-    .agent-point:hover .agent-tooltip,
-    .agent-point:focus .agent-tooltip {
-      opacity: 1;
-    }
-    .agent-tooltip-box {
-      fill: rgba(15, 17, 19, 0.96);
-      stroke: rgba(231, 224, 212, 0.24);
-    }
-    .agent-tooltip-text {
-      fill: var(--ink);
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-    }
-    @media (max-width: 980px) {
-      .ask-workspace {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
-
-  <script type="module" src="/static/agent.js?v={{ static_version }}"></script>
+  <p class="meta storage-notice" role="status" data-storage-notice hidden></p>
+  <section id="chat-history" class="chat-history" data-chat-history hidden aria-label="Chat history">
+    <div class="section-heading"><div><h1>Previous chats</h1><p class="meta">Search saved questions and follow-ups. Closing a tab does not delete its chat.</p></div><button class="button secondary" data-history-back type="button">Back to analysis</button></div>
+    <label class="history-search">Search questions or players<input type="search" class="input" data-history-search placeholder="Search your chats" /></label>
+    <p class="meta" data-history-state role="status"></p>
+    <div data-agent-history-list></div>
+    <button class="button secondary" data-history-load-more type="button" hidden>Load more chats</button>
+    <p class="meta">History stays in this browser and the local app’s history file; it is not cloud-synced. Browser storage is a recent-chat cache.</p>
+  </section>
+  <div id="chat-analysis" data-chat-analysis role="tabpanel" aria-label="Current chat">
+    <section class="ask-query">
+      <form data-agent-form class="ask-form">
+        <label class="eyebrow" for="agent-question">Ask</label>
+        <div class="query-row"><textarea id="agent-question" class="input" rows="1" maxlength="500" placeholder="How has Jalen Johnson performed over the past 12 months?" data-agent-question></textarea><button class="button" type="submit" data-agent-submit>Ask</button></div>
+      </form>
+      <details class="ask-settings"><summary>Model settings</summary><div class="ask-settings-body">
+        <label>Provider <select class="input" data-agent-provider><option value="openai">GPT (OpenAI)</option><option value="claude">Claude (Anthropic)</option></select></label>
+        <label>Model <select class="input" data-agent-model></select></label>
+      </div></details>
+      <script type="application/json" data-agent-model-options>{{ agent_model_options | tojson }}</script>
+      <script type="application/json" data-agent-default-models>{{ agent_default_models | tojson }}</script>
+      {% if not agent_enabled %}<div class="notice" data-agent-config-state>Ask NBA Stats is disabled. Set OPENAI_AGENT_ENABLED=true to enable it.</div>
+      {% elif not agent_configured %}<div class="notice" data-agent-config-state>Ask NBA Stats needs an API key. Configure OPENAI_API_KEY or ANTHROPIC_API_KEY.</div>{% endif %}
+    </section>
+    <p class="meta agent-status" role="status" aria-live="polite" data-agent-status>Ready</p>
+    <nav class="turn-navigation" aria-label="Questions in this chat" data-turn-navigation hidden></nav>
+    <div data-agent-profile></div>
+    <details class="methodology" data-methodology hidden><summary>Methodology &amp; data</summary><div data-agent-context></div></details>
+    <section data-agent-answer-card class="analysis-section">
+      <div class="empty-state" data-agent-empty><h1>Ask NBA Stats</h1><p>Start with a player, a question and a date range.</p><button type="button" class="button secondary" data-agent-example="Tell me how Jalen Johnson has been performing the past 12 months">Jalen Johnson · past 12 months</button></div>
+      <div data-agent-answer hidden></div>
+    </section>
+    <section class="evidence-section" data-agent-table-card hidden><h2 data-table-heading>Key metrics</h2><div data-agent-tables></div></section>
+    <section class="evidence-section" data-agent-chart-card hidden><div data-agent-charts></div></section>
+    <section class="followup-section" data-followup-section hidden>
+      <h2 data-followup-heading>Ask a follow-up</h2><p class="meta" data-followup-context></p>
+      <div class="followup-suggestions" data-followup-suggestions></div>
+      <form data-followup-form><label class="sr-only" for="followup-question">Follow-up question</label><textarea class="input" id="followup-question" rows="3" maxlength="500" placeholder="What would you like to understand next?" data-followup-question></textarea><div class="followup-actions"><span class="meta">Enter to ask · Shift+Enter for a new line</span><button class="button" type="submit" data-followup-submit>Ask follow-up</button></div></form>
+    </section>
+  </div>
+</section>
+<script type="module" src="/static/agent.js?v={{ static_version }}"></script>
 {% endblock %}

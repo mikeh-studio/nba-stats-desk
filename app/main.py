@@ -28,7 +28,12 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.agent.conversation import get_conversation_store
-from app.agent.history import append_history_turn, clear_history, read_history
+from app.agent.history import (
+    append_history_turn,
+    clear_history,
+    read_history,
+    saved_context_question,
+)
 from app.agent.observability import LOGGER_NAME, AgentTrace
 from app.agent.service import AgentDisabledError, AgentExecutionError, StatsAgent
 from app.config import (
@@ -58,7 +63,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260911-semantic-game-log-v1"
+STATIC_VERSION = "20260912-comparison-v3"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -468,6 +473,40 @@ def _prepare_agent_request(
         exc.headers = {**(exc.headers or {}), "X-Request-ID": request_id}
         trace.emit()
         raise
+    # The local history file survives server restarts; recover conversational
+    # context without rerunning saved analyses or exposing history remotely.
+    store = _season_conversation_store(current_season())
+    if (
+        payload.conversation_id
+        and settings.agent_history_enabled
+        and not store.get_turns(conversation_id, max_turns=1)
+        and not store.get_pending_clarification(conversation_id)
+    ):
+        saved = read_history(
+            settings_for_season(settings, current_season()).agent_history_path,
+            conversation_id=conversation_id,
+            limit=1,
+        ).get("conversations", [])
+        if saved:
+            for turn in saved[0]["turns"][-settings.agent_conversation_max_turns :]:
+                stored_payload = turn["payload"]
+                if stored_payload.get("status") == "clarification_required":
+                    store.set_pending_clarification(
+                        conversation_id,
+                        question=stored_payload.get("clarification_question")
+                        or turn["question"],
+                        query_plan=stored_payload.get("semantic_plan"),
+                    )
+                else:
+                    store.clear_pending_clarification(conversation_id)
+                    store.append_turn(
+                        conversation_id,
+                        question=saved_context_question(
+                            turn["question"], stored_payload
+                        ),
+                        answer=str(stored_payload.get("answer", "")),
+                        max_turns=settings.agent_conversation_max_turns,
+                    )
     return request_id, conversation_id, question, trace
 
 
@@ -939,12 +978,19 @@ def api_agent_history(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     limit: int = Query(default=25, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    q: str = Query(default="", max_length=500),
+    conversation_id: str | None = Query(default=None, max_length=200),
 ) -> dict:
     require_local_history(request, settings)
     if not settings.agent_history_enabled:
         return {"conversations": []}
     return read_history(
-        settings_for_season(settings, current_season()).agent_history_path, limit=limit
+        settings_for_season(settings, current_season()).agent_history_path,
+        limit=limit,
+        offset=offset,
+        query=q,
+        conversation_id=conversation_id,
     )
 
 
