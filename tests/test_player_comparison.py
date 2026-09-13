@@ -139,6 +139,29 @@ def test_scope_guard_and_period_comparison_keeps_old_route():
     assert explicit["seasons"] == ["2024-25"]
 
 
+@pytest.mark.parametrize("separator", ["with", "and", "vs", "vs.", "versus"])
+@pytest.mark.parametrize(
+    "baseline", ["his previous 5 games", "the prior 5 games", "last 5 games", "2024-25"]
+)
+def test_period_baselines_never_select_two_player_route(separator, baseline):
+    assert (
+        comparison_sides(f"Compare Jalen Brunson’s last 5 games {separator} {baseline}")
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Compare Jalen Brunson with Wemby",
+        "Compare Jalen Brunson and Victor Wembanyama playoffs",
+        "Jalen Brunson versus Wemby",
+    ],
+)
+def test_explicit_two_player_wordings_keep_scorecard_route(question):
+    assert len(comparison_sides(question)) == 2
+
+
 def test_sequential_identity_choices_are_retained(evidence):
     players = source_players(evidence)
     for player in players:

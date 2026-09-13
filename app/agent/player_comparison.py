@@ -20,16 +20,19 @@ def comparison_sides(question):
     if "\nCurrent question:" in original:
         return None  # Do not reinterpret an arbitrary follow-up as the old question.
     parts = re.split(r"\s+v(?:s\.?|ersus)\s+", original, flags=re.I)
-    if len(parts) == 2:
-        if re.match(
-            r"\s*(?:the\s+)?(?:prior|previous|last|past|this|regular season|playoffs|20\d{2})\b",
-            parts[1],
-            re.I,
-        ):
+    if len(parts) != 2:
+        match = re.match(r"\s*compare\s+(.+?)\s+(?:and|with)\s+(.+)", original, re.I)
+        if not match:
             return None
-        return parts
-    match = re.match(r"\s*compare\s+(.+?)\s+(?:and|with)\s+(.+)", original, re.I)
-    return list(match.groups()) if match else None
+        parts = list(match.groups())
+    # A baseline is not a second player, regardless of comparison wording.
+    if re.match(
+        r"\s*(?:(?:the|his|her|their|its)\s+)?(?:prior|previous|last|past|this|current|regular season|playoffs|20\d{2})\b",
+        parts[1],
+        re.I,
+    ):
+        return None
+    return parts
 
 
 def comparison_scope(question, season, today=None):

@@ -1,4 +1,38 @@
+import pytest
 from app.agent.history import append_history_turn, read_history, saved_context_question
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"player_profile": {"player": {"player_name": "Victor Wembanyama"}}},
+        {
+            "player_profiles": [
+                None,
+                {"player": {"player_name": "Jalen Brunson"}},
+                {"player": {"player_name": "Victor Wembanyama"}},
+            ]
+        },
+    ],
+)
+def test_history_search_resolved_names_beyond_recent_cache(tmp_path, payload):
+    path = tmp_path / "history.jsonl"
+    for index in range(30):
+        append_history_turn(
+            path,
+            conversation_id=str(index),
+            request_id=str(index),
+            question="Wemby overview" if index == 0 else "Other question",
+            provider="test",
+            model="fixture",
+            payload=payload if index == 0 else {},
+        )
+    assert "0" not in [
+        c["conversation_id"] for c in read_history(path)["conversations"]
+    ]
+    result = read_history(path, query="VICTOR wembanyama")
+    assert [c["conversation_id"] for c in result["conversations"]] == ["0"]
+    assert read_history(path, query="Victor Curry")["conversations"] == []
 
 
 def test_saved_overview_context_freezes_relative_dates():

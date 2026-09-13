@@ -63,7 +63,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260912-comparison-v3"
+STATIC_VERSION = "20260913-review-fixes-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS

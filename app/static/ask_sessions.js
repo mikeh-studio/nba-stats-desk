@@ -44,6 +44,11 @@ export function matchesSession(conversation, query) {
     ...(conversation.turns || []).flatMap((turn) => [
       turn.question,
       turn.payload?.player_profile?.player?.player_name,
+      ...(Array.isArray(turn.payload?.player_profiles)
+        ? turn.payload.player_profiles.map(
+            (profile) => profile?.player?.player_name,
+          )
+        : []),
     ]),
   ]
     .join(" ")

@@ -78,6 +78,21 @@ def append_history_turn(
         LOGGER.warning("Could not write Ask history log: %s", exc)
 
 
+def _search_text(item: dict[str, Any]) -> str:
+    values = [item["title"]]
+    for turn in item["turns"]:
+        values.append(turn["question"])
+        payload = turn["payload"]
+        profiles = payload.get("player_profiles")
+        profiles = profiles if isinstance(profiles, list) else []
+        for profile in [payload.get("player_profile"), *profiles]:
+            player = profile.get("player") if isinstance(profile, dict) else None
+            name = player.get("player_name") if isinstance(player, dict) else None
+            if isinstance(name, str):
+                values.append(name)
+    return " ".join(values).casefold()
+
+
 def read_history(
     raw_path: str | Path,
     *,
@@ -142,15 +157,7 @@ def read_history(
     terms = query.casefold().split()
     if terms:
         items = [
-            item
-            for item in items
-            if all(
-                term
-                in " ".join(
-                    [item["title"], *(turn["question"] for turn in item["turns"])]
-                ).casefold()
-                for term in terms
-            )
+            item for item in items if all(term in _search_text(item) for term in terms)
         ]
     page = items[max(0, offset) : max(0, offset) + max(1, limit)]
     return {

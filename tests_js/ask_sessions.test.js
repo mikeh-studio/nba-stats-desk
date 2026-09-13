@@ -34,6 +34,29 @@ test("tab normalization and search tolerate malformed data and match follow-ups"
   assert.equal(matchesSession(chat, "JOHNSON assists"), true);
   assert.equal(matchesSession(chat, "Curry"), false);
 });
+test("search matches canonical names in single and comparison profiles", () => {
+  for (const payload of [
+    { player_profile: { player: { player_name: "Victor Wembanyama" } } },
+    {
+      player_profiles: [
+        null,
+        { player: { player_name: "Jalen Brunson" } },
+        { player: { player_name: "Victor Wembanyama" } },
+      ],
+    },
+  ]) {
+    const chat = {
+      title: "Wemby overview",
+      turns: [{ question: "Wemby", payload }],
+    };
+    assert.equal(matchesSession(chat, "VICTOR wembanyama"), true);
+    assert.equal(matchesSession(chat, "Victor Curry"), false);
+  }
+  assert.equal(
+    matchesSession({ turns: [{ payload: { player_profiles: {} } }] }, "Victor"),
+    false,
+  );
+});
 const metric = (key, value, percentile) => ({
   key,
   label: {
