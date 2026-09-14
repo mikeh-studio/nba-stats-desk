@@ -38,20 +38,24 @@ class FakeElement {
 
   querySelector(selector) {
     if (selector === ".agent-turn-answer") {
-      return this.children.find((child) => child.className === "agent-turn-answer") || null;
+      return (
+        this.children.find(
+          (child) => child.className === "agent-turn-answer",
+        ) || null
+      );
     }
     return null;
   }
 
   querySelectorAll(selector) {
     if (selector !== "[data-history-conversation-id]") return [];
-    return [...this._innerHTML.matchAll(/data-history-conversation-id="([^"]+)"/g)].map(
-      (match) => {
-        const button = new FakeElement("button");
-        button.dataset.historyConversationId = match[1];
-        return button;
-      }
-    );
+    return [
+      ...this._innerHTML.matchAll(/data-history-conversation-id="([^"]+)"/g),
+    ].map((match) => {
+      const button = new FakeElement("button");
+      button.dataset.historyConversationId = match[1];
+      return button;
+    });
   }
 
   addEventListener(eventName, callback) {
@@ -61,7 +65,9 @@ class FakeElement {
   }
 
   dispatch(eventName, event = {}) {
-    (this.listeners.get(eventName) || []).forEach((callback) => callback(event));
+    (this.listeners.get(eventName) || []).forEach((callback) =>
+      callback(event),
+    );
   }
 
   focus() {
@@ -105,7 +111,10 @@ function createDocument(elements = {}) {
   };
 }
 
-async function loadAgentModule({ storage = createStorage(), elements = {} } = {}) {
+async function loadAgentModule({
+  storage = createStorage(),
+  elements = {},
+} = {}) {
   globalThis.window = { localStorage: storage, __NBA_ASK_TEST_HOOKS__: true };
   globalThis.document = createDocument(elements);
   globalThis.HTMLButtonElement = FakeElement;
@@ -120,11 +129,29 @@ async function loadAgentModule({ storage = createStorage(), elements = {} } = {}
   return globalThis.__askAgentTest;
 }
 
+test("reference row supports text-only emphasis without changing the league rank", async () => {
+  const agent = await loadAgentModule();
+  const html = agent.renderTable({
+    columns: [{ key: "player" }, { key: "rank" }],
+    rows: [
+      ["Leader", "1"],
+      ["Jalen Johnson", "8"],
+    ],
+    reference_row_index: 1,
+  });
+  assert.equal((html.match(/class="reference-player-row"/g) || []).length, 1);
+  assert.match(
+    html,
+    /Jalen Johnson<\/td><td>8<\/td>/,
+  );
+  assert.doesNotMatch(html, /reference-player-label/);
+});
+
 test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure", async () => {
   const agent = await loadAgentModule();
 
   const html = agent.renderAnswerMarkdown(
-    "Intro ## Title ### Context - **PTS:** 30\n\n---\n1. `AST`: 7"
+    "Intro ## Title ### Context - **PTS:** 30\n\n---\n1. `AST`: 7",
   );
 
   assert.match(html, /<h3>Title<\/h3>/);
@@ -151,7 +178,7 @@ test("renderAnswerMarkdown strips Markdown pipe tables from Answer prose", async
   const agent = await loadAgentModule();
 
   const html = agent.renderAnswerMarkdown(
-    "Intro\n\n| Metric | Value |\n|---|---|\n| PTS | 30 |\n\n### Takeaway\nGood."
+    "Intro\n\n| Metric | Value |\n|---|---|\n| PTS | 30 |\n\n### Takeaway\nGood.",
   );
 
   assert.match(html, /<p>Intro<\/p>/);
@@ -207,7 +234,9 @@ test("browser history saves, dedupes, caps, and renders list rows", async () => 
     answer: "Updated answer",
   });
   let saved = JSON.parse(storage.read("askChatHistory:v1"));
-  let updated = saved.conversations.find((item) => item.conversation_id === "c-a");
+  let updated = saved.conversations.find(
+    (item) => item.conversation_id === "c-a",
+  );
   assert.equal(updated.turns.length, 1);
   assert.equal(updated.turns[0].payload.answer, "Updated answer");
 
@@ -239,7 +268,7 @@ test("browser history write failures do not break Ask", async () => {
   });
 });
 
-test("restoring a conversation repaints latest and older turn side panels", async () => {
+test("restoring a conversation paints the latest saved turn without rerunning it", async () => {
   const elements = {
     "[data-agent-history-list]": new FakeElement("div"),
     "[data-agent-empty]": new FakeElement("div"),
@@ -265,7 +294,19 @@ test("restoring a conversation repaints latest and older turn side panels", asyn
             question: "Old question",
             timestamp: "2026-06-19T00:00:00Z",
             payload: {
+              status: "ok",
               answer: "Old answer",
+              player_profile: {
+                player: { player_id: 1, player_name: "Jalen Johnson" },
+              },
+              semantic_evidence: {
+                metrics: [{ key: "ast" }],
+                scope: {
+                  start: "2025-09-13",
+                  end: "2026-09-12",
+                  phases: ["Regular Season"],
+                },
+              },
               tables: [{ title: "Old Table", columns: [], rows: [] }],
             },
           },
@@ -274,6 +315,7 @@ test("restoring a conversation repaints latest and older turn side panels", asyn
             question: "New question",
             timestamp: "2026-06-19T00:01:00Z",
             payload: {
+              status: "clarification_required",
               answer: "New answer",
               tables: [{ title: "New Table", columns: [], rows: [] }],
             },
@@ -283,7 +325,7 @@ test("restoring a conversation repaints latest and older turn side panels", asyn
     ],
   });
 
-  agent.restoreConversation("c-restore");
+  await agent.restoreConversation("c-restore");
 
   assert.equal(elements["[data-agent-empty]"].hidden, true);
   assert.equal(elements["[data-agent-answer]"].hidden, false);
@@ -292,15 +334,78 @@ test("restoring a conversation repaints latest and older turn side panels", asyn
   assert.match(elements["[data-agent-tables]"].innerHTML, /New Table/);
 
   elements["[data-agent-answer]"].children[0].dispatch("click");
-  assert.match(elements["[data-agent-tables]"].innerHTML, /Old Table/);
+  assert.match(elements["[data-agent-tables]"].innerHTML, /New Table/);
+  assert.equal(agent.getNavigation().activeConversationId, "c-restore");
+  const body = agent.buildAskBody(
+    "Beside Johnson, who are the other the other top playmaking leads",
+  );
+  assert.equal(body.previous_context.question, "Old question");
+  assert.equal(body.previous_context.players[0].player_name, "Jalen Johnson");
+  assert.equal(body.previous_context.scope.start, "2025-09-13");
+  assert.equal(body.previous_context.metrics[0], "ast");
+  assert.equal(body.previous_context.answer, undefined);
+});
+
+test("starting a follow-up preserves previously completed response nodes", async () => {
+  const thread = new FakeElement();
+  const completed = new FakeElement();
+  completed.innerHTML = "Completed answer with evidence";
+  thread.appendChild(completed);
+  const agent = await loadAgentModule({
+    elements: {
+      "[data-agent-answer]": thread,
+      "[data-agent-empty]": new FakeElement(),
+    },
+  });
+  agent.startTurn("Follow-up question");
+  assert.equal(thread.children.length, 2);
+  assert.equal(thread.children[0], completed);
+  assert.equal(completed.innerHTML, "Completed answer with evidence");
+});
+
+test("thinking indicators start and reset for Ask and follow-ups", async () => {
+  const elements = Object.fromEntries(
+    [
+      "[data-agent-submit]",
+      "[data-followup-submit]",
+      "[data-agent-status]",
+    ].map((selector) => [selector, new FakeElement()]),
+  );
+  const agent = await loadAgentModule({ elements });
+  agent.setBusy(true);
+  for (const element of Object.values(elements)) {
+    assert.equal(element.dataset.thinking, "true");
+  }
+  assert.equal(elements["[data-agent-submit]"].textContent, "Thinking…");
+  assert.equal(elements["[data-followup-submit]"].textContent, "Thinking…");
+  agent.setBusy(false);
+  for (const element of Object.values(elements)) {
+    assert.equal(element.dataset.thinking, "false");
+  }
+  assert.equal(elements["[data-agent-submit]"].textContent, "Ask");
+  assert.equal(elements["[data-followup-submit]"].textContent, "Ask follow-up");
 });
 
 test("line charts keep negative and positive observations inside the plot", async () => {
   const agent = await loadAgentModule();
-  const html = agent.renderLineChart({title: "Plus/minus", series: [{label: "Player", points: [{x: "one", y: -25}, {x: "two", y: 0}, {x: "three", y: 20}]}]});
-  const positions = [...html.matchAll(/class="agent-dot" cx="[^"]+" cy="([^"]+)"/g)].map(m => Number(m[1]));
+  const html = agent.renderLineChart({
+    title: "Plus/minus",
+    series: [
+      {
+        label: "Player",
+        points: [
+          { x: "one", y: -25 },
+          { x: "two", y: 0 },
+          { x: "three", y: 20 },
+        ],
+      },
+    ],
+  });
+  const positions = [
+    ...html.matchAll(/class="agent-dot" cx="[^"]+" cy="([^"]+)"/g),
+  ].map((m) => Number(m[1]));
   assert.equal(positions.length, 3);
-  assert.ok(positions.every(y => y >= 26 && y <= 204));
+  assert.ok(positions.every((y) => y >= 26 && y <= 204));
   assert.ok(positions[0] > positions[1] && positions[1] > positions[2]);
   assert.match(html, /Player: -25/);
 });

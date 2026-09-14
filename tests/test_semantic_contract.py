@@ -123,6 +123,46 @@ def test_trailing_window_uses_shared_anchor_not_player_last_seen(evidence):
     assert result["rows"] == []
 
 
+@pytest.mark.parametrize(
+    "anchor,n,start",
+    [
+        ("2025-01-07", 12, "2024-01-08"),
+        ("2024-03-31", 1, "2024-03-01"),
+        ("2025-03-31", 1, "2025-03-01"),
+        ("2024-02-29", 12, "2023-03-01"),
+    ],
+)
+def test_trailing_calendar_month_boundaries(evidence, anchor, n, start):
+    result = run_query(
+        evidence,
+        Query("pts", "2024-25", "average", window="last_n_months", n=n, as_of=anchor),
+    )
+    assert result["scope"]["window_start"] == start
+    assert result["scope"]["window_end"] == anchor
+
+
+@pytest.mark.parametrize("n", [None, 0, -1, True, 1.5, 100000])
+def test_invalid_month_window_is_rejected(evidence, n):
+    with pytest.raises(SemanticError):
+        run_query(
+            evidence, Query("pts", "2024-25", "average", window="last_n_months", n=n)
+        )
+
+
+def test_month_answer_discloses_selected_season_scope(evidence):
+    from app.agent.semantic_answer import render_answer
+
+    result = run_query(
+        evidence,
+        Query("pts", "2024-25", "average", player_id=2, window="last_n_months", n=12),
+    )
+    payload = render_answer(
+        {"status": "ok", "evidence": result, "resolved_queries": []}, []
+    )
+    assert "Past 12 calendar months: 2024-01-08 through 2025-01-07" in payload["answer"]
+    assert "Includes only 2024-25 Regular Season games" in payload["answer"]
+
+
 def test_ranking_membership_matches_independent_sql(evidence):
     with sqlite3.connect(":memory:") as db:
         db.execute("CREATE TABLE games (season, phase, player_id, pts, fga, fta)")
