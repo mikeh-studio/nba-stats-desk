@@ -1496,7 +1496,8 @@ def test_ask_page_smoke() -> None:
     assert "data-agent-history-list" in response.text
     assert "data-agent-new-chat" in response.text
     assert "data-history-search" in response.text
-    assert "data-agent-profile" in response.text
+    # Each answer owns its profile and evidence; the timeline is mounted here.
+    assert "data-agent-answer" in response.text
     assert f"/static/ask.css?v={STATIC_VERSION}" in response.text
     assert "gpt-6-astra" in response.text
     assert "gpt-5.6-sol" in response.text
@@ -1724,7 +1725,9 @@ def test_saved_history_rehydrates_followup_context_after_restart(tmp_path, monke
         payload={
             "status": "ok",
             "answer": "Saved answer",
-            "player_profile": {"player": {"player_name": "Jalen Johnson"}},
+            "player_profile": {
+                "player": {"player_id": 1, "player_name": "Jalen Johnson"}
+            },
             "semantic_evidence": {
                 "metrics": [1],
                 "scope": {
@@ -1736,6 +1739,17 @@ def test_saved_history_rehydrates_followup_context_after_restart(tmp_path, monke
         },
     )
     store = InMemoryConversationStore()
+    # Many clarification turns must not push the successful context out of recovery.
+    for index in range(8):
+        append_history_turn(
+            history_path,
+            conversation_id="saved-chat",
+            request_id=f"clarify-{index}",
+            question="Which metric?",
+            provider="test",
+            model="fixture",
+            payload={"status": "clarification_required", "answer": "Please clarify"},
+        )
     monkeypatch.setattr(main_module, "_season_conversation_store", lambda season: store)
     client = build_client(
         settings=_test_settings(
@@ -1751,6 +1765,9 @@ def test_saved_history_rehydrates_followup_context_after_restart(tmp_path, monke
     )
     assert result.status_code == 200
     turns = store.get_turns("saved-chat", max_turns=10)
+    assert turns[0].context["players"] == [
+        {"player_id": 1, "player_name": "Jalen Johnson"}
+    ]
     assert (
         turns[0].question
         == "Jalen Johnson performance from 2025-09-13 through 2026-09-12 (Regular Season)"
@@ -1765,6 +1782,55 @@ def test_saved_history_rehydrates_followup_context_after_restart(tmp_path, monke
         client.get("/api/agent/history?conversation_id=absent").json()["conversations"]
         == []
     )
+
+
+def test_browser_only_context_recovers_after_contextless_clarification(monkeypatch):
+    from app import main as main_module
+    from app.agent.conversation import InMemoryConversationStore
+    from app.agent.followup import resolve_followup
+
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "browser-chat", question="Which Johnson?", query_plan=None
+    )
+    monkeypatch.setattr(main_module, "_season_conversation_store", lambda season: store)
+    client = build_client(
+        settings=_test_settings(openai_api_key="test-key", agent_history_enabled=False),
+        agent_client=FakeOpenAIClient(),
+    )
+    prior = {
+        "question": "Jalen Johnson performance past 12 months",
+        "players": [{"player_id": 1, "player_name": "Jalen Johnson"}],
+        "scope": {"start": "2025-09-13", "end": "2026-09-12"},
+        "metrics": ["ast"],
+    }
+    question = "Beside Johnson, who are the other the other top playmaking leads"
+    response = client.post(
+        "/api/agent/ask",
+        json={
+            "question": question,
+            "conversation_id": "browser-chat",
+            "previous_context": prior,
+        },
+    )
+    assert response.status_code == 200
+    recovered = store.get_turns("browser-chat", max_turns=10)[0].context
+    assert recovered["browser_recovered"] is True
+    resolved, hints = resolve_followup(question, recovered)
+    assert "Beside Jalen Johnson" in resolved
+    assert "from 2025-09-13 through 2026-09-12" in resolved
+    assert hints["excluded_player_ids"] == [1]
+    assert "assists per game" in resolved
+    prior["players"][0]["player_name"] = "Different Player"
+    client.post(
+        "/api/agent/ask",
+        json={
+            "question": question,
+            "conversation_id": "browser-chat",
+            "previous_context": prior,
+        },
+    )
+    assert store.get_turns("browser-chat", max_turns=10)[0].context == recovered
 
 
 def test_api_agent_ask_rejects_model_for_wrong_provider(caplog) -> None:

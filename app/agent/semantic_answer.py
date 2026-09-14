@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 from time import monotonic
 from typing import Any
 
+from app.agent.followup import analysis_context, resolve_followup
 from app.agent.history import saved_context_question
 from app.agent.performance_overview import (
     build_overview,
@@ -19,9 +21,150 @@ from app.agent.player_comparison import (
     comparison_scope,
     comparison_sides,
 )
-from app.agent.semantic_planner import execute_plan, plan_question
+from app.agent.semantic_planner import execute_plan, explicit_scope, plan_question
 from app.agent.semantic_serving import requested_seasons, source_players
-from app.agent.semantics import SemanticError
+from app.agent.semantics import Query, SemanticError, run_query
+
+
+def contextual_leader_plan(question, context, season):
+    """A supported contextual leaderboard has defaults, not missing parameters."""
+    resolved, hints = resolve_followup(question, context)
+    if len(hints.get("excluded_player_ids", [])) != 1 or not hints.get("assumption"):
+        return None
+    # Keep this route deliberately bounded: modifiers such as team, turnovers,
+    # per-minute rates or new time windows still use the general planner.
+    body = question.partition(",")[2].strip().rstrip("?. ")
+    match = re.fullmatch(
+        r"(?:who are\s+)?(?:the\s+|other\s+)*(?:top|leading)\s+(?:(\d+|few)\s+)?(?:playmaking leads|playmakers|playmaking leaders)",
+        body,
+        re.I,
+    )
+    scope = explicit_scope(resolved)
+    if not match or scope.get("window") != "date_range":
+        return None
+    limit = int(match[1]) if match[1] and match[1].isdigit() else 5
+    if not 1 <= limit <= 100:
+        return None
+    if "season_type" not in scope:
+        scope["season_type"] = (
+            "Playoffs" if re.search(r"playoffs?", resolved, re.I) else "Regular Season"
+        )
+    return {
+        "status": "query",
+        "model_calls": 0,
+        "message": "Top playmakers by assists per game, with the prior player as reference.",
+        "queries": [
+            {
+                "metric": "ast",
+                "season": season,
+                "aggregation": "average",
+                "operation": "rank",
+                "player_name": None,
+                "limit": limit,
+                **scope,
+            }
+        ],
+    }
+
+
+def normalize_reference_plan(plan, reference_ids, players):
+    """Collapse only equivalent leaderboards or a same-scope contextual summary."""
+    if plan.get("status") != "compare" or len(reference_ids) != 1:
+        return plan
+    queries = plan.get("queries", [])
+    ranks = [q for q in queries if q.get("operation") == "rank"]
+    if len(queries) != 2 or not ranks:
+        return plan
+    rank = ranks[0]
+    names = {
+        p["player_name"].casefold() for p in players if p["player_id"] in reference_ids
+    } | {f"resolved_player_{reference_ids[0]}"}
+    ignored = {"operation", "player_name", "limit"}
+    for query in queries:
+        if query.get("operation") not in {"rank", "summary"}:
+            return plan
+        if query.get("player_name") and query["player_name"].casefold() not in names:
+            return plan
+        if query.get("operation") == "summary" and not query.get("player_name"):
+            return plan
+        if {k: v for k, v in query.items() if k not in ignored} != {
+            k: v for k, v in rank.items() if k not in ignored
+        }:
+            return plan
+    return {**plan, "status": "query", "queries": [dict(rank)]}
+
+
+def add_leaderboard_reference(payload, result, evidence, players, player_id):
+    """Compare leaderboard values with one player under precisely the same scope."""
+    query = Query(**result["resolved_queries"][0])
+    reference = run_query(
+        evidence,
+        replace(
+            query, operation="summary", player_id=player_id, excluded_player_ids=None
+        ),
+    )
+    payload["reference_evidence"] = reference
+    row = next(iter(reference["rows"]), None)
+    name = next(p["player_name"] for p in players if p["player_id"] == player_id)
+    payload["reference_player"] = {
+        "player": {"player_id": player_id, "player_name": name}
+    }
+    if not row or not row["eligible"]:
+        payload["answer"] += (
+            f"\n\n{name} has insufficient eligible data in this scope; gaps are unavailable."
+        )
+        return
+    metric = reference["metric"]
+    unit = (
+        "assists per game"
+        if query.metric == "ast" and query.aggregation == "average"
+        else metric["label"]
+    )
+    value = row["display_value"]
+    scope = reference["scope"]
+    lines = [
+        f"{name}: {value:.1f} {unit}, league rank {row['rank']} among {reference['cohort']['size']} eligible players ({row['valid_games']} games).",
+        f"Same scope: {scope.get('start_date') or scope.get('window_start') or query.season} through {scope['as_of']}, {scope['season_type']}.",
+    ]
+    names = {p["player_id"]: p["player_name"] for p in players}
+    table = payload["tables"][0]
+    table["title"] = f"Other leaders — {unit}; gaps relative to {name}"
+    table["columns"][1]["label"] = unit.capitalize()
+    table["columns"].append({"key": "gap", "label": f"Gap vs {name}"})
+    for index, leader in enumerate(result["evidence"]["rows"]):
+        gap = (leader["value"] - row["value"]) * (
+            100 if metric["unit"] == "ratio" else 1
+        )
+        table["rows"][index].append(f"{gap:+.1f}")
+        if index < 5:
+            relation = "ahead of" if gap > 0 else "behind" if gap < 0 else "level with"
+            lines.append(
+                f"{names[leader['player_id']]}: {leader['display_value']:.1f} {unit} — "
+                + (
+                    f"{abs(gap):.1f} {relation} {name}."
+                    if gap
+                    else f"{relation} {name}."
+                )
+            )
+    table["reference_row_index"] = len(table["rows"])
+    table["rows"].append(
+        [
+            name,
+            f"{value:.1f}",
+            str(row["observed_games"]),
+            str(row["valid_games"]),
+            str(row["rank"]),
+            "Unavailable" if row["percentile"] is None else f"{row['percentile']:.1f}",
+            "0.0",
+        ]
+    )
+    lines.append(
+        "Assists measure recorded creation, not complete playmaking impact; minutes, turnovers and shooting outcomes can affect the comparison."
+    )
+    payload["assumptions"].append(
+        "Gaps use unrounded averages; displayed rounded values may differ by 0.1."
+    )
+    payload["answer"] = "\n\n".join(lines)
 
 
 def _payload(message: str, status: str) -> dict[str, Any]:
@@ -84,7 +227,7 @@ def render_answer(
             + (f" / ({metric['denominator']})" if metric["denominator"] else ""),
             "unit": metric["unit"],
         }
-        context = f"{scope['season']} {scope['season_type']}; {scope['window']}; as of {scope['as_of']}"
+        context = f"{', '.join(scope.get('seasons') or [scope['season']])} {scope['season_type']}; {scope['window']}; as of {scope['as_of']}"
         if scope["window"] == "last_n_months":
             statements.append(
                 f"Past {scope['n']} calendar months: {scope['window_start']} through "
@@ -286,6 +429,21 @@ class SemanticAsk:
         original = question
         store = self.store if conversation_id else None
         pending = store.get_pending_clarification(conversation_id) if store else None
+        turns = (
+            store.get_turns(
+                conversation_id, max_turns=self.settings.agent_conversation_max_turns
+            )
+            if store
+            else []
+        )
+        context: dict[str, Any] = next(
+            (turn.context for turn in reversed(turns) if turn.context), {}
+        )
+        leader_plan = contextual_leader_plan(original, context, self.settings.season)
+        if leader_plan:
+            # A fully restated supported request supersedes an earlier mistaken
+            # request for a count; do not feed that clarification back in.
+            pending = None
         if pending and not selected_player and comparison_sides(question):
             # A fully restated comparison replaces a scope clarification rather
             # than remaining trapped behind the unsupported original scope.
@@ -295,12 +453,12 @@ class SemanticAsk:
                 question = pending.question
             else:
                 question = f"{pending.question}\nClarification: {question}"
-        elif store:
-            turns = store.get_turns(conversation_id, max_turns=1)
+        elif store and not context:
             if turns and re.search(
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
             ):
                 question = f"Previous question: {turns[-1].question}\nCurrent question: {question}"
+        question, inherited = resolve_followup(question, context)
         if selected_player:
             question += f"\nSelected player: {selected_player.get('player_name', '')}"
         if progress_callback:
@@ -326,12 +484,26 @@ class SemanticAsk:
                 if overview
                 else requested_seasons(question, self.settings.season)
             )
+            if inherited.get("seasons") and not overview:
+                seasons = [s for s in inherited["seasons"] if s]
             snapshot, evidence = self.warehouse.load(seasons)
             players = (
                 self.warehouse.players(evidence)
                 if hasattr(self.warehouse, "players")
                 else source_players(evidence)
             )
+            if context.get("browser_recovered") and any(
+                not any(
+                    p["player_id"] == hint["player_id"]
+                    and p["player_name"].casefold() == hint["player_name"].casefold()
+                    for p in players
+                )
+                for hint in context.get("players", [])
+            ):
+                raise SemanticError(
+                    "unsupported_coverage",
+                    "Saved player context does not match this source. Please restate the full player name and dates.",
+                )
             if pending and not selected_player and not overview:
                 resolved = resolve_overview_player(question, players, evidence.rows)
                 if len(resolved) == 1:
@@ -387,7 +559,7 @@ class SemanticAsk:
                 }
                 result = {"status": payload["status"]}
             else:
-                plan = plan_question(
+                plan = leader_plan or plan_question(
                     client,
                     model=model,
                     question=question,
@@ -396,6 +568,7 @@ class SemanticAsk:
                     else self.settings.season,
                     usage_callback=trace.add_usage if trace else None,
                     players=players,
+                    conversation_context=context,
                     teams=sorted(
                         {
                             r[k]
@@ -405,8 +578,38 @@ class SemanticAsk:
                         }
                     ),
                 )
+                plan = normalize_reference_plan(
+                    plan, inherited.get("excluded_player_ids", []), players
+                )
+                for query in plan.get("queries", []):
+                    if inherited.get("seasons") and query.get("window") == "date_range":
+                        query["seasons"] = seasons
+                    if inherited.get("excluded_player_ids"):
+                        if query.get("operation") != "rank":
+                            raise SemanticError(
+                                "clarification_required",
+                                "Should I rank other players, excluding the player discussed above?",
+                            )
+                        query["player_name"] = None
+                        query["excluded_player_ids"] = inherited["excluded_player_ids"]
                 result = execute_plan(plan, evidence, players)
                 payload = render_answer(result, players)
+                if (
+                    payload["status"] == "ok"
+                    and len(inherited.get("excluded_player_ids", [])) == 1
+                ):
+                    add_leaderboard_reference(
+                        payload,
+                        result,
+                        evidence,
+                        players,
+                        inherited["excluded_player_ids"][0],
+                    )
+                if inherited.get("assumption") and payload["status"] == "ok":
+                    payload["assumptions"].append(inherited["assumption"])
+                    payload["answer"] = (
+                        inherited["assumption"] + "\n\n" + payload["answer"]
+                    )
                 if payload.get("player_profile"):
                     player = payload["player_profile"]["player"]
                     payload["player_profile"] = identity_profile(player, evidence.rows)
@@ -480,10 +683,15 @@ class SemanticAsk:
                 )
             else:
                 store.clear_pending_clarification(conversation_id)
-            store.append_turn(
-                conversation_id,
-                question=saved_context_question(original, payload),
-                answer=payload["answer"],
-                max_turns=self.settings.agent_conversation_max_turns,
-            )
+            if payload["status"] == "ok":
+                next_context = analysis_context(original, payload)
+                if not next_context.get("players"):
+                    next_context["players"] = context.get("players", [])
+                store.append_turn(
+                    conversation_id,
+                    question=saved_context_question(original, payload),
+                    answer=payload["answer"],
+                    max_turns=self.settings.agent_conversation_max_turns,
+                    context=next_context,
+                )
         return payload

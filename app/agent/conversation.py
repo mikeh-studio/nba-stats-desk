@@ -9,6 +9,7 @@ from typing import Any, Protocol
 class ConversationTurn:
     question: str
     answer: str
+    context: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,7 @@ class ConversationStore(Protocol):
         question: str,
         answer: str,
         max_turns: int,
+        context: dict[str, Any] | None = None,
     ) -> None: ...
 
     def get_pending_clarification(
@@ -93,12 +95,17 @@ class InMemoryConversationStore:
         question: str,
         answer: str,
         max_turns: int,
+        context: dict[str, Any] | None = None,
     ) -> None:
         if not conversation_id or max_turns <= 0:
             return
         with self._lock:
             state = self._touch_locked(conversation_id)
-            state.turns.append(ConversationTurn(question=question, answer=answer))
+            state.turns.append(
+                ConversationTurn(
+                    question=question, answer=answer, context=context or {}
+                )
+            )
             del state.turns[:-max_turns]
 
     def get_pending_clarification(

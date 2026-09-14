@@ -1,4 +1,7 @@
 /* An editorial brief, with browser-like navigation above the document. */
+.ask-desk .data-table .reference-player-row td {
+  color: #ff7968;
+}
 body:has(.ask-desk) {
   --accent: #ff452d;
   --accent-hot: #ff6253;
@@ -316,7 +319,7 @@ body:has(.ask-desk) .publication-health {
   color: var(--ink);
 }
 .agent-turn-question {
-  display: none;
+  display: block;
 }
 .percentile-cell {
   display: flex;
@@ -729,4 +732,38 @@ body:has(.ask-desk) .publication-health {
     margin-left: 118px;
     margin-right: 83px;
   }
+}
+.ask-desk [data-thinking="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.6em;
+  vertical-align: -0.1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ask-thinking 0.9s linear infinite;
+}
+.ask-desk .button[data-thinking="true"] {
+  opacity: 0.85;
+  cursor: wait;
+}
+@keyframes ask-thinking {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-desk [data-thinking="true"]::before {
+    animation: none;
+  }
+}
+.agent-turn + .agent-turn {
+  margin-top: 3rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--line);
+}
+.agent-turn {
+  scroll-margin-top: 1.5rem;
 }

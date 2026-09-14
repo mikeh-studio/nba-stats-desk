@@ -28,6 +28,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.agent.conversation import get_conversation_store
+from app.agent.followup import analysis_context
 from app.agent.history import (
     append_history_turn,
     clear_history,
@@ -63,7 +64,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260913-review-fixes-v1"
+STATIC_VERSION = "20260913-reference-text-v2"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -101,11 +102,34 @@ class CacheControlledStaticFiles(StaticFiles):
         return response
 
 
+class PriorPlayer(BaseModel):
+    player_id: int = Field(ge=1)
+    player_name: str = Field(min_length=1, max_length=80)
+
+
+class PriorScope(BaseModel):
+    start: date | None = None
+    end: date | None = None
+    phases: list[Literal["Regular Season", "Playoffs", "Both"]] = Field(
+        default_factory=list, max_length=2
+    )
+
+
+class PriorAnalysis(BaseModel):
+    question: str = Field(min_length=1, max_length=4000)
+    players: list[PriorPlayer] = Field(default_factory=list, max_length=2)
+    scope: PriorScope = Field(default_factory=PriorScope)
+    metrics: list[Literal["pts", "reb", "ast", "stl", "blk"]] = Field(
+        default_factory=list, max_length=5
+    )
+
+
 class AgentAskRequest(BaseModel):
     # Question length policy lives in _validate_agent_question so every
     # violation gets the same 400 with a readable detail message.
     question: str
     conversation_id: str | None = Field(default=None, max_length=80)
+    previous_context: PriorAnalysis | None = None
     # Set when the user clicks a clarification option; the agent resumes the
     # pending question with this player pinned instead of re-resolving.
     selected_player_id: int | None = Field(default=None, ge=1)
@@ -488,7 +512,8 @@ def _prepare_agent_request(
             limit=1,
         ).get("conversations", [])
         if saved:
-            for turn in saved[0]["turns"][-settings.agent_conversation_max_turns :]:
+            recovered_context: dict[str, Any] = {}
+            for turn in saved[0]["turns"]:
                 stored_payload = turn["payload"]
                 if stored_payload.get("status") == "clarification_required":
                     store.set_pending_clarification(
@@ -497,7 +522,11 @@ def _prepare_agent_request(
                         or turn["question"],
                         query_plan=stored_payload.get("semantic_plan"),
                     )
-                else:
+                elif stored_payload.get("status") == "ok":
+                    next_context = analysis_context(turn["question"], stored_payload)
+                    if not next_context.get("players"):
+                        next_context["players"] = recovered_context.get("players", [])
+                    recovered_context = next_context
                     store.clear_pending_clarification(conversation_id)
                     store.append_turn(
                         conversation_id,
@@ -506,7 +535,53 @@ def _prepare_agent_request(
                         ),
                         answer=str(stored_payload.get("answer", "")),
                         max_turns=settings.agent_conversation_max_turns,
+                        context=recovered_context,
                     )
+    # Older chats exist only in browser storage. Recover bounded conversational
+    # hints, never cached numbers, and never overwrite successful server state.
+    if (
+        payload.conversation_id
+        and payload.previous_context
+        and not any(
+            turn.context
+            for turn in store.get_turns(
+                conversation_id, max_turns=settings.agent_conversation_max_turns
+            )
+        )
+    ):
+        context = payload.previous_context.model_dump(mode="json", exclude_none=True)
+        context["browser_recovered"] = True
+        if not payload.selected_player_name:
+            store.clear_pending_clarification(conversation_id)
+        store.append_turn(
+            conversation_id,
+            question=context["question"],
+            answer="",
+            context=context,
+            max_turns=settings.agent_conversation_max_turns,
+        )
+    # A legacy saved leaderboard may have scope but no reference identity.
+    # Fill only that missing identity; keep the server's dates and metric scope.
+    turns = store.get_turns(conversation_id, max_turns=1)
+    if (
+        turns
+        and turns[0].context
+        and not turns[0].context.get("players")
+        and payload.previous_context
+        and payload.previous_context.players
+    ):
+        context = {
+            **turns[0].context,
+            "players": [p.model_dump() for p in payload.previous_context.players],
+            "browser_recovered": True,
+        }
+        store.append_turn(
+            conversation_id,
+            question=turns[0].question,
+            answer=turns[0].answer,
+            context=context,
+            max_turns=settings.agent_conversation_max_turns,
+        )
     return request_id, conversation_id, question, trace
 
 

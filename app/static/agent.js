@@ -320,6 +320,34 @@ function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function referenceTable(table, payload) {
+  const row = payload.reference_evidence?.rows?.[0];
+  const name = payload.reference_player?.player?.player_name;
+  if (
+    Number.isInteger(table.reference_row_index) ||
+    !row?.eligible ||
+    !name ||
+    !asArray(table.columns).some((column) => column.key === "gap")
+  )
+    return table;
+  return {
+    ...table,
+    reference_row_index: asArray(table.rows).length,
+    rows: [
+      ...asArray(table.rows),
+      [
+        name,
+        row.display_value.toFixed(1),
+        String(row.observed_games),
+        String(row.valid_games),
+        String(row.rank),
+        row.percentile == null ? "Unavailable" : row.percentile.toFixed(1),
+        "0.0",
+      ],
+    ],
+  };
+}
+
 function renderTable(table) {
   const columns = asArray(table.columns);
   const rows = asArray(table.rows);
@@ -334,8 +362,10 @@ function renderTable(table) {
           <tbody>
             ${rows
               .map(
-                (row) =>
-                  `<tr>${asArray(row)
+                (row, index) =>
+                  `<tr${index === table.reference_row_index ? ' class="reference-player-row"' : ""}>${asArray(
+                    row,
+                  )
                     .map((value) => `<td>${escHtml(value)}</td>`)
                     .join("")}</tr>`,
               )
@@ -747,19 +777,27 @@ function startTurn(label) {
   if (!thread || !empty) return null;
   empty.hidden = true;
   thread.hidden = false;
-  thread.innerHTML = "";
   viewedTurn = -1;
+  thread.querySelectorAll("[data-agent-player-option]").forEach((button) => {
+    button.disabled = true;
+  });
   const turn = document.createElement("article");
   turn.className = "agent-turn";
+  turn.tabIndex = -1;
   turn.innerHTML = `
     <div class="agent-turn-question">${escHtml(label)}</div>
-    <div class="agent-turn-answer"><span class="meta">Working&hellip;</span></div>
+    <div data-agent-profile></div>
+    <div class="agent-turn-answer"><span class="meta" data-thinking="true" role="status">Thinking…</span></div>
+    ${turnEvidenceMarkup()}
   `;
   thread.appendChild(turn);
   currentAnswerEl = turn.querySelector(".agent-turn-answer");
-  resetAuxiliaryPanels();
   // Keep the document anchored while streaming; don't jump to the composer.
   return turn;
+}
+
+function turnEvidenceMarkup() {
+  return `<details class="methodology" data-methodology hidden><summary>Methodology &amp; data</summary><div data-agent-context></div></details><section class="evidence-section" data-agent-table-card hidden><h2 data-table-heading>Key metrics</h2><div data-agent-tables></div></section><section class="evidence-section" data-agent-chart-card hidden><div data-agent-charts></div></section>`;
 }
 
 function resetAuxiliaryPanels(message = "Working&hellip;") {
@@ -819,25 +857,11 @@ function bindClarifyOptions(root) {
 }
 
 function renderPayload(payload) {
-  const tableCard = document.querySelector("[data-agent-table-card]");
-  const tableEl = document.querySelector("[data-agent-tables]");
-  const chartCard = document.querySelector("[data-agent-chart-card]");
-  const chartEl = document.querySelector("[data-agent-charts]");
-  const contextEl = document.querySelector("[data-agent-context]");
   if (!currentAnswerEl) startTurn(lastQuestion || "Question");
-  if (
-    !currentAnswerEl ||
-    !tableCard ||
-    !tableEl ||
-    !chartCard ||
-    !chartEl ||
-    !contextEl
-  ) {
-    return;
-  }
+  if (!currentAnswerEl) return;
 
   renderAnswerPayload(payload, currentAnswerEl);
-  renderAuxiliaryPayload(payload);
+  renderAuxiliaryPayload(payload, currentAnswerEl.parentElement || document);
 }
 
 function renderAnswerPayload(payload, targetEl) {
@@ -854,17 +878,21 @@ function renderAnswerPayload(payload, targetEl) {
   bindClarifyOptions(targetEl);
 }
 
-function renderAuxiliaryPayload(payload) {
+function renderAuxiliaryPayload(
+  payload,
+  root = document,
+  updateComposer = true,
+) {
   viewedPayload = payload;
-  const tableCard = document.querySelector("[data-agent-table-card]");
-  const tableEl = document.querySelector("[data-agent-tables]");
-  const chartCard = document.querySelector("[data-agent-chart-card]");
-  const chartEl = document.querySelector("[data-agent-charts]");
-  const contextEl = document.querySelector("[data-agent-context]");
+  const tableCard = root.querySelector("[data-agent-table-card]");
+  const tableEl = root.querySelector("[data-agent-tables]");
+  const chartCard = root.querySelector("[data-agent-chart-card]");
+  const chartEl = root.querySelector("[data-agent-charts]");
+  const contextEl = root.querySelector("[data-agent-context]");
   if (!tableCard || !tableEl || !chartCard || !chartEl || !contextEl) return;
   const tables = asArray(payload.tables);
   const comparison = comparisonPresentation(payload);
-  const tableHeading = document.querySelector("[data-table-heading]");
+  const tableHeading = root.querySelector("[data-table-heading]");
   if (tableHeading)
     tableHeading.textContent = comparison ? "Player comparison" : "Key metrics";
   if (comparison) {
@@ -886,11 +914,12 @@ function renderAuxiliaryPayload(payload) {
     };
     paint(comparison.preferred_metric || "pts");
     contextEl.innerHTML = renderContext({ ...payload, followups: [] });
-    const profile = document.querySelector("[data-agent-profile]");
+    const profile = root.querySelector("[data-agent-profile]");
     if (profile)
       profile.innerHTML = comparisonProfiles(comparison, renderPlayerProfile);
-    const methodology = document.querySelector("[data-methodology]");
+    const methodology = root.querySelector("[data-methodology]");
     if (methodology) methodology.hidden = false;
+    if (!updateComposer) return;
     const followup = document.querySelector("[data-followup-section]");
     if (followup) followup.hidden = false;
     const heading = document.querySelector("[data-followup-heading]");
@@ -915,12 +944,14 @@ function renderAuxiliaryPayload(payload) {
   tableCard.hidden = tables.length === 0;
   tableEl.innerHTML = overview
     ? renderOverviewTable(overview)
-    : tables.map(renderTable).join("");
+    : tables
+        .map((table) => renderTable(referenceTable(table, payload)))
+        .join("");
 
   const charts = asArray(payload.charts);
   chartCard.hidden = charts.length === 0;
   if (overview && charts.length)
-    renderOverviewCharts(payload, overview.preferredMetric);
+    renderOverviewCharts(payload, overview.preferredMetric, root);
   else chartEl.innerHTML = charts.map(renderChart).join("");
 
   contextEl.innerHTML = renderContext({
@@ -928,7 +959,7 @@ function renderAuxiliaryPayload(payload) {
     player_profile: null,
     followups: [],
   });
-  const profile = document.querySelector("[data-agent-profile]");
+  const profile = root.querySelector("[data-agent-profile]");
   if (profile)
     profile.innerHTML = renderPlayerProfile(
       payload.player_profile
@@ -940,8 +971,9 @@ function renderAuxiliaryPayload(payload) {
           }
         : null,
     );
-  const methodology = document.querySelector("[data-methodology]");
+  const methodology = root.querySelector("[data-methodology]");
   if (methodology) methodology.hidden = false;
+  if (!updateComposer) return;
   const followup = document.querySelector("[data-followup-section]");
   if (followup) followup.hidden = false;
   const heading = document.querySelector("[data-followup-heading]");
@@ -979,10 +1011,10 @@ function renderOverviewTable(overview) {
   return `<p class="metric-comparison">Versus ${escHtml(overview.comparison)}</p><div class="table-scroll"><table class="overview-table"><caption class="sr-only">Per-game averages, league percentiles and change versus ${escHtml(overview.comparison)}</caption><thead><tr><th scope="col">Stat</th><th scope="col">Per game</th><th scope="col">League percentile</th><th scope="col">Change</th></tr></thead><tbody>${overview.metrics.map((m) => `<tr><th scope="row">${escHtml(m.label)}</th><td>${number(m.value)}</td><td>${Number.isFinite(m.percentile) ? `<div class="percentile-cell"><meter min="0" max="100" value="${Math.round(Math.max(0, Math.min(100, m.percentile)))}" aria-label="${escHtml(m.label)} league percentile">${ordinal(m.percentile)}</meter><span>${ordinal(m.percentile)}</span></div>` : "Unavailable"}</td><td class="${m.change > 0 ? "change-up" : m.change < 0 ? "change-down" : ""}">${Number.isFinite(m.change) ? `${m.change > 0 ? "+" : ""}${number(m.change)}` : "Unavailable"}</td></tr>`).join("")}</tbody></table></div><p class="metric-footnote">${coverage} · minimum ${overview.minGames} complete games per metric · same dates and phases.</p>`;
 }
 
-function renderOverviewCharts(payload, key) {
+function renderOverviewCharts(payload, key, root = document) {
   const charts = asArray(payload.charts);
   const chart = charts.find((c) => c.series?.[0]?.key === key) || charts[0];
-  const el = document.querySelector("[data-agent-charts]");
+  const el = root.querySelector("[data-agent-charts]");
   if (!chart || !el) return;
   const metric = payload.semantic_evidence.metrics.find(
     (m) => m.key === chart.series[0].key,
@@ -990,8 +1022,8 @@ function renderOverviewCharts(payload, key) {
   el.innerHTML = `<div class="chart-header"><div><h2>Monthly ${escHtml(metric.label.toLowerCase())}</h2><p class="meta">${escHtml(metric.label)} per game · months with appearances</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(c.series[0].key.toUpperCase())}</button>`).join("")}</div></div><div class="agent-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for sample size. Months without appearances are omitted; lines do not imply games were played between observations.</p>`;
   el.querySelectorAll("[data-chart-key]").forEach((button) =>
     button.addEventListener("click", () => {
-      renderOverviewCharts(payload, button.dataset.chartKey);
-      document
+      renderOverviewCharts(payload, button.dataset.chartKey, root);
+      root
         .querySelector(`[data-chart-key="${button.dataset.chartKey}"]`)
         ?.focus();
     }),
@@ -1302,11 +1334,22 @@ function appendRestoredTurn(turn, isLatest) {
   article.dataset.historyRequestId = turn.request_id;
   article.innerHTML = `
     <div class="agent-turn-question">${escHtml(turn.question)}</div>
+    <div data-agent-profile></div>
     <div class="agent-turn-answer"></div>
+    ${turnEvidenceMarkup()}
   `;
   const answerEl = article.querySelector(".agent-turn-answer");
   renderAnswerPayload(turn.payload, answerEl);
   thread.appendChild(article);
+  renderAuxiliaryPayload(
+    turn.payload,
+    answerEl?.parentElement || document,
+    isLatest,
+  );
+  if (!isLatest)
+    article.querySelectorAll("[data-agent-player-option]").forEach((button) => {
+      button.disabled = true;
+    });
   if (isLatest) currentAnswerEl = answerEl;
   return article;
 }
@@ -1348,10 +1391,9 @@ async function restoreConversation(conversationId) {
   empty.hidden = true;
   thread.hidden = false;
   viewedTurn = conversation.turns.length - 1;
-  const turn = conversation.turns[viewedTurn];
-  if (turn) appendRestoredTurn(turn, true);
-  const latest = conversation.turns[conversation.turns.length - 1];
-  if (latest) renderAuxiliaryPayload(latest.payload);
+  conversation.turns.forEach((turn, index) =>
+    appendRestoredTurn(turn, index === viewedTurn),
+  );
   if (statusEl) statusEl.textContent = "Restored";
   if (statusEl) statusEl.hidden = true;
   tabState = openTab(tabState, conversationId);
@@ -1501,19 +1543,9 @@ function renderTurnNavigation() {
     if (askInFlight) return;
     viewedTurn = Number(event.target.value);
     const thread = document.querySelector("[data-agent-answer]");
-    thread.innerHTML = "";
-    const turn = chat.turns[viewedTurn];
-    appendRestoredTurn(turn, true);
-    renderAuxiliaryPayload(turn.payload);
-    if (viewedTurn !== chat.turns.length - 1)
-      thread.querySelectorAll("[data-agent-player-option]").forEach((b) => {
-        b.disabled = true;
-      });
-    // Composer scope is the latest turn, not an older answer being inspected.
-    const context = document.querySelector("[data-followup-context]");
-    if (viewedTurn !== chat.turns.length - 1 && context)
-      context.textContent =
-        "Reviewing an older answer. Follow-ups continue the latest question in this chat; include explicit dates to change scope.";
+    const turn = thread.children[viewedTurn];
+    turn?.scrollIntoView({ block: "start" });
+    turn?.focus({ preventScroll: true });
   });
 }
 
@@ -1671,6 +1703,43 @@ function buildAskBody(question, selection) {
     provider: selectedProvider(),
     model: selectedModel(),
   };
+  const conversation = historyState.conversations.find(
+    (item) => item.id === activeConversationId,
+  );
+  const previous = [...(conversation?.turns || [])]
+    .reverse()
+    .find((turn) => turn.payload?.status === "ok");
+  if (previous) {
+    const payload = previous.payload;
+    const evidence = payload.semantic_evidence || {};
+    const scope = evidence.scope || {};
+    const profiles = payload.player_profiles || [
+      payload.player_profile || payload.reference_player,
+    ];
+    body.previous_context = {
+      question: previous.question.slice(0, 4000),
+      players: profiles
+        .filter((p) => p?.player?.player_id && p.player.player_name)
+        .slice(0, 2)
+        .map((p) => ({
+          player_id: p.player.player_id,
+          player_name: p.player.player_name.slice(0, 80),
+        })),
+      scope: {
+        start: scope.start || scope.start_date || null,
+        end: scope.end || scope.as_of || null,
+        phases: (scope.phases || (scope.season_type ? [scope.season_type] : []))
+          .filter((phase) =>
+            ["Regular Season", "Playoffs", "Both"].includes(phase),
+          )
+          .slice(0, 2),
+      },
+      metrics: (evidence.metrics || [evidence.metric])
+        .map((m) => m?.key)
+        .filter((key) => ["pts", "reb", "ast", "stl", "blk"].includes(key))
+        .slice(0, 5),
+    };
+  }
   if (selection && selection.playerName) {
     body.selected_player_id = selection.playerId || null;
     body.selected_player_name = selection.playerName;
@@ -1830,9 +1899,21 @@ async function askQuestion(question, selection = null) {
 }
 
 function setBusy(busy) {
+  for (const [selector, label] of [
+    ["[data-agent-submit]", "Ask"],
+    ["[data-followup-submit]", "Ask follow-up"],
+  ]) {
+    const button = document.querySelector(selector);
+    if (button) {
+      button.textContent = busy ? "Thinking…" : label;
+      button.dataset.thinking = String(busy);
+    }
+  }
+  const status = document.querySelector("[data-agent-status]");
+  if (status) status.dataset.thinking = String(busy);
   document
     .querySelectorAll(
-      "[data-chat-tabs] button, [data-chat-more], [data-agent-new-chat], [data-followup-submit], [data-agent-submit], [data-agent-provider], [data-agent-model], [data-season-selector], [data-agent-player-option], #chat-turn",
+      "[data-chat-tabs] button, [data-chat-more], [data-agent-new-chat], [data-followup-submit], [data-agent-submit], [data-agent-provider], [data-agent-model], [data-season-selector], #chat-turn",
     )
     .forEach((el) => {
       el.disabled = busy;
@@ -1890,6 +1971,11 @@ function initAgentPage() {
 
 if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
   globalThis.__askAgentTest = {
+    referenceTable,
+    renderTable,
+    buildAskBody,
+    startTurn,
+    setBusy,
     renderLineChart,
     normalizeAnswerMarkdown,
     renderAnswerMarkdown,

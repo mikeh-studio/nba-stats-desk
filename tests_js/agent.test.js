@@ -129,6 +129,24 @@ async function loadAgentModule({
   return globalThis.__askAgentTest;
 }
 
+test("reference row supports text-only emphasis without changing the league rank", async () => {
+  const agent = await loadAgentModule();
+  const html = agent.renderTable({
+    columns: [{ key: "player" }, { key: "rank" }],
+    rows: [
+      ["Leader", "1"],
+      ["Jalen Johnson", "8"],
+    ],
+    reference_row_index: 1,
+  });
+  assert.equal((html.match(/class="reference-player-row"/g) || []).length, 1);
+  assert.match(
+    html,
+    /Jalen Johnson<\/td><td>8<\/td>/,
+  );
+  assert.doesNotMatch(html, /reference-player-label/);
+});
+
 test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure", async () => {
   const agent = await loadAgentModule();
 
@@ -276,7 +294,19 @@ test("restoring a conversation paints the latest saved turn without rerunning it
             question: "Old question",
             timestamp: "2026-06-19T00:00:00Z",
             payload: {
+              status: "ok",
               answer: "Old answer",
+              player_profile: {
+                player: { player_id: 1, player_name: "Jalen Johnson" },
+              },
+              semantic_evidence: {
+                metrics: [{ key: "ast" }],
+                scope: {
+                  start: "2025-09-13",
+                  end: "2026-09-12",
+                  phases: ["Regular Season"],
+                },
+              },
               tables: [{ title: "Old Table", columns: [], rows: [] }],
             },
           },
@@ -285,6 +315,7 @@ test("restoring a conversation paints the latest saved turn without rerunning it
             question: "New question",
             timestamp: "2026-06-19T00:01:00Z",
             payload: {
+              status: "clarification_required",
               answer: "New answer",
               tables: [{ title: "New Table", columns: [], rows: [] }],
             },
@@ -298,13 +329,61 @@ test("restoring a conversation paints the latest saved turn without rerunning it
 
   assert.equal(elements["[data-agent-empty]"].hidden, true);
   assert.equal(elements["[data-agent-answer]"].hidden, false);
-  assert.equal(elements["[data-agent-answer]"].children.length, 1);
+  assert.equal(elements["[data-agent-answer]"].children.length, 2);
   assert.equal(elements["[data-agent-status]"].textContent, "Restored");
   assert.match(elements["[data-agent-tables]"].innerHTML, /New Table/);
 
   elements["[data-agent-answer]"].children[0].dispatch("click");
   assert.match(elements["[data-agent-tables]"].innerHTML, /New Table/);
   assert.equal(agent.getNavigation().activeConversationId, "c-restore");
+  const body = agent.buildAskBody(
+    "Beside Johnson, who are the other the other top playmaking leads",
+  );
+  assert.equal(body.previous_context.question, "Old question");
+  assert.equal(body.previous_context.players[0].player_name, "Jalen Johnson");
+  assert.equal(body.previous_context.scope.start, "2025-09-13");
+  assert.equal(body.previous_context.metrics[0], "ast");
+  assert.equal(body.previous_context.answer, undefined);
+});
+
+test("starting a follow-up preserves previously completed response nodes", async () => {
+  const thread = new FakeElement();
+  const completed = new FakeElement();
+  completed.innerHTML = "Completed answer with evidence";
+  thread.appendChild(completed);
+  const agent = await loadAgentModule({
+    elements: {
+      "[data-agent-answer]": thread,
+      "[data-agent-empty]": new FakeElement(),
+    },
+  });
+  agent.startTurn("Follow-up question");
+  assert.equal(thread.children.length, 2);
+  assert.equal(thread.children[0], completed);
+  assert.equal(completed.innerHTML, "Completed answer with evidence");
+});
+
+test("thinking indicators start and reset for Ask and follow-ups", async () => {
+  const elements = Object.fromEntries(
+    [
+      "[data-agent-submit]",
+      "[data-followup-submit]",
+      "[data-agent-status]",
+    ].map((selector) => [selector, new FakeElement()]),
+  );
+  const agent = await loadAgentModule({ elements });
+  agent.setBusy(true);
+  for (const element of Object.values(elements)) {
+    assert.equal(element.dataset.thinking, "true");
+  }
+  assert.equal(elements["[data-agent-submit]"].textContent, "Thinking…");
+  assert.equal(elements["[data-followup-submit]"].textContent, "Thinking…");
+  agent.setBusy(false);
+  for (const element of Object.values(elements)) {
+    assert.equal(element.dataset.thinking, "false");
+  }
+  assert.equal(elements["[data-agent-submit]"].textContent, "Ask");
+  assert.equal(elements["[data-followup-submit]"].textContent, "Ask follow-up");
 });
 
 test("line charts keep negative and positive observations inside the plot", async () => {

@@ -209,8 +209,36 @@ class Query:
     min_attempts: int | None = None
     direction: str | None = None
     limit: int = 10
+    seasons: list[str] | None = None
+    excluded_player_ids: list[int] | None = None
 
     def validate(self, metric: Metric) -> None:
+        if self.seasons is not None:
+            if (
+                not isinstance(self.seasons, list)
+                or not self.seasons
+                or self.window != "date_range"
+            ):
+                raise SemanticError(
+                    "invalid_scope", "Multiple seasons require an explicit date range"
+                )
+            for season in self.seasons:
+                try:
+                    validate_season(season)
+                except ValueError as exc:
+                    raise SemanticError("unsupported_coverage", str(exc)) from exc
+        if self.excluded_player_ids is not None and (
+            self.operation != "rank"
+            or not isinstance(self.excluded_player_ids, list)
+            or any(
+                type(player) is not int or player < 1
+                for player in self.excluded_player_ids
+            )
+        ):
+            raise SemanticError(
+                "invalid_scope",
+                "Player exclusions require a ranking and valid identities",
+            )
         try:
             validate_season(self.season)
         except ValueError as exc:
@@ -357,7 +385,8 @@ def run_query(
     query.validate(metric)
     evidence.validate()
     phases = PHASES if query.season_type == "Both" else (query.season_type,)
-    scopes = [(query.season, phase) for phase in phases]
+    seasons = query.seasons or [query.season]
+    scopes = [(season, phase) for season in seasons for phase in phases]
     if any(
         s not in evidence.covered_scopes or s not in evidence.data_through
         for s in scopes
@@ -366,7 +395,7 @@ def run_query(
     scoped = [
         r
         for r in evidence.rows
-        if r["season"] == query.season and r["season_type"] in phases
+        if r["season"] in seasons and r["season_type"] in phases
     ]
     anchor = (
         _date(query.as_of)
@@ -407,7 +436,10 @@ def run_query(
         if observed > query.limit:
             warnings.append("display_limit_applied_latest_games")
         through = {
-            phase: evidence.data_through[(query.season, phase)] for phase in phases
+            (
+                phase if len(seasons) == 1 else f"{season} {phase}"
+            ): evidence.data_through[(season, phase)]
+            for season, phase in scopes
         }
         if any(anchor > _date(d) for d in through.values()):
             warnings.append("requested_as_of_exceeds_source_coverage")
@@ -517,8 +549,18 @@ def run_query(
     output.sort(
         key=lambda s: (s["rank"] if s["rank"] is not None else math.inf, s["player_id"])
     )
+    output = [
+        row
+        for row in output
+        if row["player_id"] not in (query.excluded_player_ids or [])
+    ]
     warnings = []
-    through = {phase: evidence.data_through[(query.season, phase)] for phase in phases}
+    through = {
+        (phase if len(seasons) == 1 else f"{season} {phase}"): evidence.data_through[
+            (season, phase)
+        ]
+        for season, phase in scopes
+    }
     if any(anchor > _date(d) for d in through.values()):
         warnings.append("requested_as_of_exceeds_source_coverage")
     return {

@@ -36,9 +36,26 @@ storage behavior. Follow-ups remain in their original conversation.
 More opens searchable local history. Search includes opening questions and
 follow-ups, and the local endpoint pages beyond the browser's recent cache.
 Opening a result restores the stored response payload without rerunning queries.
-The question selector lets users inspect earlier answers and their matching
-tables/charts. New follow-ups continue the latest turn, not an older inspected
-answer. Suggestions fill the follow-up composer without submitting.
+All questions and responses remain visible in chronological order, with each
+response owning its profile, methodology, tables, and interactive charts. The
+question selector jumps to an existing response without replacing content.
+Suggestions fill the bottom follow-up composer without submitting.
+
+## Follow-up context
+
+The last successful analysis supplies a bounded structured context: resolved
+identities, date/phase scope, metrics, and a short answer summary. Follow-ups
+receive that context without requiring pronoun keywords. Explicit new dates,
+phases, or full player names override inherited intent. Clarifications do not
+replace the last successful analysis. Prior prose is context, not fresh evidence.
+
+For an overview follow-up such as “besides Johnson, who are the other top
+playmaking leads?”, a unique contextual surname resolves to the prior player;
+the ranking excludes that identity and keeps the exact dates, including across
+supported seasons. Assists per game is the disclosed playmaking interpretation
+when the prior overview included assists and no alternative measure was given.
+Exclusions hide the named player before applying the result limit; ranks and
+percentiles still describe the full qualified league cohort.
 
 ## Persistence and boundaries
 
@@ -52,8 +69,11 @@ answer. Suggestions fill the follow-up composer without submitting.
   and exact `conversation_id` filtering. Local-access checks are unchanged.
 - A restarted server can rehydrate conversational context from that local file.
   Governed overview context uses the saved explicit dates, not a newly evaluated
-  relative window. Without the local file, browser-cached answers remain
-  reviewable, but conversational context recovery is not guaranteed.
+  relative window. Browser-only chats send bounded hints from the latest
+  successful response when server context is missing: question, player identity,
+  explicit dates, phases, and metric names, never cached statistics. Player IDs
+  and names are checked against the loaded source. Existing server context wins;
+  failed turns and review navigation do not replace the successful context.
 - This is local persistence, not authenticated multi-user or cloud-synced history.
   Tabs share browser-origin storage; simultaneous independent browser windows
   are not a collaborative editing surface.
