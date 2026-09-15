@@ -26,6 +26,7 @@ def test_dbt_injury_candidates_cannot_block_or_replace_successful_core(
 ):
     from google.cloud import bigquery
 
+    import dbt_builds
     import publication
 
     dag_bag = DagBag(
@@ -59,7 +60,7 @@ def test_dbt_injury_candidates_cannot_block_or_replace_successful_core(
             stderr="test failure",
         )
 
-    monkeypatch.setattr(scope["subprocess"], "run", run)
+    monkeypatch.setattr(dbt_builds.subprocess, "run", run)
     context = {
         "should_build": True,
         "core_warehouse_changed": True,
