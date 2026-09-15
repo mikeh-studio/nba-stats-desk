@@ -1,0 +1,37 @@
+[
+  {
+    "result": {},
+    "redshift_enabled": "false",
+    "details": "publication_status=success;stats_status=no_change;stats_source_date=;injuries_status=no_change;injuries_source_date=;similarity_source_date=;dbt_status=unknown;dbt_build_scope=unknown;similarity_status=deferred_non_blocking;similarity_player_count=0;similarity_archetype_count=0;similarity_error=;schedule_rows_loaded=0;line_score_rows_loaded=0;shot_location_rows_loaded=0;shot_location_rows_inserted=0;shot_location_rows_updated=0;player_reference_rows_loaded=0;injury_report_rows_loaded=0;injury_report_rows_inserted=0;injury_report_rows_updated=0;injury_report_rows_unchanged=0;injury_report_candidate_count=0;rows_unchanged=0;schedule_rows_unchanged=0;line_score_rows_unchanged=0;shot_location_rows_unchanged=0;player_reference_rows_unchanged=0;bronze_bootstrap={};redshift_status=false;source_contracts={};dq={};reconciliation={}"
+  },
+  {
+    "result": {
+      "dbt_status": "success",
+      "dbt_build_scope": "core",
+      "core_warehouse_changed": true,
+      "watermark_after": "2026-01-02",
+      "injury_status": "failed_non_blocking",
+      "injury_watermark_after": "2026-01-01",
+      "similarity_status": "success",
+      "similarity_player_count": 200,
+      "schedule_rows_loaded": 5,
+      "source_contract_results": {
+        "schedule": {
+          "status": "passed"
+        }
+      },
+      "dq_results": {
+        "game_logs": {
+          "valid": true
+        }
+      },
+      "reconciliation": {
+        "game_logs": {
+          "unchanged": 2
+        }
+      }
+    },
+    "redshift_enabled": "true",
+    "details": "publication_status=partially_updated;stats_status=success;stats_source_date=2026-01-02;injuries_status=failed_non_blocking;injuries_source_date=2026-01-01;similarity_source_date=2026-01-02;dbt_status=success;dbt_build_scope=core;similarity_status=success;similarity_player_count=200;similarity_archetype_count=0;similarity_error=;schedule_rows_loaded=5;line_score_rows_loaded=0;shot_location_rows_loaded=0;shot_location_rows_inserted=0;shot_location_rows_updated=0;player_reference_rows_loaded=0;injury_report_rows_loaded=0;injury_report_rows_inserted=0;injury_report_rows_updated=0;injury_report_rows_unchanged=0;injury_report_candidate_count=0;rows_unchanged=0;schedule_rows_unchanged=0;line_score_rows_unchanged=0;shot_location_rows_unchanged=0;player_reference_rows_unchanged=0;bronze_bootstrap={};redshift_status=true;source_contracts={'schedule': {'status': 'passed'}};dq={'game_logs': {'valid': True}};reconciliation={'game_logs': {'unchanged': 2}}"
+  }
+]
