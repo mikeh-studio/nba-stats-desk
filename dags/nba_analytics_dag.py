@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 import subprocess
 import uuid
 from datetime import datetime, timedelta
@@ -28,6 +27,12 @@ from nba_pipeline_triage import (
     write_pipeline_triage_on_success,
 )
 from optional_assets import optional_injury_stage, publication_details
+from source_landing import (
+    _safe_storage_token,
+    land_source_frame,
+    skipped_source_contract_result,
+)
+from warehouse_stages import check_staging, load_staging, merge_staging
 
 logger = logging.getLogger("nba_pipeline")
 SUPPORTED_SEASON = "2025-26"
@@ -87,160 +92,6 @@ def get_nba_api_request_config() -> dict:
         ),
         "retry_max_delay": get_float_config("NBA_API_RETRY_MAX_DELAY_SECONDS", "8.0"),
     }
-
-
-def _safe_storage_token(value: str) -> str:
-    """Make Airflow run IDs safe for object storage paths."""
-    return re.sub(r"[^A-Za-z0-9_.=-]+", "_", value).strip("_") or "unknown"
-
-
-def persist_source_extract_snapshot(
-    *,
-    contract_name: str,
-    frame,
-    project_id: str,
-    bucket_name: str,
-    season: str,
-    snapshot_type: str,
-) -> str:
-    """Persist pre-validation or quarantined extract rows to GCS."""
-    if frame.empty:
-        return ""
-
-    import pandas as pd
-    from airflow.operators.python import get_current_context
-
-    import nba_pipeline as pipeline
-
-    context = get_current_context()
-    run_id = _safe_storage_token(context["run_id"])
-    run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-    snapshot_id = uuid.uuid4().hex
-    blob_path = (
-        f"nba_data/{season}/source_audit/{snapshot_type}/"
-        f"source={contract_name}/run_id={run_id}/"
-        f"{run_stamp}_{snapshot_id}_{contract_name}.csv"
-    )
-    return pipeline.upload_df_to_gcs(
-        frame,
-        project_id,
-        bucket_name,
-        blob_path,
-        if_generation_match=0,
-    )
-
-
-def record_source_contract_audit(
-    *,
-    project_id: str,
-    metadata_dataset: str,
-    location: str,
-    result: dict,
-    raw_snapshot_uri: str = "",
-    quarantine_uri: str = "",
-    landing_uri: str = "",
-) -> dict:
-    """Persist a source contract result and return the enriched result payload."""
-    from airflow.operators.python import get_current_context
-    from google.cloud import bigquery as bq
-
-    import nba_pipeline as pipeline
-
-    context = get_current_context()
-    client = bq.Client(project=project_id)
-    pipeline.ensure_dataset(client, f"{project_id}.{metadata_dataset}", location)
-    result_table = f"{project_id}.{metadata_dataset}.source_contract_results"
-    pipeline.create_source_contract_metadata_tables(client, result_table)
-
-    enriched = dict(result)
-    enriched["raw_snapshot_uri"] = raw_snapshot_uri
-    enriched["quarantine_uri"] = quarantine_uri
-    enriched["landing_uri"] = landing_uri
-    record = pipeline.build_source_contract_result_record(
-        dag_run_id=context["run_id"],
-        result=enriched,
-        raw_snapshot_uri=raw_snapshot_uri,
-        quarantine_uri=quarantine_uri,
-        landing_uri=landing_uri,
-    )
-    pipeline.record_source_contract_result(client, result_table, record)
-    return enriched
-
-
-def validate_source_contract_frame(
-    contract_name: str,
-    frame,
-    *,
-    project_id: str,
-    metadata_dataset: str,
-    location: str,
-    bucket_name: str,
-    season: str,
-    raw_snapshot_uri: str,
-):
-    """Validate and optionally quarantine rows before GCS landing."""
-    from airflow.exceptions import AirflowFailException
-
-    import nba_source_contracts as source_contracts
-
-    try:
-        validation = source_contracts.validate_source_contract(contract_name, frame)
-    except source_contracts.SourceContractError as exc:
-        quarantine_uri = persist_source_extract_snapshot(
-            contract_name=contract_name,
-            frame=exc.quarantine_frame,
-            project_id=project_id,
-            bucket_name=bucket_name,
-            season=season,
-            snapshot_type="quarantine",
-        )
-        record_source_contract_audit(
-            project_id=project_id,
-            metadata_dataset=metadata_dataset,
-            location=location,
-            result=exc.result,
-            raw_snapshot_uri=raw_snapshot_uri,
-            quarantine_uri=quarantine_uri,
-        )
-        raise AirflowFailException(str(exc)) from exc
-
-    quarantine_uri = persist_source_extract_snapshot(
-        contract_name=contract_name,
-        frame=validation.quarantine_frame,
-        project_id=project_id,
-        bucket_name=bucket_name,
-        season=season,
-        snapshot_type="quarantine",
-    )
-    source_contract = record_source_contract_audit(
-        project_id=project_id,
-        metadata_dataset=metadata_dataset,
-        location=location,
-        result=validation.result,
-        raw_snapshot_uri=raw_snapshot_uri,
-        quarantine_uri=quarantine_uri,
-    )
-    return validation.frame, source_contract
-
-
-def skipped_source_contract_result(
-    contract_name: str,
-    reason: str,
-    *,
-    project_id: str,
-    metadata_dataset: str,
-    location: str,
-) -> dict:
-    """Build a no-op source contract result for empty extract paths."""
-    import nba_source_contracts as source_contracts
-
-    result = source_contracts.skipped_contract_result(contract_name, reason=reason)
-    return record_source_contract_audit(
-        project_id=project_id,
-        metadata_dataset=metadata_dataset,
-        location=location,
-        result=result,
-    )
 
 
 def get_dbt_repo_root() -> Path:
@@ -367,15 +218,14 @@ def nba_analytics_pipeline():
                 else None,
             }
 
-        raw_snapshot_uri = persist_source_extract_snapshot(
-            contract_name="game_logs",
-            frame=incremental_df,
-            project_id=project_id,
-            bucket_name=bucket_name,
-            season=season,
-            snapshot_type="raw_extract",
-        )
-        incremental_df, source_contract = validate_source_contract_frame(
+        def build_blob_path(incremental_df):
+            run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+            min_date = incremental_df["GAME_DATE"].min().strftime("%Y%m%d")
+            max_date = incremental_df["GAME_DATE"].max().strftime("%Y%m%d")
+            blob_path = f"nba_data/{season}/landing/{run_stamp}_{min_date}_{max_date}_game_logs.csv"
+            return blob_path
+
+        incremental_df, source_contract, gcs_uri = land_source_frame(
             "game_logs",
             incremental_df,
             project_id=project_id,
@@ -383,27 +233,9 @@ def nba_analytics_pipeline():
             location=location,
             bucket_name=bucket_name,
             season=season,
-            raw_snapshot_uri=raw_snapshot_uri,
+            build_blob_path=build_blob_path,
         )
         watermark_after = pipeline.coerce_to_date(incremental_df["GAME_DATE"].max())
-        run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-        min_date = incremental_df["GAME_DATE"].min().strftime("%Y%m%d")
-        max_date = incremental_df["GAME_DATE"].max().strftime("%Y%m%d")
-        blob_path = (
-            f"nba_data/{season}/landing/{run_stamp}_{min_date}_{max_date}_game_logs.csv"
-        )
-        gcs_uri = pipeline.upload_df_to_gcs(
-            incremental_df, project_id, bucket_name, blob_path
-        )
-        source_contract = record_source_contract_audit(
-            project_id=project_id,
-            metadata_dataset=metadata_dataset,
-            location=location,
-            result=source_contract,
-            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
-            quarantine_uri=source_contract.get("quarantine_uri", ""),
-            landing_uri=gcs_uri,
-        )
 
         return {
             "domain": "game_logs",
@@ -477,15 +309,14 @@ def nba_analytics_pipeline():
                 ),
             }
 
-        raw_snapshot_uri = persist_source_extract_snapshot(
-            contract_name="game_line_scores",
-            frame=line_scores,
-            project_id=project_id,
-            bucket_name=bucket_name,
-            season=season,
-            snapshot_type="raw_extract",
-        )
-        line_scores, source_contract = validate_source_contract_frame(
+        def build_blob_path(line_scores):
+            run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+            min_date = pd.to_datetime(line_scores["GAME_DATE"]).min().strftime("%Y%m%d")
+            max_date = pd.to_datetime(line_scores["GAME_DATE"]).max().strftime("%Y%m%d")
+            blob_path = f"nba_data/{season}/landing/{run_stamp}_{min_date}_{max_date}_game_line_scores.csv"
+            return blob_path
+
+        line_scores, source_contract, gcs_uri = land_source_frame(
             "game_line_scores",
             line_scores,
             project_id=project_id,
@@ -493,23 +324,7 @@ def nba_analytics_pipeline():
             location=location,
             bucket_name=bucket_name,
             season=season,
-            raw_snapshot_uri=raw_snapshot_uri,
-        )
-        run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-        min_date = pd.to_datetime(line_scores["GAME_DATE"]).min().strftime("%Y%m%d")
-        max_date = pd.to_datetime(line_scores["GAME_DATE"]).max().strftime("%Y%m%d")
-        blob_path = f"nba_data/{season}/landing/{run_stamp}_{min_date}_{max_date}_game_line_scores.csv"
-        gcs_uri = pipeline.upload_df_to_gcs(
-            line_scores, project_id, bucket_name, blob_path
-        )
-        source_contract = record_source_contract_audit(
-            project_id=project_id,
-            metadata_dataset=metadata_dataset,
-            location=location,
-            result=source_contract,
-            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
-            quarantine_uri=source_contract.get("quarantine_uri", ""),
-            landing_uri=gcs_uri,
+            build_blob_path=build_blob_path,
         )
         return {
             "domain": "game_line_scores",
@@ -557,15 +372,16 @@ def nba_analytics_pipeline():
                 ),
             }
 
-        raw_snapshot_uri = persist_source_extract_snapshot(
-            contract_name="player_shot_locations",
-            frame=shot_locations,
-            project_id=project_id,
-            bucket_name=bucket_name,
-            season=season,
-            snapshot_type="raw_extract",
-        )
-        shot_locations, source_contract = validate_source_contract_frame(
+        def build_blob_path(shot_locations):
+            run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+            safe_season_type = _safe_storage_token(str(season_type).lower())
+            blob_path = (
+                f"nba_data/{season}/landing/"
+                f"{run_stamp}_{safe_season_type}_player_shot_locations.csv"
+            )
+            return blob_path
+
+        shot_locations, source_contract, gcs_uri = land_source_frame(
             "player_shot_locations",
             shot_locations,
             project_id=project_id,
@@ -573,25 +389,7 @@ def nba_analytics_pipeline():
             location=location,
             bucket_name=bucket_name,
             season=season,
-            raw_snapshot_uri=raw_snapshot_uri,
-        )
-        run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-        safe_season_type = _safe_storage_token(str(season_type).lower())
-        blob_path = (
-            f"nba_data/{season}/landing/"
-            f"{run_stamp}_{safe_season_type}_player_shot_locations.csv"
-        )
-        gcs_uri = pipeline.upload_df_to_gcs(
-            shot_locations, project_id, bucket_name, blob_path
-        )
-        source_contract = record_source_contract_audit(
-            project_id=project_id,
-            metadata_dataset=metadata_dataset,
-            location=location,
-            result=source_contract,
-            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
-            quarantine_uri=source_contract.get("quarantine_uri", ""),
-            landing_uri=gcs_uri,
+            build_blob_path=build_blob_path,
         )
         return {
             "domain": "player_shot_locations",
@@ -639,15 +437,12 @@ def nba_analytics_pipeline():
                 ),
             }
 
-        raw_snapshot_uri = persist_source_extract_snapshot(
-            contract_name="player_reference",
-            frame=reference_df,
-            project_id=project_id,
-            bucket_name=bucket_name,
-            season=SUPPORTED_SEASON,
-            snapshot_type="raw_extract",
-        )
-        reference_df, source_contract = validate_source_contract_frame(
+        def build_blob_path(reference_df):
+            run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+            blob_path = f"nba_data/reference/landing/{run_stamp}_player_reference.csv"
+            return blob_path
+
+        reference_df, source_contract, gcs_uri = land_source_frame(
             "player_reference",
             reference_df,
             project_id=project_id,
@@ -655,21 +450,7 @@ def nba_analytics_pipeline():
             location=location,
             bucket_name=bucket_name,
             season=SUPPORTED_SEASON,
-            raw_snapshot_uri=raw_snapshot_uri,
-        )
-        run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-        blob_path = f"nba_data/reference/landing/{run_stamp}_player_reference.csv"
-        gcs_uri = pipeline.upload_df_to_gcs(
-            reference_df, project_id, bucket_name, blob_path
-        )
-        source_contract = record_source_contract_audit(
-            project_id=project_id,
-            metadata_dataset=metadata_dataset,
-            location=location,
-            result=source_contract,
-            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
-            quarantine_uri=source_contract.get("quarantine_uri", ""),
-            landing_uri=gcs_uri,
+            build_blob_path=build_blob_path,
         )
         return {
             "domain": "player_reference",
@@ -714,15 +495,14 @@ def nba_analytics_pipeline():
                 ),
             }
 
-        raw_snapshot_uri = persist_source_extract_snapshot(
-            contract_name="schedule",
-            frame=schedule_df,
-            project_id=project_id,
-            bucket_name=bucket_name,
-            season=season,
-            snapshot_type="raw_extract",
-        )
-        schedule_df, source_contract = validate_source_contract_frame(
+        def build_blob_path(schedule_df):
+            run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+            min_date = schedule_df["SCHEDULE_DATE"].min().strftime("%Y%m%d")
+            max_date = schedule_df["SCHEDULE_DATE"].max().strftime("%Y%m%d")
+            blob_path = f"nba_data/{season}/landing/{run_stamp}_{min_date}_{max_date}_schedule.csv"
+            return blob_path
+
+        schedule_df, source_contract, gcs_uri = land_source_frame(
             "schedule",
             schedule_df,
             project_id=project_id,
@@ -730,25 +510,7 @@ def nba_analytics_pipeline():
             location=location,
             bucket_name=bucket_name,
             season=season,
-            raw_snapshot_uri=raw_snapshot_uri,
-        )
-        run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-        min_date = schedule_df["SCHEDULE_DATE"].min().strftime("%Y%m%d")
-        max_date = schedule_df["SCHEDULE_DATE"].max().strftime("%Y%m%d")
-        blob_path = (
-            f"nba_data/{season}/landing/{run_stamp}_{min_date}_{max_date}_schedule.csv"
-        )
-        gcs_uri = pipeline.upload_df_to_gcs(
-            schedule_df, project_id, bucket_name, blob_path
-        )
-        source_contract = record_source_contract_audit(
-            project_id=project_id,
-            metadata_dataset=metadata_dataset,
-            location=location,
-            result=source_contract,
-            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
-            quarantine_uri=source_contract.get("quarantine_uri", ""),
-            landing_uri=gcs_uri,
+            build_blob_path=build_blob_path,
         )
         return {
             "domain": "schedule",
@@ -885,15 +647,17 @@ def nba_analytics_pipeline():
                 "watermark_after": watermark_before,
             }
 
-        raw_snapshot_uri = persist_source_extract_snapshot(
-            contract_name="injury_reports",
-            frame=injury_df,
-            project_id=project_id,
-            bucket_name=bucket_name,
-            season=season,
-            snapshot_type="raw_extract",
-        )
-        injury_df, source_contract = validate_source_contract_frame(
+        def build_blob_path(injury_df):
+            run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
+            min_date = pd.to_datetime(injury_df["REPORT_DATE"]).min().strftime("%Y%m%d")
+            max_date = pd.to_datetime(injury_df["REPORT_DATE"]).max().strftime("%Y%m%d")
+            blob_path = (
+                f"nba_data/{season}/landing/"
+                f"{run_stamp}_{min_date}_{max_date}_injury_reports.csv"
+            )
+            return blob_path
+
+        injury_df, source_contract, gcs_uri = land_source_frame(
             "injury_reports",
             injury_df,
             project_id=project_id,
@@ -901,28 +665,9 @@ def nba_analytics_pipeline():
             location=location,
             bucket_name=bucket_name,
             season=season,
-            raw_snapshot_uri=raw_snapshot_uri,
+            build_blob_path=build_blob_path,
         )
         watermark_after = pipeline.coerce_to_date(injury_df["REPORT_DATE"].max())
-        run_stamp = pd.Timestamp.now(tz="UTC").strftime("%Y%m%dT%H%M%SZ")
-        min_date = pd.to_datetime(injury_df["REPORT_DATE"]).min().strftime("%Y%m%d")
-        max_date = pd.to_datetime(injury_df["REPORT_DATE"]).max().strftime("%Y%m%d")
-        blob_path = (
-            f"nba_data/{season}/landing/"
-            f"{run_stamp}_{min_date}_{max_date}_injury_reports.csv"
-        )
-        gcs_uri = pipeline.upload_df_to_gcs(
-            injury_df, project_id, bucket_name, blob_path
-        )
-        source_contract = record_source_contract_audit(
-            project_id=project_id,
-            metadata_dataset=metadata_dataset,
-            location=location,
-            result=source_contract,
-            raw_snapshot_uri=source_contract.get("raw_snapshot_uri", ""),
-            quarantine_uri=source_contract.get("quarantine_uri", ""),
-            landing_uri=gcs_uri,
-        )
         return {
             "domain": "injury_reports",
             "gcs_uri": gcs_uri,
@@ -939,677 +684,191 @@ def nba_analytics_pipeline():
     @task(retries=2, retry_delay=timedelta(minutes=2))
     def load_game_log_staging(extract_result: dict) -> dict:
         """Load landed game log rows to staging."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        location = get_config("BQ_LOCATION", "US")
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{bronze_dataset}", location)
-        staging_table = f"{project_id}.{bronze_dataset}.stg_game_logs"
-
-        if extract_result["row_count"] == 0:
-            logger.info(
-                "Skipping game log staging load because extract produced no rows"
-            )
-            return {
-                "domain": "game_logs",
-                "staging_table": staging_table,
-                "row_count": 0,
-                "season": extract_result["season"],
-                "watermark_before": extract_result["watermark_before"],
-                "watermark_after": extract_result["watermark_after"],
-                "gcs_uri": extract_result["gcs_uri"],
-                "source_contract": extract_result.get("source_contract", {}),
-            }
-
-        pipeline.load_gcs_to_bigquery(
-            client,
-            extract_result["gcs_uri"],
-            staging_table,
-            pipeline.get_game_logs_schema(),
-            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+        return load_staging(
+            extract_result,
+            domain="game_logs",
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
+            location=get_config("BQ_LOCATION", "US"),
         )
-        return {
-            "domain": "game_logs",
-            "staging_table": staging_table,
-            "row_count": extract_result["row_count"],
-            "season": extract_result["season"],
-            "watermark_before": extract_result["watermark_before"],
-            "watermark_after": extract_result["watermark_after"],
-            "gcs_uri": extract_result["gcs_uri"],
-            "source_contract": extract_result.get("source_contract", {}),
-        }
 
     @task(retries=2, retry_delay=timedelta(minutes=2))
     def load_schedule_staging(extract_result: dict) -> dict:
         """Load landed schedule rows to staging."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        location = get_config("BQ_LOCATION", "US")
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{bronze_dataset}", location)
-        staging_table = f"{project_id}.{bronze_dataset}.stg_schedule_context"
-
-        if extract_result["row_count"] == 0:
-            return {
-                "domain": "schedule",
-                "staging_table": staging_table,
-                "row_count": 0,
-                "season": extract_result["season"],
-                "gcs_uri": extract_result["gcs_uri"],
-                "source_contract": extract_result.get("source_contract", {}),
-            }
-
-        pipeline.load_gcs_to_bigquery(
-            client,
-            extract_result["gcs_uri"],
-            staging_table,
-            pipeline.get_schedule_schema(),
-            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+        return load_staging(
+            extract_result,
+            domain="schedule",
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
+            location=get_config("BQ_LOCATION", "US"),
         )
-        return {
-            "domain": "schedule",
-            "staging_table": staging_table,
-            "row_count": extract_result["row_count"],
-            "season": extract_result["season"],
-            "gcs_uri": extract_result["gcs_uri"],
-            "source_contract": extract_result.get("source_contract", {}),
-        }
 
     @task(retries=2, retry_delay=timedelta(minutes=2))
     def load_game_line_score_staging(extract_result: dict) -> dict:
         """Load landed game line score rows to staging."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        location = get_config("BQ_LOCATION", "US")
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{bronze_dataset}", location)
-        staging_table = f"{project_id}.{bronze_dataset}.stg_game_line_scores"
-
-        if extract_result["row_count"] == 0:
-            return {
-                "domain": "game_line_scores",
-                "staging_table": staging_table,
-                "row_count": 0,
-                "season": extract_result["season"],
-                "gcs_uri": extract_result["gcs_uri"],
-                "source_contract": extract_result.get("source_contract", {}),
-            }
-
-        pipeline.load_gcs_to_bigquery(
-            client,
-            extract_result["gcs_uri"],
-            staging_table,
-            pipeline.get_game_line_scores_schema(),
-            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+        return load_staging(
+            extract_result,
+            domain="game_line_scores",
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
+            location=get_config("BQ_LOCATION", "US"),
         )
-        return {
-            "domain": "game_line_scores",
-            "staging_table": staging_table,
-            "row_count": extract_result["row_count"],
-            "season": extract_result["season"],
-            "gcs_uri": extract_result["gcs_uri"],
-            "source_contract": extract_result.get("source_contract", {}),
-        }
 
     @task(retries=2, retry_delay=timedelta(minutes=2))
     def load_player_shot_location_staging(extract_result: dict) -> dict:
         """Load landed aggregate player shot-location rows to staging."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        location = get_config("BQ_LOCATION", "US")
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{bronze_dataset}", location)
-        staging_table = f"{project_id}.{bronze_dataset}.stg_player_shot_locations"
-
-        if extract_result["row_count"] == 0:
-            return {
-                "domain": "player_shot_locations",
-                "staging_table": staging_table,
-                "row_count": 0,
-                "season": extract_result["season"],
-                "gcs_uri": extract_result["gcs_uri"],
-                "source_contract": extract_result.get("source_contract", {}),
-            }
-
-        pipeline.load_gcs_to_bigquery(
-            client,
-            extract_result["gcs_uri"],
-            staging_table,
-            pipeline.get_player_shot_locations_schema(),
-            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+        return load_staging(
+            extract_result,
+            domain="player_shot_locations",
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
+            location=get_config("BQ_LOCATION", "US"),
         )
-        return {
-            "domain": "player_shot_locations",
-            "staging_table": staging_table,
-            "row_count": extract_result["row_count"],
-            "season": extract_result["season"],
-            "gcs_uri": extract_result["gcs_uri"],
-            "source_contract": extract_result.get("source_contract", {}),
-        }
 
     @task(retries=2, retry_delay=timedelta(minutes=2))
     def load_player_reference_staging(extract_result: dict) -> dict:
         """Load landed player reference rows to staging."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        location = get_config("BQ_LOCATION", "US")
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{bronze_dataset}", location)
-        staging_table = f"{project_id}.{bronze_dataset}.stg_player_reference"
-
-        if extract_result["row_count"] == 0:
-            return {
-                "domain": "player_reference",
-                "staging_table": staging_table,
-                "row_count": 0,
-                "gcs_uri": extract_result["gcs_uri"],
-                "source_contract": extract_result.get("source_contract", {}),
-            }
-
-        pipeline.load_gcs_to_bigquery(
-            client,
-            extract_result["gcs_uri"],
-            staging_table,
-            pipeline.get_player_reference_schema(),
-            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+        return load_staging(
+            extract_result,
+            domain="player_reference",
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
+            location=get_config("BQ_LOCATION", "US"),
         )
-        return {
-            "domain": "player_reference",
-            "staging_table": staging_table,
-            "row_count": extract_result["row_count"],
-            "gcs_uri": extract_result["gcs_uri"],
-            "source_contract": extract_result.get("source_contract", {}),
-        }
 
     @task(retries=2, retry_delay=timedelta(minutes=2))
     @optional_injury_stage
     def load_injury_report_staging(extract_result: dict) -> dict:
         """Load landed official injury report rows to staging."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        location = get_config("BQ_LOCATION", "US")
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        client = bq.Client(project=project_id)
-        pipeline.ensure_dataset(client, f"{project_id}.{bronze_dataset}", location)
-        staging_table = f"{project_id}.{bronze_dataset}.stg_player_injury_reports"
-
-        if extract_result["row_count"] == 0:
-            return {
-                "domain": "injury_reports",
-                "staging_table": staging_table,
-                "row_count": 0,
-                "candidate_count": extract_result.get("candidate_count", 0),
-                "season": extract_result["season"],
-                "watermark_before": extract_result.get("watermark_before"),
-                "watermark_after": extract_result.get("watermark_after"),
-                "gcs_uri": extract_result["gcs_uri"],
-                "source_contract": extract_result.get("source_contract", {}),
-            }
-
-        pipeline.load_gcs_to_bigquery(
-            client,
-            extract_result["gcs_uri"],
-            staging_table,
-            pipeline.get_injury_report_schema(),
-            write_disposition=bq.WriteDisposition.WRITE_TRUNCATE,
+        return load_staging(
+            extract_result,
+            domain="injury_reports",
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
+            location=get_config("BQ_LOCATION", "US"),
         )
-        return {
-            "domain": "injury_reports",
-            "staging_table": staging_table,
-            "row_count": extract_result["row_count"],
-            "candidate_count": extract_result.get("candidate_count", 0),
-            "season": extract_result["season"],
-            "watermark_before": extract_result.get("watermark_before"),
-            "watermark_after": extract_result.get("watermark_after"),
-            "gcs_uri": extract_result["gcs_uri"],
-            "source_contract": extract_result.get("source_contract", {}),
-        }
 
     @task(retries=0)
     def dq_game_log_staging(load_result: dict) -> dict:
         """Run hard DQ checks for game logs unless the run is a no-op."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        if load_result["row_count"] == 0:
-            return load_result
-
-        client = bq.Client(project=get_project_id())
-        load_result["dq_results"] = pipeline.run_data_quality_checks(
-            client,
-            load_result["staging_table"],
+        return check_staging(
+            load_result,
+            domain="game_logs",
+            resolve_project_id=get_project_id,
             season=SUPPORTED_SEASON,
         )
-        return load_result
 
     @task(retries=0)
     def dq_schedule_staging(load_result: dict) -> dict:
         """Run DQ checks for upcoming schedule rows."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        if load_result["row_count"] == 0:
-            load_result["dq_results"] = {}
-            return load_result
-
-        client = bq.Client(project=get_project_id())
-        load_result["dq_results"] = pipeline.run_schedule_quality_checks(
-            client,
-            load_result["staging_table"],
+        return check_staging(
+            load_result,
+            domain="schedule",
+            resolve_project_id=get_project_id,
             season=SUPPORTED_SEASON,
         )
-        return load_result
 
     @task(retries=0)
     def dq_game_line_score_staging(load_result: dict) -> dict:
         """Run DQ checks for game line score rows."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        if load_result["row_count"] == 0:
-            load_result["dq_results"] = {}
-            return load_result
-
-        client = bq.Client(project=get_project_id())
-        load_result["dq_results"] = pipeline.run_game_line_score_quality_checks(
-            client,
-            load_result["staging_table"],
+        return check_staging(
+            load_result,
+            domain="game_line_scores",
+            resolve_project_id=get_project_id,
             season=SUPPORTED_SEASON,
         )
-        return load_result
 
     @task(retries=0)
     def dq_player_shot_location_staging(load_result: dict) -> dict:
         """Run DQ checks for aggregate player shot-location rows."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        if load_result["row_count"] == 0:
-            load_result["dq_results"] = {}
-            return load_result
-
-        client = bq.Client(project=get_project_id())
-        load_result["dq_results"] = pipeline.run_player_shot_location_quality_checks(
-            client,
-            load_result["staging_table"],
+        return check_staging(
+            load_result,
+            domain="player_shot_locations",
+            resolve_project_id=get_project_id,
             season=SUPPORTED_SEASON,
         )
-        return load_result
 
     @task(retries=0)
     def dq_player_reference_staging(load_result: dict) -> dict:
         """Run DQ checks for player reference rows."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        if load_result["row_count"] == 0:
-            load_result["dq_results"] = {}
-            return load_result
-
-        client = bq.Client(project=get_project_id())
-        load_result["dq_results"] = pipeline.run_player_reference_quality_checks(
-            client,
-            load_result["staging_table"],
+        return check_staging(
+            load_result,
+            domain="player_reference",
+            resolve_project_id=get_project_id,
+            season=SUPPORTED_SEASON,
         )
-        return load_result
 
     @task(retries=0)
     @optional_injury_stage
     def dq_injury_report_staging(load_result: dict) -> dict:
         """Run DQ checks for official injury report rows."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        if load_result["row_count"] == 0:
-            load_result["dq_results"] = {}
-            return load_result
-
-        client = bq.Client(project=get_project_id())
-        load_result["dq_results"] = pipeline.run_injury_report_quality_checks(
-            client,
-            load_result["staging_table"],
+        return check_staging(
+            load_result,
+            domain="injury_reports",
+            resolve_project_id=get_project_id,
             season=SUPPORTED_SEASON,
         )
-        return load_result
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
     def merge_game_logs(load_result: dict) -> dict:
         """Merge staged game log rows into the bronze raw table."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        raw_table = f"{project_id}.{bronze_dataset}.raw_game_logs"
-
-        if load_result["row_count"] == 0:
-            return {
-                "domain": "game_logs",
-                "raw_table": raw_table,
-                "rows_loaded": 0,
-                "rows_inserted": 0,
-                "rows_updated": 0,
-                "season": load_result["season"],
-                "gcs_uri": load_result["gcs_uri"],
-                "watermark_before": load_result["watermark_before"],
-                "watermark_after": load_result["watermark_after"],
-                "dq_results": load_result.get("dq_results", {}),
-                "source_contract": load_result.get("source_contract", {}),
-            }
-
-        client = bq.Client(project=project_id)
-        result = pipeline.create_and_merge_raw_table(
-            client, load_result["staging_table"], raw_table
-        )
-        reconciliation = pipeline.validate_merge_reconciliation(
+        return merge_staging(
+            load_result,
             domain="game_logs",
-            rows_loaded=load_result["row_count"],
-            pre_count=result["pre_count"],
-            post_count=result["post_count"],
-            inserted=result["inserted"],
-            updated=result["updated"],
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
         )
-        return {
-            "domain": "game_logs",
-            "raw_table": raw_table,
-            "rows_loaded": load_result["row_count"],
-            "rows_inserted": result["inserted"],
-            "rows_updated": result["updated"],
-            "rows_unchanged": reconciliation["unchanged"],
-            "reconciliation": reconciliation,
-            "season": load_result["season"],
-            "gcs_uri": load_result["gcs_uri"],
-            "watermark_before": load_result["watermark_before"],
-            "watermark_after": load_result["watermark_after"],
-            "dq_results": load_result.get("dq_results", {}),
-            "source_contract": load_result.get("source_contract", {}),
-        }
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
     def merge_schedule_context(load_result: dict) -> dict:
         """Merge staged schedule rows into the bronze raw table."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        raw_table = f"{project_id}.{bronze_dataset}.raw_schedule"
-
-        if load_result["row_count"] == 0:
-            return {
-                "domain": "schedule",
-                "raw_table": raw_table,
-                "rows_loaded": 0,
-                "rows_inserted": 0,
-                "rows_updated": 0,
-                "season": load_result["season"],
-                "gcs_uri": load_result["gcs_uri"],
-                "dq_results": load_result.get("dq_results", {}),
-                "source_contract": load_result.get("source_contract", {}),
-            }
-
-        client = bq.Client(project=project_id)
-        result = pipeline.create_and_merge_schedule_table(
-            client, load_result["staging_table"], raw_table
-        )
-        reconciliation = pipeline.validate_merge_reconciliation(
+        return merge_staging(
+            load_result,
             domain="schedule",
-            rows_loaded=load_result["row_count"],
-            pre_count=result["pre_count"],
-            post_count=result["post_count"],
-            inserted=result["inserted"],
-            updated=result["updated"],
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
         )
-        return {
-            "domain": "schedule",
-            "raw_table": raw_table,
-            "rows_loaded": load_result["row_count"],
-            "rows_inserted": result["inserted"],
-            "rows_updated": result["updated"],
-            "rows_unchanged": reconciliation["unchanged"],
-            "reconciliation": reconciliation,
-            "season": load_result["season"],
-            "gcs_uri": load_result["gcs_uri"],
-            "dq_results": load_result.get("dq_results", {}),
-            "source_contract": load_result.get("source_contract", {}),
-        }
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
     def merge_game_line_scores(load_result: dict) -> dict:
         """Merge staged game line score rows into the bronze raw table."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        raw_table = f"{project_id}.{bronze_dataset}.raw_game_line_scores"
-
-        if load_result["row_count"] == 0:
-            return {
-                "domain": "game_line_scores",
-                "raw_table": raw_table,
-                "rows_loaded": 0,
-                "rows_inserted": 0,
-                "rows_updated": 0,
-                "season": load_result["season"],
-                "gcs_uri": load_result["gcs_uri"],
-                "dq_results": load_result.get("dq_results", {}),
-                "source_contract": load_result.get("source_contract", {}),
-            }
-
-        client = bq.Client(project=project_id)
-        result = pipeline.create_and_merge_game_line_scores_table(
-            client, load_result["staging_table"], raw_table
-        )
-        reconciliation = pipeline.validate_merge_reconciliation(
+        return merge_staging(
+            load_result,
             domain="game_line_scores",
-            rows_loaded=load_result["row_count"],
-            pre_count=result["pre_count"],
-            post_count=result["post_count"],
-            inserted=result["inserted"],
-            updated=result["updated"],
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
         )
-        return {
-            "domain": "game_line_scores",
-            "raw_table": raw_table,
-            "rows_loaded": load_result["row_count"],
-            "rows_inserted": result["inserted"],
-            "rows_updated": result["updated"],
-            "rows_unchanged": reconciliation["unchanged"],
-            "reconciliation": reconciliation,
-            "season": load_result["season"],
-            "gcs_uri": load_result["gcs_uri"],
-            "dq_results": load_result.get("dq_results", {}),
-            "source_contract": load_result.get("source_contract", {}),
-        }
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
     def merge_player_shot_locations(load_result: dict) -> dict:
         """Merge staged aggregate player shot locations into the bronze raw table."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        raw_table = f"{project_id}.{bronze_dataset}.raw_player_shot_locations"
-
-        if load_result["row_count"] == 0:
-            return {
-                "domain": "player_shot_locations",
-                "raw_table": raw_table,
-                "rows_loaded": 0,
-                "rows_inserted": 0,
-                "rows_updated": 0,
-                "season": load_result["season"],
-                "gcs_uri": load_result["gcs_uri"],
-                "dq_results": load_result.get("dq_results", {}),
-                "source_contract": load_result.get("source_contract", {}),
-            }
-
-        client = bq.Client(project=project_id)
-        result = pipeline.create_and_merge_player_shot_locations_table(
-            client, load_result["staging_table"], raw_table
-        )
-        reconciliation = pipeline.validate_merge_reconciliation(
+        return merge_staging(
+            load_result,
             domain="player_shot_locations",
-            rows_loaded=load_result["row_count"],
-            pre_count=result["pre_count"],
-            post_count=result["post_count"],
-            inserted=result["inserted"],
-            updated=result["updated"],
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
         )
-        return {
-            "domain": "player_shot_locations",
-            "raw_table": raw_table,
-            "rows_loaded": load_result["row_count"],
-            "rows_inserted": result["inserted"],
-            "rows_updated": result["updated"],
-            "rows_unchanged": reconciliation["unchanged"],
-            "reconciliation": reconciliation,
-            "season": load_result["season"],
-            "gcs_uri": load_result["gcs_uri"],
-            "dq_results": load_result.get("dq_results", {}),
-            "source_contract": load_result.get("source_contract", {}),
-        }
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
     def merge_player_reference(load_result: dict) -> dict:
         """Merge staged player reference rows into the bronze raw table."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        raw_table = f"{project_id}.{bronze_dataset}.raw_player_reference"
-
-        if load_result["row_count"] == 0:
-            return {
-                "domain": "player_reference",
-                "raw_table": raw_table,
-                "rows_loaded": 0,
-                "rows_inserted": 0,
-                "rows_updated": 0,
-                "gcs_uri": load_result["gcs_uri"],
-                "dq_results": load_result.get("dq_results", {}),
-                "source_contract": load_result.get("source_contract", {}),
-            }
-
-        client = bq.Client(project=project_id)
-        result = pipeline.create_and_merge_player_reference_table(
-            client, load_result["staging_table"], raw_table
-        )
-        reconciliation = pipeline.validate_merge_reconciliation(
+        return merge_staging(
+            load_result,
             domain="player_reference",
-            rows_loaded=load_result["row_count"],
-            pre_count=result["pre_count"],
-            post_count=result["post_count"],
-            inserted=result["inserted"],
-            updated=result["updated"],
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
         )
-        return {
-            "domain": "player_reference",
-            "raw_table": raw_table,
-            "rows_loaded": load_result["row_count"],
-            "rows_inserted": result["inserted"],
-            "rows_updated": result["updated"],
-            "rows_unchanged": reconciliation["unchanged"],
-            "gcs_uri": load_result["gcs_uri"],
-            "dq_results": load_result.get("dq_results", {}),
-            "reconciliation": reconciliation,
-            "source_contract": load_result.get("source_contract", {}),
-        }
 
     @task(retries=1, retry_delay=timedelta(minutes=2))
     @optional_injury_stage
     def merge_injury_reports(load_result: dict) -> dict:
         """Merge staged official injury report rows into the bronze raw table."""
-        from google.cloud import bigquery as bq
-
-        import nba_pipeline as pipeline
-
-        project_id = get_project_id()
-        bronze_dataset = get_dataset("BQ_DATASET_BRONZE", "nba_bronze")
-        raw_table = f"{project_id}.{bronze_dataset}.raw_player_injury_reports"
-
-        if load_result["row_count"] == 0:
-            return {
-                "domain": "injury_reports",
-                "raw_table": raw_table,
-                "rows_loaded": 0,
-                "rows_inserted": 0,
-                "rows_updated": 0,
-                "candidate_count": load_result.get("candidate_count", 0),
-                "season": load_result["season"],
-                "gcs_uri": load_result["gcs_uri"],
-                "watermark_before": load_result.get("watermark_before"),
-                "watermark_after": load_result.get("watermark_after"),
-                "dq_results": load_result.get("dq_results", {}),
-                "source_contract": load_result.get("source_contract", {}),
-            }
-
-        client = bq.Client(project=project_id)
-        result = pipeline.create_and_merge_injury_report_table(
-            client, load_result["staging_table"], raw_table
-        )
-        reconciliation = pipeline.validate_merge_reconciliation(
+        return merge_staging(
+            load_result,
             domain="injury_reports",
-            rows_loaded=load_result["row_count"],
-            pre_count=result["pre_count"],
-            post_count=result["post_count"],
-            inserted=result["inserted"],
-            updated=result["updated"],
+            project_id=get_project_id(),
+            bronze_dataset=get_dataset("BQ_DATASET_BRONZE", "nba_bronze"),
         )
-        return {
-            "domain": "injury_reports",
-            "raw_table": raw_table,
-            "rows_loaded": load_result["row_count"],
-            "rows_inserted": result["inserted"],
-            "rows_updated": result["updated"],
-            "rows_unchanged": reconciliation["unchanged"],
-            "candidate_count": load_result.get("candidate_count", 0),
-            "season": load_result["season"],
-            "gcs_uri": load_result["gcs_uri"],
-            "watermark_before": load_result.get("watermark_before"),
-            "watermark_after": load_result.get("watermark_after"),
-            "dq_results": load_result.get("dq_results", {}),
-            "reconciliation": reconciliation,
-            "source_contract": load_result.get("source_contract", {}),
-        }
 
     @task(retries=0)
     def combine_pipeline_results(
