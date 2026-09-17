@@ -7,6 +7,7 @@ import re
 from collections import defaultdict
 from datetime import date, timedelta
 
+from app.agent.context_metrics import context_metrics, context_table
 from app.agent.semantics import SemanticError, aggregate, load_contract
 from app.seasons import SEASONS, season_bounds
 
@@ -390,6 +391,14 @@ def build_overview(question, evidence, players, scope, selected=None):
     if available:
         strongest = max(available, key=lambda m: m["percentile"])
         answer += f"\n\nStrongest relative category: {strongest['label'].lower()} ({strongest['percentile']:.0f}th percentile among qualified players)."
+    extra = context_metrics(own, prior, baseline_covered=baseline_covered)
+    answer += "\n\nMinutes and shooting context:\n" + "\n".join(
+        f"- {m['label']}: "
+        + (f"{m['value']:.1f} {m['unit']}" if m["value"] is not None else "Unavailable")
+        + f" ({m['valid_games']} / {len(own)} appearances with complete components)"
+        for m in extra
+        if m["key"] in ("min", "fga", "fg_pct", "ts_pct")
+    )
     return {
         **empty,
         "status": "ok" if own else "no_observations",
@@ -411,7 +420,8 @@ def build_overview(question, evidence, players, scope, selected=None):
                     )
                 ],
                 "rows": table,
-            }
+            },
+            context_table(extra),
         ],
         "charts": charts,
         "assumptions": [
@@ -425,6 +435,7 @@ def build_overview(question, evidence, players, scope, selected=None):
             f"Percentiles compare per-game averages in the same period and phases, with at least {contract.min_games} games and complete data for that metric. Ties share the percentage of other eligible players strictly below them.",
             f"Source: {evidence.source}; data through {max(evidence.data_through.values())}. No games or missing values are fabricated.",
             "Charts show monthly per-game averages for months with appearances; gaps without appearances are omitted.",
+            "Shooting percentages use aggregate makes and attempts; percentage changes are percentage points. TS% uses the 0.44 free-throw approximation. Per-36 rates are descriptive, not causal effects.",
         ],
         "metric_definitions": [
             {
@@ -436,12 +447,13 @@ def build_overview(question, evidence, players, scope, selected=None):
                 "unit": "per game",
             }
             for m in METRICS
-        ],
+        ]
+        + [{k: m[k] for k in ("key", "label", "definition", "unit")} for m in extra],
         "semantic_evidence": {
             "scope": {
                 k: str(v) if isinstance(v, date) else v for k, v in scope.items()
             },
-            "metrics": metrics,
+            "metrics": metrics + extra,
             "player_id": player["player_id"],
             "source": evidence.source,
             "data_through": str(max(evidence.data_through.values())),

@@ -15,10 +15,16 @@ metrics:
   tov: {label: TOV, numerator: tov, unit: count, direction: lower}
   fg3m: {label: 3PM, numerator: fg3m, unit: count, direction: higher}
   min: {label: MIN, numerator: min, unit: minutes, direction: higher}
+  fga: {label: FGA, numerator: fga, unit: count, direction: higher}
+  fg3a: {label: 3PA, numerator: fg3a, unit: count, direction: higher}
+  fta: {label: FTA, numerator: fta, unit: count, direction: higher}
   fg_pct: {legacy_formula: "fg_pct * 100", label: FG%, numerator: fgm, denominator: fga, attempt_field: fga, unit: ratio, direction: higher}
   fg3_pct: {label: 3P%, numerator: fg3m, denominator: fg3a, attempt_field: fg3a, unit: ratio, direction: higher}
   ft_pct: {label: FT%, numerator: ftm, denominator: fta, attempt_field: fta, unit: ratio, direction: higher}
   ts_pct: {label: TS%, numerator: pts, denominator: '2 * (fga + 0.44 * fta)', attempt_field: fga, unit: ratio, direction: higher}
+  efg_pct: {label: eFG%, numerator: 'fgm + 0.5 * fg3m', denominator: fga, attempt_field: fga, unit: ratio, direction: higher}
+  pts_per36: {label: Points per 36 minutes, numerator: '36 * pts', denominator: min, attempt_field: min, unit: per36, direction: higher}
+  ast_per36: {label: Assists per 36 minutes, numerator: '36 * ast', denominator: min, attempt_field: min, unit: per36, direction: higher}
   plus_minus: {label: '+/-', numerator: plus_minus, unit: count, direction: higher}
   fantasy_points_simple: {label: Simple box-score index, numerator: 'pts + reb + ast + stl + blk - tov', unit: index, direction: higher}
   fantasy_proxy_weighted: {label: Weighted fantasy proxy, numerator: 'pts + 1.2 * reb + 1.5 * ast + 3 * stl + 3 * blk + fg3m - tov', unit: index, direction: higher}

@@ -6,6 +6,7 @@ import re
 from datetime import date
 
 from app.agent.performance_overview import (
+    METRICS,
     build_overview,
     overview_scope,
     resolve_overview_player,
@@ -137,7 +138,11 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
             }
         )
     metrics = []
+    comparison_keys = {key for key, _ in METRICS}
     for left, right in zip(*(s["semantic_evidence"]["metrics"] for s in summaries)):
+        # The comparison scorecard is per-game production, not overview context.
+        if left["key"] not in comparison_keys:
+            continue
         complete = all(
             m["value"] is not None and not m["missing_component_games"]
             for m in (left, right)
