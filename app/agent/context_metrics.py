@@ -33,6 +33,8 @@ def context_metrics(current, previous, *, baseline_covered=True):
             if scale == 100
             else "per 36 minutes"
             if metric.unit == "per36"
+            else "minutes per game"
+            if metric.unit == "minutes"
             else "per game"
         )
         change = (

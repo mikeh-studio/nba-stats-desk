@@ -66,7 +66,7 @@ def measured_usage(run_dir, stage):
             "completed_turns": sum(u["completed_turns"] for u in usage),
             "checks": [check for u in usage for check in u["checks"]],
             "per_response_tokens": None,
-            "attribution": "Two recorded calls: first returned one case; second supplied the other nine. Both costs included.",
+            "attribution": f"{len(parts)} recorded calls; all usage included.",
             "parts": parts,
         }
     events = [
@@ -443,25 +443,19 @@ def render_step_review(run_dir, manifest, prepared, responses, evaluations, temp
         else "Known model-token subtotal"
     )
     overview = f"""<section><div class="eyebrow">Run accounting</div><h2>{audit["measured_model_tokens"]:,} {total_label.lower()}</h2><p>Inspect and review each step separately. This page adds deterministic audits to existing saved results; it makes no new model calls.</p><table><thead><tr><th>Step</th><th>Input</th><th>Output</th><th>Total LLM tokens</th></tr></thead><tbody>{"".join(token_rows)}</tbody></table><p>{e(audit["token_scope"])}</p><p>{e(audit["cost_note"])}</p><p class="muted">{e(audit["accounting"])}</p><p><a href="review.html">Open the 10-response review</a> · <a href="step-audit.json">Download step audit JSON</a></p></section>"""
-    page = template.replace(
-        "Can the answer earn your trust?", "Review the work behind each answer."
-    )
-    old_description = page.split("</h1><p>", 1)[1].split("</p>", 1)[0]
-    page = page.replace(
-        old_description,
-        f"{len(audit['steps'])} separately reviewable steps covering scope, statistics, context when supplied, sources, retrieval, generation, citation checks, evaluation, and your decision. Each includes evidence, limitations, and token accounting.",
-    )
-    page = page.replace(
-        "NBA Stats Desk · Evidence review", "NBA Stats Desk · Step review"
-    )
-    page = page.replace("nba-evidence-review-", "nba-evidence-step-review-").replace(
-        "nba-evidence-human-review.json", "nba-evidence-step-review.json"
-    )
-    page = (
-        page.replace("__NAV__", "".join(nav))
-        .replace("__SECTIONS__", overview + "".join(cards))
-        .replace("__LIMITS__", e(audit["token_scope"]))
-        .replace("__RUN_ID__", audit["run_id"])
+    from scripts.reporting_render import render_page
+
+    page = render_page(
+        template=template,
+        NAV="".join(nav),
+        SECTIONS=overview + "".join(cards),
+        LIMITS=e(audit["token_scope"]),
+        RUN_ID=audit["run_id"],
+        TITLE="NBA Stats Desk · Step review",
+        HEADING="Review the work behind each answer.",
+        DESCRIPTION=f"{len(audit['steps'])} separately reviewable steps covering scope, statistics, context when supplied, sources, retrieval, generation, citation checks, evaluation, and your decision. Each includes evidence, limitations, and token accounting.",
+        STORAGE_PREFIX="nba-evidence-step-review-",
+        EXPORT_NAME="nba-evidence-step-review.json",
     )
     (run_dir / "step-review.html").write_text(page)
     (run_dir / "step-audit.json").write_text(

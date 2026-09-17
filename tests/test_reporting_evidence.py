@@ -14,14 +14,12 @@ from app.agent.reporting_evidence import (
     validate_response,
 )
 from app.agent.semantics import COMPONENTS, Evidence
-from scripts.evaluate_reporting_evidence import (
-    DIMENSIONS,
-    REPORT_TEMPLATE,
+from scripts.reporting_artifacts import (
     load_run,
-    report,
     save,
-    validate_batch,
 )
+from scripts.reporting_contracts import DIMENSIONS, validate_batch
+from scripts.reporting_render import REPORT_TEMPLATE, report
 from scripts.reporting_step_review import (
     audit_statistics,
     measured_usage,
@@ -474,3 +472,173 @@ def test_composite_usage_counts_both_calls_and_rejects_modified_output(recorded_
     (combined / "generation.json").write_text(json.dumps({"responses": ["altered"]}))
     with pytest.raises(ValueError, match="differ"):
         measured_usage(combined, "generation")
+
+
+@pytest.mark.parametrize("key", ["responses", "evaluations"])
+def test_batch_schema_rejects_partial_unknown_and_excess_results(key):
+    from jsonschema import Draft202012Validator
+    from scripts.reporting_contracts import batch_schema
+
+    schema = batch_schema(key, ["E01", "E02"])
+    validator = Draft202012Validator(schema)
+    if key == "responses":
+        row = {
+            "case_id": "E01",
+            "claims": [
+                {"kind": "limitation", "text": "Coverage unknown", "evidence_ids": []}
+            ],
+        }
+    else:
+        row = dict(
+            case_id="E01",
+            verdict="revise",
+            scores=dict.fromkeys(DIMENSIONS, 1),
+            strengths=[],
+            issues=[],
+            summary="Needs review",
+        )
+    complete = [row, {**row, "case_id": "E02"}]
+    assert validator.is_valid({key: complete})
+    assert not validator.is_valid({key: complete[:1]})
+    assert not validator.is_valid({key: complete + [row]})
+    assert not validator.is_valid({key: [row, {**row, "case_id": "E99"}]})
+    # Schema cardinality/enum do not enforce order or uniqueness; local gate does.
+    with pytest.raises(ValueError, match="once, in order"):
+        validate_batch({key: [row, row]}, key, ["E01", "E02"])
+
+
+def test_separate_reporting_and_statistics_avoid_whole_answer_fallback(
+    evidence, document, case
+):
+    p = prepare_case(evidence, [document], case)
+    response = {
+        "case_id": case["id"],
+        "claims": [
+            {
+                "kind": "reported_context",
+                "text": "Example reports a team change.",
+                "evidence_ids": ["R1"],
+            },
+            {
+                "kind": "statistic",
+                "text": "30 points per game.",
+                "evidence_ids": ["S_pts"],
+            },
+            {
+                "kind": "interpretation",
+                "text": "These observations do not establish a cause.",
+                "evidence_ids": ["R1", "S_pts"],
+            },
+        ],
+    }
+    assert validate_response(p["bundle"], response) == []
+    assert (
+        attach_reporting(p["overview"], p["bundle"], response)["reporting_evidence"][
+            "claims"
+        ]
+        == response["claims"]
+    )
+    response["claims"][0]["evidence_ids"].append("S_pts")
+    assert validate_response(p["bundle"], response) == [
+        "claim_0:context_requires_reporting"
+    ]
+
+
+def test_generate_sends_bounded_schema_without_paid_call(
+    tmp_path, evidence, case, monkeypatch
+):
+    from scripts import evaluate_reporting_evidence as cli
+
+    prepared = [prepare_case(evidence, [], case)]
+    for metric in prepared[0]["bundle"]["statistics"]["metrics"]:
+        metric.update(missing_games=0, previous_missing_games=0)
+    save(tmp_path / "prepared.json", prepared)
+    save(tmp_path / "manifest.json", {"prepared_sha256": digest(prepared)})
+
+    def fake_call(run_dir, stage, model, effort, prompt, schema):
+        assert schema["properties"]["responses"]["minItems"] == 1
+        assert schema["properties"]["responses"]["maxItems"] == 1
+        assert "NO S_* IDs" in prompt
+        return {
+            "responses": [
+                {
+                    "case_id": case["id"],
+                    "claims": [
+                        {
+                            "kind": "limitation",
+                            "text": "Reporting unavailable.",
+                            "evidence_ids": [],
+                        }
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(cli, "codex_call", fake_call)
+    cli.generate(SimpleNamespace(run_dir=tmp_path))
+    assert (
+        json.loads((tmp_path / "structural-checks.json").read_text())[0]["errors"] == []
+    )
+
+
+def test_prepared_metric_gap_stops_before_model_call(evidence, case):
+    from scripts.evaluate_reporting_evidence import require_complete_statistics
+
+    evidence.rows[-1]["fga"] = None
+    prepared = [prepare_case(evidence, [], case)]
+    with pytest.raises(ValueError, match="E01:S_fga"):
+        require_complete_statistics(prepared)
+
+
+def test_preview_cli_renders_named_slots_without_changing_evidence(
+    tmp_path, evidence, case, monkeypatch
+):
+    from scripts import evaluate_reporting_evidence as cli
+
+    prepared = [prepare_case(evidence, [], case)]
+    save(tmp_path / "prepared.json", prepared)
+    save(
+        tmp_path / "manifest.json",
+        {"prepared_sha256": digest(prepared), "limits": ["Pilot"]},
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        ["evaluate_reporting_evidence.py", "preview", "--run-dir", str(tmp_path)],
+    )
+    assert cli.main() == 0
+    page = (tmp_path / "preview.html").read_text()
+    assert "__RUN_ID__" not in page
+    assert "Context milestone: evidence preview" in page
+    assert "1 prepared cases" in page
+    assert "Luna generation and Terra evaluation have not run" in page
+    assert json.loads((tmp_path / "prepared.json").read_text()) == prepared
+
+
+def test_response_schema_enforces_claim_evidence_types():
+    from jsonschema import Draft202012Validator
+    from scripts.reporting_contracts import batch_schema
+
+    validator = Draft202012Validator(batch_schema("responses", ["E01"]))
+
+    def valid(kind, ids):
+        return validator.is_valid(
+            {
+                "responses": [
+                    {
+                        "case_id": "E01",
+                        "claims": [
+                            {"kind": kind, "text": "Example", "evidence_ids": ids}
+                        ],
+                    }
+                ]
+            }
+        )
+
+    assert valid("reported_context", ["R1"])
+    assert not valid("reported_context", ["R1", "S_teammate"])
+    assert not valid("reported_context", [])
+    assert valid("statistic", ["S_teammate"])
+    assert not valid("statistic", ["R1"])
+    assert valid("interpretation", ["R1", "S_teammate"])
+    assert not valid("interpretation", [])
+    assert valid("limitation", [])

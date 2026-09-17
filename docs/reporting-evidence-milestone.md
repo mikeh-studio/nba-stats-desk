@@ -177,3 +177,18 @@ After human review, the next implementation step is to fix observed failures,
 expand and diversify the corpus, and evaluate retrieval before enabling narrative
 enrichment in interactive Ask. Scheduled ingestion, embeddings/vector search,
 social-platform collection, and production serving remain future work.
+
+## Review hardening
+
+The CLI delegates artifact integrity, generator/judge contracts, isolated model
+execution, and report rendering to `scripts/reporting_*.py`. The shared page shell
+lives in `scripts/templates/reporting_review.html`; preview, response, and step
+reviews populate named slots and keep distinct browser-review storage keys.
+
+Before each model call, the output schema constrains array length to the requested
+case count and restricts case IDs. Local validation still rejects duplicates and
+incorrect order. Interrupted or invalid attempts retain their original artifacts;
+there is no automatic paid retry. Claim instructions explicitly separate R-only
+reported events from S-only statistical observations, with mixed evidence allowed
+for interpretations. The strict fallback remains in place. These changes apply to
+future runs; saved model answers and their original evaluations are not rewritten.

@@ -46,6 +46,8 @@ def test_shooting_uses_counts_and_per36_uses_total_minutes():
     assert metrics["ts_pct"]["value"] == pytest.approx(100 * 13 / (2 * (20 + 0.44 * 2)))
     assert metrics["ast_per36"]["value"] == pytest.approx(2.7)
     assert metrics["min"]["value"] == 20
+    assert metrics["min"]["unit"] == "minutes per game"
+    assert metrics["min"]["change_unit"] == "minutes per game"
 
 
 def test_partial_denominators_and_empty_windows_are_not_zero():

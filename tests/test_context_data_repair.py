@@ -98,13 +98,13 @@ def test_missing_components_block_generation_but_empty_sample_is_allowed():
             "bundle": {
                 "statistics": {
                     "metrics": [
-                        {"key": "fga", "missing_games": 1, "previous_missing_games": 0}
+                        {"id": "S_fga", "missing_games": 1, "previous_missing_games": 0}
                     ]
                 }
             },
         }
     ]
-    with pytest.raises(ValueError, match="E01:fga"):
+    with pytest.raises(ValueError, match="E01:S_fga"):
         require_complete_statistics(prepared)
     prepared[0]["bundle"]["statistics"]["metrics"][0]["missing_games"] = 0
     require_complete_statistics(prepared)
