@@ -30,6 +30,7 @@ from scripts.reporting_contracts import (  # noqa: E402
     GENERATOR_PROMPT,
     batch_schema,
     validate_batch,
+    validate_evaluation_cases,
 )
 from scripts.reporting_render import fmt, render_page, report  # noqa: E402
 from scripts.reporting_runner import codex_call  # noqa: E402
@@ -240,7 +241,7 @@ def evaluate(args):
         + json.dumps(inputs, ensure_ascii=False, separators=(",", ":")),
         batch_schema("evaluations", [p["case"]["id"] for p in prepared]),
     )
-    validate_batch(output, "evaluations", [p["case"]["id"] for p in prepared])
+    validate_evaluation_cases(output, inputs)
     print(
         json.dumps(
             {

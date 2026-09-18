@@ -7,7 +7,7 @@ from pathlib import Path
 
 from app.agent.reporting_evidence import validate_response
 from scripts.reporting_artifacts import load_run, read
-from scripts.reporting_contracts import validate_batch
+from scripts.reporting_contracts import validate_batch, validate_evaluation_cases
 
 REPORT_TEMPLATE = (
     Path(__file__).parent / "templates/reporting_review.html"
@@ -36,7 +36,13 @@ def report(args):
     evaluations = read(args.run_dir / "evaluation.json")
     expected = [p["case"]["id"] for p in prepared]
     validate_batch(responses, "responses", expected)
-    validate_batch(evaluations, "evaluations", expected)
+    validate_evaluation_cases(
+        evaluations,
+        [
+            {"response": r, "structural_errors": validate_response(p["bundle"], r)}
+            for p, r in zip(prepared, responses["responses"], strict=True)
+        ],
+    )
     notes_path = args.run_dir / "review-notes.json"
     review_notes = read(notes_path) if notes_path.exists() else []
     baseline_path = args.run_dir / "baseline-answers.json"

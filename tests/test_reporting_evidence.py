@@ -18,7 +18,11 @@ from scripts.reporting_artifacts import (
     load_run,
     save,
 )
-from scripts.reporting_contracts import DIMENSIONS, validate_batch
+from scripts.reporting_contracts import (
+    DIMENSIONS,
+    validate_batch,
+    validate_evaluation_cases,
+)
 from scripts.reporting_render import REPORT_TEMPLATE, report
 from scripts.reporting_step_review import (
     audit_statistics,
@@ -642,3 +646,117 @@ def test_response_schema_enforces_claim_evidence_types():
     assert valid("interpretation", ["R1", "S_teammate"])
     assert not valid("interpretation", [])
     assert valid("limitation", [])
+
+
+@pytest.mark.parametrize("verdict", ["pass", "revise", "reject"])
+@pytest.mark.parametrize("structural_errors", [[], ["claim_0:unknown_evidence"]])
+def test_judge_verdict_respects_structural_findings(verdict, structural_errors):
+    cases = [
+        {
+            "response": {"case_id": "E01", "claims": [{"text": "Example"}]},
+            "structural_errors": structural_errors,
+        }
+    ]
+    output = {
+        "evaluations": [
+            dict(
+                case_id="E01",
+                verdict=verdict,
+                scores=dict.fromkeys(DIMENSIONS, 2),
+                issues=[],
+            )
+        ]
+    }
+    if verdict == "pass" and structural_errors:
+        with pytest.raises(ValueError, match="contradicts structural"):
+            validate_evaluation_cases(output, cases)
+    else:
+        validate_evaluation_cases(output, cases)
+
+
+@pytest.mark.parametrize("index", [-2, -1, 0, 1, True])
+def test_judge_issue_must_reference_existing_claim_or_missing_content(index):
+    cases = [
+        {
+            "response": {"case_id": "E01", "claims": [{"text": "Example"}]},
+            "structural_errors": [],
+        }
+    ]
+    output = {
+        "evaluations": [
+            dict(
+                case_id="E01",
+                verdict="revise",
+                scores=dict.fromkeys(DIMENSIONS, 1),
+                issues=[dict(severity="minor", claim_index=index)],
+            )
+        ]
+    }
+    if type(index) is int and index in (-1, 0):
+        validate_evaluation_cases(output, cases)
+    else:
+        with pytest.raises(ValueError, match="invalid claim index"):
+            validate_evaluation_cases(output, cases)
+
+
+@pytest.mark.parametrize("ids", [[], ["R99"]])
+def test_evaluate_and_report_gate_structural_errors_without_model_call(
+    tmp_path, evidence, case, monkeypatch, ids
+):
+    from scripts import evaluate_reporting_evidence as cli
+
+    prepared = [prepare_case(evidence, [], case)]
+    save(tmp_path / "prepared.json", prepared)
+    save(
+        tmp_path / "manifest.json",
+        {"prepared_sha256": digest(prepared), "limits": ["Test"]},
+    )
+    save(
+        tmp_path / "generation.json",
+        {
+            "responses": [
+                {
+                    "case_id": case["id"],
+                    "claims": [
+                        {
+                            "kind": "limitation",
+                            "text": "The curated corpus has no relevant reporting.",
+                            "evidence_ids": ids,
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+
+    def fake_call(run_dir, stage, model, effort, prompt, schema):
+        packet = json.loads(prompt.split("\nCASES:\n", 1)[1])
+        assert bool(packet[0]["structural_errors"]) == bool(ids)
+        result = {
+            "evaluations": [
+                dict(
+                    case_id=case["id"],
+                    verdict="pass",
+                    scores=dict.fromkeys(DIMENSIONS, 2),
+                    issues=[],
+                    strengths=[],
+                    summary="Supported limitation.",
+                )
+            ]
+        }
+        # Like the real runner, preserve raw judge output even if validation fails.
+        save(run_dir / "evaluation.json", result)
+        return result
+
+    monkeypatch.setattr(cli, "codex_call", fake_call)
+    args = SimpleNamespace(run_dir=tmp_path)
+    if ids:
+        with pytest.raises(ValueError, match="contradicts structural"):
+            cli.evaluate(args)
+        with pytest.raises(ValueError, match="contradicts structural"):
+            report(args)
+        assert not (tmp_path / "review.html").exists()
+    else:
+        cli.evaluate(args)
+        report(args)
+        assert (tmp_path / "review.html").exists()
