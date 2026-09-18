@@ -1,7 +1,7 @@
 # Architecture
 
-This project is a production-style NBA analytics platform for the `2025-26`
-season. BigQuery is the warehouse system of record. Redshift is an optional
+This project is an NBA analytics platform serving `2023-24` through `2025-26`.
+BigQuery is the warehouse system of record. Redshift is an optional
 learning/portfolio path, not a replacement for the default runtime.
 
 ## Core Decisions
@@ -12,13 +12,10 @@ learning/portfolio path, not a replacement for the default runtime.
 - Self-hosted Airflow is the supported orchestration path.
 - FastAPI serves the public read-only site and API.
 - Terraform manages GCP infrastructure and optional AWS Redshift infrastructure.
-- Analysis output is deterministic and template-based.
-- Player similarity MLOps is offline-first and BigQuery-native: active serving
-  outputs stay in gold tables, while versioned feature snapshots, model runs,
-  evaluations, registry state, and drift checks belong in feature and ML
-  metadata datasets.
-- Media sentiment ingestion is deferred until source, cost, and retention rules
-  are explicit.
+- Governed statistics are computed deterministically; model-generated narratives
+  use bounded application evidence.
+- Similarity training runs offline; validated public outputs are published to
+  gold tables and read by the application.
 
 ## Pipeline Flow
 
@@ -36,7 +33,7 @@ The Airflow DAG in `dags/nba_analytics_dag.py` runs this path:
 10. Merge into bronze raw tables with reconciliation checks.
 11. Run dbt bronze/silver/gold/agent models and tests.
 12. Publish similarity vectors and archetype clusters best-effort.
-14. Publish watermark and run metadata to `nba_metadata`, including any
+13. Publish watermark and run metadata to `nba_metadata`, including any
     non-blocking asset status.
 
 ### Publication and partial failures
@@ -130,9 +127,8 @@ Similarity outputs:
 - `player_archetypes`
 
 The public baseline and publish contract are documented in
-[`docs/player-similarity-model.md`](player-similarity-model.md). The target
-feature-store and MLOps lifecycle is documented in
-[`docs/similarity-mlops.md`](similarity-mlops.md). Tuned personal-model work
+[`docs/player-similarity-model.md`](player-similarity-model.md).
+Tuned personal-model work
 should stay outside the public repo; see
 [`docs/public-private-boundary.md`](public-private-boundary.md).
 
@@ -142,23 +138,26 @@ Metadata tables:
 - `pipeline_run_log`
 - `source_contract_results`
 
-Planned similarity lifecycle tables:
+Context models:
 
-- `nba_features.player_similarity_feature_values`
-- `nba_features.feature_view_registry`
-- `nba_ml.similarity_model_runs`
-- `nba_ml.similarity_eval_results`
-- `nba_ml.similarity_model_registry`
-- `nba_ml.similarity_drift_checks`
+- `team_game_context`
+- `team_defense_before_game`
+- `player_game_reported_status`
+- `player_game_context`
+
+These preserve player-game grain and distinguish prior opponent/status evidence
+from same-game outcomes. See [Player context](player-context.md) for availability
+cutoffs, coverage rules, and the offline integration boundary.
 
 ## Serving Path
 
 The FastAPI service reads from gold, agent, and metadata tables. Player detail,
-compare, performance, dashboards, freshness, and analysis snapshots use curated
+compare, performance, dashboards, and freshness use curated
 gold read models. Player resolution for search and `/ask` starts from
 `nba_agent.agent_player_search`, which denormalizes qualified player identity,
 season averages, percentiles, trend state, availability, and an answer-context
-string into one agent-specific table. The stats agent still reaches data only
+string into one agent-specific table. Governed metric queries use the
+[semantic contract](semantic-contract.md). The stats agent reaches data only
 through allowlisted application tools before calling the selected OpenAI API or
 Claude API model, and it does not get arbitrary SQL access.
 

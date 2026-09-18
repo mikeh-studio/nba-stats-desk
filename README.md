@@ -8,7 +8,7 @@ pairs a natural-language `/ask` stats agent that can call the OpenAI API or
 Claude API with Performance insights for recent player form, backed by BigQuery,
 dbt, Airflow, and a Cloud Run-ready FastAPI service.
 
-**Platform scope:** 31 dbt SQL models transform six NBA source domains into
+**Platform scope:** dbt SQL models transform six NBA source domains into
 curated gold serving models for a read-only FastAPI workbench and stats agent.
 
 ![Ask page](docs/images/ask-page.png)
@@ -34,8 +34,8 @@ Optional portfolio paths include Redshift Serverless as a secondary warehouse.
 - **Performance insights**: `/performance` compares 2025-26 playoff player games
   against season baselines with filters, signed P-Rating, minutes, shooting
   metrics, and a lightweight player snapshot modal.
-- **Research views**: player detail, comparisons, rankings, leaderboards,
-  recommendations, and a 3D player similarity map support deeper stat review.
+- **Research views**: player detail, comparisons, rankings,
+  and a 3D player similarity map support deeper stat review.
 - **What Changed?**: `/what-changed` separates top performers from surging
   players over four team games or complete calendar weeks, with availability,
   offense, defense, and individual game evidence. See the
@@ -43,10 +43,14 @@ Optional portfolio paths include Redshift Serverless as a secondary warehouse.
 - **Analytics engineering backbone**: source contracts, dbt models,
   orchestration, metadata, and read-only serving keep the public app tied to
   curated warehouse outputs.
-- **Similarity model lifecycle**: the public KMeans baseline is paired with
-  Gaussian mixture, hierarchy, and density-scan candidate models, plus a
-  BigQuery-native MLOps plan for versioned features, candidate evaluation,
-  promotion gates, and drift checks.
+- **Player similarity**: the public KMeans baseline is paired with
+  Gaussian mixture, hierarchy, and density-scan candidate models, with
+  deterministic training, output validation, and atomic publication.
+- **Player context and evaluation**: governed shooting/minutes metrics and
+  derived opponent/status relations, with offline evidence generation, independent
+  model assessment, and human review. See [Player context](docs/player-context.md)
+  and [Evaluation](docs/evaluation.md). Relational context remains descriptive;
+  the offline generator is not enabled in the public request handler.
 
 ## Stack
 
@@ -86,19 +90,17 @@ names, validation, and source-coverage limits.
 - **Silver**: cleaned source models plus enriched player-game rows.
 - **Gold facts/dimensions**: player stats, team scores, scoring contribution,
   players, teams, and games.
-- **Gold serving tables**: leaderboard, trends, rankings, player detail,
-  compare, dashboard, recent performance workbench, availability,
-  recommendations, and legacy search index.
+- **Gold serving tables**: trends, rankings, player detail, compare, dashboard,
+  recent performance workbench, availability, and search indexes.
 - **Agent serving table**: `nba_agent.agent_player_search` is a dedicated
   player context table for `/ask` player resolution and answer grounding.
 - **Similarity outputs**: feature input plus public baseline feature vectors
   and archetypes.
-- **Runtime metadata**: ingestion state, source contract outcomes, run log, and
-  deterministic analysis snapshots.
+- **Runtime metadata**: ingestion state, source contract outcomes, and run log.
 
 See [Architecture](docs/architecture.md) for the detailed table layout.
-See [Player Similarity MLOps](docs/similarity-mlops.md) for the formal
-feature-store, registry, evaluation, and promotion plan.
+See [Player similarity](docs/player-similarity-model.md) for the public baseline
+and publication contract.
 
 ## Public App
 
@@ -108,8 +110,7 @@ agent the default entry point while keeping Performance and directed research
 pages one click away.
 
 - ask, performance, player, compare, and similarity map pages
-- leaderboard, trends, recent game performance, analysis snapshot,
-  recommendations, and rankings
+- recent game performance, change comparisons, and rankings
 - player search/detail, game logs, percentiles, similarity, and health
 
 The similarity map (`/similarity-map`) is a 3D PCA projection of the player
@@ -270,3 +271,19 @@ See [Validation](docs/validation.md) for the full QA matrix.
 A daily catalog review workflow flags model availability changes without changing
 Ask's selection. See [model catalog review](docs/model-catalog.md) for local checks,
 GitHub Actions setup, and the three-question candidate compatibility smoke test.
+
+## Documentation
+
+| Guide | Purpose |
+| --- | --- |
+| [Architecture](docs/architecture.md) | Implemented data flow and serving boundaries |
+| [Ask workspace](docs/ask-workspace.md) | Conversations, comparisons, and supported presentation |
+| [Metric semantics](docs/semantic-contract.md) | Identity, scope, aggregation, units, and missingness |
+| [Player context](docs/player-context.md) | Derived relations and interpretation limits |
+| [Evaluation](docs/evaluation.md) | Reproducible checks and offline human-review workflow |
+| [Public/private boundary](docs/public-private-boundary.md) | What belongs in the repository |
+
+Public documentation covers implemented behavior and reproducible validation.
+Research notebooks, detailed experiment results, internal plans, and tuning work
+are maintained separately. CI verifies code and fixtures; it does not establish
+live warehouse coverage or deployment readiness.

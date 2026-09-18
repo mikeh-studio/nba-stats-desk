@@ -195,10 +195,10 @@ injury watermark, and runs the targeted dbt injury availability build.
 The utility has a default `240` candidate safety cap. Raise it with
 `--max-candidates` or pass `--allow-large-window` for intentionally larger
 windows. Official CDN `403` and `404` responses are treated as missing reports
-so long season windows can skip dates where no archived PDF is available. In
-prior production runs, archived `05_00PM` report coverage for this attempted
-season window started on `2025-12-22`; earlier dates may remain unavailable
-from the source even though the code path is healthy.
+so long season windows can skip dates where no archived PDF is available.
+Archive filename formats and available dates can vary. Check the saved
+source results for the requested period rather than inferring coverage from a
+successful command.
 
 ## Bronze Bootstrap
 

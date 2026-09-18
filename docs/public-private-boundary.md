@@ -69,3 +69,23 @@ network and header-appending behavior; do not copy a generic Cloud Run trust ran
 The default in-memory limiter remains per process. Public multi-instance serving
 should use the existing Redis limiter for shared counters. These changes do not
 introduce user authentication or resolve the remaining dependency advisories.
+
+## Documentation publication policy
+
+Public docs showcase implemented features and provide setup, API/data contracts,
+metric definitions, limitations, and reproducible validation commands. Keep
+architecture explanations focused on the system that exists. Public evidence
+should be concise, dated, and clear about what was actually tested.
+
+Keep detailed research surveys, rejected alternatives, roadmap planning,
+proprietary tuning, private evaluation cases, prompts/outputs from experiments,
+cost ledgers, session transcripts, and machine-specific debugging notes outside
+the tracked documentation tree. Use ignored `local_notes/` for working notes and
+`reports/` for run artifacts. Use a separate private repository for durable backup
+and collaboration; ignored local files are not remotely backed up by this repo.
+
+Do not blanket-ignore `docs/` or Markdown files. Existing tracked material must
+be deliberately moved or untracked; ignore patterns only prevent future additions.
+Removing a current file does not erase previous commits or public PR history.
+Documentation boundaries do not conceal algorithms or prompts already present in
+public source code. Changes to that code boundary require a separate review.
