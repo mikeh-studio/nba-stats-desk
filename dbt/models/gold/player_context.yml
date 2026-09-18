@@ -1,0 +1,34 @@
+version: 2
+models:
+  - name: team_game_context
+    description: >-
+      Team-game box-score aggregates with separate score/minute and shooting
+      coverage diagnostics. Diagnostics do not prove source completeness.
+  - name: team_defense_before_game
+    description: >-
+      Same-season, same-phase context using strictly earlier game dates.
+      Win percentage and eFG percentage allowed are descriptive and are not
+      possession-based defensive rating. Retrospectively corrected facts.
+  - name: player_game_reported_status
+    description: >-
+      One latest documented player/team/game status before midnight UTC of game
+      date. This conservative cutoff is not tipoff. Conflicting statuses at the
+      selected report timestamp become Unknown. Retains later ingestion times.
+  - name: player_game_context
+    description: >-
+      Derived player-game mart preserving the fact grain. Adds prior-only
+      opponent context and explicitly scoped historical report status. Missing
+      reports remain Unknown and do not imply availability or roster membership.
+      Same-game box-score columns are outcomes, not pregame causal covariates.
+    columns:
+      - name: player_id
+        data_tests: [not_null]
+      - name: game_id
+        data_tests: [not_null]
+      - name: season
+        data_tests: [not_null]
+      - name: claim_level
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [descriptive]

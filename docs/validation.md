@@ -148,3 +148,12 @@ dbt build --project-dir . --profiles-dir dbt/profiles --target redshift \
 - Redshift checks require credentials and the `dbt-redshift` adapter.
 - Live Airflow validation depends on NBA endpoint availability and configured
   GCP access.
+
+## Rendered UI and evaluation checks
+
+For UI data changes, verify populated, user-visible content in the rendered DOM,
+not just a successful API response or the presence of an SVG element. Check
+relevant metrics, sorting, selected-player details, and navigation after an asset
+refresh. See [Evaluation](evaluation.md) for deterministic semantic fixtures,
+frozen inputs, and optional model-backed reviews. Keep detailed run outputs under
+ignored `reports/`; use CI or a dated PR summary for validation results.

@@ -3,3 +3,6 @@
 # Lint, format, and type-check tooling (enforced in CI).
 ruff>=0.15,<1
 mypy>=1.11,<3
+
+# Validate generator/judge output schemas in offline regression tests.
+jsonschema>=4,<5

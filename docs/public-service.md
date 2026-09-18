@@ -35,6 +35,10 @@ old Visualize page has been removed.
 - `/api/agent/history` (local-only history, empty unless enabled)
 - `/api/health`
 
+The retired `/api/leaderboard`, `/api/trends`, `/api/analysis/latest`, and
+`/api/recommendations` endpoints return 404. Clients should use the retained
+endpoints above; no stale compatibility responses are served.
+
 ## Data Access
 
 The service reads only from gold, agent, and metadata datasets. It is public
@@ -124,7 +128,9 @@ Operational controls:
 - Browser history stays in `localStorage`; optional server JSONL history is
   disabled by default and should stay under ignored `local_notes/`.
 
-Agent metrics are defined in `app/agent/semantic_catalog.yml`. Base metrics map
+Governed metric queries use `app/agent/semantic_contract.yml`; see
+[Metric semantics](semantic-contract.md). Legacy analytical tools retain
+`app/agent/semantic_catalog.yml` presentation and alias metadata. Base metrics map
 to curated gold fields. Derived metrics use safe arithmetic formulas over
 approved stat keys, such as:
 
@@ -136,7 +142,9 @@ Shooting efficiency is exposed as derived percentage metrics scaled to 0-100,
 so their deltas read as percentage points: `fg_pct` (`fg_pct * 100`), `fg3_pct`
 (`fg3m / fg3a * 100`), and `ts_pct` (`pts / (2 * (fga + 0.44 * fta)) * 100`).
 A metric's `unit` (`count` or `percent`) drives formatting and keeps percentage
-lines off the counting-stat chart axis. `plus_minus` carries on-court impact.
+lines off the counting-stat chart axis. `plus_minus` records observed on-court point differential;
+it is not isolated
+player impact.
 
 Each metric has a `tier` (1-4). A vague "stats" question resolves to the
 default cohort — tiers 1-2, the traditional box score

@@ -89,10 +89,11 @@ The chart initially selects the strongest eligible category; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and
 table/chart renderers instead of receiving invented overview insights.
 
-The current overview can identify relative category strength, monthly variation
-and defensive box-score activity. It does not yet compute opponent defensive
-ratings or establish minutes/efficiency/turnover drivers. These limitations are
-visible; no mockup numbers or causal explanations are embedded in the app.
+The overview describes relative category strength, monthly variation, and
+box-score activity, with additional minutes, attempt, shooting-efficiency,
+turnover, and per-36 context. These metrics do not establish causal drivers.
+Opponent and selected teammate summaries are available in the offline evaluation;
+see [Player context](player-context.md) for integration and coverage limits.
 Thin percentile bars use native meters. Icons are vendored Tabler assets under
 their MIT license; the existing locally hosted Barlow fonts and real player
 headshots are reused.

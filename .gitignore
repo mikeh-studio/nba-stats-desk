@@ -43,7 +43,7 @@ airflow.db
 webserver_config.py
 logs/
 
-# Local-only docs
+# Local-only docs and research archives (public guides remain in docs/)
 CLAUDE.md
 AGENTS.md
 DESIGN.md

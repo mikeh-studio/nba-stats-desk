@@ -100,29 +100,9 @@ build process have explicit time bounds.
 The backfill report is the evidence for actual coverage. A successful local
 app check does not deploy the app or grant a production service account access.
 
-## Verified backfill on September 9, 2026
+## Metric semantics
 
-| Season | Regular games | Playoff games | Player-game rows | Injury rows | Daily reports |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 2023-24 | 1,230 | 82 | 28,086 | 18,368 | 227 / 239 checked |
-| 2024-25 | 1,230 | 84 | 28,110 | 19,600 | 233 / 245 checked |
-
-Both complete dbt builds had 327 passing nodes, one warning test, and no
-errors. The injury warning contains 3 and 9 appearance discrepancies,
-respectively. Unmatched injury names remain in bronze/silver with NULL IDs
-(61 and 116 rows); player-linked serving views exclude those rows. Each
-archive has 541 similarity profiles. All five neutral-site schedule conflicts
-in 2024-25 were resolved against official game-summary team IDs.
-
-Application validation includes 373 passing Python tests (one skipped), 29
-JavaScript tests, Ruff, current-season desktop/mobile performance checks, and
-live historical API/browser checks. The table-row reader uses physical BigQuery
-schema order so newly rebuilt tables decode stat deltas correctly. Current
-bronze row counts remained unchanged. The app changes are in the isolated
-`codex/historical-season-backfill` worktree and have not been deployed.
-
-## Semantic layer proposal
-
-The [semantic contract and evaluation proposal](semantic-contract-v0.1.md)
-defines proposed metric semantics and 24 evaluation cases for review. It
-does not implement a new semantic layer or change existing metric policies.
+The [governed semantic contract](semantic-contract.md) describes implemented
+scope, aggregation, qualification, and evidence boundaries. Use the
+[evaluation workflow](evaluation.md) to validate a frozen archive. Actual run
+counts, source-capture audits, and warehouse job records belong in local reports.
