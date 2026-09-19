@@ -268,9 +268,9 @@ See [Validation](docs/validation.md) for the full QA matrix.
 
 ## Model catalog maintenance
 
-A daily catalog review workflow flags model availability changes without changing
-Ask's selection. See [model catalog review](docs/model-catalog.md) for local checks,
-GitHub Actions setup, and the three-question candidate compatibility smoke test.
+An optional local catalog check flags model availability changes without changing
+Ask's selection. See [model catalog review](docs/model-catalog.md) for local checks
+and the three-question candidate compatibility smoke test.
 
 ## Documentation
 
