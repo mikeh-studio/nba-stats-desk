@@ -1,7 +1,7 @@
 # Model catalog review
 
 Ask's enabled models remain in `app/config.py`. Discovery never adds a model to
-the dropdown or changes a default. The first version provides a daily review
+the dropdown or changes a default. An optional local check provides a review
 report and an explicit candidate smoke test.
 
 ## Check availability
@@ -27,14 +27,8 @@ snapshot. Exit code 0 means both catalogs were refreshed, not that all models
 passed review. `latest.json` stores state; timestamped JSON files preserve runs.
 Reports are ignored by git. Use separate output directories for different accounts.
 
-`.github/workflows/model-catalog.yml` runs daily at 15:17 UTC and supports manual
-runs. To activate it, publish the workflow to the default branch and configure
-repository Actions secrets `OPENAI_API_KEY` and `ANTHROPIC_API_KEY`. This local
-implementation does not configure secrets or activate GitHub scheduling.
-Each run puts the review in the Actions job summary and uploads a 30-day artifact.
-Actions cache carries the previous snapshot between runs; cache eviction starts a
-new baseline. Missing credentials fail visibly instead of reporting an empty catalog.
-No messages, issues, or pull requests are created automatically.
+Catalog checks run locally on demand. Provider credentials stay in your local
+environment; no GitHub Actions secrets or scheduled workflow are required.
 
 ## Evaluate one candidate
 
@@ -46,7 +40,7 @@ python scripts/evaluate_agent_questions.py \
 
 Use `--provider claude` for Anthropic. This is an explicit live evaluation: it
 requires configured BigQuery access and provider credentials, and incurs normal
-warehouse/model usage. The daily catalog job does not run inference evaluations.
+warehouse/model usage. The catalog check does not run inference evaluations.
 A candidate does not have to be enabled in Ask to run this command.
 
 The three questions exercise rankings, player trends, and similarity through the
