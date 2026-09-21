@@ -1,0 +1,2 @@
+# Optional offline association analysis; not required by the served application.
+statsmodels>=0.14.4,<0.15

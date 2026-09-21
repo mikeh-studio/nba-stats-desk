@@ -88,6 +88,7 @@ class Settings:
     agent_trusted_proxy_cidrs: tuple[str, ...] = ()
     agent_conversation_max_turns: int = 6
     agent_cache_ttl_seconds: int = 300
+    agent_teammate_study_path: str | None = None
     agent_history_enabled: bool = False
     agent_history_path: str = "local_notes/ask_history/ask_chat_history.jsonl"
     performance_cache_prewarm_enabled: bool = True
@@ -155,6 +156,7 @@ def get_settings() -> Settings:
             os.getenv("AGENT_CONVERSATION_MAX_TURNS", "6")
         ),
         agent_cache_ttl_seconds=int(os.getenv("AGENT_CACHE_TTL_SECONDS", "300")),
+        agent_teammate_study_path=os.getenv("AGENT_TEAMMATE_STUDY_PATH") or None,
         agent_history_enabled=_env_bool("AGENT_HISTORY_ENABLED", False),
         agent_history_path=os.getenv(
             "AGENT_HISTORY_PATH",

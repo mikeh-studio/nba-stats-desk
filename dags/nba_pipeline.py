@@ -2403,6 +2403,8 @@ def _is_tokenized_injury_report(lines: list[str]) -> bool:
 def _is_injury_game_context_start(tokens: list[str], index: int) -> bool:
     if index >= len(tokens):
         return False
+    if _INJURY_MATCHUP_TOKEN_RE.fullmatch(tokens[index].upper()):
+        return True
     if _INJURY_DATE_TOKEN_RE.match(tokens[index]):
         return (
             index + 3 < len(tokens)
@@ -2459,6 +2461,15 @@ def _normalize_injury_report_lines(
     *,
     player_lookup: Optional[dict[str, int]] = None,
 ) -> list[str]:
+    # PDF headers can be split into one token per line. Remove them before
+    # assembling logical rows, otherwise a page-ending player absorbs a header
+    # and the parser mistakes the entire player row for that header.
+    text = re.sub(
+        r"Injury\s+Report:\s+\d{2}/\d{2}/\d{2,4}\s+\d{1,2}:\d{2}\s*[AP]M",
+        "",
+        str(text or ""),
+    )
+    text = re.sub(r"Page\s+\d+\s+of\s+\d+", "", text)
     lines = [
         re.sub(r"\s+", " ", raw_line.strip())
         for raw_line in str(text or "").splitlines()
@@ -2496,6 +2507,11 @@ def _normalize_injury_report_lines(
             context["game_time_et"] = f"{tokens[index]} {tokens[index + 1]}"
             context["matchup"] = tokens[index + 2].upper()
             index += 3
+        elif _INJURY_MATCHUP_TOKEN_RE.fullmatch(token.upper()):
+            # Reports omit repeated date/time cells for simultaneous games.
+            context["matchup"] = token.upper()
+            context["team_name"] = ""
+            index += 1
 
         team_name, next_index = _consume_injury_report_team_name(tokens, index)
         if team_name:
@@ -2615,6 +2631,11 @@ def parse_injury_report_text(
                 game_time, matchup, remainder = time_match.groups()
                 context["game_time_et"] = game_time
                 context["matchup"] = matchup.upper()
+            elif re.match(r"^[A-Z]{2,3}@[A-Z]{2,3}(?:\s|$)", line):
+                matchup, _, remainder = line.partition(" ")
+                context["matchup"] = matchup.upper()
+                context["team_name"] = ""
+                context["team_abbr"] = ""
 
         team_name, remainder = _split_injury_report_team_prefix(remainder)
         if team_name:
@@ -2654,6 +2675,8 @@ def parse_injury_report_text(
             continue
 
         player_name = normalize_official_player_name(player_source)
+        if context["team_abbr"] not in context["matchup"].split("@"):
+            raise ValueError("Injury report team does not belong to its matchup")
         player_id = lookup.get(normalize_player_name_key(player_name))
         row = {
             "REPORT_DATE": report_day,

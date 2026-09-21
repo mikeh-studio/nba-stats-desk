@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
 
@@ -2506,3 +2507,42 @@ def test_injury_pdf_extraction_reads_compressed_text_with_current_pypdf():
     extracted = pipeline.extract_text_from_injury_report_pdf(buffer.getvalue())
     assert "Injury Report: 05/06/26 05:00 PM" in extracted
     assert "Embiid, Joel Out" in extracted
+
+
+@pytest.mark.parametrize("tokenized", [False, True])
+def test_injury_report_same_time_matchup_does_not_inherit_previous_game(tokenized):
+    text = """11/18/2025 07:30 (ET) BOS@BKN Boston Celtics Brown, Jaylen Out Injury/Illness - Knee
+Brooklyn Nets Thomas, Cam Out Injury/Illness - Hamstring
+DET@ATL Detroit Pistons NOT YET SUBMITTED
+Atlanta Hawks Young, Trae Out Injury/Illness - Knee"""
+    if tokenized:
+        text = "\n".join(text.split())
+    frame = pipeline.parse_injury_report_text(
+        text,
+        report_date="2025-11-17",
+        report_time_et="05_30PM",
+        source_url="https://example.test/report.pdf",
+        player_lookup={"jaylen brown": 1, "cam thomas": 2, "trae young": 3},
+    )
+    young = frame[frame["PLAYER_ID"] == 3].iloc[0]
+    assert young["MATCHUP"] == "DET@ATL"
+    assert young["TEAM_ABBR"] == "ATL"
+    assert "DET@ATL" not in frame.iloc[1]["REASON"]
+
+
+def test_injury_report_page_ending_player_survives_tokenized_header():
+    text = "\n".join(
+        """11/07/2025 07:30 (ET) TOR@ATL Atlanta Hawks
+Young, Trae Out Injury/Illness - Knee Sprain
+Injury Report: 11/07/25 05:30 PM Page 4 of 9
+08:00 (ET) CHA@MIA Charlotte Hornets Ball, LaMelo Doubtful Injury/Illness - Ankle""".split()
+    )
+    frame = pipeline.parse_injury_report_text(
+        text,
+        report_date="2025-11-07",
+        report_time_et="05_30PM",
+        source_url="https://example.test/report.pdf",
+        player_lookup={"trae young": 1, "lamelo ball": 2},
+    )
+    assert frame["PLAYER_ID"].tolist() == [1, 2]
+    assert frame.iloc[0]["REASON"] == "Injury/Illness - Knee Sprain"
