@@ -127,6 +127,10 @@ Operational controls:
   local and test runs use an in-memory fallback.
 - Browser history stays in `localStorage`; optional server JSONL history is
   disabled by default and should stay under ignored `local_notes/`.
+- Ask generates its own request ID, returned in `X-Request-ID`; incoming IDs are
+  not reused. Service summaries log operational metadata, not questions,
+  conversation IDs, tool arguments/results, or raw provider exception bodies.
+  Rich tool details remain in the response and optional local history.
 
 Governed metric queries use `app/agent/semantic_contract.yml`; see
 [Metric semantics](semantic-contract.md). Legacy analytical tools retain
@@ -159,3 +163,15 @@ shooting efficiency and plus-minus expressed as z-scores against the player's
 own window average. A team can therefore grade as the toughest matchup on
 efficiency and impact even when raw points look fine, and the tool returns a
 per-game drill-down (shooting line, TS%, plus-minus) for that opponent.
+
+### Debugging Ask failures
+
+Use the returned `X-Request-ID` to find the matching service summary and inspect
+its outcome, error type, model, and timing metadata. Failed Ask executions do not
+save a turn to optional local history; their generic error responses and service
+logs do not preserve the failed payload or traceback.
+
+For deeper diagnosis, reproduce locally with a sanitized or synthetic question.
+Inspect the failure with a local debugger; keep any diagnostic artifacts in
+ignored private storage. Do not restore raw exception or request logging in the
+public service or copy private diagnostics into issues, PRs, or fixtures.

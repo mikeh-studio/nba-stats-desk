@@ -36,7 +36,7 @@ from app.agent.history import (
     saved_context_question,
 )
 from app.agent.observability import LOGGER_NAME, AgentTrace
-from app.agent.service import AgentDisabledError, AgentExecutionError, StatsAgent
+from app.agent.service import AgentDisabledError, StatsAgent
 from app.config import (
     AGENT_MODEL_OPTIONS,
     AGENT_MODEL_VALUES,
@@ -400,8 +400,9 @@ def _check_agent_rate_limit(request: Request, settings: Settings) -> None:
         raise HTTPException(status_code=429, detail=detail)
 
 
-def _request_id(request: Request) -> str:
-    return request.headers.get("x-request-id") or uuid4().hex
+def _request_id() -> str:
+    # Client-supplied identifiers can contain private text; log a server ID only.
+    return uuid4().hex
 
 
 def _conversation_id(value: str | None) -> str:
@@ -472,19 +473,12 @@ def _prepare_agent_request(
     settings: Settings,
 ) -> tuple[str, str, str, AgentTrace]:
     require_local_history(request, settings)
-    request_id = _request_id(request)
+    request_id = _request_id()
     conversation_id = _conversation_id(payload.conversation_id)
-    requested_model = (payload.model or "").strip()
-    provider = _selected_agent_provider(payload)
-    trace_model = requested_model or (
-        settings.anthropic_agent_model
-        if provider == "claude"
-        else settings.openai_agent_model
-    )
     trace = AgentTrace(
         request_id=request_id,
         question=payload.question,
-        model=trace_model,
+        model="unvalidated",
         conversation_id=conversation_id,
     )
     try:
@@ -920,15 +914,15 @@ def api_agent_ask(
         )
     except AgentDisabledError as exc:
         _fail_trace(trace, exc)
-        agent_logger.warning("agent disabled: %s", exc)
+        agent_logger.warning("agent disabled: %s", type(exc).__name__)
         raise HTTPException(
             status_code=503,
             detail=AGENT_UNAVAILABLE_DETAIL,
             headers={"X-Request-ID": request_id},
         ) from exc
-    except AgentExecutionError as exc:
+    except Exception as exc:
         _fail_trace(trace, exc)
-        agent_logger.exception("agent execution failed", exc_info=exc)
+        agent_logger.error("agent execution failed: %s", type(exc).__name__)
         raise HTTPException(
             status_code=502,
             detail=AGENT_FAILED_DETAIL,
@@ -1004,7 +998,7 @@ def api_agent_ask_stream(
                 queue.put({"type": "final", "payload": answer})
             except AgentDisabledError as exc:
                 _fail_trace(trace, exc)
-                agent_logger.warning("agent stream disabled: %s", exc)
+                agent_logger.warning("agent stream disabled: %s", type(exc).__name__)
                 queue.put(
                     {
                         "type": "error",
@@ -1017,7 +1011,9 @@ def api_agent_ask_stream(
                 # the client re-submits via the JSON fallback and the question
                 # is charged against the rate limit (and OpenAI) twice.
                 _fail_trace(trace, exc)
-                agent_logger.exception("agent stream execution failed")
+                agent_logger.error(
+                    "agent stream execution failed: %s", type(exc).__name__
+                )
                 queue.put(
                     {
                         "type": "error",

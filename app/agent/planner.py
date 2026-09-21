@@ -501,7 +501,9 @@ def build_query_plan(
     except Exception as exc:
         # The deterministic fallback keeps the request alive, but a planner
         # that fails every call (e.g. a schema rejection) must show in logs.
-        logger.warning("LLM planner failed; using deterministic plan: %s", exc)
+        logger.warning(
+            "LLM planner failed; using deterministic plan: %s", type(exc).__name__
+        )
         return fallback
     plan = _parse_plan_response(response)
     if plan is None or plan.confidence < settings.agent_planner_min_confidence:

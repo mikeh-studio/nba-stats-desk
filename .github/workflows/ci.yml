@@ -27,27 +27,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Verify public repository boundary
+        run: python scripts/check_public_boundary.py
+
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
-
-      - name: Verify repo hygiene
-        run: |
-          tracked_env_files="$(
-            git ls-files \
-              | grep -E '(^|/)\.env([^/]*)?$' \
-              | grep -vE '(^|/)\.env\.example$' \
-              || true
-          )"
-          if [ -n "$tracked_env_files" ]; then
-            echo "Do not commit environment files:"
-            echo "$tracked_env_files"
-            exit 1
-          fi
-
-          if git grep -nE 'sk-ant-|ANTHROPIC_API_KEY=' -- . ':(exclude).github/workflows/ci.yml'; then
-            echo "Found an Anthropic secret pattern in tracked files."
-            exit 1
-          fi
 
       - name: Lint (ruff)
         run: ruff check .

@@ -18,6 +18,7 @@ target/
 # Terraform
 .terraform/
 *.tfvars
+*.tfvars.json
 *.tfstate
 *.tfstate.backup
 infra/terraform-aws/env/
@@ -45,7 +46,8 @@ logs/
 
 # Local-only docs and research archives (public guides remain in docs/)
 CLAUDE.md
-AGENTS.md
+AGENTS.local.md
+AGENTS.override.md
 DESIGN.md
 TODOS.md
 local_notes/
@@ -53,3 +55,32 @@ local_notes/
 # One-off artifacts
 reports/
 .gstack/
+
+# Private operational data and local experiments
+notebooks/
+exports/
+quarantine/
+private/
+credentials/
+*.ipynb
+*.jsonl
+*.parquet
+*.pkl
+*.pickle
+*.joblib
+*.npy
+*.npz
+*.pt
+*.pth
+*.onnx
+*.safetensors
+*.log
+*.duckdb
+*.sqlite
+*.sqlite3
+*.db
+*.pem
+*.key
+*.p12
+*.pfx
+*.tfstate.*

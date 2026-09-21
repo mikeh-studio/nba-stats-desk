@@ -1,17 +1,60 @@
 # Validation
 
-Use quick local checks for code shape and targeted warehouse-backed checks when
-GCP credentials are available.
+Use the intended dependency environment. Start with checks relevant to the change;
+expand to the applicable CI checks before pushing code. Credentials being available
+does not make a live warehouse write, backfill, or paid evaluation an offline check.
 
-## Fast Local Checks
+## Change-based checks
+
+| Change | Relevant validation |
+| --- | --- |
+| Documentation or agent instructions only | Review links, file paths, command/config references, ignore rules, and `git diff --check` |
+| Python API or Ask | Ruff, mypy for application changes, relevant pytest coverage; full Python suite before pushing application changes |
+| Semantic calculations or planning | Semantic evaluation below plus relevant identity, scope, missingness, and calculation tests |
+| Browser UI or JavaScript | Full JavaScript suite and a populated browser smoke of the changed interactions; Python API tests if response contracts change |
+| Pipeline or publication | Relevant source-contract, incremental, publication, freshness, and DAG tests; Airflow parse in its dependency environment |
+| dbt | Parse locally, relevant model/contract tests, and explicitly scoped warehouse checks when required |
+| Terraform | Initialization without a backend and validation; plans/applies are separate operations |
+
+Follow the current [CI workflow](../.github/workflows/ci.yml) for the complete CI
+configuration. Use `python` from the selected environment so pytest and scripts
+share dependencies; install development dependencies from `requirements-dev.txt`.
+Airflow uses its separate runtime as documented in [Local Airflow](local-airflow.md).
+
+## CI-aligned local commands
+
+After staging the intended changes, run `python scripts/check_public_boundary.py`.
+It checks the Git index, not unstaged content; see the
+[boundary policy](public-private-boundary.md) for its scope and limitations.
 
 ```bash
-python -m compileall dags app scripts tests
-PYTHONPATH=. pytest
-node --test tests_js/*.test.js
+ruff check .
+ruff format --check .
+mypy
+python -m pytest -q
+python scripts/evaluate_semantics.py --output reports/semantic-layer/evaluation.json
+npm run test:tracking
 dbt parse --project-dir . --profiles-dir dbt/profiles --target dev
-make airflow-parse
+git diff --check
+git diff --check origin/main...HEAD
 ```
+
+`npm run test:tracking` runs all `tests_js/*.test.js`, including Ask and performance
+tests. Running only `tests_js/tracking.test.js` is not the full JavaScript suite.
+The two diff checks cover working edits and committed branch changes respectively;
+inspect new untracked files separately. Report skipped checks and their reasons.
+
+For DAG changes, also run `make airflow-parse` in the configured local Airflow
+environment. For infrastructure changes, use the CI commands:
+
+```bash
+terraform -chdir=infra/terraform init -backend=false
+terraform -chdir=infra/terraform validate
+```
+
+These Terraform commands do not apply infrastructure changes. Initialization may
+download providers and modules. Live checks below require the appropriate access
+and task scope; fixture success and dbt parsing do not prove deployment readiness.
 
 Publication/freshness regression coverage:
 

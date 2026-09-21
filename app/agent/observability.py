@@ -100,16 +100,15 @@ class AgentTrace:
         self.total_tokens += int(total)
 
     def to_log_dict(self) -> dict[str, Any]:
+        # Rich tool records belong to the response/local history, not service logs.
         return {
             "event_name": "agent_request_summary",
             "request_id": self.request_id,
-            "conversation_id": self.conversation_id,
-            "question": truncate_value(self.question, limit=500),
             "route": self.route,
             "confidence": self.confidence,
             "model": self.model,
-            "tools": self.tools,
             "total_tool_calls": len(self.tools),
+            "tool_latency_ms": sum(tool["duration_ms"] for tool in self.tools),
             "latency_ms": int((monotonic() - self.start_time) * 1000),
             "tokens": {
                 "prompt": self.prompt_tokens,
