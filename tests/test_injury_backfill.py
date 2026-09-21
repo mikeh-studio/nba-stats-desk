@@ -59,9 +59,10 @@ def test_candidate_summary_records_first_and_last_source_urls() -> None:
 
 
 def test_redact_text_masks_secret_like_values() -> None:
+    token = "sk-" + "testredactiontoken12345"
     text = (
         'PASSWORD=abc123 token: xyz789 {"api_key": "abc123"} '
-        "Authorization: Bearer bearer123 sk-testredactiontoken12345 normal=value"
+        f"Authorization: Bearer bearer123 {token} normal=value"
     )
 
     redacted = backfill.redact_text(text)
@@ -69,5 +70,5 @@ def test_redact_text_masks_secret_like_values() -> None:
     assert "abc123" not in redacted
     assert "xyz789" not in redacted
     assert "bearer123" not in redacted
-    assert "sk-testredactiontoken12345" not in redacted
+    assert token not in redacted
     assert "normal=value" in redacted

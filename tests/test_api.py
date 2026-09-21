@@ -7,6 +7,7 @@ from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -1618,11 +1619,11 @@ def test_api_agent_ask_writes_local_history(tmp_path: Path) -> None:
     assert len(records) == 1
     record = records[0]
     assert record["conversation_id"] == payload["conversation_id"]
-    assert record["request_id"] == "req-history-json"
+    assert record["request_id"] == response.headers["x-request-id"]
     assert record["question"] == "How is Tyrese Maxey trending?"
     assert record["provider"] == "openai"
     assert record["model"] == "gpt-5.4-mini"
-    assert record["payload"]["request_id"] == "req-history-json"
+    assert record["payload"]["request_id"] == response.headers["x-request-id"]
     assert record["payload"]["answer"] == payload["answer"]
 
 
@@ -1682,8 +1683,8 @@ def test_api_agent_history_groups_full_payloads_and_clears(tmp_path: Path) -> No
     assert len(conversations) == 1
     assert conversations[0]["conversation_id"] == conversation_id
     assert [turn["request_id"] for turn in conversations[0]["turns"]] == [
-        "req-history-1",
-        "req-history-2",
+        first.headers["x-request-id"],
+        second.headers["x-request-id"],
     ]
     assert conversations[0]["turns"][0]["payload"]["answer"].startswith("Tyrese Maxey")
 
@@ -1854,7 +1855,7 @@ def test_api_agent_ask_rejects_model_for_wrong_provider(caplog) -> None:
         if "agent_request_summary" in record.message
     ]
     assert summaries[-1]["request_id"] == response.headers["x-request-id"]
-    assert summaries[-1]["model"] == "claude-fable-5"
+    assert summaries[-1]["model"] == "unvalidated"
     assert summaries[-1]["outcome"] == "error"
     assert summaries[-1]["error_type"] == "HTTP_400"
 
@@ -2021,10 +2022,14 @@ def test_api_agent_ask_logs_structured_summary(caplog) -> None:
         for record in caplog.records
         if "agent_request_summary" in record.message
     ]
-    assert summaries[-1]["request_id"] == "req-test-1"
+    assert summaries[-1]["request_id"] == response.headers["x-request-id"]
+    assert response.headers["x-request-id"] != "req-test-1"
     assert summaries[-1]["route"] == "player_trend"
     assert summaries[-1]["outcome"] == "answered"
-    assert summaries[-1]["tools"][0]["args"] == {"name": "Tyrese Maxey", "limit": 5}
+    assert summaries[-1]["total_tool_calls"] > 0
+    assert "tools" not in summaries[-1]
+    assert "question" not in summaries[-1]
+    assert "conversation_id" not in summaries[-1]
 
 
 def test_api_agent_ask_stream_sends_progress_and_final_payload() -> None:
@@ -2076,7 +2081,7 @@ def test_api_agent_ask_stream_preserves_markdown_deltas_and_logs_history(
     assert "## Summary\\n\\n### Context" in response.text
     records = [json.loads(line) for line in history_path.read_text().splitlines()]
     assert len(records) == 1
-    assert records[0]["request_id"] == "req-history-stream"
+    assert records[0]["request_id"] == response.headers["x-request-id"]
     assert records[0]["payload"]["answer"] == markdown_answer
 
 
@@ -2897,3 +2902,69 @@ def test_retired_legacy_analytics_endpoints_are_absent():
         "/api/recommendations",
     ):
         assert client.get(path).status_code == 404
+
+
+@pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])
+@pytest.mark.parametrize("fail", [None, "execution", "unexpected"])
+def test_ask_logs_do_not_capture_private_request_or_provider_content(
+    endpoint, fail, monkeypatch, caplog
+):
+    from app.agent.service import AgentExecutionError
+
+    marker = "private-content-do-not-log"
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="test-key",
+            agent_rate_limit_per_minute=0,
+            agent_rate_limit_daily=0,
+        )
+    )
+
+    def answer(question, **kwargs):
+        trace = kwargs["trace"]
+        trace.set_plan(route="player_trend", confidence=1.0)
+        record = trace.add_tool(
+            name="resolve_player",
+            args={"name": marker},
+            status="ok",
+            duration_ms=1,
+            result={"message": marker},
+        )
+        if fail:
+            error = AgentExecutionError if fail == "execution" else RuntimeError
+            raise error(marker)
+        trace.outcome = "answered"
+        return {"answer": marker, "tool_calls": [record]}
+
+    monkeypatch.setattr(
+        "app.main._build_stats_agent", lambda *args: SimpleNamespace(answer=answer)
+    )
+    with caplog.at_level("INFO", logger="app.agent"):
+        response = client.post(
+            endpoint,
+            json={"question": marker, "conversation_id": marker},
+            headers={"X-Request-ID": marker},
+        )
+    assert response.status_code == (502 if fail and endpoint.endswith("ask") else 200)
+    assert marker not in caplog.text
+    assert not any(record.exc_info for record in caplog.records)
+    summaries = [
+        json.loads(r.message)
+        for r in caplog.records
+        if "agent_request_summary" in r.message
+    ]
+    assert summaries[-1]["request_id"] == response.headers["x-request-id"]
+    assert summaries[-1]["outcome"] == ("error" if fail else "answered")
+    if not fail:
+        assert marker in response.text  # The user's own response still has its detail.
+
+
+def test_invalid_model_is_not_copied_to_service_logs(caplog):
+    marker = "private-invalid-model"
+    client = build_client(settings=_test_settings(openai_api_key="test-key"))
+    with caplog.at_level("INFO", logger="app.agent"):
+        response = client.post(
+            "/api/agent/ask", json={"question": "stats", "model": marker}
+        )
+    assert response.status_code == 400
+    assert marker not in caplog.text

@@ -127,6 +127,10 @@ Operational controls:
   local and test runs use an in-memory fallback.
 - Browser history stays in `localStorage`; optional server JSONL history is
   disabled by default and should stay under ignored `local_notes/`.
+- Ask generates its own request ID, returned in `X-Request-ID`; incoming IDs are
+  not reused. Service summaries log operational metadata, not questions,
+  conversation IDs, tool arguments/results, or raw provider exception bodies.
+  Rich tool details remain in the response and optional local history.
 
 Governed metric queries use `app/agent/semantic_contract.yml`; see
 [Metric semantics](semantic-contract.md). Legacy analytical tools retain

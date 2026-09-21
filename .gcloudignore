@@ -1,3 +1,6 @@
+# Keep deployment uploads aligned with the repository privacy rules.
+#!include:.gitignore
+
 .git
 .gitignore
 .gcloudignore
