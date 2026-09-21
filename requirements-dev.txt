@@ -6,3 +6,6 @@ mypy>=1.11,<3
 
 # Validate generator/judge output schemas in offline regression tests.
 jsonschema>=4,<5
+
+# Exercise offline association analysis in CI.
+-r requirements-analysis.txt

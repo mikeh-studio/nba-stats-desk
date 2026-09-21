@@ -1457,6 +1457,51 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.teammate_ask import answer_study, wants_study
+
+        study_followup = False
+        if conversation_id and self.conversation_store:
+            prior = self.conversation_store.get_turns(conversation_id, max_turns=1)
+            study_followup = bool(
+                prior
+                and prior[-1].context.get("teammate_study")
+                and re.search(
+                    r"^(?:is|was|does|did|what|how).*(?:significan|caus|uncertain|confidence|p-value|sample)",
+                    cleaned_question,
+                    re.I,
+                )
+            )
+        if (
+            wants_study(cleaned_question, self.settings.agent_teammate_study_path)
+            or study_followup
+        ):
+            try:
+                payload = answer_study(
+                    self,
+                    ("Using the teammate study: " + cleaned_question)
+                    if study_followup
+                    else cleaned_question,
+                    provider_name,
+                    selected_model,
+                    trace,
+                )
+                payload["conversation_id"] = conversation_id
+                if trace is not None:
+                    trace.outcome = payload["study_status"]
+                if conversation_id and self.conversation_store:
+                    self.conversation_store.append_turn(
+                        conversation_id,
+                        question=cleaned_question,
+                        answer=payload["answer"],
+                        max_turns=self.settings.agent_conversation_max_turns,
+                        context={
+                            "teammate_study": payload["study_status"] == "answered"
+                        },
+                    )
+                return payload
+            except Exception as exc:
+                raise AgentExecutionError("Teammate study request failed") from exc
+
         routing_question = cleaned_question
         if conversation_id and self.conversation_store:
             pending_route = self.conversation_store.get_pending_clarification(
