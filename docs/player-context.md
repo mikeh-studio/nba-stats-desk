@@ -144,6 +144,9 @@ Export verifies input hashes and recomputes the descriptive summary and adjusted
 analysis before accepting the supplied outputs. Mixed or stale outputs are
 rejected. Regenerate the study and analysis with the current code and analysis
 environment before exporting older artifacts.
+Panels retain the study's report-age limit for analysis and export. Exported
+player names come from ID-matched frozen statistics, not the study title; missing
+or conflicting names require rebuilding the evidence before publication.
 
 Ask recognizes “teammate study/analysis/impact” and questions naming both study
 players with absence, significance or causal wording. In-session significance and

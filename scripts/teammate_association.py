@@ -70,6 +70,21 @@ def report_burden(game, reports, max_age=48):
 
 
 def prepare_rows(panel, reports):
+    ages = [r.get("max_report_age_hours") for r in panel]
+    if (
+        not ages
+        or any(
+            isinstance(age, bool)
+            or not isinstance(age, (int, float))
+            or not 0 < age <= 48
+            for age in ages
+        )
+        or len(set(ages)) != 1
+    ):
+        raise ValueError(
+            "Panel requires one explicit report-age policy; rebuild older panels"
+        )
+    max_age = ages[0]
     keys = [
         (r["season"], r["game_id"], r["player_id"], r["teammate_id"]) for r in panel
     ]
@@ -91,12 +106,12 @@ def prepare_rows(panel, reports):
             continue
         if r["exposure"] not in ("participated", "reported_out_no_appearance"):
             raise ValueError("Included row has invalid exposure")
-        status = latest_report(reports, r, r["teammate_id"], 48)["status"]
+        status = latest_report(reports, r, r["teammate_id"], max_age)["status"]
         if (r["exposure"] == "reported_out_no_appearance" and status != "Out") or (
             r["exposure"] == "participated" and status in ("Out", "Conflicting")
         ):
             raise ValueError("Panel exposure conflicts with supplied reports")
-        burden = report_burden(r, reports)
+        burden = report_burden(r, reports, max_age)
         result.append(
             {
                 "game_id": r["game_id"],

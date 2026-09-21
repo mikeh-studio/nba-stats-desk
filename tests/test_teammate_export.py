@@ -64,7 +64,11 @@ def test_estimated_study_can_publish_but_changed_estimate_is_rejected():
     spec["end"] = panel[-1]["game_date"]
     summary, result = summarize_panel(panel), analyze(panel, reports)
     validate_evidence(spec, summary, result, panel, {"rows": reports}, plan)
-    bundle = export(spec, summary, result)
+    spec["name"] = "LeBron James / Stephen Curry"
+    validate_evidence(spec, summary, result, panel, {"rows": reports}, plan)
+    bundle = export(spec, summary, result, panel)
+    assert bundle["scope"]["focal_player_name"] == "Focal Player"
+    assert bundle["scope"]["teammate_name"] == "Other Player"
     assert (
         bundle["statistics"]["adjusted"]["difference"]
         == result["primary"]["adjusted_difference"]
@@ -97,6 +101,21 @@ def test_wrong_team_and_changed_plan_are_rejected():
         validate_evidence(*wrong)
     args[-1]["primary_outcome"] = "pts"
     with pytest.raises(ValueError, match="Plan does not match"):
+        validate_evidence(*args)
+
+
+def test_export_rejects_spec_with_different_age_policy():
+    args = list(evidence())
+    args[0]["max_report_age_hours"] = 12
+    with pytest.raises(ValueError, match="spec and panel disagree"):
+        validate_evidence(*args)
+
+
+@pytest.mark.parametrize("name", [None, "", "Different Player"])
+def test_export_rejects_missing_or_conflicting_evidence_names(name):
+    args = list(evidence())
+    args[3][0]["teammate_name"] = name
+    with pytest.raises(ValueError, match="player name"):
         validate_evidence(*args)
 
 

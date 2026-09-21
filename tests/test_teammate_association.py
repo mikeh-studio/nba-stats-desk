@@ -5,7 +5,12 @@ import pytest
 
 pytest.importorskip("statsmodels")
 from app.agent.teammate_readiness import build_panel  # noqa: E402
-from scripts.teammate_association import analyze, fit, report_burden  # noqa: E402
+from scripts.teammate_association import (  # noqa: E402
+    analyze,
+    fit,
+    prepare_rows,
+    report_burden,
+)
 from tests.test_teammate_readiness import fixture  # noqa: E402
 
 
@@ -149,4 +154,41 @@ def test_analysis_rejects_a_different_availability_snapshot():
     panel = build_panel(*args)
     args[1][0]["injury_status"] = "Available"
     with pytest.raises(ValueError, match="exposure conflicts"):
+        analyze(panel, args[1])
+
+
+def test_analysis_preserves_short_report_age_for_exposure_and_burden():
+    args = fixture()
+    args[-1]["max_report_age_hours"] = 12
+    old = {
+        **args[1][0],
+        "game_date": "2025-11-01",
+        "report_timestamp_utc": "2025-11-01T10:00:00Z",
+    }
+    args[1].extend([old, {**old, "player_id": 3}])
+    panel = build_panel(*args)
+    assert panel[0]["exposure"] == "participated"
+    rows = prepare_rows(panel, args[1])
+    assert rows[0]["out"] == 0
+    assert rows[0]["other_reported_injury_out"] is None
+    assert rows[0]["burden_evidence"]["reason"] == "no_eligible_team_report"
+
+
+def test_analysis_includes_reports_at_the_configured_age_boundary():
+    args = fixture()
+    args[-1]["max_report_age_hours"] = 12
+    args[1][0]["report_timestamp_utc"] = "2025-11-02T11:00:00Z"
+    args[1].append({**args[1][0], "player_id": 3})
+    panel = build_panel(*args)
+    row = prepare_rows(panel, args[1])[1]
+    assert row["out"] == 1
+    assert row["other_reported_injury_out"] == 1
+
+
+@pytest.mark.parametrize("age", [None, 0, 49, True, float("nan"), 12])
+def test_analysis_rejects_missing_invalid_or_mixed_age_policies(age):
+    args = fixture()
+    panel = build_panel(*args)
+    panel[0]["max_report_age_hours"] = age
+    with pytest.raises(ValueError, match="report-age policy"):
         analyze(panel, args[1])

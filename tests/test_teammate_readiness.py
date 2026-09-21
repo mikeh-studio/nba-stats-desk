@@ -56,6 +56,7 @@ def fixture():
             game_id=f"g{i}",
             game_date=f"2025-11-0{i}",
             player_id=1,
+            player_name="Focal Player",
             team_abbr="ATL",
             min=30,
             pts=20 * i,
@@ -70,7 +71,7 @@ def fixture():
         )
         for i in (1, 2)
     ]
-    stats.append({**stats[0], "player_id": 2})
+    stats.append({**stats[0], "player_id": 2, "player_name": "Other Player"})
     reports = [
         dict(
             season="2025-26",
@@ -104,6 +105,19 @@ def test_preserves_nonparticipation_and_exact_roster_end():
     assert summary["focal_nonparticipation_games"] == 1
     assert summary["differences"]["ast"]["out_minus_participated"] == 4
     assert summary["claim_level"] == "descriptive"
+
+
+def test_panel_binds_names_to_fact_ids_and_preserves_age_policy():
+    args = fixture()
+    args[-1].update(name="Wrong / Names", max_report_age_hours=12)
+    panel = build_panel(*args)
+    assert all(r["max_report_age_hours"] == 12 for r in panel)
+    assert all(r["focal_player_name"] == "Focal Player" for r in panel)
+    assert all(r["teammate_name"] == "Other Player" for r in panel)
+    args[0].append(
+        {**args[0][-1], "game_id": "other", "player_name": "Conflicting Name"}
+    )
+    assert build_panel(*args)[0]["teammate_name"] is None
 
 
 @pytest.mark.parametrize(

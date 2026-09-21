@@ -14,6 +14,25 @@ from app.agent.teammate_readiness import summarize_panel  # noqa: E402
 from scripts.teammate_association import COVARIATES, analyze  # noqa: E402
 
 
+def study_names(spec, panel):
+    """Use ID-bound names from the frozen facts, never the free-text study title."""
+    names = {}
+    for id_key, name_key in (
+        ("player_id", "focal_player_name"),
+        ("teammate_id", "teammate_name"),
+    ):
+        if not panel or any(r[id_key] != spec[id_key] for r in panel):
+            raise ValueError("Study identity and panel disagree")
+        observed = [r.get(name_key) for r in panel]
+        if any(not isinstance(name, str) or not name.strip() for name in observed):
+            raise ValueError("Missing evidence-backed player name; rebuild the panel")
+        unique = {name.strip() for name in observed}
+        if len(unique) != 1:
+            raise ValueError("Conflicting evidence-backed player names")
+        names[name_key] = unique.pop()
+    return names
+
+
 def validate_evidence(spec, summary, result, panel, injuries, plan):
     """Recompute supplied outputs from the verified inputs before publishing."""
     if plan["primary_outcome"] != "ast" or plan["covariates"] != [
@@ -26,10 +45,12 @@ def validate_evidence(spec, summary, result, panel, injuries, plan):
         or r["teammate_id"] != spec["teammate_id"]
         or r["season"] != spec["season"]
         or r["team_abbr"] != spec["team_abbr"]
+        or r.get("max_report_age_hours") != spec["max_report_age_hours"]
         or not spec["start"] <= r["game_date"] <= spec["end"]
         for r in panel
     ):
         raise ValueError("Study spec and panel disagree")
+    study_names(spec, panel)
 
     # JSON normalization accounts for tuple/list representations in memory.
     def canonical(value):
@@ -41,7 +62,8 @@ def validate_evidence(spec, summary, result, panel, injuries, plan):
         raise ValueError("Results do not match the verified analysis inputs")
 
 
-def export(spec, summary, result):
+def export(spec, summary, result, panel):
+    names = study_names(spec, panel)
     primary = result["primary"]
     if (
         primary["status"] != "estimated_exploratory"
@@ -55,9 +77,9 @@ def export(spec, summary, result):
         "claim_level": "exploratory_adjusted_association",
         "scope": {
             "focal_player_id": spec["player_id"],
-            "focal_player_name": spec["name"].split(" / ")[0],
+            "focal_player_name": names["focal_player_name"],
             "teammate_id": spec["teammate_id"],
-            "teammate_name": spec["name"].split(" / ")[1],
+            "teammate_name": names["teammate_name"],
             "season": spec["season"],
             "phase": "Regular Season",
             "start": spec["start"],
@@ -117,7 +139,7 @@ def main():
         for k in ("injuries", "plan")
     ]
     validate_evidence(spec, summary, result, panel, injuries, plan)
-    bundle = export(spec, summary, result)
+    bundle = export(spec, summary, result, panel)
     bundle["source_sha256"] = {
         k: hashlib.sha256(getattr(a, k).read_bytes()).hexdigest()
         for k in ("spec", "summary", "results", "manifest")

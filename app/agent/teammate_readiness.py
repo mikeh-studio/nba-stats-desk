@@ -139,6 +139,17 @@ def build_panel(stats, reports, games, memberships, spec, context=()):
             raise ValueError("Duplicate appearance key")
         lookup[key] = row
     opponents = {}
+    names = {}
+    for pid in (spec["player_id"], spec["teammate_id"]):
+        observed = {
+            r["player_name"].strip()
+            for r in stats
+            if r["season"] == spec["season"]
+            and r["player_id"] == pid
+            and isinstance(r.get("player_name"), str)
+            and r["player_name"].strip()
+        }
+        names[pid] = next(iter(observed)) if len(observed) == 1 else None
     for row in context:
         key = (row["season"], row["game_id"], row["player_id"])
         if key in opponents:
@@ -232,6 +243,9 @@ def build_panel(stats, reports, games, memberships, spec, context=()):
                 **game,
                 "player_id": spec["player_id"],
                 "teammate_id": spec["teammate_id"],
+                "focal_player_name": names[spec["player_id"]],
+                "teammate_name": names[spec["teammate_id"]],
+                "max_report_age_hours": spec["max_report_age_hours"],
                 "eligibility": eligibility,
                 "exposure": group,
                 "focal_participated": own_played,
