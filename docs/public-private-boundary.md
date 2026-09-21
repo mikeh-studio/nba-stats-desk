@@ -94,6 +94,8 @@ backup policy.
   text, conversation IDs, tool arguments/results, and raw provider exception bodies.
   Read the returned `X-Request-ID`; client-supplied IDs are not reused. Rich answer
   payloads remain available to the requester and optional direct-local history.
+  Failed Ask executions are not saved to local history; follow the
+  [debugging guide](public-service.md#debugging-ask-failures) for private diagnosis.
 
 Keep service logs access-controlled with a deployment-specific retention policy.
 These source controls do not configure cloud IAM, log retention, or external
