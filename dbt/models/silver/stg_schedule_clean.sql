@@ -10,6 +10,7 @@
 ) %}
 
 {% if schedule_relation is not none %}
+{% set schedule_columns = adapter.get_columns_in_relation(schedule_relation) | map(attribute='name') | map('lower') | list %}
 select
     cast(game_id as {{ varchar_type() }}) as game_id,
     cast(schedule_date as date) as schedule_date,
@@ -28,6 +29,8 @@ select
             else lower(trim(cast(game_status as {{ varchar_type() }})))
         end as {{ varchar_type() }}
     ) as game_status,
+    cast({{ 'game_time_utc' if 'game_time_utc' in schedule_columns else 'null' }} as timestamp) as scheduled_start_utc,
+    cast({{ 'ingested_at_utc' if 'ingested_at_utc' in schedule_columns else 'null' }} as timestamp) as ingested_at_utc,
     cast(source_updated_at_utc as timestamp) as source_updated_at_utc
 from {{ source('bronze', 'raw_schedule') }}
 where cast(schedule_date as date) between date('{{ warehouse_season_start() }}') and date('{{ warehouse_season_end() }}')
@@ -40,6 +43,8 @@ select
     cast(null as {{ varchar_type() }}) as home_away,
     cast(null as {{ bool_type() }}) as is_back_to_back,
     cast(null as {{ varchar_type() }}) as game_status,
+    cast(null as timestamp) as scheduled_start_utc,
+    cast(null as timestamp) as ingested_at_utc,
     cast(null as timestamp) as source_updated_at_utc
 from (select 1 as _empty_source)
 where 1 = 0

@@ -1,0 +1,22 @@
+<link rel="stylesheet" href="/static/research.css?v={{ static_version }}" />
+<section class="card research-panel" data-research-root data-season="{{ season }}" data-player-a="{{ player_detail.player.player_id if player_detail is defined else player_a_id|default('', true) }}" data-player-b="{{ player_b_id|default('', true) }}">
+  <div class="card-header"><div><div class="eyebrow">Shared research</div><h2>Explore the breakdown</h2></div><a href="/research?season={{ season }}">Open research workbench</a></div>
+  <p class="meta">The same scope and metric definitions are used here and in Ask. These breakdowns describe observed games.</p>
+  <form data-research-form class="research-form">
+    <label>Player<select name="player" required aria-label="Research player"><option value="">Loading players…</option></select></label>
+    <label>Compare with<select name="compare" aria-label="Research comparison player"><option value="">No comparison</option></select></label>
+    <label>Phase<select name="phase"><option>Regular Season</option><option>Playoffs</option><option>Both</option></select></label>
+    <label>From<input name="start" type="date" /></label><label>Through<input name="end" type="date" /></label>
+    <label>Opponent<input name="opponent" maxlength="3" placeholder="All teams" pattern="[A-Za-z]{2,3}" /></label>
+    <label>Venue<select name="home_away"><option value="">Home & away</option><option value="home">Home</option><option value="away">Away</option></select></label>
+    <label>Rest<select name="rest"><option value="">All rest</option><option value="back_to_back">Back-to-back</option><option value="one_day">One day</option><option value="two_plus">Two or more days</option></select></label>
+    <label>Values<select name="aggregation"><option value="average">Per appearance</option><option value="total">Totals</option></select></label>
+    <label>Teammate<select name="teammate"><option value="">No status split</option></select></label>
+    <label>Reviewed status<select name="teammate_status"><option value="">No status split</option><option value="participated">Participated</option><option value="reported_out_no_appearance">Reported Out, no appearance</option><option value="unknown">Unknown</option><option value="conflicting">Conflicting evidence</option></select></label>
+    <button type="submit">Run breakdown</button>
+  </form>
+  <p data-research-status role="status" aria-live="polite"></p>
+  <div data-research-results></div>
+  <section class="research-studies"><div class="eyebrow">Three focused questions</div><h2>Teammate availability studies</h2><p class="meta">Observed differences, adjusted associations, and assumption-dependent causal estimates are shown separately. Positive changes mean more of the stat, including turnovers.</p><div data-study-selector class="research-pairs"></div><div data-study-results aria-live="polite"></div></section>
+</section>
+<script type="module" src="/static/research.js?v={{ static_version }}"></script>

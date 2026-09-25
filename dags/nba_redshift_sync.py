@@ -230,6 +230,7 @@ _RAW_TABLE_SPECS = {
             ("home_away", "VARCHAR(10)"),
             ("is_back_to_back", "BOOLEAN"),
             ("game_status", "VARCHAR(20)"),
+            ("game_time_utc", "TIMESTAMP"),
             ("source_updated_at_utc", "TIMESTAMP"),
             ("ingested_at_utc", "TIMESTAMP"),
         ],

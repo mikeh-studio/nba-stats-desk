@@ -97,3 +97,5 @@ see [Player context](player-context.md) for integration and coverage limits.
 Thin percentile bars use native meters. Icons are vendored Tabler assets under
 their MIT license; the existing locally hosted Barlow fonts and real player
 headshots are reused.
+
+See [Research workbench](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.

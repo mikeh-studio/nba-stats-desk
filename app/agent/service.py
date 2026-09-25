@@ -1457,6 +1457,30 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.research_ask import (
+            answer_research,
+            wants_research,
+            wants_research_followup,
+        )
+
+        research_followup = False
+        if conversation_id and self.conversation_store:
+            recent = self.conversation_store.get_turns(conversation_id, max_turns=1)
+            research_followup = bool(
+                recent
+                and recent[-1].context.get("research_scope")
+                and wants_research_followup(cleaned_question)
+            )
+        if wants_research(cleaned_question) or research_followup:
+            return answer_research(
+                self,
+                cleaned_question,
+                provider_name,
+                selected_model,
+                conversation_id,
+                trace,
+            )
+
         from app.agent.teammate_ask import answer_study, wants_study
 
         study_followup = False

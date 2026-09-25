@@ -1,6 +1,7 @@
 domain: schedule
 source: nba_api_schedule
-version: 1
+version: 2
+optional_columns: [GAME_TIME_UTC]
 grain: one row per team per scheduled game
 business_key:
   - GAME_ID
@@ -15,6 +16,7 @@ columns:
   HOME_AWAY: string
   IS_BACK_TO_BACK: bool
   GAME_STATUS: string
+  GAME_TIME_UTC: timestamp
   SOURCE_UPDATED_AT_UTC: timestamp
   INGESTED_AT_UTC: timestamp
 rules:

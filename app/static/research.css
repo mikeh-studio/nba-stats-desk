@@ -1,0 +1,95 @@
+.research-panel {
+  margin: 24px 0;
+  padding: 24px;
+}
+.research-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 14px;
+  margin: 20px 0;
+}
+.research-form label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+.research-form input,
+.research-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  color: inherit;
+  background: var(--surface, transparent);
+  border: 1px solid var(--line, #888);
+  font: inherit;
+}
+.research-form button,
+.research-pairs button {
+  padding: 12px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--line, #888);
+  background: transparent;
+}
+.research-form button:hover,
+.research-pairs button[aria-pressed="true"] {
+  border-color: #e5762b;
+  box-shadow: inset 0 -3px #e5762b;
+}
+.research-scroll {
+  overflow: auto;
+  max-width: 100%;
+  margin: 16px 0;
+}
+.research-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 620px;
+}
+.research-scroll th,
+.research-scroll td {
+  padding: 10px;
+  border-bottom: 1px solid var(--line, #888);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.research-scroll th:first-child,
+.research-scroll td:first-child {
+  text-align: left;
+}
+.research-studies {
+  margin-top: 36px;
+  border-top: 1px solid var(--line, #888);
+  padding-top: 24px;
+}
+.research-pairs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.research-panel details {
+  margin: 14px 0;
+}
+.research-panel summary {
+  cursor: pointer;
+}
+.research-panel :focus-visible {
+  outline: 3px solid #e5762b;
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .research-panel {
+    padding: 14px;
+  }
+  .research-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .research-pairs {
+    display: grid;
+  }
+}
+.research-panel { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.research-panel > *, .research-form label { min-width: 0; }
+.research-panel .card-header { flex-wrap: wrap; }
+.research-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; }
