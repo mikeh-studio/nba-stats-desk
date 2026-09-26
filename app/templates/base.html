@@ -95,7 +95,7 @@
       }
       .nav-links {
         display: grid;
-        grid-template-columns: minmax(22rem, 31rem) minmax(16rem, 1fr);
+        grid-template-columns: minmax(22rem, 31rem) minmax(16rem, 1fr) auto;
         gap: 1.25rem;
         align-items: center;
         color: var(--muted);
@@ -919,7 +919,7 @@
       .confidence-meter span, .percentile-fill { background: var(--accent); }
       .metric-value, .stat-value, .signal-value { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
       .nav-links, .nav-tabs, .nav-player-search { min-width: 0; }
-      .nav-links-directory { grid-template-columns: minmax(0, 1fr); }
+      .nav-links-directory { grid-template-columns: minmax(0, 1fr) auto; }
       @media (max-width: 1200px) {
         .nav { grid-template-columns: 1fr; }
         .nav-links { grid-template-columns: minmax(0, 1fr) auto; }
@@ -964,6 +964,13 @@
               </div>
             </form>
             {% endif %}
+            <label class="season-tag" for="season-selector">Season
+              <select id="season-selector" data-season-selector aria-label="NBA season" style="font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 4px;">
+                {% for option in available_seasons %}
+                <option value="{{ option }}" {% if option == season %}selected{% endif %}>{{ option }}</option>
+                {% endfor %}
+              </select>
+            </label>
           </div>
         </nav>
         <details class="publication-health" data-publication-health>

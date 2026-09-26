@@ -3000,3 +3000,19 @@ def test_player_shell_does_not_query_warehouse() -> None:
 def test_missing_player_fragment_returns_not_found() -> None:
     client = build_client()
     assert client.get("/players/999/content").status_code == 404
+
+
+def test_main_pages_keep_historical_season_selector() -> None:
+    client = build_client()
+    for route in (
+        "/ask",
+        "/players",
+        "/players/7",
+        "/performance",
+        "/what-changed",
+        "/similarity-map",
+    ):
+        response = client.get(f"{route}?season=2024-25")
+        assert response.status_code == 200
+        assert "data-season-selector" in response.text
+        assert 'value="2024-25" selected' in response.text
