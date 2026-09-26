@@ -18,7 +18,7 @@ async function load() {
     const response = await seasonFetch(`/players/${content.dataset.playerId}/content`, { signal: controller.signal });
     if (!response.ok) {
       if (response.status === 404) {
-        status.textContent = "Player not found for this season. Search for another player or select a different season.";
+        status.textContent = "Player not found for this season. Search for another player.";
         return;
       }
       throw new Error("Profile could not be loaded. Please try again.");
