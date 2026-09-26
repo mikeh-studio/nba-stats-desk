@@ -1,15 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero">
-  <div class="eyebrow">Player research · {{ season }}</div>
+<link rel="stylesheet" href="/static/players.css?v={{ static_version }}" />
+<section class="hero players-hero">
+  <div class="eyebrow">Player directory · {{ season }}</div>
   <h1>Players</h1>
-  <p class="subhead">Find a player to explore their profile, game logs, and detailed statistical breakdowns. Investigate teammate availability and take deeper questions to Ask.</p>
-  <form class="player-search-form" data-player-search-form role="search" aria-label="Find a player">
-    <label for="players-search">Search players</label>
-    <div class="player-search-shell">
-      <input id="players-search" class="input" name="q" type="search" placeholder="Search by player name" autocomplete="off" data-player-search-input />
-      <div class="player-search-results" data-player-search-results hidden></div>
+  <p class="subhead">Find your player. Get the full picture.</p>
+  <p class="meta">Season profiles, game logs, and detailed statistical breakdowns.</p>
+  <form id="players-search-form" class="players-search" role="search" aria-label="Find a player">
+    <label for="players-search">Search by player name</label>
+    <div class="players-search-row">
+      <input id="players-search" class="input" name="q" type="search" placeholder="e.g. LeBron James" autocomplete="off" maxlength="64" />
+      <button type="submit" class="button">Search</button>
     </div>
   </form>
 </section>
+<section class="players-directory" aria-labelledby="players-heading">
+  <div class="players-directory-heading">
+    <div><div class="eyebrow" id="players-context">Season discovery</div><h2 id="players-heading">Browse players</h2></div>
+    <button id="players-reset" type="button" class="button secondary" hidden>Clear search</button>
+  </div>
+  <p class="meta" id="players-description">A starting selection from the season’s fantasy recommendation rankings. Search to find other players.</p>
+  <p id="players-status" class="meta" role="status" aria-live="polite"></p>
+  <div id="players-grid" class="players-grid" aria-busy="true"></div>
+  <button id="players-retry" type="button" class="button secondary" hidden>Try again</button>
+</section>
+<script type="module" src="/static/players.js?v={{ static_version }}"></script>
 {% endblock %}

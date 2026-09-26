@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<section id="player-loading" class="hero" aria-labelledby="player-loading-title">
+  <div class="eyebrow">Player profile · {{ season }}</div>
+  <h1 id="player-loading-title">Player profile</h1>
+  <p id="player-load-status" role="status" aria-live="polite">Loading profile, game logs, and statistical context…</p>
+  <button id="player-load-retry" class="button" type="button" hidden>Try again</button>
+  <a href="/players" class="button-link secondary">Back to players</a>
+</section>
+<div id="player-content" data-player-id="{{ player_id }}" aria-busy="true"></div>
+<noscript><p>This profile requires JavaScript to load its statistics.</p></noscript>
+<script type="module" src="/static/player-loading.js?v={{ static_version }}"></script>
+{% endblock %}

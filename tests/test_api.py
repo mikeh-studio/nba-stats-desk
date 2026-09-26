@@ -2109,7 +2109,7 @@ def test_api_agent_ask_stream_rejects_overlong_question_with_request_id() -> Non
 
 def test_player_page_smoke() -> None:
     client = build_client()
-    response = client.get("/players/7")
+    response = client.get("/players/7/content")
 
     assert response.status_code == 200
     assert "Why This Player Matters" in response.text
@@ -2135,7 +2135,7 @@ def test_player_page_smoke() -> None:
 
 def test_player_page_unavailable_state_smoke() -> None:
     client = build_client()
-    response = client.get("/players/9")
+    response = client.get("/players/9/content")
 
     assert response.status_code == 200
     assert "This player is not currently ranked." in response.text
@@ -2143,7 +2143,7 @@ def test_player_page_unavailable_state_smoke() -> None:
 
 def test_player_page_does_not_block_on_health() -> None:
     client = build_client(repo=HealthExplodingRepository())
-    response = client.get("/players/7")
+    response = client.get("/players/7/content")
 
     assert response.status_code == 200
     assert "Jalen Brunson" in response.text
@@ -2259,8 +2259,8 @@ def test_player_detail_cache_reuses_full_payload_for_page_and_api() -> None:
     try:
         client = build_client(repo)
 
-        first_page = client.get("/players/7")
-        second_page = client.get("/players/7")
+        first_page = client.get("/players/7/content")
+        second_page = client.get("/players/7/content")
         first_api = client.get("/api/players/7")
         second_api = client.get("/api/players/7")
 
@@ -2360,7 +2360,7 @@ def test_player_page_logs_degraded_panel_state(caplog) -> None:
     client = build_client(MissingOpportunityRepository())
 
     with caplog.at_level("INFO", logger=LOGGER_NAME):
-        response = client.get("/players/7")
+        response = client.get("/players/7/content")
 
     assert response.status_code == 200
     events = [
@@ -2380,7 +2380,7 @@ def test_player_page_logs_degraded_heavy_panel_states(caplog) -> None:
     client = build_client()
 
     with caplog.at_level("INFO", logger=LOGGER_NAME):
-        response = client.get("/players/9")
+        response = client.get("/players/9/content")
 
     assert response.status_code == 200
     events = [
@@ -2983,3 +2983,20 @@ def test_players_landing_retains_research_alias():
         assert "data-research-root" not in response.text
         assert "Three focused questions" not in response.text
         assert "Explore the breakdown" not in response.text
+
+
+def test_player_shell_does_not_query_warehouse() -> None:
+    repo = CountingPlayerDetailRepository()
+    client = build_client(repo)
+    response = client.get("/players/7?season=2024-25")
+    assert response.status_code == 200
+    assert 'data-player-id="7"' in response.text
+    assert 'aria-busy="true"' in response.text
+    assert "Loading profile" in response.text
+    assert "2024-25" in response.text
+    assert repo.detail_calls == []
+
+
+def test_missing_player_fragment_returns_not_found() -> None:
+    client = build_client()
+    assert client.get("/players/999/content").status_code == 404

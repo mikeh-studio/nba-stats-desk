@@ -66,7 +66,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260925-navigation-v6"
+STATIC_VERSION = "20260925-player-loading-v8"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -675,6 +675,21 @@ def home() -> RedirectResponse:
 
 
 @app.get("/players/{player_id}", response_class=HTMLResponse)
+def player_shell(player_id: int, request: Request) -> HTMLResponse:
+    # No repository dependency: navigation never waits for warehouse queries.
+    return templates.TemplateResponse(
+        request,
+        "player_shell.html",
+        {
+            "request": request,
+            "page_title": "Player profile",
+            "season": current_season(),
+            "player_id": player_id,
+        },
+    )
+
+
+@app.get("/players/{player_id}/content", response_class=HTMLResponse)
 def player_page(
     player_id: int,
     request: Request,
@@ -693,6 +708,7 @@ def player_page(
         "page_title": f"{player_detail['player']['player_name']} Stats Outlook",
         "season": current_season(),
         "player_detail": player_detail,
+        "fragment": True,
         "tracking_cap": TRACKING_CAP,
     }
     return templates.TemplateResponse(request, "player.html", context)

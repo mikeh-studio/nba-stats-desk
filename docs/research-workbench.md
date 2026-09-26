@@ -5,8 +5,18 @@ Player detail pages, comparison pages, and research requests in Ask share
 results. It does not accept generated SQL or model-calculated statistics.
 
 The **Players** navigation entry (`/players`, with `/research` retained as an
-alias) opens player search only. The landing page does not display breakdown
+alias) opens a searchable player directory. A starting selection uses the existing
+season fantasy recommendation rankings (up to 12 players); name searches use the
+player search API. Cards link to season-preserving profiles and label their
+observed sample; missing samples are not filled in. Search submits explicitly,
+with loading, empty, retry, and clear-search states. The landing page does not display breakdown
 controls or the three pilot study cards; those studies support comparisons in Ask.
+Player profiles return an immediate loading shell, then fetch a season-scoped
+HTML content fragment. Unknown players and failed loads show explicit states,
+with retry for connection failures. Profile warehouse reads run concurrently in
+a shared pool capped at eight workers; identity and dependent similarity reads
+retain their ordering. The existing player cache is shared by fragments and the
+JSON API. Detailed research initializes only when its disclosure is opened.
 Player profiles retain their detailed research panel; causal questions are
 answered in **Ask**. Compare remains accessible by direct links without a
 separate navigation tab. Internal research API and configuration names remain
