@@ -1509,9 +1509,12 @@ def test_ask_page_smoke() -> None:
     assert "claude-sonnet-5" in response.text
     assert "Claude (Anthropic)" in response.text
     assert ">ASK</a>" in response.text
-    assert ">TRENDS</a>" in response.text
-    assert ">SIMILAR</a>" in response.text
-    assert ">COMPARE</a>" in response.text
+    assert ">PLAYERS</a>" in response.text
+    assert ">TRENDING</a>" in response.text
+    assert ">PERFORMANCE</a>" in response.text
+    assert ">ARCHETYPES</a>" in response.text
+    assert ">COMPARE</a>" not in response.text
+    assert ">RESEARCH</a>" not in response.text
     assert ">Dashboard</a>" not in response.text
     assert ">Visualize</a>" not in response.text
 
@@ -2106,7 +2109,7 @@ def test_api_agent_ask_stream_rejects_overlong_question_with_request_id() -> Non
 
 def test_player_page_smoke() -> None:
     client = build_client()
-    response = client.get("/players/7")
+    response = client.get("/players/7/content")
 
     assert response.status_code == 200
     assert "Why This Player Matters" in response.text
@@ -2132,7 +2135,7 @@ def test_player_page_smoke() -> None:
 
 def test_player_page_unavailable_state_smoke() -> None:
     client = build_client()
-    response = client.get("/players/9")
+    response = client.get("/players/9/content")
 
     assert response.status_code == 200
     assert "This player is not currently ranked." in response.text
@@ -2140,7 +2143,7 @@ def test_player_page_unavailable_state_smoke() -> None:
 
 def test_player_page_does_not_block_on_health() -> None:
     client = build_client(repo=HealthExplodingRepository())
-    response = client.get("/players/7")
+    response = client.get("/players/7/content")
 
     assert response.status_code == 200
     assert "Jalen Brunson" in response.text
@@ -2256,8 +2259,8 @@ def test_player_detail_cache_reuses_full_payload_for_page_and_api() -> None:
     try:
         client = build_client(repo)
 
-        first_page = client.get("/players/7")
-        second_page = client.get("/players/7")
+        first_page = client.get("/players/7/content")
+        second_page = client.get("/players/7/content")
         first_api = client.get("/api/players/7")
         second_api = client.get("/api/players/7")
 
@@ -2357,7 +2360,7 @@ def test_player_page_logs_degraded_panel_state(caplog) -> None:
     client = build_client(MissingOpportunityRepository())
 
     with caplog.at_level("INFO", logger=LOGGER_NAME):
-        response = client.get("/players/7")
+        response = client.get("/players/7/content")
 
     assert response.status_code == 200
     events = [
@@ -2377,7 +2380,7 @@ def test_player_page_logs_degraded_heavy_panel_states(caplog) -> None:
     client = build_client()
 
     with caplog.at_level("INFO", logger=LOGGER_NAME):
-        response = client.get("/players/9")
+        response = client.get("/players/9/content")
 
     assert response.status_code == 200
     events = [
@@ -2465,7 +2468,7 @@ def test_performance_page_smoke() -> None:
     response = client.get("/performance")
 
     assert response.status_code == 200
-    assert "Player Trends" in response.text
+    assert "Performance" in response.text
     assert "/static/performance.js" in response.text
     assert f"performance.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
@@ -2746,7 +2749,7 @@ def test_similarity_map_page_smoke() -> None:
     response = client.get("/similarity-map")
 
     assert response.status_code == 200
-    assert "Similar Players" in response.text
+    assert "Archetypes" in response.text
     assert f"/static/similarity_map.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
     assert "plotly-gl3d" in response.text
@@ -2787,7 +2790,7 @@ def test_similarity_map_page_has_search_and_panel() -> None:
     assert response.status_code == 200
     assert 'id="map-search-input"' in response.text
     assert 'id="map-panel"' in response.text
-    assert "true nearest matches" in response.text
+    assert "nearest matches in the full feature space" in response.text
 
 
 class WhatChangedRepository(FakeRepository):
@@ -2804,7 +2807,7 @@ def test_what_changed_page_and_parameterized_cached_endpoint():
     client = build_client(repo)
     page = client.get("/what-changed")
     assert page.status_code == 200
-    assert "What Changed?" in page.text
+    assert "Trending" in page.text
     assert f"what_changed.js?v={STATIC_VERSION}" in page.text
     assert "Top performers" in page.text
     assert "DNP-CD" in page.text
@@ -2968,3 +2971,47 @@ def test_invalid_model_is_not_copied_to_service_logs(caplog):
         )
     assert response.status_code == 400
     assert marker not in caplog.text
+
+
+def test_players_landing_retains_research_alias():
+    client = build_client()
+    for path in ("/players", "/research"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert "<h1>Players</h1>" in response.text
+        assert 'id="players-search"' in response.text
+        assert "data-research-root" not in response.text
+        assert "Three focused questions" not in response.text
+        assert "Explore the breakdown" not in response.text
+
+
+def test_player_shell_does_not_query_warehouse() -> None:
+    repo = CountingPlayerDetailRepository()
+    client = build_client(repo)
+    response = client.get("/players/7?season=2024-25")
+    assert response.status_code == 200
+    assert 'data-player-id="7"' in response.text
+    assert 'aria-busy="true"' in response.text
+    assert "Loading profile" in response.text
+    assert "2024-25" in response.text
+    assert repo.detail_calls == []
+
+
+def test_missing_player_fragment_returns_not_found() -> None:
+    client = build_client()
+    assert client.get("/players/999/content").status_code == 404
+
+
+def test_main_pages_omit_season_selector() -> None:
+    client = build_client()
+    for route in (
+        "/ask",
+        "/players",
+        "/players/7",
+        "/performance",
+        "/what-changed",
+        "/similarity-map",
+    ):
+        response = client.get(f"{route}?season=2024-25")
+        assert response.status_code == 200
+        assert "data-season-selector" not in response.text

@@ -575,6 +575,7 @@ async function runQualifiedPlayerSearch(formNode, query, { navigateFirst = false
   }
 }
 
+let searchDismissInitialized = false;
 function setupQualifiedPlayerSearch() {
   document.querySelectorAll("[data-player-search-form]").forEach((formNode) => {
     if (!(formNode instanceof HTMLFormElement)) {
@@ -585,6 +586,8 @@ function setupQualifiedPlayerSearch() {
     if (!(input instanceof HTMLInputElement) || !(resultsEl instanceof HTMLElement)) {
       return;
     }
+    if (formNode.dataset.searchInitialized) return;
+    formNode.dataset.searchInitialized = "true";
     let searchTimeout = null;
     input.addEventListener("input", () => {
       clearTimeout(searchTimeout);
@@ -609,6 +612,8 @@ function setupQualifiedPlayerSearch() {
     });
   });
 
+  if (searchDismissInitialized) return;
+  searchDismissInitialized = true;
   document.addEventListener("click", (event) => {
     const target = event.target;
     if (target instanceof Element && target.closest("[data-player-search-form]")) {
@@ -799,6 +804,17 @@ function setupPlayerTrendCharts() {
     }
     render("pts");
   });
+}
+
+export function initPlayerContent() {
+  setupQualifiedPlayerSearch();
+  setupTabs();
+  setupPlayerTrendCharts();
+  const storage = getStorage();
+  if (storage) {
+    const cap = Number(document.body.dataset.trackingCap || TRACKING_CAP);
+    syncTrackButtons(loadTrackedPlayers(storage, cap), cap);
+  }
 }
 
 export function initWorkbench() {

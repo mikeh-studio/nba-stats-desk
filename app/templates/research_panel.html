@@ -1,6 +1,6 @@
 <link rel="stylesheet" href="/static/research.css?v={{ static_version }}" />
 <section class="card research-panel" data-research-root data-season="{{ season }}" data-player-a="{{ player_detail.player.player_id if player_detail is defined else player_a_id|default('', true) }}" data-player-b="{{ player_b_id|default('', true) }}">
-  <div class="card-header"><div><div class="eyebrow">Shared research</div><h2>Explore the breakdown</h2></div><a href="/research?season={{ season }}">Open research workbench</a></div>
+  <div class="card-header"><div><div class="eyebrow">Player breakdowns</div><h2>Explore the breakdown</h2></div><a href="/players?season={{ season }}">Browse players</a></div>
   <p class="meta">The same scope and metric definitions are used here and in Ask. These breakdowns describe observed games.</p>
   <form data-research-form class="research-form">
     <label>Player<select name="player" required aria-label="Research player"><option value="">Loading players…</option></select></label>

@@ -3,16 +3,15 @@
   <section class="hero">
     <div class="hero-top">
       <div>
-        <div class="eyebrow">Similar Players</div>
-        <h1>Similar Players</h1>
+        <div class="eyebrow">Archetypes</div>
+        <h1>Archetypes</h1>
       </div>
     </div>
     <p class="subhead">
-      Every qualified player for {{ season }}, projected from their full
-      similarity profile into 3D. Players who sit close together play alike;
-      colors are model archetypes. Drag to rotate, scroll to zoom, click a
-      legend entry to toggle an archetype, or pick a player to trace their
-      true nearest matches.
+      Explore how machine-learning models group qualified {{ season }} players
+      by their statistical profiles. Colors identify model groups; the 3D map
+      is an approximate projection. Compare grouping models, select an archetype,
+      or search for a player to inspect their nearest matches in the full feature space.
     </p>
   </section>
 
@@ -32,7 +31,7 @@
             list="map-player-list"
             placeholder="Find a player to trace their matches…"
             autocomplete="off"
-            aria-label="Find a player on the similarity map"
+            aria-label="Find a player in archetypes"
           />
           <datalist id="map-player-list"></datalist>
         </form>
@@ -40,7 +39,7 @@
           Clear selection
         </button>
       </div>
-      <div class="map-model-controls" id="map-model-controls" aria-label="Similarity model options"></div>
+      <div class="map-model-controls" id="map-model-controls" aria-label="Archetype grouping models"></div>
       <p class="meta similarity-note" id="map-model-note"></p>
 
       <div class="map-layout">

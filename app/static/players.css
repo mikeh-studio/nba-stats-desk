@@ -1,0 +1,23 @@
+.players-hero { max-width: 850px; padding-block: 2rem; }
+.players-hero h1 { font-size: clamp(3.5rem, 8vw, 6rem); margin-bottom: .5rem; }
+.players-hero .subhead { font-size: 1.35rem; margin-bottom: .5rem; }
+.players-search { margin-top: 2rem; max-width: 720px; }
+.players-search label { display: block; font-size: .8rem; font-weight: 600; margin-bottom: .6rem; }
+.players-search-row { display: flex; gap: .65rem; }
+.players-search-row .input { min-width: 0; flex: 1; padding: 1rem; font-size: 1rem; }
+.players-directory { border-top: 1px solid var(--line); padding-top: 1.8rem; }
+.players-directory-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.players-directory h2 { margin: .35rem 0; font-size: 2rem; }
+.players-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 1.3rem; }
+.player-directory-card { display: flex; flex-direction: column; gap: 1rem; padding: 1.2rem; background: var(--surface); border: 1px solid var(--line); color: var(--ink); text-decoration: none; min-width: 0; transition: border-color .15s; }
+.player-directory-card:hover { border-color: var(--accent); }
+.player-card-identity { display: flex; gap: 1rem; align-items: center; }
+.player-card-avatar { width: 76px; height: 64px; flex: 0 0 76px; background: var(--surface-2); display: grid; place-items: center; overflow: hidden; font-size: 1.2rem; }
+.player-card-avatar img { width: 100%; height: 100%; object-fit: contain; }
+.player-directory-card h3 { font-size: 1.55rem; margin: 0 0 .2rem; }
+.player-directory-card p { margin: 0; }
+.player-card-footer { border-top: 1px solid var(--line); padding-top: .8rem; display: flex; justify-content: space-between; gap: .5rem; font-size: .8rem; color: var(--muted); }
+.player-card-footer span:last-child { color: var(--accent-hot); }
+@media (max-width: 900px) { .players-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .players-grid { grid-template-columns: 1fr; } .players-hero { padding-block: 1rem; } .players-search-row { flex-wrap: wrap; } .players-search-row .input { flex-basis: 70%; } }
+@media (prefers-reduced-motion: reduce) { .player-directory-card { transition: none; } }

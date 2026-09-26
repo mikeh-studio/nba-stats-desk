@@ -128,7 +128,8 @@ def test_request_seasons_are_isolated_and_validated(monkeypatch):
         assert current_season() == "2025-26"
         page = client.get("/performance?season=2023-24")
         assert page.status_code == 200
-        assert 'value="2023-24" selected' in page.text
+        assert "Explore 2023-24 playoff game performances" in page.text
+        assert "data-season-selector" not in page.text
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)

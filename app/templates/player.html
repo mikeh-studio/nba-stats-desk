@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "fragment.html" if fragment else "base.html" %}
 {% block content %}
   <section class="hero">
     <div class="hero-top">
@@ -428,5 +428,8 @@
       </article>
     </aside>
   </section>
-  {% include "research_panel.html" %}
+  <details data-lazy-research class="card">
+    <summary>Detailed research and teammate availability</summary>
+    {% include "research_panel.html" %}
+  </details>
 {% endblock %}

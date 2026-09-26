@@ -75,4 +75,4 @@ and evidence boundaries. Historical evaluations compare against frozen reference
 results. Run instructions are in [Evaluation](evaluation.md). Passing fixtures
 establishes tested behavior, not universal model accuracy or production deployment.
 
-See [Research workbench](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
+See [Players and research breakdowns](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.

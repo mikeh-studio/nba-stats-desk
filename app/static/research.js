@@ -226,7 +226,9 @@ function renderStudy(target, study) {
     details.append(node("p", text));
   target.append(details);
 }
-async function initialize(root) {
+export async function initialize(root) {
+  if (root.dataset.researchInitialized) return;
+  root.dataset.researchInitialized = "true";
   const form = root.querySelector("form"),
     status = root.querySelector("[data-research-status]"),
     season = root.dataset.season;
@@ -324,4 +326,4 @@ async function initialize(root) {
 }
 if (typeof document !== "undefined")
   for (const root of document.querySelectorAll("[data-research-root]"))
-    initialize(root);
+    if (!root.closest("[data-lazy-research]")) initialize(root);

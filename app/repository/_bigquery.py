@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from math import sqrt
@@ -73,6 +74,11 @@ from app.repository._helpers import (
     build_season_coverage_payload,
 )
 from app.what_changed import ComparisonPeriod, SeasonPhase
+
+# Bound concurrent warehouse work across all player requests in this process.
+_PLAYER_QUERY_POOL = ThreadPoolExecutor(
+    max_workers=8, thread_name_prefix="player-query"
+)
 
 
 @dataclass
@@ -1930,21 +1936,28 @@ class BigQueryWarehouseRepository:
         if identity is None:
             return None
 
-        row = self._fetch_player_detail_row(player_id)
-        game_log = self._fetch_player_game_log_payload(identity, limit=30)
-        trends = self._fetch_player_trends(player_id)
+        def fetch_similarity():
+            anchor = self._fetch_similarity_anchor(player_id)
+            state, reason, players = self._get_similar_players(player_id, anchor=anchor)
+            return anchor, state, reason, players
+
+        # Identity gates unknown IDs. Remaining independent reads overlap; the
+        # shared executor caps warehouse concurrency rather than spawning per request.
+        row_future = _PLAYER_QUERY_POOL.submit(self._fetch_player_detail_row, player_id)
+        game_log_future = _PLAYER_QUERY_POOL.submit(
+            self._fetch_player_game_log_payload, identity, limit=30
+        )
+        trends_future = _PLAYER_QUERY_POOL.submit(self._fetch_player_trends, player_id)
+        similarity_future = _PLAYER_QUERY_POOL.submit(fetch_similarity)
+        row = row_future.result()
         baseline_fallback = (
             {} if _has_chart_baselines(row) else self._fetch_chart_baseline_row()
         )
         chart_baselines = _format_chart_baselines(row or {}, baseline_fallback)
-        anchor = self._fetch_similarity_anchor(player_id)
-        (
-            similarity_state,
-            similarity_reason,
-            similar_players,
-        ) = self._get_similar_players(
-            player_id,
-            anchor=anchor,
+        game_log = game_log_future.result()
+        trends = trends_future.result()
+        anchor, similarity_state, similarity_reason, similar_players = (
+            similarity_future.result()
         )
         return self._build_player_detail_payload(
             identity=identity,
