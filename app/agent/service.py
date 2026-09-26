@@ -736,6 +736,7 @@ class StatsAgent:
         *,
         client: Any | None = None,
         claude_client: Any | None = None,
+        openrouter_client: Any | None = None,
         tool_runner: StatsToolRunner | None = None,
         conversation_store: ConversationStore | None = None,
         player_resolver: PlayerResolver | None = None,
@@ -756,6 +757,7 @@ class StatsAgent:
         )
         self.client = client
         self.claude_client = claude_client
+        self.openrouter_client = openrouter_client
         self.tool_runner = tool_runner or StatsToolRunner(
             repo,
             cache_ttl_seconds=settings.agent_cache_ttl_seconds,
@@ -767,6 +769,8 @@ class StatsAgent:
         )
 
     def _get_client(self, provider: str = "openai") -> Any:
+        if provider == "openrouter":
+            return self._get_openrouter_client()
         if provider == "claude":
             return self._get_claude_client()
         if self.client is not None:
@@ -783,6 +787,28 @@ class StatsAgent:
             ) from exc
         self.client = OpenAI(api_key=self.settings.openai_api_key)
         return self.client
+
+    def _get_openrouter_client(self) -> Any:
+        if self.openrouter_client is not None:
+            return self.openrouter_client
+        if not self.settings.openai_agent_enabled:
+            raise AgentDisabledError("The stats agent is disabled.")
+        if not self.settings.openrouter_api_key:
+            raise AgentDisabledError(
+                "OPENROUTER_API_KEY is required to use OpenRouter for Ask NBA Stats."
+            )
+        from openai import OpenAI
+
+        from app.agent.openrouter_client import OpenRouterResponsesClient
+
+        self.openrouter_client = OpenRouterResponsesClient(
+            OpenAI(
+                api_key=self.settings.openrouter_api_key,
+                base_url="https://openrouter.ai/api/v1",
+                max_retries=0,
+            )
+        )
+        return self.openrouter_client
 
     def _get_claude_client(self) -> Any:
         if self.claude_client is not None:
@@ -814,6 +840,8 @@ class StatsAgent:
         return self.claude_client
 
     def _request_timeout_seconds(self, provider: str) -> float:
+        if provider == "openrouter":
+            return self.settings.openrouter_agent_timeout_seconds
         if provider == "claude":
             return self.settings.anthropic_agent_timeout_seconds
         return self.settings.openai_agent_timeout_seconds
@@ -1433,17 +1461,53 @@ class StatsAgent:
         provider: str | None = None,
         model: str | None = None,
     ) -> dict[str, Any]:
+        from app.agent.visualization import VisualizationAgent
+
+        payload = self._answer(
+            question,
+            conversation_id=conversation_id,
+            trace=trace,
+            progress_callback=progress_callback,
+            selected_player=selected_player,
+            provider=provider,
+            model=model,
+        )
+        provider_name = (provider or "openai").strip().lower()
+        selected_model = model or (
+            self.settings.openrouter_agent_model
+            if provider_name == "openrouter"
+            else self.settings.anthropic_agent_model
+            if provider_name == "claude"
+            else self.settings.openai_agent_model
+        )
+        return VisualizationAgent().enrich(
+            self, payload, question, provider_name, selected_model, trace
+        )
+
+    def _answer(
+        self,
+        question: str,
+        *,
+        conversation_id: str | None = None,
+        trace: AgentTrace | None = None,
+        progress_callback: ProgressCallback | None = None,
+        selected_player: dict[str, Any] | None = None,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
         cleaned_question = question.strip()
         if not cleaned_question:
             raise ValueError("Question must not be blank.")
         provider_name = (provider or "openai").strip().lower()
-        if provider_name not in {"openai", "claude"}:
+        if provider_name not in {"openai", "claude", "openrouter"}:
             raise ValueError(f"Unknown agent provider: {provider_name}")
         selected_model = (
             model.strip()
             if model and model.strip()
             else (
-                self.settings.anthropic_agent_model
+                self.settings.openrouter_agent_model
+                if provider_name == "openrouter"
+                else self.settings.anthropic_agent_model
                 if provider_name == "claude"
                 else self.settings.openai_agent_model
             )
@@ -1451,7 +1515,9 @@ class StatsAgent:
         if not self.settings.openai_agent_enabled:
             raise AgentDisabledError("The OpenAI stats agent is disabled.")
         # Fail fast on missing credentials before any planning work happens.
-        if provider_name == "claude":
+        if provider_name == "openrouter":
+            self._get_openrouter_client()
+        elif provider_name == "claude":
             if self.claude_client is None and not self.settings.anthropic_api_key:
                 self._get_claude_client()
         elif self.client is None and not self.settings.openai_api_key:

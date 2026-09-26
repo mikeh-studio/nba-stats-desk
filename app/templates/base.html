@@ -406,6 +406,10 @@
       .publication-health summary { cursor: pointer; width: fit-content; }
       .publication-health summary::after { content: " ▾"; margin-left: 8px; }
       .publication-health[open] summary::after { content: " ▴"; }
+      .publication-health summary { color: var(--muted); font-size: 0.85rem; }
+      .coverage-panel { border: 1px solid var(--line); padding: 1rem 1.25rem; margin-top: 0.75rem; max-width: 760px; }
+      .coverage-panel h3 { font-size: 1rem; margin: 0 0 0.65rem; }
+      .coverage-panel [data-answer-coverage] { border-top: 1px solid var(--line); margin-top: 1rem; padding-top: 1rem; }
       .publication-health ul { padding-left: 20px; font-size: 0.85rem; line-height: 1.7; }
       .status[data-health-state="partially_updated"],
       .status[data-health-state="stale"] { color: #ffb790; }
@@ -967,9 +971,20 @@
           </div>
         </nav>
         <details class="publication-health" data-publication-health>
-          <summary class="status loading" data-health-status>Checking data status…</summary>
-          <p class="meta" data-health-season></p>
-          <ul data-health-assets></ul>
+          <summary>Source &amp; Coverage</summary>
+          <div class="coverage-panel">
+            <section aria-label="Available data">
+              <h3>Available data</h3>
+              <p class="status loading" data-health-status>Checking data status…</p>
+              <p class="meta" data-health-season></p>
+              <ul data-health-assets></ul>
+            </section>
+            <section data-answer-coverage hidden aria-label="Current answer">
+              <h3>Current answer</h3>
+              <p class="meta" data-coverage-question></p>
+              <div data-answer-context></div>
+            </section>
+          </div>
         </details>
         {% block content %}{% endblock %}
       </div>

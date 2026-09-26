@@ -290,3 +290,23 @@ def test_signed_plus_minus_breakdown_and_study_missingness():
         ]
         is None
     )
+
+
+def test_full_season_builder_rejects_truncated_schedule_and_missing_boxscores():
+    from scripts.build_research_studies import build_study
+    from tests.test_teammate_readiness import fixture
+
+    stats, reports, games, memberships, spec = fixture()
+    pair = dict(player_id=1, teammate_id=2)
+    spec.update(window="full_season", phase="Both", end="2025-11-02")
+    with pytest.raises(ValueError, match="complete final schedule"):
+        build_study(pair, spec, stats, reports, games, memberships)
+    spec["end"] = "2025-11-03"
+    with pytest.raises(ValueError, match="missing team box scores"):
+        build_study(pair, spec, stats, reports, games, memberships)
+    stats.append(
+        {**stats[0], "player_id": 3, "game_id": "g3", "game_date": "2025-11-03"}
+    )
+    study = build_study(pair, spec, stats, reports, games, memberships)
+    assert study["scope"]["window"] == "full_season"
+    assert study["scope"]["phase"] == "Both"

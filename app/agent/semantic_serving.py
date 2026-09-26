@@ -11,7 +11,53 @@ from typing import Any
 from app.agent.player_resolver import load_player_aliases, normalize_player_text
 from app.agent.semantic_source import BigQuerySemanticSource, snapshot_evidence
 from app.agent.semantics import Evidence, SemanticError
-from app.seasons import DEFAULT_SEASON, validate_season
+from app.seasons import DEFAULT_SEASON, SEASONS, validate_season
+
+
+def has_time_scope(question: str) -> bool:
+    """A stated period must never be replaced by an older season."""
+    return bool(
+        re.search(
+            r"\b(?:20\d{2}|19\d{2})\b|\b(?:20\d{2})[-–/]\d{2,4}\b|"
+            r"\b(?:last|past|prior|previous|current|latest|this|today|yesterday|"
+            r"tonight|recent|since|before|after|between|as.of|all.time|career|"
+            r"january|february|march|april|may|june|july|august|september|"
+            r"october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b",
+            question,
+            re.I,
+        )
+    )
+
+
+def season_candidates(question: str, selected: str) -> list[str]:
+    requested = requested_seasons(question, selected)
+    if has_time_scope(question) or len(requested) != 1:
+        return requested
+    return sorted((s for s in SEASONS if s <= selected), reverse=True)
+
+
+def fallback_notice(requested: str, used: str) -> str:
+    return (
+        f"No matching data is available for {requested}. "
+        f"Using {used}, the most recent available season for this request."
+    )
+
+
+def load_available_season(loader, candidates):
+    """Try bounded archives newest first; source failures are never missing data."""
+    last_error = None
+    for season in candidates:
+        try:
+            snapshot, evidence = loader([season])
+            evidence.validate()
+            if not any(r["season"] == season for r in evidence.rows):
+                raise SemanticError("unsupported_coverage", f"No evidence for {season}")
+            return snapshot, evidence, season
+        except SemanticError as exc:
+            if exc.code != "unsupported_coverage":
+                raise
+            last_error = exc
+    raise last_error or SemanticError("unsupported_coverage", "No season is available")
 
 
 def requested_seasons(question: str, selected: str) -> list[str]:
@@ -27,6 +73,13 @@ def requested_seasons(question: str, selected: str) -> list[str]:
             ) from exc
         if season not in seasons:
             seasons.append(season)
+    if not seasons and re.search(r"\b(?:last|previous|prior) season\b", question, re.I):
+        year = int(selected[:4]) - 1
+        previous = f"{year}-{str(year + 1)[-2:]}"
+        try:
+            seasons = [validate_season(previous)]
+        except ValueError as exc:
+            raise SemanticError("unsupported_coverage", str(exc)) from exc
     return seasons or [validate_season(selected)]
 
 

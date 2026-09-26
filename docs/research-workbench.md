@@ -20,8 +20,9 @@ JSON API. Detailed research initializes only when its disclosure is opened.
 Player profiles retain their detailed research panel; causal questions are
 answered in **Ask**. Compare remains accessible by direct links without a
 separate navigation tab. Internal research API and configuration names remain
-unchanged. The shared navigation intentionally omits a season selector; existing
-historical-season URLs and season-preserving links remain supported.
+unchanged. The shared navigation omits a season selector. Historical page URLs
+redirect to the latest view; explicit historical Ask questions and API reads
+remain supported.
 
 ## Breakdown contract
 
@@ -45,6 +46,23 @@ The fixed focal/exposure pairs are LeBron James/Luka Doncic, Jalen Johnson/Trae
 Young, and Jalen Brunson/Josh Hart. Each study shows all nine core outcomes and
 eight shooting context measures. Shooting ratios are descriptive. Positive
 contrasts mean more of a statistic, including turnovers.
+
+Unqualified teammate questions default to the entire selected season, including
+regular season and playoffs. A partial pilot window must not answer a full-season
+question; it is reusable only when the requested dates match. Explicit phase and
+date requests remain exact and require a matching published study. Historical
+season fallback preserves this requirement.
+
+Study specifications accept `phase` (`Regular Season`, `Playoffs`, or `Both`)
+and `window` (`bounded`, the legacy default, or `full_season`). A full-season build
+checks the supplied complete team schedule against its dates and requires team
+box scores for every scheduled game. The capture must include the full season;
+this check cannot establish that an upstream schedule itself is complete. Roster
+intervals and pregame report requirements still apply through the postseason;
+traded-away players are not classified as absent teammates. Missing status games
+are excluded and disclosed in plain language. Rebuild immutable artifacts rather
+than extending the dates on old estimates. Legacy catalogs without phase metadata
+remain regular-season, bounded-window analyses.
 
 Descriptive/adjusted contrasts compare reported Out with no appearance against
 participated, conditional on focal appearances. Missing roster/report evidence is
@@ -152,7 +170,18 @@ Up to three requested metrics are highlighted by available estimates, assessable
 uncertainty, stability, and native effect size relative to product thresholds,
 never by smallest p-value. When uncertainty is unavailable, a fixed basketball
 metric priority replaces magnitude ranking so noisy rare stats do not dominate.
-All requested metrics remain in the expandable evidence table. Explicit metric
+Ask leads with a short basketball takeaway, up to three observed changes, and
+one shared pair of game counts when the available metrics agree. Group labels
+are “Both played” and the named teammate “out”; participation does not establish
+shared court minutes. Thin samples receive a short plain-language caveat, and
+every answer keeps its season and dates. Missing values stay unavailable.
+
+All requested metrics remain in a compact expandable stat comparison. Internal
+significance, adjustment, causal, episode, and product-threshold diagnostics stay
+in the immutable study; per-metric assessment statuses and the catalog hash are
+logged on the server without question text or raw game rows. Ask payloads omit
+those diagnostics and the raw study. User-facing differences always describe the
+observed groups, even when a separate causal estimate exists. Explicit metric
 follow-ups retain the pair and date scope, including plus-minus. Significance,
 representativeness, and absence-episode follow-ups preserve the study route.
 

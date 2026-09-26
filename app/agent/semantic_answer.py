@@ -22,7 +22,14 @@ from app.agent.player_comparison import (
     comparison_sides,
 )
 from app.agent.semantic_planner import execute_plan, explicit_scope, plan_question
-from app.agent.semantic_serving import requested_seasons, source_players
+from app.agent.semantic_serving import (
+    fallback_notice,
+    has_time_scope,
+    load_available_season,
+    requested_seasons,
+    season_candidates,
+    source_players,
+)
 from app.agent.semantics import Query, SemanticError, run_query
 
 
@@ -471,6 +478,16 @@ class SemanticAsk:
                 }
             )
         try:
+            notice = None
+            # Resolve relative season language before the overview date parser.
+            if re.search(r"\b(?:last|previous|prior) season\b", question, re.I):
+                requested = requested_seasons(question, self.settings.season)[0]
+                question = re.sub(
+                    r"\b(?:last|previous|prior) season\b",
+                    requested,
+                    question,
+                    flags=re.I,
+                )
             comparison = comparison_sides(question)
             overview = (
                 comparison_scope(question, self.settings.season)
@@ -486,7 +503,37 @@ class SemanticAsk:
             )
             if inherited.get("seasons") and not overview:
                 seasons = [s for s in inherited["seasons"] if s]
-            snapshot, evidence = self.warehouse.load(seasons)
+            allow_fallback = (
+                not has_time_scope(question) and not inherited and not pending
+            )
+            if allow_fallback:
+                used = self.settings.season
+                try:
+                    snapshot, evidence = self.warehouse.load(seasons)
+                    evidence.validate()
+                    if not any(r["season"] == used for r in evidence.rows):
+                        raise SemanticError(
+                            "unsupported_coverage", f"No evidence for {used}"
+                        )
+                except SemanticError as exc:
+                    if exc.code != "unsupported_coverage":
+                        raise
+                    snapshot, evidence, used = load_available_season(
+                        self.warehouse.load,
+                        season_candidates(question, self.settings.season),
+                    )
+                    seasons = [used]
+                if overview and used != self.settings.season:
+                    overview = (
+                        comparison_scope(question, used)
+                        if comparison
+                        else overview_scope(question, used)
+                    )
+                    overview["seasons"] = seasons
+                if used != self.settings.season:
+                    notice = fallback_notice(self.settings.season, used)
+            else:
+                snapshot, evidence = self.warehouse.load(seasons)
             players = (
                 self.warehouse.players(evidence)
                 if hasattr(self.warehouse, "players")
@@ -593,6 +640,54 @@ class SemanticAsk:
                         query["player_name"] = None
                         query["excluded_player_ids"] = inherited["excluded_player_ids"]
                 result = execute_plan(plan, evidence, players)
+                # Reuse the validated scope plan; only the default season changes.
+                # No additional model calls, threshold relaxation, or date changes.
+                retryable_plan = bool(plan.get("queries")) and all(
+                    q.get("season") == seasons[0]
+                    and not q.get("seasons")
+                    and q.get("window", "season_to_date") == "season_to_date"
+                    and not q.get("as_of")
+                    and not q.get("start_date")
+                    for q in plan["queries"]
+                )
+                if allow_fallback and retryable_plan:
+                    for older in season_candidates(question, self.settings.season):
+                        if older >= seasons[0] or result["status"] not in (
+                            "unsupported_coverage",
+                            "no_observations",
+                        ):
+                            continue
+                        try:
+                            candidate_snapshot, candidate_evidence, _ = (
+                                load_available_season(self.warehouse.load, [older])
+                            )
+                        except SemanticError as exc:
+                            if exc.code == "unsupported_coverage":
+                                continue
+                            raise
+                        candidate_players = source_players(candidate_evidence)
+                        candidate_plan = {
+                            **plan,
+                            "queries": [dict(q, season=older) for q in plan["queries"]],
+                        }
+                        candidate_result = execute_plan(
+                            candidate_plan, candidate_evidence, candidate_players
+                        )
+                        if candidate_result["status"] == "ok":
+                            plan, result = candidate_plan, candidate_result
+                            snapshot, evidence, players = (
+                                candidate_snapshot,
+                                candidate_evidence,
+                                candidate_players,
+                            )
+                            seasons = [older]
+                            notice = fallback_notice(self.settings.season, older)
+                            break
+                        if candidate_result["status"] not in (
+                            "unsupported_coverage",
+                            "no_observations",
+                        ):
+                            break
                 payload = render_answer(result, players)
                 if (
                     payload["status"] == "ok"
@@ -621,6 +716,13 @@ class SemanticAsk:
                         f"{option['player_name']} (ID {option['player_id']})"
                     )
             payload["semantic_plan"] = plan
+            if notice:
+                payload["answer"] = notice + "\n\n" + payload["answer"]
+                payload["assumptions"].append(notice)
+                payload["season_fallback"] = {
+                    "requested": self.settings.season,
+                    "used": seasons[0],
+                }
             payload["source_query"] = {
                 k: v for k, v in snapshot.get("capture", {}).items() if k != "sql"
             }

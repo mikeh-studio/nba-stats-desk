@@ -95,8 +95,9 @@ performance payload is prewarmed on app startup when
 ## Provider-Selectable LLM Stats Agent
 
 `/ask` is an LLM-backed stats agent over curated warehouse outputs. Set
-`OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY` to enable the OpenAI API and Claude
-API providers. Use `/api/agent/ask` for blocking JSON responses and
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENROUTER_API_KEY` for the corresponding
+provider. OpenRouter setup and its current validation limits are documented in
+[Ask workspace](ask-workspace.md#openrouter). Use `/api/agent/ask` for blocking JSON responses and
 `/api/agent/ask/stream` for SSE streaming.
 
 The request path is intentionally bounded:
@@ -104,7 +105,10 @@ The request path is intentionally bounded:
 1. Build a query plan, with deterministic routing as fallback.
 2. Resolve player names from `BQ_DATASET_AGENT.agent_player_search`.
 3. Gather evidence through allowlisted application tools.
-4. Ask the selected provider/model to write the final answer from that evidence.
+4. Render governed answers deterministically, or ask the selected provider/model
+   to compose the final answer for other supported tool flows.
+5. Select a chart from verified candidates where available; chart values and
+   comparison calculations remain application-owned.
 
 Allowed tools cover player resolution, game logs, trends, opponent splits,
 percentiles, rankings, similarity, and metric leaderboards. The agent does not
@@ -119,7 +123,8 @@ deltas, and chart payloads.
 
 Operational controls:
 
-- `OPENAI_AGENT_MODEL` and `ANTHROPIC_AGENT_MODEL` set provider defaults.
+- `OPENAI_AGENT_MODEL`, `ANTHROPIC_AGENT_MODEL`, and `OPENROUTER_AGENT_MODEL`
+  set provider defaults.
 - `AGENT_MAX_TOOL_CALLS` bounds one request's evidence loop.
 - `AGENT_RATE_LIMIT_PER_MINUTE`, `AGENT_RATE_LIMIT_DAILY`, and
   `AGENT_QUESTION_MAX_CHARS` protect public endpoints.

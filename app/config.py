@@ -32,10 +32,18 @@ ANTHROPIC_AGENT_MODEL_OPTIONS = (
     {"value": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6"},
     {"value": "claude-haiku-4-5", "label": "Claude Haiku 4.5"},
 )
+OPENROUTER_AGENT_MODEL_OPTIONS = (
+    {"value": "deepseek/deepseek-v4.1-flash", "label": "DeepSeek V4.1 Flash"},
+    {"value": "qwen/qwen3-235b-a22b-2507", "label": "Qwen3 235B Instruct"},
+)
 AGENT_MODEL_OPTIONS = {
     "openai": OPENAI_AGENT_MODEL_OPTIONS,
     "claude": ANTHROPIC_AGENT_MODEL_OPTIONS,
+    "openrouter": OPENROUTER_AGENT_MODEL_OPTIONS,
 }
+OPENROUTER_AGENT_MODEL_VALUES = frozenset(
+    option["value"] for option in OPENROUTER_AGENT_MODEL_OPTIONS
+)
 OPENAI_AGENT_MODEL_VALUES = frozenset(
     option["value"] for option in OPENAI_AGENT_MODEL_OPTIONS
 )
@@ -45,6 +53,7 @@ ANTHROPIC_AGENT_MODEL_VALUES = frozenset(
 AGENT_MODEL_VALUES = {
     "openai": OPENAI_AGENT_MODEL_VALUES,
     "claude": ANTHROPIC_AGENT_MODEL_VALUES,
+    "openrouter": OPENROUTER_AGENT_MODEL_VALUES,
 }
 
 
@@ -66,6 +75,9 @@ class Settings:
     agent_dataset: str = "nba_agent"
     openai_api_key: str | None = None
     openai_agent_model: str = "gpt-5.4-mini"
+    openrouter_api_key: str | None = None
+    openrouter_agent_model: str = "deepseek/deepseek-v4.1-flash"
+    openrouter_agent_timeout_seconds: float = 90.0
     anthropic_api_key: str | None = None
     anthropic_agent_model: str = "claude-opus-4-8"
     openai_agent_enabled: bool = True
@@ -121,6 +133,13 @@ def get_settings() -> Settings:
         ),
         openai_api_key=os.getenv("OPENAI_API_KEY") or None,
         openai_agent_model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.4-mini"),
+        openrouter_api_key=os.getenv("OPENROUTER_API_KEY") or None,
+        openrouter_agent_model=os.getenv(
+            "OPENROUTER_AGENT_MODEL", "deepseek/deepseek-v4.1-flash"
+        ),
+        openrouter_agent_timeout_seconds=float(
+            os.getenv("OPENROUTER_AGENT_TIMEOUT_SECONDS", "90")
+        ),
         anthropic_api_key=os.getenv("ANTHROPIC_API_KEY") or None,
         anthropic_agent_model=os.getenv("ANTHROPIC_AGENT_MODEL", "claude-opus-4-8"),
         openai_agent_enabled=_env_bool("OPENAI_AGENT_ENABLED", True),

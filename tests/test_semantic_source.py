@@ -86,10 +86,13 @@ def test_source_errors_never_become_empty_answers(error, code):
     [(Client(total=100), 100), (Client(), 2), (Client(rows=[]), 100)],
 )
 def test_truncated_or_empty_source_is_blocked(client, max_rows):
-    with pytest.raises(SemanticError, match="snapshot|truncated"):
+    with pytest.raises(SemanticError, match="snapshot|truncated") as exc:
         BigQuerySemanticSource(
             client, project="test-project", max_rows=max_rows
         ).capture(["2024-25"])
+    assert exc.value.code == (
+        "unsupported_coverage" if not client.rows else "incomplete_evidence"
+    )
 
 
 def test_source_manifest_detects_tampering_and_missing_rows():

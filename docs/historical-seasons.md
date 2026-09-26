@@ -1,9 +1,12 @@
 # Historical seasons
 
-The app supports `2025-26`, `2024-25`, and `2023-24`. Select a season in the
-navigation bar or use `?season=2023-24` on a page or API URL. The selection is
-preserved in navigation and API requests. Historical Ask conversations and
-player-search caches are isolated from the current season.
+The app supports `2025-26`, `2024-25`, and `2023-24`. All tabs default to the
+latest supported season, with no shared season selector. Ask accepts a historical
+season in the question and preserves it in follow-ups. Unspecified periods use
+the latest available coverage, checking supported seasons newest first and
+disclosing any fallback. Explicit historical API reads still accept
+`?season=2023-24`; page links with that parameter redirect to the latest view.
+Season-specific API caches and history files remain isolated.
 
 Each archive uses its own datasets:
 
@@ -93,7 +96,7 @@ build process have explicit time bounds.
   cannot be reliably saved.
   Later intraday status changes are outside this collection; discrepancies
   between an earlier Out report and actual appearances remain warning rows.
-- Historical pages show archive status and do not expect daily refreshes.
+- Historical API reads report archive status and do not expect daily refreshes.
   Similarity outputs can have less physical-profile context than the current
   season because historical biography fields are incomplete.
 

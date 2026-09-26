@@ -47,6 +47,30 @@ def build_study(
         pair["teammate_id"],
     ):
         raise ValueError("Study specification has different player roles")
+    phase = spec.get("phase", "Regular Season")
+    if spec.get("window") == "full_season":
+        scheduled = [
+            g
+            for g in games
+            if g["season"] == spec["season"]
+            and g["team_abbr"] == spec["team_abbr"]
+            and (phase == "Both" or g.get("season_type", "Regular Season") == phase)
+        ]
+        if not scheduled or any(
+            not g["final"] or not spec["start"] <= g["game_date"] <= spec["end"]
+            for g in scheduled
+        ):
+            raise ValueError(
+                "Full-season study must include the complete final schedule"
+            )
+        # Missing team box scores cannot be interpreted as player absences.
+        observed_games = {
+            r["game_id"]
+            for r in stats
+            if r["season"] == spec["season"] and r["team_abbr"] == spec["team_abbr"]
+        }
+        if any(g["game_id"] not in observed_games for g in scheduled):
+            raise ValueError("Full-season study is missing team box scores")
     panel = build_panel(stats, reports, games, memberships, spec, context)
     input_hashes = {
         "spec": digest(spec),
@@ -61,6 +85,8 @@ def build_study(
             k: spec[k]
             for k in ("player_id", "teammate_id", "season", "start", "end", "team_abbr")
         }
+        if "phase" in spec:
+            expected_scope["phase"] = phase
         if (
             causal_spec.get("scope") != expected_scope
             or causal_spec.get("input_hashes") != input_hashes
@@ -198,7 +224,26 @@ def build_study(
     return {
         **pair,
         "status": "reviewable",
-        "scope": {k: spec[k] for k in ("season", "start", "end", "team_abbr")},
+        "scope": {
+            **{k: spec[k] for k in ("season", "start", "end", "team_abbr")},
+            "phase": phase,
+            "window": spec.get("window", "bounded"),
+        },
+        "coverage": {
+            "excluded_focal_appearances": sum(
+                r["focal_participated"]
+                and not r["included"]
+                and r["eligibility"] != "not_teammates"
+                for r in panel
+            ),
+            "phase_games": {
+                p: sum(
+                    r["included"] and r.get("season_type", "Regular Season") == p
+                    for r in panel
+                )
+                for p in ("Regular Season", "Playoffs")
+            },
+        },
         "metrics": metrics,
         "panel": panel,
         "input_hashes": input_hashes,
@@ -246,7 +291,12 @@ def main():
                 ]
         pair = next(p for p in PAIRS if p["pair_id"] == descriptor["pair_id"])
         spec = loaded["spec"]
-        games = schedule_games(loaded["schedule"], spec["season"], spec["team_abbr"])
+        games = schedule_games(
+            loaded["schedule"],
+            spec["season"],
+            spec["team_abbr"],
+            spec.get("phase", "Regular Season"),
+        )
         causal_rows = (
             json.loads(Path(descriptor["causal_rows"]).read_text())
             if descriptor.get("causal_rows")

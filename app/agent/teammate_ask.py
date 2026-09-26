@@ -4,6 +4,13 @@ import json
 import re
 from pathlib import Path
 
+from app.agent.semantic_serving import (
+    fallback_notice,
+    has_time_scope,
+    requested_seasons,
+)
+from app.seasons import SEASONS
+
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -114,7 +121,13 @@ def answer_study(agent, question, provider, model, trace=None):
         return unavailable()
     study = load_study(path)
     s = study["scope"]
-    if agent.settings.season != s["season"] and s["season"] not in question:
+    requested = requested_seasons(question, agent.settings.season)
+    can_fallback = (
+        not has_time_scope(question)
+        and s["season"] in SEASONS
+        and s["season"] < agent.settings.season
+    )
+    if requested != [s["season"]] and not can_fallback:
         return unavailable(study)
     # Literal date/season requests cannot be overwritten by model interpretation.
     dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", question)
@@ -213,4 +226,12 @@ def answer_study(agent, question, provider, model, trace=None):
             }
         ],
     )
+    if can_fallback:
+        notice = fallback_notice(agent.settings.season, s["season"])
+        payload["answer"] = notice + "\n\n" + payload["answer"]
+        payload["assumptions"] = [notice, *payload["assumptions"]]
+        payload["season_fallback"] = {
+            "requested": agent.settings.season,
+            "used": s["season"],
+        }
     return payload

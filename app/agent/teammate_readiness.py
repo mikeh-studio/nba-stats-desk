@@ -42,16 +42,22 @@ def validate_memberships(rows):
             raise ValueError("Overlapping membership intervals")
 
 
-def schedule_games(document, season, team):
+def schedule_games(document, season, team, phase="Regular Season"):
     if document["leagueSchedule"]["seasonYear"] != season:
         raise ValueError("Schedule season mismatch")
     games = []
     seen = set()
-    prefix = "002" + season[2:4]
+    if phase not in ("Regular Season", "Playoffs", "Both"):
+        raise ValueError("Unsupported study phase")
+    prefixes = {
+        "002" + season[2:4]: "Regular Season",
+        "004" + season[2:4]: "Playoffs",
+    }
+    prefixes = {k: v for k, v in prefixes.items() if phase == "Both" or phase == v}
     for day in document["leagueSchedule"]["gameDates"]:
         for g in day["games"]:
             home, away = (g[k]["teamTricode"] for k in ("homeTeam", "awayTeam"))
-            if team not in (home, away) or not g["gameId"].startswith(prefix):
+            if team not in (home, away) or g["gameId"][:5] not in prefixes:
                 continue
             if g["gameId"] in seen:
                 raise ValueError("Duplicate schedule game")
@@ -60,6 +66,7 @@ def schedule_games(document, season, team):
                 {
                     "season": season,
                     "game_id": g["gameId"],
+                    "season_type": prefixes[g["gameId"][:5]],
                     "game_date": g["gameDateEst"][:10],
                     "team_abbr": team,
                     "opponent_abbr": away if team == home else home,
@@ -128,6 +135,9 @@ def latest_report(reports, game, player_id, max_age_hours):
 
 def build_panel(stats, reports, games, memberships, spec, context=()):
     validate_memberships(memberships)
+    phase = spec.get("phase", "Regular Season")
+    if phase not in ("Regular Season", "Playoffs", "Both"):
+        raise ValueError("Unsupported study phase")
     if spec["player_id"] == spec["teammate_id"] or spec["start"] > spec["end"]:
         raise ValueError("Invalid pair or study dates")
     if not 0 < spec["max_report_age_hours"] <= 48:
@@ -165,6 +175,7 @@ def build_panel(stats, reports, games, memberships, spec, context=()):
         for g in games
         if g["season"] == spec["season"]
         and g["team_abbr"] == spec["team_abbr"]
+        and (phase == "Both" or g.get("season_type", "Regular Season") == phase)
         and spec["start"] <= g["game_date"] <= spec["end"]
     ]
     if not selected or len({g["game_id"] for g in selected}) != len(selected):
@@ -179,7 +190,8 @@ def build_panel(stats, reports, games, memberships, spec, context=()):
         for appearance in (own, other):
             if appearance and (
                 appearance["game_date"] != game["game_date"]
-                or appearance["season_type"] != "Regular Season"
+                or appearance["season_type"]
+                != game.get("season_type", "Regular Season")
             ):
                 raise ValueError("Appearance/schedule mismatch")
         member = {}

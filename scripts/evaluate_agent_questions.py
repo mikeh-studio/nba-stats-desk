@@ -90,7 +90,9 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--case", action="append", default=[], help="Case id to run.")
     parser.add_argument("--json", action="store_true", help="Print full JSON payloads.")
-    parser.add_argument("--provider", choices=("openai", "claude"), default="openai")
+    parser.add_argument(
+        "--provider", choices=("openai", "claude", "openrouter"), default="openai"
+    )
     parser.add_argument(
         "--model", help="Candidate model ID; does not enable it in Ask."
     )
@@ -100,7 +102,9 @@ def main() -> int:
     args = parser.parse_args()
     settings = get_settings()
     key = (
-        settings.anthropic_api_key
+        settings.openrouter_api_key
+        if args.provider == "openrouter"
+        else settings.anthropic_api_key
         if args.provider == "claude"
         else settings.openai_api_key
     )
@@ -108,7 +112,9 @@ def main() -> int:
         print(f"Credentials for {args.provider} are not configured.", file=sys.stderr)
         return 2
     model = args.model or (
-        settings.anthropic_agent_model
+        settings.openrouter_agent_model
+        if args.provider == "openrouter"
+        else settings.anthropic_agent_model
         if args.provider == "claude"
         else settings.openai_agent_model
     )

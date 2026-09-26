@@ -9,15 +9,16 @@ test("historical navigation preserves filters and leaves external links alone", 
   assert.equal(withSeason("/api/health", "2025-26"), "/api/health");
 });
 
-test("API fetch uses the season in the current tab URL", async () => {
+test("tabs and API fetch default to latest despite stale historical URLs", async () => {
   const previousLocation = globalThis.location;
   const previousFetch = globalThis.fetch;
   globalThis.location = { href: "http://localhost/performance?season=2024-25" };
   globalThis.fetch = async (url, options) => ({ url, options });
   try {
-    assert.equal(selectedSeason(), "2024-25");
+    assert.equal(selectedSeason(), "2025-26");
     const response = await seasonFetch("/api/performance/initial", { cache: "default" });
-    assert.equal(response.url, "/api/performance/initial?season=2024-25");
+    assert.equal(response.url, "/api/performance/initial");
+    assert.equal(withSeason("/ask?season=2023-24&chat=abc"), "/ask?chat=abc");
     assert.deepEqual(response.options, { cache: "default" });
   } finally {
     globalThis.location = previousLocation;
