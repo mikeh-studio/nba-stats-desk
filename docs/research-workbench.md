@@ -116,6 +116,11 @@ Catalog version `multi_metric_studies/v3` requires plus-minus and the expanded
 
 ## Ask takeaways and uncertainty
 
+When only `AGENT_TEAMMATE_STUDY_PATH` is configured, matching requests retain
+the legacy frozen-study route and its scope checks. A configured research catalog
+takes precedence for research requests; active research follow-ups never fall back
+to legacy evidence.
+
 Ask is the primary conversational surface. It resolves the registered pair and
 scope, reads a matching immutable analysis, and assesses and ranks its metrics on
 every request. Model fitting remains in the offline builder: no arbitrary SQL,
