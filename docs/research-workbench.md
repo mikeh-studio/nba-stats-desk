@@ -1,10 +1,12 @@
 # Players and research breakdowns
 
-`/players` (also available at `/research`), player pages, comparison pages, and research requests in Ask share
+Player detail pages, comparison pages, and research requests in Ask share
 `app/research.py`. Ask plans an allowlisted scope; Python calculates and renders
 results. It does not accept generated SQL or model-calculated statistics.
 
-The **Players** navigation entry opens player search and shared breakdowns.
+The **Players** navigation entry (`/players`, with `/research` retained as an
+alias) opens player search only. The landing page does not display breakdown
+controls or the three pilot study cards; those studies support comparisons in Ask.
 Player profiles retain their detailed research panel; causal questions are
 answered in **Ask**. Compare remains accessible by direct links without a
 separate navigation tab. Internal research API and configuration names remain

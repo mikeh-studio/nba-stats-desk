@@ -110,7 +110,7 @@ agent the default entry point while keeping Performance and directed research
 pages one click away.
 
 - **Ask**: conversational basketball analysis
-- **Players** (`/players`): player search, profiles, and detailed breakdowns
+- **Players** (`/players`): search for a player and open their profile
 - **Performance** (`/performance`): playoff game results against season baselines
 - **Trending** (`/what-changed`): top performers and surging production
 - **Archetypes** (`/similarity-map`): machine-learning player groups and nearest matches

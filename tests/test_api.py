@@ -2980,4 +2980,6 @@ def test_players_landing_retains_research_alias():
         assert response.status_code == 200
         assert "<h1>Players</h1>" in response.text
         assert 'id="players-search"' in response.text
-        assert "data-research-root" in response.text
+        assert "data-research-root" not in response.text
+        assert "Three focused questions" not in response.text
+        assert "Explore the breakdown" not in response.text
