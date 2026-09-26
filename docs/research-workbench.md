@@ -20,8 +20,9 @@ JSON API. Detailed research initializes only when its disclosure is opened.
 Player profiles retain their detailed research panel; causal questions are
 answered in **Ask**. Compare remains accessible by direct links without a
 separate navigation tab. Internal research API and configuration names remain
-unchanged. The shared navigation intentionally omits a season selector; existing
-historical-season URLs and season-preserving links remain supported.
+unchanged. The shared navigation omits a season selector. Historical page URLs
+redirect to the latest view; explicit historical Ask questions and API reads
+remain supported.
 
 ## Breakdown contract
 
