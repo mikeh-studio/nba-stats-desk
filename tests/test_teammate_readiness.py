@@ -283,3 +283,41 @@ def test_readiness_does_not_promote_partial_evidence():
         summarize_panel(build_panel(*args))["readiness"]["status"]
         == "incomplete_descriptive_comparison"
     )
+
+
+def test_schedule_and_panel_include_playoffs_only_when_requested():
+    from app.agent.teammate_readiness import schedule_games
+
+    document = {
+        "leagueSchedule": {
+            "seasonYear": "2025-26",
+            "gameDates": [
+                {
+                    "games": [
+                        {
+                            "gameId": prefix + "2500001",
+                            "homeTeam": {"teamTricode": "ATL"},
+                            "awayTeam": {"teamTricode": "BOS"},
+                            "gameDateEst": "2026-04-20",
+                            "gameStatus": 3,
+                        }
+                        for prefix in ("001", "002", "004", "005")
+                    ]
+                }
+            ],
+        }
+    }
+    assert len(schedule_games(document, "2025-26", "ATL")) == 1
+    games = schedule_games(document, "2025-26", "ATL", "Both")
+    assert [g["season_type"] for g in games] == ["Regular Season", "Playoffs"]
+    args = fixture()
+    args[2][1]["season_type"] = "Playoffs"
+    args[0][1]["season_type"] = "Playoffs"
+    assert len(build_panel(*args)) == 2
+    args[4]["phase"] = "Both"
+    panel = build_panel(*args)
+    assert len(panel) == 3
+    assert panel[1]["included"]
+    args[0][1]["season_type"] = "Regular Season"
+    with pytest.raises(ValueError, match="Appearance/schedule mismatch"):
+        build_panel(*args)

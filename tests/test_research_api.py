@@ -109,7 +109,13 @@ def test_study_json_stream_and_significance_followup(
     client, _, planner = research_client
     pair = PAIRS[pair_index]
     study = pending(pair)
-    study["scope"] = dict(season="2025-26", start="2025-11-01", end="2025-11-30")
+    study["scope"] = dict(
+        season="2025-26",
+        start="2025-11-01",
+        end="2025-11-30",
+        window="full_season",
+        phase="Both",
+    )
     study["metrics"][0] = metric()
     study["metrics"][0]["observed_uncertainty"]["holm_p_value"] = (
         0.01 if supported else 0.4
@@ -131,11 +137,12 @@ def test_study_json_stream_and_significance_followup(
     result = client.post("/api/agent/ask", json=request)
     assert result.status_code == 200, result.text
     payload = result.json()
-    assert payload["research_highlights"][0]["significance"] == (
-        "statistically supported (exploratory)" if supported else "inconclusive"
-    )
+    assert "significance" not in payload["research_highlights"][0]
+    assert "research_assessments" not in payload
+    assert "study" not in payload
     assert payload["research_highlights"][1]["estimate"] is None
-    assert "observed changes" in payload["answer"]
+    assert "4.0 more points" in payload["answer"]
+    assert "insufficient evidence" not in json.dumps(payload).lower()
     stream = client.post("/api/agent/ask/stream", json=request)
     assert stream.status_code == 200
     assert (
@@ -158,3 +165,75 @@ def test_study_json_stream_and_significance_followup(
     )
     assert followup.status_code == 200
     assert followup.json()["study_id"] == pair["pair_id"]
+
+
+@pytest.mark.parametrize("explicit_dates", [False, True])
+def test_partial_study_never_silently_answers_full_season(
+    research_client, monkeypatch, explicit_dates
+):
+    from app.research_studies import PAIRS, pending
+
+    client, _, planner = research_client
+    pair = PAIRS[0]
+    study = pending(pair)
+    study["scope"] = dict(
+        season="2025-26",
+        phase="Both",
+        start="2025-10-22",
+        end="2025-12-31",
+        window="bounded",
+    )
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
+    query = ResearchQuery(player_ids=[pair["player_id"]], metrics=["pts"]).model_dump(
+        mode="json"
+    )
+    query["teammate_id"] = pair["teammate_id"]
+    if explicit_dates:
+        query.update(start="2025-10-22", end="2025-12-31")
+    planner.result = dict(
+        kind="study", pair_id=pair["pair_id"], message="", query=query
+    )
+    question = "How did LeBron play without Luka?"
+    if explicit_dates:
+        question += " From 2025-10-22 through 2025-12-31"
+    answer = client.post("/api/agent/ask", json={"question": question}).json()
+    if explicit_dates:
+        assert answer["research_scope"]["phase"] == "Both"
+        assert answer["tables"]
+    else:
+        assert not answer["tables"]
+        assert "full-season comparison is not available" in answer["answer"]
+
+
+@pytest.mark.parametrize("arm", [None, "participated", "reported_out_no_appearance"])
+def test_full_season_answer_discloses_playoffs_and_preserves_explicit_phase(
+    research_client, monkeypatch, arm
+):
+    from tests.test_research_insights import presentation_study
+
+    client, _, planner = research_client
+    study = presentation_study()
+    study["scope"].update(
+        phase="Both", window="full_season", start="2025-10-21", end="2026-06-13"
+    )
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
+    query = ResearchQuery(player_ids=[study["player_id"]], metrics=["pts"]).model_dump(
+        mode="json"
+    )
+    query["teammate_id"] = study["teammate_id"]
+    query["teammate_status"] = arm
+    planner.result = dict(
+        kind="study", pair_id=study["pair_id"], message="", query=query
+    )
+    answer = client.post(
+        "/api/agent/ask", json={"question": "How did LeBron play without Luka?"}
+    ).json()
+    assert "regular season and playoffs" in answer["answer"]
+    assert "2026-06-13" in answer["answer"]
+    assert answer["research_scope"]["phase"] == "Both"
+    answer = client.post(
+        "/api/agent/ask",
+        json={"question": "How did LeBron play without Luka in the regular season?"},
+    ).json()
+    assert not answer["tables"]
+    assert "requested season phase" in answer["answer"]

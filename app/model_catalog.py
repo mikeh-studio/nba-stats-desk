@@ -13,10 +13,17 @@ from app.config import AGENT_MODEL_VALUES, get_settings
 
 def fetch_catalog(provider: str, key: str, configured: set[str]) -> dict[str, dict]:
     client: Any
-    if provider == "openai":
+    if provider in {"openai", "openrouter"}:
         from openai import OpenAI
 
-        client = OpenAI(api_key=key, timeout=30, max_retries=1)
+        client = OpenAI(
+            api_key=key,
+            timeout=30,
+            max_retries=1,
+            base_url="https://openrouter.ai/api/v1"
+            if provider == "openrouter"
+            else None,
+        )
     else:
         from anthropic import Anthropic
 
@@ -28,7 +35,9 @@ def fetch_catalog(provider: str, key: str, configured: set[str]) -> dict[str, di
             for item in client.models.list()
         }
         # Aliases may be retrievable even when only dated IDs appear in the list.
-        for model in sorted(configured - models.keys()):
+        for model in (
+            sorted(configured - models.keys()) if provider != "openrouter" else []
+        ):
             try:
                 item = client.models.retrieve(model)
             except Exception as exc:
@@ -65,7 +74,13 @@ def audit_provider(
         )
         return result
     previous_ids = set(previous.get("models", {}))
-    prefix = "claude-" if provider == "claude" else "gpt-"
+    prefix = (
+        ""
+        if provider == "openrouter"
+        else "claude-"
+        if provider == "claude"
+        else "gpt-"
+    )
     result.update(
         status="fresh",
         last_success_at=now,
@@ -140,12 +155,18 @@ def main() -> int:
         previous = {}
     settings = get_settings()
     now = datetime.now(timezone.utc).isoformat()
-    keys = {"openai": settings.openai_api_key, "claude": settings.anthropic_api_key}
+    keys = {
+        "openai": settings.openai_api_key,
+        "claude": settings.anthropic_api_key,
+        "openrouter": settings.openrouter_api_key,
+    }
     report: dict[str, Any] = {"checked_at": now, "providers": {}}
     for provider, key in keys.items():
         configured = set(AGENT_MODEL_VALUES[provider])
         configured.add(
-            settings.openai_agent_model
+            settings.openrouter_agent_model
+            if provider == "openrouter"
+            else settings.openai_agent_model
             if provider == "openai"
             else settings.anthropic_agent_model
         )

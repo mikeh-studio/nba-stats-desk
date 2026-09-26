@@ -767,3 +767,17 @@ body:has(.ask-desk) .publication-health {
 .agent-turn {
   scroll-margin-top: 1.5rem;
 }
+
+/* Two-group and ranking bars fit the available panel without sideways scrolling. */
+.agent-chart svg.agent-bar-chart {
+  min-width: 0;
+}
+
+.comparison-explorer { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
+.comparison-explorer summary { cursor: pointer; color: var(--ink); }
+.explorer-metric { display: flex; align-items: center; gap: 0.75rem; margin: 1rem 0; }
+.explorer-metric select { max-width: 200px; }
+.comparison-game-dot { fill: var(--accent-hot); stroke: var(--surface); stroke-width: 1; }
+.comparison-game-dot.both { fill: #83b5db; }
+[data-explore-point]:focus .comparison-game-dot, [data-explore-point]:hover .comparison-game-dot { stroke: var(--ink); stroke-width: 3; }
+.comparison-game-detail { min-height: 3rem; border: 1px solid var(--line); padding: 0.75rem; font-size: 0.85rem; }

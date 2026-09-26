@@ -2993,7 +2993,8 @@ def test_player_shell_does_not_query_warehouse() -> None:
     assert 'data-player-id="7"' in response.text
     assert 'aria-busy="true"' in response.text
     assert "Loading profile" in response.text
-    assert "2024-25" in response.text
+    assert "2025-26" in response.text
+    assert not response.url.query
     assert repo.detail_calls == []
 
 

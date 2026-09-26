@@ -132,3 +132,123 @@ def test_causal_stability_uses_causal_refits_not_observed_omissions():
     assert a["causal_n"] == 80
     m["causal"]["leave_episode_out_refits"] = [{"estimate": 2}, {"estimate": -1}]
     assert assess(m)["stability"] == "causal direction changes across episode refits"
+
+
+def presentation_study():
+    study = pending(PAIRS[0])
+    study["scope"] = dict(season="2025-26", start="2025-10-22", end="2025-12-31")
+    for key, both, out in [("pts", 21, 15.5), ("ast", 6.2, 8.47), ("reb", 5, 4)]:
+        m = next(m for m in study["metrics"] if m["metric"] == key)
+        m["descriptive"] = dict(
+            participated=both,
+            reported_out=out,
+            difference=out - both,
+            groups=[{"observed_games": 13}, {"observed_games": 2}],
+        )
+    return study
+
+
+def test_presenter_answer_counts_once_and_diagnostics_only_in_backend(caplog):
+    import json
+    import logging
+
+    study = presentation_study()
+    original = deepcopy(study)
+    with caplog.at_level(logging.INFO, logger="app.research_studies"):
+        result = study_answer(study, ["pts", "ast", "reb"])
+    answer = result["answer"]
+    assert answer.startswith("LeBron James scored less and recorded more assists")
+    assert answer.count("13 games when both played and 2 with Luka Doncic out") == 1
+    assert (
+        "5.5 fewer points, 2.3 more assists and 1.0 fewer rebounds per game" in answer
+    )
+    assert "early observation" in answer
+    assert "2025-10-22 through 2025-12-31" in answer
+    visible = json.dumps(result).lower()
+    for diagnostic in (
+        "insufficient evidence",
+        "holm",
+        "p-value",
+        "product threshold",
+        "episode",
+        "research_assessments",
+    ):
+        assert diagnostic not in visible
+    assert "insufficient evidence for significance" in caplog.text
+    assert study == original
+    assert result["tables"][0]["rows"][0][1:4] == ["21.0", "15.5", "-5.5"]
+    assert result["tables"][0]["columns"][1]["label"] == "Both played"
+
+
+def test_presentation_never_substitutes_causal_estimate_for_observed_difference():
+    study = presentation_study()
+    points = study["metrics"][0]
+    points["causal"] = dict(
+        estimate=99,
+        claim_level="causal_estimate_under_assumptions",
+        interval=[90, 110],
+        holm_p_value=0.01,
+    )
+    result = study_answer(study, ["pts"])
+    assert "5.5 fewer points" in result["answer"]
+    assert result["research_highlights"][0]["estimate"] == -5.5
+    assert "99" not in result["answer"]
+    assert assess(points)["estimate"] == 99
+
+
+def test_different_or_missing_game_counts_are_not_presented_as_shared():
+    study = presentation_study()
+    assists = next(m for m in study["metrics"] if m["metric"] == "ast")
+    assists["descriptive"]["groups"][1]["observed_games"] = 1
+    result = study_answer(study, ["pts", "ast"])
+    assert "Across 13" not in result["answer"]
+    assert "Game coverage differs" in result["answer"]
+    study["metrics"][0]["descriptive"]["groups"] = []
+    result = study_answer(study, ["pts"])
+    assert "Across" not in result["answer"]
+
+
+def test_units_zero_and_turnovers_do_not_become_improvement_claims():
+    study = presentation_study()
+    tov = next(m for m in study["metrics"] if m["metric"] == "tov")
+    tov["descriptive"] = dict(difference=1.2)
+    result = study_answer(study, ["tov"])
+    assert "1.2 more turnovers per game" in result["answer"]
+    assert "improv" not in result["answer"]
+    tov["descriptive"]["difference"] = 0
+    assert "roughly the same turnovers" in study_answer(study, ["tov"])["answer"]
+    fg = next(m for m in study["metrics"] if m["metric"] == "fg_pct")
+    fg.update(descriptive=dict(difference=2.7), unit="percentage points", label="FG%")
+    assert "2.7 percentage points" in study_answer(study, ["fg_pct"])["answer"]
+
+
+def test_missing_descriptive_values_do_not_displace_available_highlights():
+    study = presentation_study()
+    points = study["metrics"][0]
+    points["descriptive"] = None
+    points["causal"] = dict(
+        estimate=99,
+        claim_level="causal_estimate_under_assumptions",
+        interval=[90, 110],
+        holm_p_value=0.01,
+    )
+    answer = study_answer(study, ["pts", "ast", "reb"])
+    assert answer["research_highlights"][0]["metric"] == "ast"
+    assert "2.3 more assists" in answer["answer"]
+    assert "PTS is unavailable" in answer["answer"]
+
+
+def test_near_zero_table_difference_has_no_negative_zero():
+    study = presentation_study()
+    study["metrics"][0]["descriptive"]["difference"] = -0.01
+    assert study_answer(study, ["pts"])["tables"][0]["rows"][0][3] == "0.0"
+
+
+def test_full_season_rendering_discloses_unclassified_games():
+    study = presentation_study()
+    study["scope"].update(phase="Both", end="2026-06-13", window="full_season")
+    study["coverage"] = {"excluded_focal_appearances": 1}
+    answer = study_answer(study)
+    assert "regular season and playoffs" in answer["answer"]
+    assert "excluded from this comparison" in answer["answer"]
+    assert "insufficient evidence" not in answer["answer"].lower()

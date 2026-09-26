@@ -128,8 +128,14 @@ def test_request_seasons_are_isolated_and_validated(monkeypatch):
         assert current_season() == "2025-26"
         page = client.get("/performance?season=2023-24")
         assert page.status_code == 200
-        assert "Explore 2023-24 playoff game performances" in page.text
+        assert page.url.path == "/performance" and not page.url.query
         assert "data-season-selector" not in page.text
+        for path in ("ask", "players", "performance", "what-changed", "similarity-map"):
+            redirect = client.get(
+                f"/{path}?season=2024-25&keep=value", follow_redirects=False
+            )
+            assert redirect.status_code == 307
+            assert redirect.headers["location"] == f"/{path}?keep=value"
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)

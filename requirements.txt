@@ -26,3 +26,6 @@ dbt-redshift>=1.8,<2
 
 # Airflow for local or self-hosted orchestration
 apache-airflow>=2.7,<3
+
+# Validate OpenRouter structured output before rendering or execution.
+jsonschema>=4,<5

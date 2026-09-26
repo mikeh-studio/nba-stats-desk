@@ -25,7 +25,7 @@ def render_report(spec, summary, steps, panel=()):
     lines = [
         f"# {spec['name']}: teammate data-readiness report",
         "",
-        f"Window: {spec['start']} to {spec['end']} ({spec['season']}, regular season).",
+        f"Window: {spec['start']} to {spec['end']} ({spec['season']}, {spec.get('phase', 'Regular Season')}).",
         "",
         "**Descriptive comparison, not a causal effect.**",
         "",
@@ -166,7 +166,9 @@ def main():
         {"step": "Load and validate evidence", "seconds": time.perf_counter() - started}
     ]
     started = time.perf_counter()
-    games = schedule_games(schedule, spec["season"], spec["team_abbr"])
+    games = schedule_games(
+        schedule, spec["season"], spec["team_abbr"], spec.get("phase", "Regular Season")
+    )
     panel = build_panel(
         stats["rows"], injuries["rows"], games, memberships, spec, context
     )

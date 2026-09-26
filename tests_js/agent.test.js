@@ -409,3 +409,74 @@ test("line charts keep negative and positive observations inside the plot", asyn
   assert.ok(positions[0] > positions[1] && positions[1] > positions[2]);
   assert.match(html, /Player: -25/);
 });
+
+test("bar charts preserve negative values and expose accessible hover details", async () => {
+  const agent = await loadAgentModule();
+  const html = agent.renderChart({
+    type: "bar", title: "Plus-minus", y_label: "points per game",
+    description: "Same season <script>unsafe</script>",
+    selection_reason: "Compare two groups",
+    series: [{ points: [
+      { x: "Both played", y: -4, meta: "49 games" },
+      { x: "Teammate out", y: 2, meta: "21 games" },
+      { x: "Missing", y: null },
+    ] }],
+  });
+  assert.match(html, /tabindex="0"/);
+  assert.match(html, /49 games/);
+  assert.match(html, /21 games/);
+  assert.match(html, /Both played: -4/);
+  assert.doesNotMatch(html, /Missing/);
+  assert.doesNotMatch(html, /width="-/);
+  assert.match(html, /Same season &lt;script&gt;/);
+  assert.match(html, /agent-tooltip/);
+});
+
+test("Source & Coverage follows the selected answer and clears on reset", async () => {
+  const panel = new FakeElement();
+  const context = new FakeElement();
+  const label = new FakeElement();
+  const agent = await loadAgentModule({ elements: {
+    "[data-answer-coverage]": panel,
+    "[data-answer-context]": context,
+    "[data-coverage-question]": label,
+  } });
+  agent.updateSourceCoverage({ assumptions: ["First source"], research_scope: { season: "2025-26", phase: "Both" } }, "First question");
+  assert.equal(panel.hidden, false);
+  assert.match(context.innerHTML, /Regular season and playoffs/);
+  assert.equal(label.textContent, "First question");
+  agent.updateSourceCoverage({ assumptions: ["Second source"] }, "Older question");
+  assert.doesNotMatch(context.innerHTML, /First source/);
+  assert.match(context.innerHTML, /Second source/);
+  assert.equal(label.textContent, "Older question");
+  agent.updateSourceCoverage(null);
+  assert.equal(panel.hidden, true);
+  assert.equal(context.innerHTML, "");
+  assert.doesNotMatch(agent.turnEvidenceMarkup(), /Methodology|data-agent-context/);
+});
+
+test("comparison explorer keeps zero, negative, and missing game values distinct", () => {
+  const detail = {minutes:{participated:30,reported_out:32},rates:{},games:[
+    {game_id:'001',date:'2025-11-01',opponent:'AAA',group:'both',phase:'Regular Season',values:{plus_minus:-4}},
+    {game_id:'002',date:'2025-11-02',opponent:'BBB',group:'out',phase:'Regular Season',values:{plus_minus:0}},
+    {game_id:'003',date:'2025-11-03',opponent:'CCC',group:'out',values:{plus_minus:null}},
+  ]};
+  const body=globalThis.__askAgentTest.comparisonExplorerBody({teammate:'Teammate',detail,metrics:[{key:'plus_minus',label:'+/-',unit:'score-margin points per game',both:-4,out:0,difference:4,relative_change:null}]},'plus_minus');
+  assert.equal((body.match(/data-explore-point /g)||[]).length,2);
+  assert.match(body,/1 games have no value/);
+  assert.match(body,/Game 001/);
+  assert.match(body,/Game 002/);
+  assert.doesNotMatch(body,/Game 003/);
+  assert.doesNotMatch(body,/% versus/);
+  assert.match(body,/tabindex="0"/);
+});
+
+test("Ask sends the OpenRouter provider and its selected model", async () => {
+  const provider=new FakeElement('select'); provider.value='openrouter';
+  const model=new FakeElement('select'); model.value='qwen/qwen3-235b-a22b-2507';
+  const options=new FakeElement('script'); options.textContent=JSON.stringify({openrouter:[{value:model.value,label:'Qwen3 235B Instruct'}]});
+  const agent=await loadAgentModule({elements:{'[data-agent-provider]':provider,'[data-agent-model]':model,'[data-agent-model-options]':options}});
+  const body=agent.buildAskBody('How did LeBron play?',null);
+  assert.equal(body.provider,'openrouter');
+  assert.equal(body.model,'qwen/qwen3-235b-a22b-2507');
+});

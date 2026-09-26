@@ -133,51 +133,154 @@ def assess(metric):
     }
 
 
+def game_counts(metric):
+    """Counts describe appearances, never shared court minutes or inferred injuries."""
+    groups = (metric.get("descriptive") or {}).get("groups") or []
+    counts = (
+        [g.get("observed_games") for g in groups]
+        if len(groups) == 2
+        else (metric.get("observed_uncertainty") or {}).get("group_n")
+    )
+    if (
+        isinstance(counts, (list, tuple))
+        and len(counts) == 2
+        and all(type(n) is int and n >= 0 for n in counts)
+    ):
+        return tuple(counts)
+    return None
+
+
+STAT_WORDS = {
+    "pts": "points",
+    "ast": "assists",
+    "reb": "rebounds",
+    "stl": "steals",
+    "blk": "blocks",
+    "tov": "turnovers",
+    "fg3m": "made threes",
+    "min": "minutes",
+    "fga": "field-goal attempts",
+    "fg3a": "three-point attempts",
+    "fta": "free-throw attempts",
+}
+
+
+def join_phrases(parts):
+    if len(parts) < 2:
+        return "".join(parts)
+    return ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def descriptive_highlight(metric):
+    return {
+        "metric": metric["metric"],
+        "label": metric.get("label", metric["metric"].upper()),
+        "estimate": (metric.get("descriptive") or {}).get("difference"),
+        "unit": metric.get("unit", "per game"),
+    }
+
+
+def presented_insights(study, highlights, selected):
+    """Present observed results; assessment diagnostics never become user prose."""
+    available = [h for h in highlights if h["estimate"] is not None]
+    missing = [
+        m.get("label", m["metric"].upper())
+        for m in study["metrics"]
+        if m["metric"] in selected
+        and (m.get("descriptive") or {}).get("difference") is None
+    ]
+    if not available:
+        return f"{join_phrases(missing) or 'That comparison'} is unavailable for this comparison."
+    player, teammate = study["player_name"], study["teammate_name"]
+    lead = []
+    details = []
+    all_per_game = all(h["metric"] in STAT_WORDS for h in available)
+    for h in available:
+        key, value = h["metric"], h["estimate"]
+        word = STAT_WORDS.get(key, h["label"])
+        positive = value > 0
+        near_zero = round(abs(value), 1) == 0
+        if key == "pts":
+            phrase = (
+                "scored about the same"
+                if near_zero
+                else "scored more"
+                if positive
+                else "scored less"
+            )
+        elif key in STAT_WORDS:
+            phrase = f"recorded {'about the same' if near_zero else 'more' if positive else 'fewer'} {word}"
+        else:
+            phrase = f"had {'about the same' if near_zero else 'a higher' if positive else 'a lower'} {h['label']}"
+        lead.append(phrase)
+        if near_zero:
+            details.append(f"roughly the same {word}")
+        elif key in STAT_WORDS:
+            details.append(
+                f"{abs(value):.1f} {'more' if positive else 'fewer'} {word}"
+                + ("" if all_per_game else " per game")
+            )
+        else:
+            unit = h["unit"]
+            details.append(
+                f"{h['label']} {'higher' if positive else 'lower'} by {abs(value):.1f} {unit}"
+            )
+    from app.agent.comparison_detail import relative_change
+
+    for i, h in enumerate(available):
+        m = next(m for m in study["metrics"] if m["metric"] == h["metric"])
+        relative = relative_change(m)
+        if relative is not None:
+            a, b = (g["value"] for g in m["descriptive"]["groups"])
+            details[i] += f" ({b:.1f} vs {a:.1f}; {relative:+.1f}%)"
+    lines = [f"{player} {join_phrases(lead[:2])} when {teammate} was out."]
+    # Only state a shared count when every available requested metric agrees.
+    counts = [
+        game_counts(m)
+        for m in study["metrics"]
+        if m["metric"] in selected
+        and (m.get("descriptive") or {}).get("difference") is not None
+    ]
+    shared = (
+        counts[0]
+        if counts and counts[0] is not None and all(c == counts[0] for c in counts)
+        else None
+    )
+    context = (
+        f"Across {shared[0]} games when both played and {shared[1]} with {teammate} out, "
+        if shared
+        else "Compared with games when both played, "
+    )
+    lines.append(
+        context
+        + f"{player} averaged {join_phrases(details)}"
+        + (" per game." if all_per_game else ".")
+    )
+    if shared and min(shared) < 5:
+        lines.append("This is a small snapshot, so treat it as an early observation.")
+    else:
+        lines.append(
+            f"These results describe those games; they do not establish that {teammate}'s absence caused the differences."
+        )
+    if counts and not shared:
+        lines.append("Game coverage differs or is unavailable for some statistics.")
+    if missing:
+        lines.append(f"{join_phrases(missing)} is unavailable for this comparison.")
+    return "\n\n".join(lines)
+
+
 def insights(study, selected):
     assessments = [assess(m) for m in study["metrics"] if m["metric"] in selected]
-    highlights = sorted(assessments, key=lambda a: a["rank"], reverse=True)[:3]
-    lines = []
-    for a in highlights:
-        if a["estimate"] is None:
-            lines.append(f"{a['label']}: evidence is unavailable for this comparison.")
-            continue
-        uncertainty = (
-            f"; pointwise 95% interval {number(a['interval'][0])} to {number(a['interval'][1])}"
-            if a["interval"]
-            else "; uncertainty cannot be reliably assessed"
-        )
-        counts = a["sample"].get("group_n")
-        episodes = a["sample"].get("arm_episodes")
-        sample = (
-            (
-                f" Observed sample: {counts[0]} with / {counts[1]} Out games"
-                + (
-                    f", across {episodes[0]} / {episodes[1]} exposure episodes."
-                    if episodes
-                    else "."
-                )
-            )
-            if counts
-            else ""
-        )
-        if a["causal_n"] is not None:
-            sample += f" Causal sample: {a['causal_n']} eligible games, {a['causal_episodes']} episodes."
-        lines.append(
-            f"{a['label']}: {number(a['estimate'])} {a['unit']} ({a['claim']}{uncertainty}). "
-            f"{a['significance'].capitalize()}; {a['stability']}. "
-            f"Practical size: {a['practical']}"
-            + (
-                f" (threshold {a['meaningful_change_threshold']:g} {a['unit']})."
-                if a["meaningful_change_threshold"] is not None
-                else "."
-            )
-            + sample
-        )
-    if not any(
-        a["claim"] == "causal estimate under stated assumptions" for a in assessments
-    ):
-        lines.insert(
-            0,
-            "These results describe observed changes; the evidence does not currently support attributing them to the teammate's absence.",
-        )
-    return assessments, highlights, "\n\n".join(lines)
+    by_key = {m["metric"]: m for m in study["metrics"]}
+    # Keep internal assessment/ranking; present descriptive differences only.
+    ranked = sorted(
+        assessments,
+        key=lambda a: (
+            (by_key[a["metric"]].get("descriptive") or {}).get("difference")
+            is not None,
+            a["rank"],
+        ),
+        reverse=True,
+    )
+    highlights = [descriptive_highlight(by_key[a["metric"]]) for a in ranked[:3]]
+    return assessments, highlights, presented_insights(study, highlights, selected)

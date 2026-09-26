@@ -23,13 +23,13 @@
         <div class="query-row"><textarea id="agent-question" class="input" rows="1" maxlength="500" placeholder="How has Jalen Johnson performed over the past 12 months?" data-agent-question></textarea><button class="button" type="submit" data-agent-submit>Ask</button></div>
       </form>
       <details class="ask-settings"><summary>Model settings</summary><div class="ask-settings-body">
-        <label>Provider <select class="input" data-agent-provider><option value="openai">GPT (OpenAI)</option><option value="claude">Claude (Anthropic)</option></select></label>
+        <label>Provider <select class="input" data-agent-provider><option value="openai">GPT (OpenAI)</option><option value="claude">Claude (Anthropic)</option><option value="openrouter">OpenRouter</option></select></label>
         <label>Model <select class="input" data-agent-model></select></label>
       </div></details>
       <script type="application/json" data-agent-model-options>{{ agent_model_options | tojson }}</script>
       <script type="application/json" data-agent-default-models>{{ agent_default_models | tojson }}</script>
       {% if not agent_enabled %}<div class="notice" data-agent-config-state>Ask NBA Stats is disabled. Set OPENAI_AGENT_ENABLED=true to enable it.</div>
-      {% elif not agent_configured %}<div class="notice" data-agent-config-state>Ask NBA Stats needs an API key. Configure OPENAI_API_KEY or ANTHROPIC_API_KEY.</div>{% endif %}
+      {% elif not agent_configured %}<div class="notice" data-agent-config-state>Ask NBA Stats needs an API key. Configure OPENAI_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY.</div>{% endif %}
     </section>
     <p class="meta agent-status" role="status" aria-live="polite" data-agent-status>Ready</p>
     <nav class="turn-navigation" aria-label="Questions in this chat" data-turn-navigation hidden></nav>

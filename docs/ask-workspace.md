@@ -1,5 +1,17 @@
 # Ask workspace
 
+Every tab opens on the latest supported season (currently 2025–26). There is no
+shared season selector; old page links with a season parameter redirect to the
+latest view. Explicit historical API requests remain supported.
+
+Ask accepts historical seasons in the question, including “last season.” Without
+a stated period it starts with the latest season and checks supported archives
+newest first when season evidence is unavailable. Available teammate studies use
+their published date window. Answers disclose an earlier-season fallback and its
+scope. Explicit seasons/dates and conversational follow-up scope are preserved;
+permission errors and invalid evidence never trigger fallback. This does not
+create missing studies or infer an injury absence from a missing appearance.
+
 ## Two-player comparisons
 
 Explicit `A vs B`, `A versus B`, and `Compare A and B` questions use a
@@ -77,11 +89,18 @@ percentiles still describe the full qualified league cohort.
 - This is local persistence, not authenticated multi-user or cloud-synced history.
   Tabs share browser-origin storage; simultaneous independent browser windows
   are not a collaborative editing surface.
-- Navigation within Ask and the season selector are disabled during a request
+- Navigation within Ask is disabled during a request
   so streaming responses cannot land in another chat. Partial-stream failures
   are shown without automatically issuing a second paid request.
 
 ## Analysis presentation
+
+Teammate comparisons lead with a basketball takeaway, a few observed differences,
+and the counts of games when both played and when the teammate was out, stated
+once when those counts match across the available metrics. A short natural caveat
+provides context for thin samples. Season and dates remain visible; technical
+assessment labels and raw study diagnostics stay in server evidence and logs.
+Saved responses retain their original text; new requests use this presentation.
 
 Governed player overviews use the same evidence for the overall assessment,
 up to three supported takeaways, five-stat percentile table and monthly chart.
@@ -99,3 +118,60 @@ their MIT license; the existing locally hosted Barlow fonts and real player
 headshots are reused.
 
 See [Players and research breakdowns](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
+
+Teammate comparisons default to regular season plus playoffs for the selected
+season. A December-ending pilot is not a full-season fallback. Published studies
+must bind their phase and window; explicit dates or phases cannot reuse a
+differently scoped result. See [study scope](research-workbench.md) for full-season
+build checks and missing-status handling.
+
+### Visualization specialist
+
+After the answer is grounded, `VisualizationAgent` selects a chart from bounded,
+server-built candidates. Teammate contrasts use one metric and two observed-group
+bars; governed rankings use bars; game logs use chronological lines. When several
+verified metrics are available, a separate model call selects only a candidate
+ID using the question and answer. It cannot supply values, code, SQL, or new data.
+A single candidate needs no model call. Selection failure logs a safe error type
+and uses the first evidence-ranked candidate without failing the answer.
+
+Charts include their units, scope, a short description, and an explanation of the
+chart choice. Hover, tap, and keyboard focus expose value/sample details. Bar scales
+include zero and preserve negative values; missing values are never zero-filled.
+Unsupported answers and evidence without a suitable chart remain text/table-only.
+Existing specialized player overview/comparison charts retain their own rendering.
+
+The collapsed header panel **Source & Coverage** combines publication status and
+asset coverage with the selected answer's scope, assumptions, and metric
+definitions. Selecting a saved question updates those details; starting a new
+chat clears them. Answers no longer repeat a Methodology & data disclosure.
+Material interpretation caveats remain in the answer and chart descriptions.
+
+Teammate answers include group averages, absolute differences, and relative changes
+using unrounded averages with the both-played group as baseline. Relative changes
+are omitted for zero/negative baselines, missing components, shooting percentages
+(which use percentage points), and plus-minus. The expandable **Explore the
+difference** view compares minutes and per-36 production, then plots one dot per
+classified appearance. Per-36 rates use 36 times total production divided by total
+minutes and require complete records within each group; they do not adjust for
+opponents or role. Missing game values are omitted, never zero-filled. Hover, tap,
+or keyboard focus exposes date, opponent, phase, value, and game ID. Only public
+box-score fields are projected from the private study panel.
+
+### OpenRouter
+
+Model settings includes OpenRouter with `deepseek/deepseek-v4.1-flash` and
+`qwen/qwen3-235b-a22b-2507`. Set `OPENROUTER_API_KEY` in the server environment
+or local `.env`, then restart the server. Optional `OPENROUTER_AGENT_MODEL`
+selects the default (DeepSeek); `OPENROUTER_AGENT_TIMEOUT_SECONDS` defaults to 90.
+The provider is visible before a key is configured; selecting it without a key
+returns a configuration error and never uses another provider's credentials.
+
+The adapter uses OpenRouter Chat Completions, translates the existing allowlisted
+function tools and JSON schemas, and requires endpoints that support the requested
+parameters. Model IDs are fixed; OpenRouter may route among providers for that
+same model. Tool-call IDs and reasoning details are preserved for continuation.
+Existing scope/evidence validation remains authoritative. Shared Ask retry limits
+apply, with SDK retries disabled. SSE progress remains available; token-by-token
+answer streaming is not enabled for this adapter. Mock checks do not establish
+live endpoint availability, schema compatibility, latency, or cost.

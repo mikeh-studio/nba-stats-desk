@@ -147,10 +147,10 @@ class BigQuerySemanticSource:
             ) from exc
         except (GoogleAPICallError, TimeoutError) as exc:
             raise SemanticError("source_unavailable", "Historical read failed") from exc
-        if not rows or len(rows) > self.max_rows:
-            raise SemanticError(
-                "incomplete_evidence", "Empty or oversized source snapshot"
-            )
+        if not rows:
+            raise SemanticError("unsupported_coverage", "Empty source snapshot")
+        if len(rows) > self.max_rows:
+            raise SemanticError("incomplete_evidence", "Oversized source snapshot")
         if any(row.pop("source_row_count") != len(rows) for row in rows):
             raise SemanticError("incomplete_evidence", "Source query was truncated")
         for row in rows:

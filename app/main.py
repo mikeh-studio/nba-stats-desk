@@ -55,6 +55,7 @@ from app.repository import (
 from app.research import ResearchQuery, breakdown, load_context, load_research_evidence
 from app.research_studies import catalog as research_catalog
 from app.seasons import (
+    DEFAULT_SEASON,
     SEASONS,
     _selected_season,
     current_season,
@@ -66,7 +67,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260926-player-review-v10"
+STATIC_VERSION = "20260926-openrouter-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -137,7 +138,7 @@ class AgentAskRequest(BaseModel):
     selected_player_id: int | None = Field(default=None, ge=1)
     selected_player_name: str | None = Field(default=None, max_length=80)
     # Which LLM backend answers this question; defaults to OpenAI.
-    provider: Literal["openai", "claude"] | None = None
+    provider: Literal["openai", "claude", "openrouter"] | None = None
     # Concrete model id for the selected provider; env defaults apply when empty.
     model: str | None = Field(default=None, max_length=80)
 
@@ -149,7 +150,9 @@ def _selected_player(payload: AgentAskRequest) -> dict[str, Any] | None:
     return {"player_id": payload.selected_player_id, "player_name": name}
 
 
-def _selected_agent_provider(payload: AgentAskRequest) -> Literal["openai", "claude"]:
+def _selected_agent_provider(
+    payload: AgentAskRequest,
+) -> Literal["openai", "claude", "openrouter"]:
     return payload.provider or "openai"
 
 
@@ -163,6 +166,8 @@ def _selected_agent_model(payload: AgentAskRequest, settings: Settings) -> str:
                 detail=f"Unsupported {provider} model: {requested}",
             )
         return requested
+    if provider == "openrouter":
+        return settings.openrouter_agent_model
     return (
         settings.anthropic_agent_model
         if provider == "claude"
@@ -213,8 +218,16 @@ agent_logger = logging.getLogger(LOGGER_NAME)
 
 @app.middleware("http")
 async def select_season(request: Request, call_next):
+    # Historical scope belongs to Ask questions or explicit API reads, not tabs.
+    if (
+        request.method == "GET"
+        and not request.url.path.startswith(("/api/", "/static/"))
+        and "season" in request.query_params
+    ):
+        url = request.url.remove_query_params("season")
+        return RedirectResponse(url.path + ("?" + url.query if url.query else ""))
     try:
-        season = validate_season(request.query_params.get("season", "2025-26"))
+        season = validate_season(request.query_params.get("season", DEFAULT_SEASON))
     except ValueError as exc:
         return JSONResponse(status_code=422, content={"detail": str(exc)})
     token = _selected_season.set(season)
@@ -437,6 +450,18 @@ def _answer_delta_chunks(answer: str, *, chunk_size: int = 120):
 
 
 AGENT_UNAVAILABLE_DETAIL = "Ask NBA Stats is unavailable."
+
+
+def _agent_unavailable_detail(payload: AgentAskRequest, settings: Settings) -> str:
+    if (
+        payload.provider == "openrouter"
+        and settings.openai_agent_enabled
+        and not settings.openrouter_api_key
+    ):
+        return "OpenRouter is not configured. Add OPENROUTER_API_KEY to the server environment and restart."
+    return AGENT_UNAVAILABLE_DETAIL
+
+
 AGENT_FAILED_DETAIL = (
     "Ask NBA Stats failed while generating an answer. Try again shortly."
 )
@@ -935,7 +960,7 @@ def api_agent_ask(
         agent_logger.warning("agent disabled: %s", type(exc).__name__)
         raise HTTPException(
             status_code=503,
-            detail=AGENT_UNAVAILABLE_DETAIL,
+            detail=_agent_unavailable_detail(payload, settings),
             headers={"X-Request-ID": request_id},
         ) from exc
     except Exception as exc:
@@ -1020,7 +1045,7 @@ def api_agent_ask_stream(
                 queue.put(
                     {
                         "type": "error",
-                        "detail": AGENT_UNAVAILABLE_DETAIL,
+                        "detail": _agent_unavailable_detail(payload, settings),
                         "request_id": request_id,
                     }
                 )
@@ -1107,11 +1132,16 @@ def ask_page(
         "season": current_season(),
         "tracking_cap": TRACKING_CAP,
         "agent_enabled": settings.openai_agent_enabled,
-        "agent_configured": bool(settings.openai_api_key or settings.anthropic_api_key),
+        "agent_configured": bool(
+            settings.openai_api_key
+            or settings.anthropic_api_key
+            or settings.openrouter_api_key
+        ),
         "agent_model_options": AGENT_MODEL_OPTIONS,
         "agent_default_models": {
             "openai": settings.openai_agent_model,
             "claude": settings.anthropic_agent_model,
+            "openrouter": settings.openrouter_agent_model,
         },
     }
     return templates.TemplateResponse(request, "ask.html", context)

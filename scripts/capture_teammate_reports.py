@@ -61,11 +61,16 @@ def main():
     stats = json.loads(args.snapshot.read_text())
     games = [
         g
-        for g in schedule_games(schedule, spec["season"], spec["team_abbr"])
+        for g in schedule_games(
+            schedule,
+            spec["season"],
+            spec["team_abbr"],
+            spec.get("phase", "Regular Season"),
+        )
         if spec["start"] <= g["game_date"] <= spec["end"]
     ]
-    if not games or len(games) > 82:
-        raise ValueError("Capture requires 1 to 82 scheduled games")
+    if not games or len(games) > 110:
+        raise ValueError("Capture requires 1 to 110 scheduled games")
     lookup = capture_player_lookup(stats["rows"])
     args.cache_dir.mkdir(parents=True, exist_ok=True)
     rows, checks = [], []
