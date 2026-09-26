@@ -82,3 +82,17 @@ def test_plus_minus_causal_estimator_accepts_signed_outcomes():
     result = estimate(rows, spec, "plus_minus")
     assert result["status"] == "estimated"
     assert abs(result["estimate"] + 4) < 0.3
+
+
+def test_causal_episode_sensitivity_refits_and_preserves_gate_failures():
+    rows, spec = study()
+    result = estimate(rows[:48], spec, "ast", sensitivity=True)
+    assert result["status"] == "estimated"
+    assert len(result["leave_episode_out_refits"]) == 12
+    assert all(
+        r["estimate"] is None and r["reason"] == "insufficient_independent_episodes"
+        for r in result["leave_episode_out_refits"]
+    )
+    result = estimate(rows[:64], spec, "ast", sensitivity=True)
+    assert len(result["leave_episode_out_refits"]) == 16
+    assert all(r["estimate"] is not None for r in result["leave_episode_out_refits"])

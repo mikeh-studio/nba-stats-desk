@@ -113,3 +113,48 @@ estimation. Negative values are valid; missing values remain unavailable. It is
 not possession-adjusted net rating or an isolated measure of individual impact.
 Catalog version `multi_metric_studies/v3` requires plus-minus and the expanded
 27-hypothesis family; rebuild older catalogs rather than reusing their correction.
+
+## Ask takeaways and uncertainty
+
+Ask is the primary conversational surface. It resolves the registered pair and
+scope, reads a matching immutable analysis, and assesses and ranks its metrics on
+every request. Model fitting remains in the offline builder: no arbitrary SQL,
+unreviewed window, or new identification assumption is accepted from chat. A
+missing matching analysis produces an explicit unavailable result. Rebuild the
+catalog to populate the new observed-uncertainty fields; older v3 catalogs remain
+readable but cannot receive observed significance labels.
+
+Up to three requested metrics are highlighted by available estimates, assessable
+uncertainty, stability, and native effect size relative to product thresholds,
+never by smallest p-value. When uncertainty is unavailable, a fixed basketball
+metric priority replaces magnitude ranking so noisy rare stats do not dominate.
+All requested metrics remain in the expandable evidence table. Explicit metric
+follow-ups retain the pair and date scope, including plus-minus. Significance,
+representativeness, and absence-episode follow-ups preserve the study route.
+
+Observed contrasts use a game-weighted mean difference and episode-cluster score
+variance with a t interval. At least eight exposure episodes and three per arm
+are required; incomplete outcomes or degenerate uncertainty withhold inference.
+Episodes are consecutive exposure runs, not verified independent experiments;
+inference is exploratory and assumes independence between those runs. Games from
+one absence do not count as multiple independent episodes. Pointwise 95% intervals
+are not simultaneous confidence intervals. Separate Holm families cover the 27
+observed and 27 causal core hypotheses, retaining unavailable slots. Nominal OLS
+p-values never become validated significance labels. Shooting ratios remain
+descriptive without significance tests.
+
+Evidence includes arm-specific games and episodes, missing outcomes, excluded
+scheduled games, largest within-arm episode share, and descriptive chronological
+half differences. Chronological halves split the included games by count; they
+are sensitivity checks, not independent validation or season halves. Existing
+adjusted-model omission refits and same-sample direction reversals inform stability.
+The builder also performs full leave-episode-out causal refits; failed gates remain
+visible and prevent a stable-refit claim. These checks do not establish sample
+representativeness beyond the stated window or remove unmeasured confounding.
+
+Practical-size thresholds are versioned product heuristics, not validated fantasy
+scoring rules: PTS 2, REB/AST 1, STL/BLK 0.3, TOV/3PM 0.5, MIN 3, and +/- 3 in
+native per-game units. Point-estimate size and statistical support remain separate.
+A positive turnover difference is more turnovers, not an improvement. Unavailable
+causality is never rendered as no effect; observed and causal samples and contrasts
+remain separately labeled.

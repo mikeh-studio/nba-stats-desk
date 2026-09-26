@@ -25,7 +25,7 @@ ASSUMPTIONS = (
 )
 
 
-def estimate(rows, spec, metric):
+def estimate(rows, spec, metric, *, sensitivity=False):
     unavailable = {
         "status": "not_identified",
         "claim_level": "insufficient_evidence",
@@ -208,7 +208,22 @@ def estimate(rows, spec, metric):
             "reason": "degenerate_uncertainty",
         }
     critical = float(student_t.ppf(0.975, count - 1))
+    refits = []
+    if sensitivity:
+        for episode in sorted(episodes, key=str):
+            result = estimate(
+                [r for r in rows if r["episode_id"] != episode], spec, metric
+            )
+            refits.append(
+                {
+                    "omitted_episode": episode,
+                    "status": result["status"],
+                    "estimate": result.get("estimate"),
+                    "reason": result.get("reason"),
+                }
+            )
     return {
+        "leave_episode_out_refits": refits,
         "status": "estimated",
         "claim_level": "causal_estimate_under_assumptions",
         "estimate": effect,

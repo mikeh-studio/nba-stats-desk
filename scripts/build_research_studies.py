@@ -24,6 +24,10 @@ from app.research import CORE_METRICS, SHOOTING_METRICS  # noqa: E402
 from app.research_snapshots import append_snapshot, digest  # noqa: E402
 from app.research_studies import PAIRS  # noqa: E402
 from scripts.causal_estimation import estimate  # noqa: E402
+from scripts.research_uncertainty import (  # noqa: E402
+    correct_families,
+    observed_uncertainty,
+)
 from scripts.teammate_association import analyze  # noqa: E402
 
 
@@ -135,7 +139,9 @@ def build_study(
         )
         primary = adjusted["primary"] if adjusted else None
         causal = (
-            estimate(causal_rows, causal_spec, key) if key in CORE_METRICS else None
+            estimate(causal_rows, causal_spec, key, sensitivity=True)
+            if key in CORE_METRICS
+            else None
         )
         status = (
             causal["claim_level"]
@@ -168,6 +174,9 @@ def build_study(
                     "groups": [a, b],
                     "denominator": "focal appearances",
                 },
+                "observed_uncertainty": observed_uncertainty(panel, key)
+                if key in CORE_METRICS
+                else None,
                 "association": primary,
                 "diagnostics": {
                     k: adjusted[k]
@@ -267,21 +276,7 @@ def main():
         }
     if len({s["pair_id"] for s in studies}) != len(studies):
         raise ValueError("Duplicate study pair")
-    # Keep all pair/outcome hypotheses in the correction family, including unavailable slots.
-    from statsmodels.stats.multitest import multipletests
-
-    hypotheses = [
-        m for s in studies for m in s["metrics"] if m["metric"] in CORE_METRICS
-    ]
-    pvalues = [(m.get("causal") or {}).get("p_value") for m in hypotheses]
-    pvalues = [1.0 if p is None else p for p in pvalues]
-    corrected = multipletests(
-        pvalues + [1.0] * (len(PAIRS) * len(CORE_METRICS) - len(pvalues)), method="holm"
-    )[1]
-    for m, value in zip(hypotheses, corrected):
-        if m["causal"].get("p_value") is not None:
-            m["causal"]["holm_p_value"] = float(value)
-            m["causal"]["family_size"] = len(PAIRS) * len(CORE_METRICS)
+    correct_families(studies, CORE_METRICS, len(PAIRS))
     stamp = datetime.now(timezone.utc).isoformat()
     document = {
         "version": 1,
