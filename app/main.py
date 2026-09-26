@@ -66,7 +66,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260925-research-v5"
+STATIC_VERSION = "20260925-navigation-v6"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -1116,7 +1116,7 @@ def performance_page(
 ) -> HTMLResponse:
     context = {
         "request": request,
-        "page_title": "Player Trends",
+        "page_title": "Performance",
         "season": current_season(),
         "tracking_cap": TRACKING_CAP,
     }
@@ -1130,7 +1130,7 @@ def what_changed_page(request: Request) -> HTMLResponse:
         "what_changed.html",
         {
             "request": request,
-            "page_title": "What Changed?",
+            "page_title": "Trending",
             "season": current_season(),
         },
     )
@@ -1156,7 +1156,7 @@ def api_what_changed(
     except WhatChangedUnavailable as exc:
         raise HTTPException(
             status_code=503,
-            detail="What Changed data is temporarily unavailable. Try again later.",
+            detail="Trending data is temporarily unavailable. Try again later.",
         ) from exc
     _set_public_cache_header(response, 60)
     return payload
@@ -1184,7 +1184,7 @@ def similarity_map_page(
 ) -> HTMLResponse:
     context = {
         "request": request,
-        "page_title": "Similar Players",
+        "page_title": "Archetypes",
         "season": current_season(),
     }
     return templates.TemplateResponse(request, "similarity_map.html", context)
@@ -1252,12 +1252,13 @@ def compare_page(
     return templates.TemplateResponse(request, "compare.html", context)
 
 
+@app.get("/players", response_class=HTMLResponse)
 @app.get("/research", response_class=HTMLResponse)
 def research_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "research.html",
-        {"request": request, "page_title": "NBA Research", "season": current_season()},
+        {"request": request, "page_title": "Players", "season": current_season()},
     )
 
 

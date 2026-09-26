@@ -1,5 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
-<section class="hero"><div class="eyebrow">NBA Research</div><h1>Ask better basketball questions.</h1><p class="subhead">Compare production, inspect the games behind it, and explore how teammate availability relates to player outcomes.</p></section>
+<section class="hero">
+  <div class="eyebrow">Player research · {{ season }}</div>
+  <h1>Players</h1>
+  <p class="subhead">Find a player to explore their profile, game logs, and detailed statistical breakdowns. Investigate teammate availability and take deeper questions to Ask.</p>
+  <form class="player-search-form" data-player-search-form role="search" aria-label="Find a player">
+    <label for="players-search">Search players</label>
+    <div class="player-search-shell">
+      <input id="players-search" class="input" name="q" type="search" placeholder="Search by player name" autocomplete="off" data-player-search-input />
+      <div class="player-search-results" data-player-search-results hidden></div>
+    </div>
+  </form>
+</section>
 {% include "research_panel.html" %}
 {% endblock %}

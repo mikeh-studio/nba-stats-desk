@@ -1509,9 +1509,12 @@ def test_ask_page_smoke() -> None:
     assert "claude-sonnet-5" in response.text
     assert "Claude (Anthropic)" in response.text
     assert ">ASK</a>" in response.text
-    assert ">TRENDS</a>" in response.text
-    assert ">SIMILAR</a>" in response.text
-    assert ">COMPARE</a>" in response.text
+    assert ">PLAYERS</a>" in response.text
+    assert ">TRENDING</a>" in response.text
+    assert ">PERFORMANCE</a>" in response.text
+    assert ">ARCHETYPES</a>" in response.text
+    assert ">COMPARE</a>" not in response.text
+    assert ">RESEARCH</a>" not in response.text
     assert ">Dashboard</a>" not in response.text
     assert ">Visualize</a>" not in response.text
 
@@ -2465,7 +2468,7 @@ def test_performance_page_smoke() -> None:
     response = client.get("/performance")
 
     assert response.status_code == 200
-    assert "Player Trends" in response.text
+    assert "Performance" in response.text
     assert "/static/performance.js" in response.text
     assert f"performance.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
@@ -2746,7 +2749,7 @@ def test_similarity_map_page_smoke() -> None:
     response = client.get("/similarity-map")
 
     assert response.status_code == 200
-    assert "Similar Players" in response.text
+    assert "Archetypes" in response.text
     assert f"/static/similarity_map.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
     assert "plotly-gl3d" in response.text
@@ -2787,7 +2790,7 @@ def test_similarity_map_page_has_search_and_panel() -> None:
     assert response.status_code == 200
     assert 'id="map-search-input"' in response.text
     assert 'id="map-panel"' in response.text
-    assert "true nearest matches" in response.text
+    assert "nearest matches in the full feature space" in response.text
 
 
 class WhatChangedRepository(FakeRepository):
@@ -2804,7 +2807,7 @@ def test_what_changed_page_and_parameterized_cached_endpoint():
     client = build_client(repo)
     page = client.get("/what-changed")
     assert page.status_code == 200
-    assert "What Changed?" in page.text
+    assert "Trending" in page.text
     assert f"what_changed.js?v={STATIC_VERSION}" in page.text
     assert "Top performers" in page.text
     assert "DNP-CD" in page.text
@@ -2968,3 +2971,13 @@ def test_invalid_model_is_not_copied_to_service_logs(caplog):
         )
     assert response.status_code == 400
     assert marker not in caplog.text
+
+
+def test_players_landing_retains_research_alias():
+    client = build_client()
+    for path in ("/players", "/research"):
+        response = client.get(path)
+        assert response.status_code == 200
+        assert "<h1>Players</h1>" in response.text
+        assert 'id="players-search"' in response.text
+        assert "data-research-root" in response.text

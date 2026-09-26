@@ -2,9 +2,9 @@
 {% block content %}
 <link rel="stylesheet" href="/static/what_changed.css?v={{ static_version }}" />
 <section class="hero changed-hero">
-  <div class="eyebrow">League-wide movers · {{ season }}</div>
-  <h1>What Changed?</h1>
-  <p class="subhead">Explore changes in playing time and production. Select a player to inspect availability, offense, defense, and the games behind the movement.</p>
+  <div class="eyebrow">Player movement · {{ season }}</div>
+  <h1>Trending</h1>
+  <p class="subhead">Find top performers and players gaining production across recent game windows. Compare playing time and box scores, then inspect the games behind each change.</p>
 </section>
 <form class="card changed-controls" id="changed-controls">
   <label>Compare
@@ -29,7 +29,7 @@
 </div>
 <section class="card changed-discovery">
   <div class="changed-view-controls">
-    <div class="tab-list" aria-label="Mover ranking">
+    <div class="tab-list" aria-label="Trending player ranking">
       <button class="tab-button is-active" type="button" data-mover-view="top" aria-pressed="true">Top performers</button>
       <button class="tab-button" type="button" data-mover-view="surging" aria-pressed="false">Surging</button>
     </div>
@@ -38,7 +38,7 @@
     </label>
   </div>
   <p id="changed-ranking" class="meta"></p>
-  <p id="changed-status" role="status" aria-live="polite">Loading league movers…</p>
+  <p id="changed-status" role="status" aria-live="polite">Loading trending players…</p>
   <div class="changed-workspace">
     <div class="changed-overview">
       <div id="changed-chart"></div>

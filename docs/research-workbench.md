@@ -1,8 +1,14 @@
-# Research workbench
+# Players and research breakdowns
 
-`/research`, player pages, comparison pages, and research requests in Ask share
+`/players` (also available at `/research`), player pages, comparison pages, and research requests in Ask share
 `app/research.py`. Ask plans an allowlisted scope; Python calculates and renders
 results. It does not accept generated SQL or model-calculated statistics.
+
+The **Players** navigation entry opens player search and shared breakdowns.
+Player profiles retain their detailed research panel; causal questions are
+answered in **Ask**. Compare remains accessible by direct links without a
+separate navigation tab. Internal research API and configuration names remain
+unchanged.
 
 ## Breakdown contract
 

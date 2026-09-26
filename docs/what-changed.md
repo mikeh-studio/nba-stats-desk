@@ -1,6 +1,6 @@
-# What Changed?
+# Trending
 
-`/what-changed` supports basketball analysis and fantasy research through
+The **Trending** page (`/what-changed`) supports basketball analysis and fantasy research through
 league-wide Top Performers and Surging lists. It describes observed box scores;
 it does not predict future performance or implement league-specific scoring.
 
