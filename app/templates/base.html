@@ -95,7 +95,7 @@
       }
       .nav-links {
         display: grid;
-        grid-template-columns: minmax(22rem, 31rem) minmax(16rem, 1fr) auto;
+        grid-template-columns: minmax(22rem, 31rem) minmax(16rem, 1fr);
         gap: 1.25rem;
         align-items: center;
         color: var(--muted);
@@ -918,6 +918,18 @@
       :where(button, a, input, select, summary):focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
       .confidence-meter span, .percentile-fill { background: var(--accent); }
       .metric-value, .stat-value, .signal-value { font-family: var(--font-body); font-variant-numeric: tabular-nums; }
+      .nav-links, .nav-tabs, .nav-player-search { min-width: 0; }
+      .nav-links-directory { grid-template-columns: minmax(0, 1fr); }
+      @media (max-width: 1200px) {
+        .nav { grid-template-columns: 1fr; }
+        .nav-links { grid-template-columns: minmax(0, 1fr) auto; }
+        .nav-tabs { grid-column: 1 / -1; }
+      }
+      @media (max-width: 720px) {
+        .nav-links { grid-template-columns: minmax(0, 1fr); }
+        .nav-tabs { display: flex; flex-wrap: wrap; gap: .4rem 1rem; }
+        .nav-tabs a { flex: 0 0 auto; }
+      }
     </style>
   </head>
   <body data-tracking-cap="{{ tracking_cap|default(8) }}">
@@ -927,16 +939,16 @@
           <div class="brand-lockup">
             <span class="brand-title">NBA Stats Desk</span>
           </div>
-          <div class="nav-links">
+          <div class="nav-links{% if request.url.path in ['/players', '/research'] %} nav-links-directory{% endif %}">
             {% set nav_path = request.url.path if request else '' %}
             <div class="nav-tabs">
               <a href="/ask"{% if nav_path.startswith('/ask') %} class="is-active" aria-current="page"{% endif %}>ASK</a>
-              <a href="/performance"{% if nav_path.startswith('/performance') %} class="is-active" aria-current="page"{% endif %}>TRENDS</a>
-              <a href="/what-changed"{% if nav_path.startswith('/what-changed') %} class="is-active" aria-current="page"{% endif %}>MOVERS</a>
-              <a href="/similarity-map"{% if nav_path.startswith('/similarity-map') %} class="is-active" aria-current="page"{% endif %}>SIMILAR</a>
-              <a href="/research"{% if nav_path.startswith('/research') %} class="is-active" aria-current="page"{% endif %}>RESEARCH</a>
-              <a href="/compare"{% if nav_path.startswith('/compare') %} class="is-active" aria-current="page"{% endif %}>COMPARE</a>
+              <a href="/players"{% if nav_path.startswith('/players') or nav_path.startswith('/research') %} class="is-active" aria-current="page"{% endif %}>PLAYERS</a>
+              <a href="/performance"{% if nav_path.startswith('/performance') %} class="is-active" aria-current="page"{% endif %}>PERFORMANCE</a>
+              <a href="/what-changed"{% if nav_path.startswith('/what-changed') %} class="is-active" aria-current="page"{% endif %}>TRENDING</a>
+              <a href="/similarity-map"{% if nav_path.startswith('/similarity-map') %} class="is-active" aria-current="page"{% endif %}>ARCHETYPES</a>
             </div>
+            {% if request.url.path not in ['/players', '/research'] %}
             <form class="player-search-form nav-player-search" data-player-search-form role="search">
               <label class="sr-only">Find qualified player</label>
               <div class="player-search-shell">
@@ -951,13 +963,7 @@
                 <div class="player-search-results" data-player-search-results hidden></div>
               </div>
             </form>
-            <label class="season-tag" for="season-selector">Season
-              <select id="season-selector" data-season-selector aria-label="NBA season" style="font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 4px;">
-                {% for option in available_seasons %}
-                <option value="{{ option }}" {% if option == season %}selected{% endif %}>{{ option }}</option>
-                {% endfor %}
-              </select>
-            </label>
+            {% endif %}
           </div>
         </nav>
         <details class="publication-health" data-publication-health>

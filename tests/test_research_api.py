@@ -58,7 +58,7 @@ def test_page_api_ask_json_and_sse_match(research_client):
         e.get("research") == result or e.get("payload", {}).get("research") == result
         for e in events
     ), events
-    for url in ("/research", "/players/7", "/compare?player_a_id=7&player_b_id=8"):
+    for url in ("/players/7/content", "/compare?player_a_id=7&player_b_id=8"):
         page = client.get(url)
         assert page.status_code == 200, page.text
         assert "data-research-root" in page.text

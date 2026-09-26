@@ -36,7 +36,7 @@ Optional portfolio paths include Redshift Serverless as a secondary warehouse.
   metrics, and a lightweight player snapshot modal.
 - **Research views**: player detail, comparisons, rankings,
   and a 3D player similarity map support deeper stat review.
-- **What Changed?**: `/what-changed` separates top performers from surging
+- **Trending**: `/what-changed` separates top performers from surging
   players over four team games or complete calendar weeks, with availability,
   offense, defense, and individual game evidence. See the
   [metric contract and rollout notes](docs/what-changed.md).
@@ -109,20 +109,24 @@ gold, agent, and metadata tables. The root route redirects to `/ask`, making the
 agent the default entry point while keeping Performance and directed research
 pages one click away.
 
-- ask, performance, player, compare, and similarity map pages
+- **Ask**: conversational basketball analysis
+- **Players** (`/players`): search for a player and open their profile
+- **Performance** (`/performance`): playoff game results against season baselines
+- **Trending** (`/what-changed`): top performers and surging production
+- **Archetypes** (`/similarity-map`): machine-learning player groups and nearest matches
 - recent game performance, change comparisons, and rankings
 - player search/detail, game logs, percentiles, similarity, and health
 
-The similarity map (`/similarity-map`) is a 3D PCA projection of the player
+Archetypes (`/similarity-map`) is a 3D PCA projection of the player
 similarity vectors: players cluster by archetype, selecting one traces edges to
 its true cosine-nearest matches, and each axis is labeled with the features that
 drive it. A model selector lets readers compare the KMeans baseline, Gaussian
 mixture, hierarchy, and density-scan groupings without moving the underlying
 player coordinates.
 
-![Player trends page](docs/images/player-trends.png)
+![Performance page](docs/images/player-trends.png)
 
-![Player similarity map](docs/images/similarity-map.png)
+![Archetypes player map](docs/images/similarity-map.png)
 
 The `/ask` page is enabled with `OPENAI_API_KEY` and/or `ANTHROPIC_API_KEY`.
 It plans the question, resolves players from `nba_agent.agent_player_search`,
