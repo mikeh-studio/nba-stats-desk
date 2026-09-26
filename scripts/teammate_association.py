@@ -119,7 +119,19 @@ def prepare_rows(panel, reports):
                 "month": r["game_date"][:7],
                 "episode_id": r["episode_id"],
                 "out": int(r["exposure"] == "reported_out_no_appearance"),
-                "ast": r["outcomes"].get("ast"),
+                **{
+                    key: r["outcomes"].get(key)
+                    for key in (
+                        "pts",
+                        "reb",
+                        "ast",
+                        "stl",
+                        "blk",
+                        "tov",
+                        "fg3m",
+                        "plus_minus",
+                    )
+                },
                 "min": r["outcomes"].get("min"),
                 "opponent_prior_win_pct": r.get("opponent_prior_win_pct"),
                 "rest_days": r.get("rest_days"),
@@ -154,7 +166,7 @@ def fit(rows, outcome="ast"):
         dtype=float,
     )
     y = np.array(
-        [r["ast"] if outcome == "ast" else 36 * r["ast"] / r["min"] for r in rows],
+        [36 * r["ast"] / r["min"] if outcome == "per36" else r[outcome] for r in rows],
         dtype=float,
     )
     if not np.isfinite(x).all() or not np.isfinite(y).all():
@@ -201,9 +213,21 @@ def fit(rows, outcome="ast"):
     }
 
 
-def analyze(panel, reports):
+def analyze(panel, reports, outcome="ast"):
+    if outcome not in (
+        "pts",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "fg3m",
+        "min",
+        "plus_minus",
+    ):
+        raise ValueError("Unsupported study outcome")
     prepared = prepare_rows(panel, reports)
-    required = ["ast", *COVARIATES]
+    required = [outcome, *COVARIATES]
     missing = Counter()
     rows, excluded = [], []
     for r in prepared:
@@ -227,14 +251,17 @@ def analyze(panel, reports):
             "ranges": [[min(v), max(v)] if v else None for v in groups],
         }
     differences = [
-        mean([r["ast"] for r in rows if r["out"] == g])
+        mean([r[outcome] for r in rows if r["out"] == g])
         if any(r["out"] == g for r in rows)
         else None
         for g in (0, 1)
     ]
-    primary = fit(rows)
+    primary = fit(rows, outcome=outcome)
     omissions = [
-        {"omitted_episode": e, **fit([r for r in rows if r["episode_id"] != e])}
+        {
+            "omitted_episode": e,
+            **fit([r for r in rows if r["episode_id"] != e], outcome=outcome),
+        }
         for e in sorted({r["episode_id"] for r in rows})
     ]
     secondary = fit(
@@ -254,7 +281,7 @@ def analyze(panel, reports):
         else None,
         "primary": primary,
         "overlap_months": sorted(overlap),
-        "overlap_only": fit(common),
+        "overlap_only": fit(common, outcome=outcome),
         "leave_episode_out": omissions,
         "secondary_mean_game_ast_per36": secondary,
         "limits": [

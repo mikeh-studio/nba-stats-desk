@@ -103,6 +103,7 @@ class BigQuerySemanticSource:
                 "game_date",
                 "team_abbr",
                 "opponent_abbr",
+                "home_away",
                 *sorted(COMPONENTS),
             ]
         )

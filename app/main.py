@@ -52,6 +52,8 @@ from app.repository import (
     get_compare_focus_options,
     get_compare_window_options,
 )
+from app.research import ResearchQuery, breakdown, load_context, load_research_evidence
+from app.research_studies import catalog as research_catalog
 from app.seasons import (
     SEASONS,
     _selected_season,
@@ -64,7 +66,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20260913-reference-text-v2"
+STATIC_VERSION = "20260925-research-v5"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -1248,3 +1250,76 @@ def compare_page(
         "tracking_cap": TRACKING_CAP,
     }
     return templates.TemplateResponse(request, "compare.html", context)
+
+
+@app.get("/research", response_class=HTMLResponse)
+def research_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "research.html",
+        {"request": request, "page_title": "NBA Research", "season": current_season()},
+    )
+
+
+@app.get("/api/research/players")
+def research_players(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -> dict:
+    from app.agent.semantic_serving import source_players
+
+    _check_research_rate_limit(request, settings)
+    try:
+        repo = None if settings.research_snapshot_path else get_repository(settings)
+        evidence = load_research_evidence(settings, repo, current_season())
+        return {"players": source_players(evidence), "season": current_season()}
+    except Exception as exc:
+        raise HTTPException(503, "Research source is unavailable") from exc
+
+
+@app.post("/api/research/breakdown")
+def research_breakdown(
+    payload: ResearchQuery,
+    request: Request,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> dict:
+    from app.agent.semantics import SemanticError
+
+    if payload.season != current_season():
+        raise HTTPException(400, "Request body and selected season disagree")
+    _check_research_rate_limit(request, settings)
+    try:
+        repo = None if settings.research_snapshot_path else get_repository(settings)
+        return breakdown(
+            load_research_evidence(settings, repo, payload.season),
+            payload,
+            load_context(settings.research_context_path),
+        )
+    except SemanticError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Research evidence is unavailable or invalid") from exc
+
+
+@app.get("/api/research/studies")
+def research_studies(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -> dict:
+    _check_research_rate_limit(request, settings)
+    try:
+        return {"studies": research_catalog(settings.research_studies_path)}
+    except Exception as exc:
+        raise HTTPException(
+            503, "Reviewed study catalog is unavailable or invalid"
+        ) from exc
+
+
+def _check_research_rate_limit(request: Request, settings: Settings) -> None:
+    decision = get_agent_rate_limiter(settings.agent_rate_limit_redis_url).check(
+        key="research:" + _agent_rate_limit_key(request, settings),
+        per_minute=60,
+        per_day=0,
+    )
+    if not decision.allowed:
+        raise HTTPException(
+            429, "Research request limit exceeded. Try again in a minute."
+        )

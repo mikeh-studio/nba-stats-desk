@@ -74,3 +74,5 @@ Public synthetic fixtures exercise identity, dates, ratios, missingness, ranking
 and evidence boundaries. Historical evaluations compare against frozen reference
 results. Run instructions are in [Evaluation](evaluation.md). Passing fixtures
 establishes tested behavior, not universal model accuracy or production deployment.
+
+See [Research workbench](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.

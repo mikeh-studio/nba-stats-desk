@@ -62,7 +62,7 @@ class SourceContractValidation:
 
 
 def load_contract(
-    contract_name: str, contract_dir: Path | None = None
+    contract_name: str, contract_dir: Path | None = None, *, season: str | None = None
 ) -> dict[str, Any]:
     """Load a source contract YAML file by name."""
     base_dir = contract_dir or CONTRACT_DIR
@@ -72,6 +72,20 @@ def load_contract(
 
     if not isinstance(contract, dict):
         raise ValueError(f"Contract {contract_path} must contain a mapping")
+    if season is not None:
+        if season not in ("2023-24", "2024-25", "2025-26", "2026-27"):
+            raise ValueError("Unsupported contract season")
+        year = int(season[:4])
+        for rule in contract.get("rules", []):
+            if rule.get("name") == "season_scope":
+                rule["value"] = season
+            elif rule.get("check") == "date_between" and rule.get("column") in (
+                "SCHEDULE_DATE",
+                "GAME_DATE",
+                "REPORT_DATE",
+            ):
+                rule.update(min=f"{year}-07-01", max=f"{year + 1}-06-30")
+
     for required_key in ("source", "version", "domain", "business_key", "columns"):
         if required_key not in contract:
             raise ValueError(f"Contract {contract_path} is missing {required_key!r}")
@@ -139,14 +153,20 @@ def validate_source_contract(
     frame: pd.DataFrame,
     *,
     contract_dir: Path | None = None,
+    season: str | None = None,
 ) -> SourceContractValidation:
     """Validate a dataframe against a source contract.
 
     Fatal violations raise SourceContractError. Quarantine violations remove the
     affected rows from the returned frame. Warning violations are recorded only.
     """
-    contract = load_contract(contract_name, contract_dir=contract_dir)
+    contract = load_contract(contract_name, contract_dir=contract_dir, season=season)
     working = frame.copy()
+    for column in contract.get("optional_columns", []):
+        if column not in contract["columns"]:
+            raise ValueError("Optional columns must be declared in the contract")
+        if column not in working.columns:
+            working[column] = None
     rows_checked = int(len(working))
     violations: list[dict[str, Any]] = []
     quarantine_indices: set[Any] = set()

@@ -945,7 +945,9 @@ function renderAuxiliaryPayload(
   tableEl.innerHTML = overview
     ? renderOverviewTable(overview)
     : tables
-        .map((table) => renderTable(referenceTable(table, payload)))
+        .map((table) => payload.study_id
+          ? `<details><summary>All study metrics, uncertainty, and sample support</summary>${renderTable(referenceTable(table, payload))}</details>`
+          : renderTable(referenceTable(table, payload)))
         .join("");
 
   const charts = asArray(payload.charts);

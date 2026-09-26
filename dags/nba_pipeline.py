@@ -165,9 +165,10 @@ NBA_TEAM_NAME_CANONICAL["LA CLIPPERS"] = "LA Clippers"
 
 def get_season_date_bounds(season: str = SUPPORTED_SEASON) -> Tuple[date, date]:
     """Return the inclusive date bounds for the supported production season."""
-    if season != SUPPORTED_SEASON:
+    if season not in ("2025-26", "2026-27"):
         raise ValueError(f"Unsupported production season: {season}")
-    return SUPPORTED_SEASON_START, SUPPORTED_SEASON_END
+    year = int(season[:4])
+    return date(year, 7, 1), date(year + 1, 6, 30)
 
 
 def normalize_game_log_season_types(value: Any = None) -> List[str]:
@@ -3020,6 +3021,7 @@ def derive_schedule_from_game_logs(
                 "HOME_AWAY": context["home_away"],
                 "IS_BACK_TO_BACK": False,
                 "GAME_STATUS": "BOOTSTRAPPED_FROM_GAME_LOGS",
+                "GAME_TIME_UTC": None,
                 "SOURCE_UPDATED_AT_UTC": ingested_at,
                 "INGESTED_AT_UTC": ingested_at,
             }
@@ -4781,6 +4783,7 @@ def get_schedule_schema() -> List[bigquery.SchemaField]:
         bigquery.SchemaField("HOME_AWAY", "STRING"),
         bigquery.SchemaField("IS_BACK_TO_BACK", "BOOLEAN"),
         bigquery.SchemaField("GAME_STATUS", "STRING"),
+        bigquery.SchemaField("GAME_TIME_UTC", "TIMESTAMP"),
         bigquery.SchemaField("SOURCE_UPDATED_AT_UTC", "TIMESTAMP"),
         bigquery.SchemaField("INGESTED_AT_UTC", "TIMESTAMP"),
     ]
@@ -4798,7 +4801,7 @@ def get_upcoming_schedule(
     retry_max_delay: float = NBA_API_RETRY_MAX_DELAY_SECONDS,
 ) -> pd.DataFrame:
     """Fetch upcoming schedule rows from nba_api scheduleleaguev2."""
-    if season != SUPPORTED_SEASON:
+    if season not in ("2025-26", "2026-27"):
         raise ValueError(f"Unsupported production season: {season}")
 
     base_day = coerce_to_date(today) or pd.Timestamp.now(tz="UTC").date()
@@ -4854,7 +4857,8 @@ def get_upcoming_schedule(
     for row in raw.to_dict("records"):
         game_date = row.get("gameDate")
         game_id = str(row.get("gameId", "") or "")
-        source_updated_at = row.get("gameDateTimeUTC")
+        scheduled_start = row.get("gameDateTimeUTC")
+        source_updated_at = ingested_at  # source provides no publication timestamp
         game_status = str(row.get("gameStatusText", "") or "")
         season_value = season
         home_team = str(row.get("homeTeam_teamTricode", "") or "").upper()
@@ -4872,6 +4876,7 @@ def get_upcoming_schedule(
                     "HOME_AWAY": "HOME",
                     "IS_BACK_TO_BACK": False,
                     "GAME_STATUS": game_status,
+                    "GAME_TIME_UTC": scheduled_start,
                     "SOURCE_UPDATED_AT_UTC": source_updated_at,
                     "INGESTED_AT_UTC": ingested_at,
                 },
@@ -4884,6 +4889,7 @@ def get_upcoming_schedule(
                     "HOME_AWAY": "AWAY",
                     "IS_BACK_TO_BACK": False,
                     "GAME_STATUS": game_status,
+                    "GAME_TIME_UTC": scheduled_start,
                     "SOURCE_UPDATED_AT_UTC": source_updated_at,
                     "INGESTED_AT_UTC": ingested_at,
                 },
@@ -4980,6 +4986,7 @@ def create_and_merge_schedule_table(
       home_away STRING,
       is_back_to_back BOOL,
       game_status STRING,
+      game_time_utc TIMESTAMP,
       source_updated_at_utc TIMESTAMP,
       ingested_at_utc TIMESTAMP
     )
@@ -4996,6 +5003,7 @@ def create_and_merge_schedule_table(
           OR COALESCE(t.home_away, '') != COALESCE(s.home_away, '')
           OR COALESCE(t.is_back_to_back, FALSE) != COALESCE(s.is_back_to_back, FALSE)
           OR COALESCE(t.game_status, '') != COALESCE(s.game_status, '')
+          OR COALESCE(t.game_time_utc, TIMESTAMP('1970-01-01')) != COALESCE(s.game_time_utc, TIMESTAMP('1970-01-01'))
           OR COALESCE(t.source_updated_at_utc, TIMESTAMP('1970-01-01')) != COALESCE(s.source_updated_at_utc, TIMESTAMP('1970-01-01'))
         )
       ) AS updated
@@ -5014,6 +5022,7 @@ def create_and_merge_schedule_table(
       OR COALESCE(T.home_away, '') != COALESCE(S.home_away, '')
       OR COALESCE(T.is_back_to_back, FALSE) != COALESCE(S.is_back_to_back, FALSE)
       OR COALESCE(T.game_status, '') != COALESCE(S.game_status, '')
+      OR COALESCE(T.game_time_utc, TIMESTAMP('1970-01-01')) != COALESCE(S.game_time_utc, TIMESTAMP('1970-01-01'))
       OR COALESCE(T.source_updated_at_utc, TIMESTAMP('1970-01-01')) != COALESCE(S.source_updated_at_utc, TIMESTAMP('1970-01-01'))
     ) THEN UPDATE SET
       schedule_date = S.schedule_date,
@@ -5022,14 +5031,16 @@ def create_and_merge_schedule_table(
       home_away = S.home_away,
       is_back_to_back = S.is_back_to_back,
       game_status = S.game_status,
+      game_time_utc = S.game_time_utc,
       source_updated_at_utc = S.source_updated_at_utc,
       ingested_at_utc = S.ingested_at_utc
     WHEN NOT MATCHED THEN
-      INSERT (schedule_date, game_id, season, team_abbr, opponent_abbr, home_away, is_back_to_back, game_status, source_updated_at_utc, ingested_at_utc)
-      VALUES (S.schedule_date, S.game_id, S.season, S.team_abbr, S.opponent_abbr, S.home_away, S.is_back_to_back, S.game_status, S.source_updated_at_utc, S.ingested_at_utc)
+      INSERT (schedule_date, game_id, season, team_abbr, opponent_abbr, home_away, is_back_to_back, game_status, game_time_utc, source_updated_at_utc, ingested_at_utc)
+      VALUES (S.schedule_date, S.game_id, S.season, S.team_abbr, S.opponent_abbr, S.home_away, S.is_back_to_back, S.game_status, S.game_time_utc, S.source_updated_at_utc, S.ingested_at_utc)
     """
     bq_client.query(create_ddl).result()
     ensure_table_has_columns(bq_client, raw_table, get_schedule_schema())
+    ensure_table_has_columns(bq_client, staging_table, get_schedule_schema())
     pre_count = (
         bq_client.query(f"SELECT COUNT(*) AS c FROM `{raw_table}`")
         .to_dataframe()

@@ -198,3 +198,38 @@ def test_public_ask_http_and_stream_handlers(tmp_path, stream):
     finally:
         api.app.dependency_overrides.clear()
         api.app.dependency_overrides.update(previous)
+
+
+def test_registered_pair_legacy_study_remains_reachable(tmp_path):
+    data = study()
+    data["scope"].update(
+        focal_player_id=1630552,
+        focal_player_name="Jalen Johnson",
+        teammate_id=1629027,
+        teammate_name="Trae Young",
+    )
+    agent, client = setup(tmp_path, data=data)
+    result = agent.answer(
+        "Using the teammate study, how did Jalen Johnson's assists differ when Trae Young was out from 2025-10-22 to 2025-12-31?"
+    )
+    assert result["study_status"] == "answered"
+    assert result["tables"]
+    assert client.calls == 1
+
+
+def test_configured_research_catalog_keeps_route_precedence(tmp_path, monkeypatch):
+    data = study()
+    data["scope"].update(focal_player_name="Jalen Johnson", teammate_name="Trae Young")
+    agent, client = setup(tmp_path, data=data)
+    agent.settings = replace(
+        agent.settings, research_studies_path="configured-catalog.json"
+    )
+    monkeypatch.setattr(
+        "app.agent.research_ask.answer_research",
+        lambda *args: {"research_status": "tested"},
+    )
+    result = agent.answer(
+        "How did Jalen Johnson's assists differ when Trae Young was out?"
+    )
+    assert result == {"research_status": "tested"}
+    assert client.calls == 0

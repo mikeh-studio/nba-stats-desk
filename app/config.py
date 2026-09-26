@@ -89,6 +89,9 @@ class Settings:
     agent_conversation_max_turns: int = 6
     agent_cache_ttl_seconds: int = 300
     agent_teammate_study_path: str | None = None
+    research_snapshot_path: str | None = None
+    research_context_path: str | None = None
+    research_studies_path: str | None = None
     agent_history_enabled: bool = False
     agent_history_path: str = "local_notes/ask_history/ask_chat_history.jsonl"
     performance_cache_prewarm_enabled: bool = True
@@ -157,6 +160,9 @@ def get_settings() -> Settings:
         ),
         agent_cache_ttl_seconds=int(os.getenv("AGENT_CACHE_TTL_SECONDS", "300")),
         agent_teammate_study_path=os.getenv("AGENT_TEAMMATE_STUDY_PATH") or None,
+        research_snapshot_path=os.getenv("RESEARCH_SNAPSHOT_PATH") or None,
+        research_context_path=os.getenv("RESEARCH_CONTEXT_PATH") or None,
+        research_studies_path=os.getenv("RESEARCH_STUDIES_PATH") or None,
         agent_history_enabled=_env_bool("AGENT_HISTORY_ENABLED", False),
         agent_history_path=os.getenv(
             "AGENT_HISTORY_PATH",

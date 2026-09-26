@@ -48,3 +48,5 @@ URIs, landing URI, and serialized violation details.
 Game logs remain hard-gated because they are the main fact source. Supporting
 domains are allowed to soft-fail after bounded retries when the pipeline can
 still move core game-log data safely.
+
+See [Research workbench](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.

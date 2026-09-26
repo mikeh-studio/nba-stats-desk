@@ -1,6 +1,6 @@
 {% macro warehouse_season() -%}
   {% set season = var('nba_season', '2025-26') %}
-  {% if season not in ['2023-24', '2024-25', '2025-26'] %}
+  {% if season not in ['2023-24', '2024-25', '2025-26', '2026-27'] %}
     {{ exceptions.raise_compiler_error('Unsupported nba_season: ' ~ season) }}
   {% endif %}
   {{ return(season) }}

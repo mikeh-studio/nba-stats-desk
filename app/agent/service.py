@@ -1457,6 +1457,20 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.research_ask import (
+            answer_research,
+            wants_research,
+            wants_research_followup,
+        )
+
+        research_followup = False
+        if conversation_id and self.conversation_store:
+            recent = self.conversation_store.get_turns(conversation_id, max_turns=1)
+            research_followup = bool(
+                recent
+                and recent[-1].context.get("research_scope")
+                and wants_research_followup(cleaned_question)
+            )
         from app.agent.teammate_ask import answer_study, wants_study
 
         study_followup = False
@@ -1471,10 +1485,30 @@ class StatsAgent:
                     re.I,
                 )
             )
-        if (
+        legacy_study_requested = (
             wants_study(cleaned_question, self.settings.agent_teammate_study_path)
             or study_followup
-        ):
+        )
+        # Preserve published v1 studies until a replacement catalog is configured.
+        # Never use this compatibility route to replace an active research scope.
+        use_legacy_study = (
+            bool(self.settings.agent_teammate_study_path)
+            and not self.settings.research_studies_path
+            and legacy_study_requested
+            and not research_followup
+        )
+        if (
+            wants_research(cleaned_question) or research_followup
+        ) and not use_legacy_study:
+            return answer_research(
+                self,
+                cleaned_question,
+                provider_name,
+                selected_model,
+                conversation_id,
+                trace,
+            )
+        if legacy_study_requested:
             try:
                 payload = answer_study(
                     self,
