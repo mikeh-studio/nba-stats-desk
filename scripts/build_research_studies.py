@@ -152,6 +152,8 @@ def build_study(
                 "label": metric.label,
                 "unit": "percentage points"
                 if scale == 100
+                else "score-margin points per game"
+                if key == "plus_minus"
                 else "minutes per game"
                 if key == "min"
                 else "per game",
@@ -265,7 +267,7 @@ def main():
         }
     if len({s["pair_id"] for s in studies}) != len(studies):
         raise ValueError("Duplicate study pair")
-    # Keep all 24 hypotheses in the correction family, including unavailable slots.
+    # Keep all pair/outcome hypotheses in the correction family, including unavailable slots.
     from statsmodels.stats.multitest import multipletests
 
     hypotheses = [
@@ -273,15 +275,17 @@ def main():
     ]
     pvalues = [(m.get("causal") or {}).get("p_value") for m in hypotheses]
     pvalues = [1.0 if p is None else p for p in pvalues]
-    corrected = multipletests(pvalues + [1.0] * (24 - len(pvalues)), method="holm")[1]
+    corrected = multipletests(
+        pvalues + [1.0] * (len(PAIRS) * len(CORE_METRICS) - len(pvalues)), method="holm"
+    )[1]
     for m, value in zip(hypotheses, corrected):
         if m["causal"].get("p_value") is not None:
             m["causal"]["holm_p_value"] = float(value)
-            m["causal"]["family_size"] = 24
+            m["causal"]["family_size"] = len(PAIRS) * len(CORE_METRICS)
     stamp = datetime.now(timezone.utc).isoformat()
     document = {
         "version": 1,
-        "artifact_type": "multi_metric_studies/v2",
+        "artifact_type": "multi_metric_studies/v3",
         "kind": "reconstructed",
         "as_of_ts": stamp,
         "captured_at": stamp,

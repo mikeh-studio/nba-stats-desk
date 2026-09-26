@@ -11,7 +11,7 @@ opponent, venue, rest, and an optional reviewed teammate-status filter. Counts u
 per-appearance averages or totals; shooting percentages use summed makes and
 attempts. Valid/observed samples, missing filter context, underlying games, source
 identity and query hash remain inspectable. Missing values are never zero-filled.
-The workbench includes PTS, REB, AST, STL, BLK, TOV, 3PM, MIN, shooting volume and
+The workbench includes PTS, REB, AST, STL, BLK, TOV, 3PM, MIN, +/−, shooting volume and
 percentages, TS%, eFG%, and descriptive points/assists per 36 minutes.
 
 Rest falls back to the observed team-game ledger, which may be incomplete. Date
@@ -23,7 +23,7 @@ scope; the shared research panel is the consistent detailed view.
 ## Studies and identification
 
 The fixed focal/exposure pairs are LeBron James/Luka Doncic, Jalen Johnson/Trae
-Young, and Jalen Brunson/Josh Hart. Each study shows all eight core outcomes and
+Young, and Jalen Brunson/Josh Hart. Each study shows all nine core outcomes and
 eight shooting context measures. Shooting ratios are descriptive. Positive
 contrasts mean more of a statistic, including turnovers.
 
@@ -42,7 +42,7 @@ It documents consistency, exchangeability, positivity, interference, and selecti
 assumptions. Episode-grouped cross-fitting, propensity overlap, effective sample,
 balance, and episode-support gates precede AIPW estimates and approximate clustered
 uncertainty. No missingness model is implemented: incomplete eligible panels fail.
-Holm p-values cover the predeclared 24 core hypotheses, including unavailable
+Holm p-values cover the predeclared 27 core hypotheses, including unavailable
 slots; displayed intervals are pointwise. Leave-episode-out score sensitivity does
 not refit nuisance models. These diagnostics cannot verify unmeasured confounding.
 Real causal estimates require review beyond passing synthetic recovery tests.
@@ -106,3 +106,10 @@ isolation, immutable concurrent writes, and synthetic causal recovery/refusal.
 Use the [validation guide](validation.md) for the full application and pipeline
 checks. Fixture/API/browser success does not establish live warehouse coverage,
 prospective capture reliability, or real-world causal identification.
+
+Plus-minus is team points minus opponent points during the focal player’s court
+time. It is a signed outcome in every study, including adjusted and gated causal
+estimation. Negative values are valid; missing values remain unavailable. It is
+not possession-adjusted net rating or an isolated measure of individual impact.
+Catalog version `multi_metric_studies/v3` requires plus-minus and the expanded
+27-hypothesis family; rebuild older catalogs rather than reusing their correction.

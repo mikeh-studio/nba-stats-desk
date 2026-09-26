@@ -16,7 +16,7 @@ from app.agent.semantic_source import load_snapshot
 from app.agent.semantics import Evidence, Query, SemanticError, load_contract, run_query
 from app.seasons import validate_season
 
-CORE_METRICS = ("pts", "reb", "ast", "stl", "blk", "tov", "fg3m", "min")
+CORE_METRICS = ("pts", "reb", "ast", "stl", "blk", "tov", "fg3m", "min", "plus_minus")
 SHOOTING_METRICS = (
     "fga",
     "fg3a",
@@ -36,7 +36,9 @@ class ResearchQuery(BaseModel):
     phase: Literal["Regular Season", "Playoffs", "Both"] = "Regular Season"
     player_ids: list[int] = Field(min_length=1, max_length=2)
     metrics: list[str] = Field(
-        default_factory=lambda: list(CORE_METRICS), min_length=1, max_length=18
+        default_factory=lambda: list(CORE_METRICS),
+        min_length=1,
+        max_length=len(RESEARCH_METRICS),
     )
     aggregation: Literal["average", "total"] = "average"
     start: date | None = None

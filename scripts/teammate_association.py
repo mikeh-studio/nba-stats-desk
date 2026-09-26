@@ -121,7 +121,16 @@ def prepare_rows(panel, reports):
                 "out": int(r["exposure"] == "reported_out_no_appearance"),
                 **{
                     key: r["outcomes"].get(key)
-                    for key in ("pts", "reb", "ast", "stl", "blk", "tov", "fg3m")
+                    for key in (
+                        "pts",
+                        "reb",
+                        "ast",
+                        "stl",
+                        "blk",
+                        "tov",
+                        "fg3m",
+                        "plus_minus",
+                    )
                 },
                 "min": r["outcomes"].get("min"),
                 "opponent_prior_win_pct": r.get("opponent_prior_win_pct"),
@@ -205,7 +214,17 @@ def fit(rows, outcome="ast"):
 
 
 def analyze(panel, reports, outcome="ast"):
-    if outcome not in ("pts", "reb", "ast", "stl", "blk", "tov", "fg3m", "min"):
+    if outcome not in (
+        "pts",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "fg3m",
+        "min",
+        "plus_minus",
+    ):
         raise ValueError("Unsupported study outcome")
     prepared = prepare_rows(panel, reports)
     required = [outcome, *COVARIATES]

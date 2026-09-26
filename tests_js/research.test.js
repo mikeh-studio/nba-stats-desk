@@ -30,5 +30,5 @@ test("all key metrics and explicit filters travel in the shared request", () => 
   assert.equal(scope.start, "2025-11-01");
   assert.equal(scope.rest, "one_day");
   assert.equal(scope.teammate_id, null);
-  assert.equal(METRICS.length, 18);
+  assert.equal(METRICS.length, 19);
 });

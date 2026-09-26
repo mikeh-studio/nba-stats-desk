@@ -172,7 +172,7 @@ def test_all_three_study_cards_remain_visible_without_artifacts():
     assert len(entries) == 3
     assert [s["pair_id"] for s in entries] == [s["pair_id"] for s in PAIRS]
     assert all(
-        len(s["metrics"]) == 16 and s["claim_level"] == "insufficient_evidence"
+        len(s["metrics"]) == 17 and s["claim_level"] == "insufficient_evidence"
         for s in entries
     )
 
@@ -200,11 +200,11 @@ def test_multi_metric_builder_preserves_missing_stats_and_rejects_unbound_causal
     )
     study = build_study(pair, spec, stats, reports, games, memberships)
     metrics = {m["metric"]: m for m in study["metrics"]}
-    assert len(metrics) == 16
+    assert len(metrics) == 17
     assert metrics["pts"]["descriptive"]["difference"] == 20
     assert metrics["ast"]["descriptive"]["difference"] == 4
     assert metrics["reb"]["descriptive"]["difference"] is None
-    assert all(m["causal"]["estimate"] is None for m in study["metrics"][:8])
+    assert all(m["causal"]["estimate"] is None for m in study["metrics"][:9])
     with pytest.raises(ValueError, match="bind the exact"):
         build_study(
             pair, spec, stats, reports, games, memberships, causal_spec={"version": 1}
@@ -261,3 +261,32 @@ def test_selected_pair_shorthand_routes_to_multi_stat_research(question):
     from app.agent.research_ask import wants_research
 
     assert wants_research(question)
+
+
+def test_signed_plus_minus_breakdown_and_study_missingness():
+    from scripts.build_research_studies import build_study
+    from tests.test_teammate_readiness import fixture
+
+    e = evidence()
+    own = [r for r in e.rows if r["player_id"] == 1]
+    for row, value in zip(own, [-12, 4, None, 0]):
+        row["plus_minus"] = value
+    result = breakdown(e, ResearchQuery(player_ids=[1], metrics=["plus_minus"]))
+    metric = result["players"][0]["metrics"][0]["result"]
+    assert metric["valid_games"] == 3
+    assert metric["value"] == pytest.approx(-8 / 3)
+    stats, reports, games, memberships, spec = fixture()
+    stats[0]["plus_minus"], stats[1]["plus_minus"] = -10, 2
+    pair = dict(pair_id="fictional", player_id=1, teammate_id=2)
+    study = build_study(pair, spec, stats, reports, games, memberships)
+    pm = next(m for m in study["metrics"] if m["metric"] == "plus_minus")
+    assert pm["descriptive"]["difference"] == 12
+    assert pm["causal"]["estimate"] is None
+    stats[1]["plus_minus"] = None
+    study = build_study(pair, spec, stats, reports, games, memberships)
+    assert (
+        next(m for m in study["metrics"] if m["metric"] == "plus_minus")["descriptive"][
+            "difference"
+        ]
+        is None
+    )

@@ -60,7 +60,7 @@ def catalog(path: str | None):
     if not path:
         return list(entries.values())
     document = read_snapshot(Path(path))
-    if document.get("artifact_type") != "multi_metric_studies/v2":
+    if document.get("artifact_type") != "multi_metric_studies/v3":
         raise ValueError("Unsupported research study catalog")
     seen = set()
     for study in document["studies"]:

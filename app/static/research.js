@@ -7,6 +7,7 @@ export const METRICS = [
   "tov",
   "fg3m",
   "min",
+  "plus_minus",
   "fga",
   "fg3a",
   "fta",
@@ -130,6 +131,7 @@ function renderBreakdown(target, data) {
           "BLK",
           "TOV",
           "3PM",
+          "+/-",
         ],
         p.games.map((g) => [
           g.game_date,
@@ -142,6 +144,7 @@ function renderBreakdown(target, data) {
           g.blk,
           g.tov,
           g.fg3m,
+          g.plus_minus,
         ]),
       ),
     );

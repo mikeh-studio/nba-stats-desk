@@ -73,3 +73,12 @@ def test_no_review_late_covariates_selection_and_sparse_episodes():
     incomplete = deepcopy(rows)
     incomplete[0]["outcomes"]["ast"] = None
     assert estimate(incomplete, spec, "ast")["reason"] == "incomplete_eligible_panel"
+
+
+def test_plus_minus_causal_estimator_accepts_signed_outcomes():
+    rows, spec = study(effect=-4)
+    for row in rows:
+        row["outcomes"]["plus_minus"] = row["outcomes"].pop("ast") - 10
+    result = estimate(rows, spec, "plus_minus")
+    assert result["status"] == "estimated"
+    assert abs(result["estimate"] + 4) < 0.3
