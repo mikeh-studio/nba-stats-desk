@@ -184,6 +184,15 @@ def plan_question(
     validate_season(selected_season)
     if not question.strip() or len(question) > 2000:
         raise SemanticError("invalid_scope", "Question must contain 1..2000 characters")
+    from app.agent.availability_ask import wants_availability
+
+    if wants_availability(question):
+        return {
+            "status": "unsupported",
+            "queries": [],
+            "message": "Teammate availability requires verified game-level evidence. An ordinary statistics query cannot preserve this condition.",
+            "model_calls": 0,
+        }
     shooting = re.search(
         r"(?:\b(?:ts|fg|fg3|ft)%|true shooting|field goal percentage|three.point percentage|free.throw percentage)",
         question,

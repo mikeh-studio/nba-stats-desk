@@ -433,6 +433,15 @@ class SemanticAsk:
         progress_callback: Any = None,
     ) -> dict[str, Any]:
         started = monotonic()
+        from app.agent.availability_ask import wants_availability
+        from app.agent.research_ask import refusal
+
+        if wants_availability(question):
+            return refusal(
+                "This question requires verified teammate availability. Overall statistics cannot answer that condition.",
+                code="availability_scope_required",
+                trace=trace,
+            )
         original = question
         store = self.store if conversation_id else None
         pending = store.get_pending_clarification(conversation_id) if store else None

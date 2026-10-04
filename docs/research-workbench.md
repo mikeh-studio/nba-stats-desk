@@ -42,8 +42,11 @@ scope; the shared research panel is the consistent detailed view.
 
 ## Studies and identification
 
-The fixed focal/exposure pairs are LeBron James/Luka Doncic, Jalen Johnson/Trae
-Young, and Jalen Brunson/Josh Hart. Each study shows all nine core outcomes and
+The historical pilot catalog contains LeBron James/Luka Doncic, Jalen Johnson/Trae
+Young, and Jalen Brunson/Josh Hart. These fixed research artifacts do not restrict
+the [dynamic availability path](ask-workspace.md#dynamic-teammate-availability),
+which calculates descriptive comparisons for source-resolved pairs on demand.
+Each pilot study shows all nine core outcomes and
 eight shooting context measures. Shooting ratios are descriptive. Positive
 contrasts mean more of a statistic, including turnovers.
 

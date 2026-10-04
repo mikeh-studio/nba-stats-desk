@@ -76,3 +76,9 @@ results. Run instructions are in [Evaluation](evaluation.md). Passing fixtures
 establishes tested behavior, not universal model accuracy or production deployment.
 
 See [Players and research breakdowns](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
+
+Dynamic availability comparisons preserve focal/exposure roles and attach the
+executed request and per-group game IDs to every metric. A teammate predicate
+cannot be represented by the ordinary `Query` contract and must never be reduced
+to an unfiltered summary. See [dynamic teammate availability](ask-workspace.md#dynamic-teammate-availability)
+for source membership, absence, missingness, rate and attribution rules.

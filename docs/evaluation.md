@@ -131,3 +131,29 @@ Other semantic evaluation entry points are `evaluate_historical_semantics.py`,
 Use each command's `--help` for inputs and outputs. Historical reference freezing,
 live warehouse capture, and model-backed language evaluation are explicit operations;
 keep their datasets, reference answers, and detailed results local.
+
+## Dynamic availability attribution
+
+`tests/test_availability.py` generates questions for an unregistered synthetic
+pair and independently checks known means, pooled percentages, source game IDs,
+reversed roles/aliases, scope modifiers, missing data and JSON/SSE/follow-up parity.
+Unsupported conditions must produce no statistics, including when the ordinary
+semantic planner is called directly.
+
+For a live local server configured with the same private availability bundle:
+
+```sh
+python scripts/evaluate_availability.py \
+  --evidence reports/availability/unique-run.json \
+  --url http://127.0.0.1:8017 \
+  --output reports/evaluation/unique-availability-run
+```
+
+The runner samples new pairs from source team appearances with a fixed seed,
+generates metric/filter variants, and retains every response. An independent
+oracle joins raw box scores, schedule and latest pregame reports, recalculates
+means/ratios and verifies requested roles, scope, group game IDs, valid/observed
+counts, tables, narrative statistics and chart values. Missing verified samples
+must return no substitute statistics. It respects the normal per-minute request
+limit and makes no model calls. This proves attribution against the frozen inputs,
+not completeness of upstream reports or human-reviewed basketball interpretation.

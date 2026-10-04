@@ -104,6 +104,7 @@ class Settings:
     research_snapshot_path: str | None = None
     research_context_path: str | None = None
     research_studies_path: str | None = None
+    research_availability_path: str | None = None
     agent_history_enabled: bool = False
     agent_history_path: str = "local_notes/ask_history/ask_chat_history.jsonl"
     performance_cache_prewarm_enabled: bool = True
@@ -182,6 +183,7 @@ def get_settings() -> Settings:
         research_snapshot_path=os.getenv("RESEARCH_SNAPSHOT_PATH") or None,
         research_context_path=os.getenv("RESEARCH_CONTEXT_PATH") or None,
         research_studies_path=os.getenv("RESEARCH_STUDIES_PATH") or None,
+        research_availability_path=os.getenv("RESEARCH_AVAILABILITY_PATH") or None,
         agent_history_enabled=_env_bool("AGENT_HISTORY_ENABLED", False),
         agent_history_path=os.getenv(
             "AGENT_HISTORY_PATH",

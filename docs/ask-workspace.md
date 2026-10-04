@@ -206,3 +206,62 @@ Existing scope/evidence validation remains authoritative. Shared Ask retry limit
 apply, with SDK retries disabled. SSE progress remains available; token-by-token
 answer streaming is not enabled for this adapter. Mock checks do not establish
 live endpoint availability, schema compatibility, latency, or cost.
+
+## Dynamic teammate availability
+
+With `RESEARCH_AVAILABILITY_PATH` connected, Ask resolves player roles from the
+source-backed directory and computes descriptive splits on demand. Any observed
+pair can be queried; neither registration in the pilot catalog nor a pair-specific
+artifact is required. Full names and known aliases are supported; an ambiguous
+first name can be narrowed by a uniquely matching shared team in the requested
+season, otherwise Ask requests full names. Reversed roles produce a different
+sample rather than reusing the original pair's result.
+
+Supported requests compose box-score metrics, shooting ratios, points/assists per
+36, averages/totals, one season, explicit inclusive `from YYYY-MM-DD to YYYY-MM-DD`
+dates, regular season/playoffs/both, home/away, and opponent abbreviation. Scoped
+follow-ups such as “What about assists?” or “Only the playoffs” recalculate with
+the saved player roles and remaining filters. The parser accounts for the entire
+request; unsupported phrases, ambiguous roles and conflicting filters produce an
+explanation, never a partial season summary. Ordinary semantic planning/answering
+also blocks availability conditions, so a model cannot discard them. The old
+published-study route remains compatibility support when dynamic evidence is not
+configured; it is not a prerequisite when dynamic evidence is available.
+
+“Both played” requires positive-minute same-team appearances. “Reported Out”
+requires an official game-specific pregame team bulletin naming the teammate Out,
+no appearance, and a final scheduled game. The bulletin establishes team
+membership for that date; missing box scores never establish an absence or extend
+membership across a trade. The latest team bulletin wins; omissions, stale/late
+reports, inconsistent statuses, and opposing-team appearances remain excluded.
+An Out listing does not establish injury causation. Answers disclose exclusions
+and small samples. Missing metric components retain valid/observed denominators
+and suppress incomplete differences. Percentages use pooled components; per-36
+uses pooled production and minutes.
+
+`availability_evidence` accompanies each response with the exact executed request,
+per-metric component totals/denominators/game IDs, group membership, report URLs,
+exclusion counts, and immutable evidence and stats hashes. Player card, narrative,
+table and chart all use those same groups. Responses are deterministic, make no
+provider calls, and do not expose model-authored SQL. This capability does not
+support arbitrary natural-language operations, causal claims, unverified injury
+causes, or undocumented constraints; those are withheld explicitly.
+
+Build an immutable league-wide source bundle, then connect its path locally:
+
+```sh
+python scripts/build_availability_evidence.py \
+  --snapshot reports/inputs/stats.json \
+  --schedule reports/inputs/schedule.json \
+  --injuries reports/inputs/injuries.json \
+  --output reports/availability/unique-run.json
+```
+
+The snapshot must have the semantic source checksum and coverage contract; the
+schedule is the official schedule document and injuries contains `rows` with the
+existing pregame report provenance fields. The builder validates source joins
+before create-only publication. The reader verifies both bundle and stats hashes,
+unique keys and schedule alignment. Reads are size-bounded and cached by immutable
+file identity; source artifacts and local configuration stay out of Git. Updating
+underlying data requires publishing a new validated bundle and connecting it;
+merging application code does not automatically refresh evidence.

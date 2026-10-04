@@ -1523,6 +1523,36 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.availability_ask import (
+            answer_availability,
+            availability_followup,
+            wants_availability,
+        )
+        from app.agent.research_ask import mentioned_pairs
+        from app.agent.teammate_ask import wants_study
+
+        availability_context = False
+        if conversation_id and self.conversation_store:
+            turns = self.conversation_store.get_turns(conversation_id, max_turns=1)
+            availability_context = bool(
+                turns
+                and turns[-1].context.get("availability_scope")
+                and availability_followup(cleaned_question)
+            )
+        if availability_context or (
+            wants_availability(cleaned_question)
+            and (
+                self.settings.research_availability_path
+                or (
+                    not mentioned_pairs(cleaned_question)
+                    and not wants_study(
+                        cleaned_question, self.settings.agent_teammate_study_path
+                    )
+                )
+            )
+        ):
+            return answer_availability(self, cleaned_question, conversation_id, trace)
+
         from app.agent.research_ask import (
             answer_research,
             wants_research,
