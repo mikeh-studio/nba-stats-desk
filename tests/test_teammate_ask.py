@@ -52,7 +52,13 @@ class Client:
 
     def create(self, **kwargs):
         self.calls += 1
-        return SimpleNamespace(output_text=json.dumps(self.result), usage=None)
+        schema = kwargs.get("text", {}).get("format", {}).get("schema", {})
+        result = (
+            {"request": self.result}
+            if "request" in schema.get("properties", {})
+            else self.result
+        )
+        return SimpleNamespace(output_text=json.dumps(result), usage=None)
 
 
 def setup(tmp_path, data=None, response=None):

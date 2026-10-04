@@ -254,3 +254,130 @@ def test_full_season_answer_discloses_playoffs_and_preserves_explicit_phase(
     ).json()
     assert not answer["tables"]
     assert "requested season phase" in answer["answer"]
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_missing_named_study_stops_before_warehouse_and_model(
+    research_client, monkeypatch, stream
+):
+    from app.research_studies import PAIRS, pending
+
+    client, _, planner = research_client
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [pending(PAIRS[0])])
+
+    def unexpected_load(*args):
+        pytest.fail("Missing study should not query the warehouse")
+
+    monkeypatch.setattr(research_ask, "load_research_evidence", unexpected_load)
+    response = client.post(
+        "/api/agent/ask" + ("/stream" if stream else ""),
+        json={"question": "Tell me how LeBron James played while Luka was out"},
+    )
+    assert response.status_code == 200
+    if stream:
+        events = [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        payload = next(e["payload"] for e in events if e.get("type") == "final")
+    else:
+        payload = response.json()
+    assert payload["research_error_code"] == "study_coverage_missing"
+    assert "LeBron James / Luka Doncic" in payload["answer"]
+    assert "built or reconnected" in payload["answer"]
+    assert not payload["tables"] and not payload.get("player_profile")
+    assert planner.calls == 0
+
+
+@pytest.mark.parametrize("failure", [FileNotFoundError, ValueError, PermissionError])
+def test_broken_study_configuration_is_specific_and_private(
+    research_client, monkeypatch, failure
+):
+    client, _, planner = research_client
+
+    def broken_catalog(path):
+        raise failure("private-artifact-location-and-content")
+
+    monkeypatch.setattr(research_ask, "catalog", broken_catalog)
+    payload = client.post(
+        "/api/agent/ask", json={"question": "LeBron without Luka"}
+    ).json()
+    assert payload["research_error_code"] == "study_catalog_unavailable"
+    assert "configuration needs repair" in payload["answer"]
+    assert "private-artifact" not in json.dumps(payload)
+    assert planner.calls == 0
+
+
+@pytest.mark.parametrize("metric", ["pts_per36", "ast_per36"])
+def test_plan_schema_binds_metrics_to_route_and_rejects_invalid_model_output(
+    research_client, monkeypatch, metric
+):
+    import jsonschema
+    from app.research_studies import PAIRS, pending
+
+    client, _, planner = research_client
+    study = pending(PAIRS[0])
+    study["scope"] = dict(
+        season="2025-26",
+        phase="Both",
+        window="full_season",
+        start="2025-10-21",
+        end="2026-06-13",
+    )
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
+    query = ResearchQuery(player_ids=[2544], metrics=[metric]).model_dump(mode="json")
+    query["teammate_id"] = 1629029
+    planner.result = dict(kind="study", query=query, pair_id="lebron-luka", message="")
+    schema = research_ask.research_plan_schema()
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate({"request": planner.result}, schema)
+    jsonschema.validate({"request": {**planner.result, "kind": "breakdown"}}, schema)
+    # Even a provider that ignores the output schema cannot reach the presenter.
+    payload = client.post(
+        "/api/agent/ask", json={"question": "LeBron without Luka"}
+    ).json()
+    assert payload["research_error_code"] == "invalid_research_plan"
+    assert "per-36" in payload["answer"]
+    assert not payload["tables"]
+
+
+def test_missing_study_after_planning_is_not_a_table_of_unavailable_values(
+    research_client, monkeypatch
+):
+    from app.research_studies import PAIRS, pending
+
+    client, _, planner = research_client
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [pending(PAIRS[0])])
+    query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
+    query["teammate_id"] = 1629029
+    planner.result = dict(kind="study", query=query, pair_id="lebron-luka", message="")
+    payload = client.post(
+        "/api/agent/ask", json={"question": "Research the teammate comparison"}
+    ).json()
+    assert payload["research_error_code"] == "study_coverage_missing"
+    assert not payload["tables"]
+    assert planner.calls == 1
+
+
+def test_missing_study_trace_is_classified_without_sensitive_content(
+    research_client, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from app.agent.observability import AgentTrace
+    from app.research_studies import PAIRS, pending
+    from tests.test_agent_service import _settings
+
+    trace = AgentTrace("fixture", "private-question", "fixture-model")
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [pending(PAIRS[0])])
+    agent = SimpleNamespace(settings=_settings(), conversation_store=None)
+    payload = research_ask.answer_research(
+        agent, "LeBron without Luka", "openai", "fixture-model", trace=trace
+    )
+    assert trace.route == "research"
+    assert trace.outcome == "unsupported"
+    assert (
+        trace.error_type == payload["research_error_code"] == "study_coverage_missing"
+    )
+    assert trace.total_tokens == 0

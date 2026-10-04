@@ -12,6 +12,8 @@ from app.research import CORE_METRICS, SHOOTING_METRICS
 from app.research_insights import insights
 from app.research_snapshots import read_snapshot
 
+STUDY_METRICS = (*CORE_METRICS, *SHOOTING_METRICS)
+
 PAIRS = (
     {
         "pair_id": "lebron-luka",
@@ -95,8 +97,8 @@ def catalog(path: str | None):
 
 
 def study_answer(study, metrics=None):
-    selected = set(metrics or (*CORE_METRICS, *SHOOTING_METRICS))
-    if not selected <= set((*CORE_METRICS, *SHOOTING_METRICS)):
+    selected = set(metrics or STUDY_METRICS)
+    if not selected <= set(STUDY_METRICS):
         raise ValueError("Unsupported study metric")
     assessments, highlights, narrative = insights(study, selected)
 

@@ -12,6 +12,20 @@ scope. Explicit seasons/dates and conversational follow-up scope are preserved;
 permission errors and invalid evidence never trigger fallback. This does not
 create missing studies or infer an injury absence from a missing appearance.
 
+Named absence questions check the published pair's coverage before warehouse or
+model work. A missing comparison names the pair and explains that its verified
+study must be built or reconnected; an overall-player question is offered only
+as a separate follow-up. Broken catalog configuration, invalid planner output,
+and unavailable research evidence have distinct safe error codes. Paths and raw
+provider/data errors are not exposed. Published studies still require exact
+season, date, phase, role, and filter matches.
+
+The research planner's structured schema binds metrics to its selected route.
+Studies support the nine core box-score measures and eight shooting measures;
+per-36 requests remain supported by breakdowns only. Explicit unsupported study
+metrics are not silently dropped or replaced. The server validates the plan
+before rendering, even when a provider returns output outside the schema.
+
 ## Two-player comparisons
 
 Explicit `A vs B`, `A versus B`, and `Compare A and B` questions use a
