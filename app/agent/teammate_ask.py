@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+from app.agent.performance_overview import scoped_identity_profile
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -218,6 +219,11 @@ def answer_study(agent, question, provider, model, trace=None):
         study_status="answered",
         study_id=study["study_id"],
         evidence_scope=s,
+        player_profile=scoped_identity_profile(
+            {"player_id": s["focal_player_id"], "player_name": s["focal_player_name"]},
+            [],
+            s,
+        ),
         metric_definitions=[
             {
                 "key": "adjusted_ast_difference",

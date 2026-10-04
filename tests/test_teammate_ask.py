@@ -195,6 +195,14 @@ def test_public_ask_http_and_stream_handlers(tmp_path, stream):
             result = response.json()
         assert result["study_status"] == "answered"
         assert result["tables"][0]["rows"][2][1] == "+0.88"
+        profile = result["player_profile"]
+        assert profile["player"]["player_name"] == "Focal Player"
+        assert profile["player"]["headshot_url"].endswith("/1.png")
+        assert profile["profile_url"] == "/players/1"
+        assert profile["scopeLabel"] == (
+            "2025-26 regular season · 2025-10-22 through 2025-12-31"
+        )
+        assert profile["player"]["team_abbr"] is None
     finally:
         api.app.dependency_overrides.clear()
         api.app.dependency_overrides.update(previous)

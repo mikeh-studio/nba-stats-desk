@@ -95,6 +95,13 @@ percentiles still describe the full qualified league cohort.
 
 ## Analysis presentation
 
+Single-player research breakdowns and matching teammate-study answers include
+the focal player's name, headshot, profile link, and the answer's season, phase,
+and dates. Breakdown cards use team and appearance counts from the filtered
+games. Frozen studies omit those fields when scoped appearances are unavailable;
+they never borrow current rankings or team context. Multi-player breakdowns and
+scope refusals do not select an arbitrary player for a card.
+
 Teammate comparisons lead with a basketball takeaway, a few observed differences,
 and the counts of games when both played and when the teammate was out, stated
 once when those counts match across the available metrics. A short natural caveat

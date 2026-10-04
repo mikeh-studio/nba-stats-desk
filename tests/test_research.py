@@ -56,6 +56,7 @@ def test_shared_ratios_and_rest_precede_date_filter():
     r = breakdown(e, q)
     assert r["players"][0]["metrics"][0]["result"]["display_value"] == 10
     assert answer_payload(r)["research"] == r
+    assert answer_payload(r)["player_profile"] is None
     rested = breakdown(
         e,
         ResearchQuery(
@@ -63,6 +64,22 @@ def test_shared_ratios_and_rest_precede_date_filter():
         ),
     )
     assert [g["game_id"] for g in rested["players"][0]["games"]] == ["g4"]
+    profile = answer_payload(rested)["player_profile"]
+    assert profile["player"]["games_sampled"] == 1
+    assert profile["player"]["team_abbr"] == "ATL"
+    assert profile["scopeLabel"] == (
+        "2025-26 regular season · 2025-11-04 through 2025-11-07"
+    )
+
+
+def test_research_card_team_comes_only_from_filtered_appearances():
+    e = evidence()
+    e.rows[-2]["team_abbr"] = "NEW"
+    result = breakdown(e, ResearchQuery(player_ids=[1], end="2025-11-02"))
+    profile = answer_payload(result)["player_profile"]
+    assert profile["player"]["team_abbr"] == "ATL"
+    assert profile["player"]["games_sampled"] == 2
+    assert "overall_rank" not in profile["player"]
 
 
 def test_home_missing_scope_and_no_zero_imputation():

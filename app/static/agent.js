@@ -1022,7 +1022,7 @@ function renderAuxiliaryPayload(
             ...payload.player_profile,
             scopeLabel: overview
               ? `${overview.scope.phases.join(" + ")} · ${overview.range}`
-              : "",
+              : payload.player_profile.scopeLabel,
           }
         : null,
     );
@@ -2028,6 +2028,7 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
   globalThis.__askAgentTest = {
     referenceTable,
     renderTable,
+    renderAuxiliaryPayload,
     updateSourceCoverage,
     turnEvidenceMarkup,
     buildAskBody,

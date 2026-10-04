@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from app.agent.comparison_detail import comparison_detail, relative_change
+from app.agent.performance_overview import scoped_identity_profile
 from app.agent.visualization import study_charts
 from app.research import CORE_METRICS, SHOOTING_METRICS
 from app.research_insights import insights
@@ -156,6 +157,7 @@ def study_answer(study, metrics=None):
     )
     return {
         "answer": narrative + ("\n\n" + scope_line if scope_line else ""),
+        "player_profile": scoped_identity_profile(study, [], scope) if scope else None,
         "research_highlights": highlights,
         "comparison_explorer": {
             "teammate": study["teammate_name"],

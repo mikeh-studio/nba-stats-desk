@@ -171,6 +171,24 @@ def identity_profile(player, rows):
     }
 
 
+def scoped_identity_profile(player, rows, scope):
+    """Describe the answer's identity and scope, without current ranking data.
+
+    Callers supply only the appearances used by the answer. Frozen studies that
+    do not publish those rows omit team and appearance counts rather than looking
+    them up from a different season.
+    """
+    profile = identity_profile(player, rows)
+    phase = scope.get("phase", "Regular Season")
+    phase = "regular season and playoffs" if phase == "Both" else phase.lower()
+    profile["scopeLabel"] = (
+        f"{scope['season']} {phase} · "
+        f"{scope.get('start') or 'season start'} through "
+        f"{scope.get('end') or 'latest source date'}"
+    )
+    return profile
+
+
 def resolve_overview_player(question, players, rows, selected=None):
     """Resolve only observed names/aliases; never choose between colliding IDs."""
     original, _, reply = question.partition("\nClarification:")

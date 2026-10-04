@@ -179,7 +179,8 @@ body:has(.ask-desk) .publication-health {
   margin: 0;
 }
 .agent-profile-link {
-  display: none;
+  display: inline-flex;
+  flex-shrink: 0;
 }
 .agent-player-profile .player-avatar {
   width: 88px;
@@ -558,9 +559,7 @@ body:has(.ask-desk) .publication-health {
   }
   .agent-profile-top {
     align-items: start;
-  }
-  .agent-profile-link {
-    display: none;
+    flex-direction: column;
   }
   .metric-comparison {
     margin: 0 0 1rem;

@@ -7,7 +7,7 @@ Explore NBA players, ask basketball questions, and investigate changes in perfor
 NBA Stats Desk connects a read-only web application to a governed data platform,
 with explicit season scope, evidence-backed answers, and interactive charts.
 
-![Ask page](docs/images/ask-page.png)
+![Ask page](docs/images/ask-page.jpg)
 
 ## Explore
 
@@ -45,6 +45,21 @@ NBA sources → GCS → BigQuery / dbt → FastAPI → Ask, Players, Trending
 Read the [architecture](docs/architecture.md), [Ask contract](docs/ask-workspace.md),
 [archetype implementation](docs/player-similarity-model.md), and
 [evaluation workflow](docs/evaluation.md).
+
+## How the project evolved
+
+1. **Data platform:** the initial ingestion and BigQuery pipeline grew into
+   contract-checked sources, dbt models, and recoverable publication.
+   See the [initial implementation](https://github.com/mikeh-studio/nba-stats-desk/commit/4d37b31)
+   and [current architecture](docs/architecture.md).
+2. **Interactive workbench:** player discovery, progressively loaded profiles,
+   and shared research breakdowns made the warehouse explorable.
+   See [Players discovery](https://github.com/mikeh-studio/nba-stats-desk/pull/60)
+   and [research breakdowns](https://github.com/mikeh-studio/nba-stats-desk/pull/59).
+3. **Governed Ask:** explicit scope checks, deterministic comparisons, and
+   evidence-backed charts connect natural-language questions to inspectable
+   statistics. See [Ask scope and comparisons](https://github.com/mikeh-studio/nba-stats-desk/pull/61)
+   and the [current contract](docs/ask-workspace.md).
 
 ## Public code, private operations
 

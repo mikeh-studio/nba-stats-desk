@@ -137,6 +137,15 @@ def test_study_json_stream_and_significance_followup(
     result = client.post("/api/agent/ask", json=request)
     assert result.status_code == 200, result.text
     payload = result.json()
+    profile = payload["player_profile"]
+    assert profile["player"]["player_id"] == pair["player_id"]
+    assert profile["player"]["player_name"] == pair["player_name"]
+    assert profile["player"]["headshot_url"].endswith(f"/{pair['player_id']}.png")
+    assert profile["profile_url"] == f"/players/{pair['player_id']}"
+    assert profile["player"]["team_abbr"] is None
+    assert profile["scopeLabel"] == (
+        "2025-26 regular season and playoffs · 2025-11-01 through 2025-11-30"
+    )
     assert "significance" not in payload["research_highlights"][0]
     assert "research_assessments" not in payload
     assert "study" not in payload
@@ -145,6 +154,13 @@ def test_study_json_stream_and_significance_followup(
     assert "insufficient evidence" not in json.dumps(payload).lower()
     stream = client.post("/api/agent/ask/stream", json=request)
     assert stream.status_code == 200
+    events = [
+        json.loads(line[6:])
+        for line in stream.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    final = next(e["payload"] for e in events if e.get("type") == "final")
+    assert final["player_profile"] == profile
     assert (
         payload["answer"] in stream.text
         or json.dumps(payload["answer"])[1:-1] in stream.text
@@ -202,6 +218,7 @@ def test_partial_study_never_silently_answers_full_season(
         assert answer["tables"]
     else:
         assert not answer["tables"]
+        assert not answer.get("player_profile")
         assert "full-season comparison is not available" in answer["answer"]
 
 

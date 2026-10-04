@@ -147,6 +147,33 @@ test("reference row supports text-only emphasis without changing the league rank
   assert.doesNotMatch(html, /reference-player-label/);
 });
 
+test("study cards retain their scoped identity and clear on a refusal", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-agent-profile]",
+  ].map((selector) => [selector, new FakeElement("div")]));
+  const agent = await loadAgentModule({ elements });
+  agent.renderAuxiliaryPayload({
+    player_profile: {
+      player: {
+        player_name: "Focal Player",
+        headshot_url: "https://cdn.nba.com/headshots/nba/latest/1040x760/1.png",
+      },
+      profile_url: "/players/1",
+      scopeLabel: "2024-25 regular season · 2024-11-01 through 2024-11-30",
+    },
+  }, globalThis.document, false);
+  const profile = elements["[data-agent-profile]"];
+  assert.match(profile.innerHTML, /Focal Player/);
+  assert.match(profile.innerHTML, /2024-25 regular season/);
+  assert.match(profile.innerHTML, /2024-11-01 through 2024-11-30/);
+  assert.match(profile.innerHTML, /headshots\/nba\/latest\/1040x760\/1.png/);
+  assert.match(profile.innerHTML, /href="\/players\/1"/);
+  assert.doesNotMatch(profile.innerHTML, /Rank #|P-Rating/);
+  agent.renderAuxiliaryPayload({ answer: "Scope unavailable" }, globalThis.document, false);
+  assert.equal(profile.innerHTML, "");
+});
+
 test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure", async () => {
   const agent = await loadAgentModule();
 
