@@ -20,6 +20,16 @@ and unavailable research evidence have distinct safe error codes. Paths and raw
 provider/data errors are not exposed. Published studies still require exact
 season, date, phase, role, and filter matches.
 
+Complete, unqualified questions such as “Tell me how LeBron James played while
+Luka was out” use a deterministic study plan for a registered pair. They read the
+published catalog directly, without warehouse access or model planning, and use
+the same season, phase, date and evidence guards as model-planned requests.
+Added filters, metrics or dates and conversational follow-ups stay on the scoped
+planner path. A partial catalog replaces a legacy study only when it publishes
+that same pair; invalid catalogs still fail closed. Local operators must build,
+validate and connect `RESEARCH_STUDIES_PATH`; code deployment alone does not
+publish private study evidence.
+
 The research planner's structured schema binds metrics to its selected route.
 Studies support the nine core box-score measures and eight shooting measures;
 per-36 requests remain supported by breakdowns only. Explicit unsupported study

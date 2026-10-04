@@ -247,3 +247,38 @@ def test_configured_research_catalog_keeps_route_precedence(tmp_path, monkeypatc
     )
     assert result == {"research_status": "tested"}
     assert client.calls == 0
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+def test_partial_catalog_preserves_other_legacy_pairs(
+    tmp_path, monkeypatch, replacement
+):
+    from app.research_studies import PAIRS, pending
+
+    data = study()
+    data["scope"].update(
+        focal_player_id=1630552,
+        focal_player_name="Jalen Johnson",
+        teammate_id=1629027,
+        teammate_name="Trae Young",
+    )
+    agent, client = setup(tmp_path, data=data)
+    agent.settings = replace(agent.settings, research_studies_path="catalog.json")
+    entries = [pending(p) for p in PAIRS]
+    entries[0]["scope"] = {"season": "2025-26"}
+    if replacement:
+        entries[1]["scope"] = {"season": "2025-26"}
+    monkeypatch.setattr("app.research_studies.catalog", lambda path: entries)
+    monkeypatch.setattr(
+        "app.agent.research_ask.answer_research",
+        lambda *args: {"research_status": "tested"},
+    )
+    result = agent.answer(
+        "Using the teammate study, how did Jalen Johnson's assists differ when Trae Young was out from 2025-10-22 to 2025-12-31?"
+    )
+    if replacement:
+        assert result == {"research_status": "tested"}
+        assert client.calls == 0
+    else:
+        assert result["study_status"] == "answered"
+        assert client.calls == 1

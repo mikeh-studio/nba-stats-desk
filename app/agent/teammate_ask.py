@@ -93,6 +93,26 @@ def load_study(path):
     return value
 
 
+def legacy_study_has_replacement(legacy_path, catalog_path):
+    """A partial catalog replaces only its published pair, never other studies."""
+    if not catalog_path:
+        return False
+    from app.research_studies import catalog
+
+    try:
+        scope = load_study(legacy_path)["scope"]
+        entries = catalog(catalog_path)
+        return any(
+            entry.get("scope")
+            and entry["player_id"] == scope["focal_player_id"]
+            and entry["teammate_id"] == scope["teammate_id"]
+            for entry in entries
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        # A broken replacement is not permission to reuse a different result.
+        return True
+
+
 def unavailable(study=None):
     message = "No reviewed teammate study is configured for this Ask instance."
     if study:

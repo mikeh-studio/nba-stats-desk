@@ -381,3 +381,89 @@ def test_missing_study_trace_is_classified_without_sensitive_content(
         trace.error_type == payload["research_error_code"] == "study_coverage_missing"
     )
     assert trace.total_tokens == 0
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Tell me how LeBron James played while Luka was out",
+        "How did LeBron play without Luka?",
+        "How did Jalen Johnson perform when Trae Young was absent?",
+        "How does Brunson play without Hart?",
+    ],
+)
+def test_direct_study_plan_recognizes_complete_questions(question):
+    plan = research_ask.direct_study_plan(question, "2025-26")
+    assert plan["kind"] == "study"
+    assert plan["query"]["phase"] == "Both"
+    assert plan["query"]["start"] is None
+    assert len(plan["query"]["metrics"]) == 9
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        " in 2024-25",
+        " in the playoffs",
+        " at home",
+        " over the last five games",
+        " from 2025-11-01 to 2025-12-01",
+        " using points per 36",
+        " and compare Austin Reaves",
+    ],
+)
+def test_direct_study_plan_never_drops_extra_scope(suffix):
+    assert (
+        research_ask.direct_study_plan(
+            "Tell me how LeBron James played while Luka was out" + suffix, "2025-26"
+        )
+        is None
+    )
+    assert (
+        research_ask.direct_study_plan("How did Luka play without LeBron?", "2025-26")
+        is None
+    )
+
+
+def test_exact_absence_question_json_sse_uses_catalog_without_model_or_warehouse(
+    research_client, monkeypatch
+):
+    from app.research_studies import PAIRS, pending
+    from tests.test_research_insights import metric
+
+    client, _, planner = research_client
+    study = pending(PAIRS[0])
+    study["scope"] = dict(
+        season="2025-26",
+        start="2025-10-21",
+        end="2026-05-11",
+        phase="Both",
+        window="full_season",
+    )
+    study["metrics"][0] = metric()
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
+
+    def no_warehouse(*args):
+        pytest.fail("A published study should not require warehouse access")
+
+    monkeypatch.setattr(research_ask, "load_research_evidence", no_warehouse)
+    request = dict(question="Tell me how LeBron James played while Luka was out")
+    response = client.post("/api/agent/ask", json=request)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tables"]
+    assert payload["research_scope"]["pair_id"] == "lebron-luka"
+    assert payload["research_scope"]["end"] == "2026-05-11"
+    stream = client.post("/api/agent/ask/stream", json=request)
+    assert stream.status_code == 200
+    events = [
+        json.loads(line[6:])
+        for line in stream.text.splitlines()
+        if line.startswith("data: ")
+    ]
+    assert any(
+        e.get("tables") == payload["tables"]
+        or e.get("payload", {}).get("tables") == payload["tables"]
+        for e in events
+    )
+    assert planner.calls == 0

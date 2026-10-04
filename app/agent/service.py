@@ -1537,7 +1537,11 @@ class StatsAgent:
                 and recent[-1].context.get("research_scope")
                 and wants_research_followup(cleaned_question)
             )
-        from app.agent.teammate_ask import answer_study, wants_study
+        from app.agent.teammate_ask import (
+            answer_study,
+            legacy_study_has_replacement,
+            wants_study,
+        )
 
         study_followup = False
         if conversation_id and self.conversation_store:
@@ -1555,13 +1559,16 @@ class StatsAgent:
             wants_study(cleaned_question, self.settings.agent_teammate_study_path)
             or study_followup
         )
-        # Preserve published v1 studies until a replacement catalog is configured.
+        # Preserve published v1 studies until their pair has a replacement.
         # Never use this compatibility route to replace an active research scope.
         use_legacy_study = (
             bool(self.settings.agent_teammate_study_path)
-            and not self.settings.research_studies_path
             and legacy_study_requested
             and not research_followup
+            and not legacy_study_has_replacement(
+                self.settings.agent_teammate_study_path,
+                self.settings.research_studies_path,
+            )
         )
         if (
             wants_research(cleaned_question) or research_followup
