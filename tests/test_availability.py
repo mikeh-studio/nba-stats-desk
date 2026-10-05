@@ -758,3 +758,168 @@ def test_participation_snapshot_rejects_conflicting_minutes(bundle):
     ]
     with pytest.raises(ValueError, match="disagree"):
         prepare_availability(doc)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Find out Nikola Jokic's points per game this season",
+        "Figure out Avery Finch's assists",
+        "Check out Blake Reed's rebounds",
+    ],
+)
+def test_informational_out_idioms_are_not_availability(question):
+    assert not wants_availability(question)
+
+
+def test_count_detector_preserves_rankings_and_minimum_games():
+    from app.agent.appearance_ask import wants_appearances
+
+    assert not wants_appearances(
+        "Who leads the league in points per game among players with at least 50 games played?"
+    )
+    assert not wants_appearances(
+        "Rank Avery Finch by points with at least 50 games played"
+    )
+    assert wants_appearances("How many games did each player play?")
+
+
+def test_phase_coverage_is_disclosed_and_explicit_missing_phase_refused(bundle):
+    loaded = load_availability(str(bundle[0]))
+    result = compare_availability(loaded, request(loaded))
+    payload = render_answer(result, source_players(loaded[1]))
+    assert result["covered_phases"] == ["Regular Season"]
+    assert result["missing_phases"] == ["Playoffs"]
+    assert "Playoffs are not covered" in payload["answer"]
+    assert "regular season and playoffs" not in payload["answer"]
+    assert "Playoffs are not covered" in payload["charts"][0]["description"]
+    assert payload["conversation_context"]["scope"]["phases"] == ["Regular Season"]
+    explicit = request(
+        loaded,
+        "How did Avery Finch play without Blake Reed in both regular season and playoffs?",
+    )
+    with pytest.raises(SemanticError, match="every explicitly requested"):
+        compare_availability(loaded, explicit)
+
+
+def test_zero_minutes_provenance_points_to_stats_not_unrelated_report(bundle):
+    loaded = deepcopy(load_availability(str(bundle[0])))
+    loaded[4][("2025-26", "g7", 822)]["min"] = 0
+    result = compare_availability(loaded, request(loaded))
+    game = next(g for g in result["groups"]["did_not_play"] if g["game_id"] == "g7")
+    assert game["source_urls"] == []
+    assert game["classification_basis"] == "stats_zero_minutes"
+    assert game["classification_evidence"] == dict(
+        snapshot_id=loaded[1].snapshot_id, season="2025-26", game_id="g7", player_id=822
+    )
+    reported = next(g for g in result["groups"]["did_not_play"] if g["game_id"] == "g2")
+    assert reported["classification_basis"] == "out_report"
+    assert reported["source_urls"] == ["https://example.com/reports/g2"]
+
+
+@pytest.mark.parametrize("explicit_dates", [False, True])
+def test_count_followup_preserves_historical_season(
+    bundle, monkeypatch, tmp_path, explicit_dates
+):
+    doc = deepcopy(bundle[1])
+    for row in (
+        doc["stats"]["rows"] + doc["stats"]["coverage"] + doc["games"] + doc["reports"]
+    ):
+        for key, value in list(row.items()):
+            if isinstance(value, str):
+                row[key] = value.replace("2025", "2024").replace("2024-26", "2024-25")
+    doc["stats"]["sha256"] = snapshot_digest(doc["stats"])
+    doc.pop("sha256")
+    doc["sha256"] = digest(doc)
+    path = tmp_path / "historical.json"
+    append_snapshot(path, doc)
+    settings = _test_settings(
+        openai_api_key="test-key",
+        research_availability_path=str(path),
+        agent_rate_limit_per_minute=0,
+        agent_rate_limit_daily=0,
+    )
+    store = InMemoryConversationStore()
+    monkeypatch.setattr(main, "_season_conversation_store", lambda season: store)
+    planner = Client({})
+    client = build_client(settings=settings, agent_client=planner)
+    try:
+        q = "How did Avery Finch play without Blake Reed in 2024-25 regular season"
+        if explicit_dates:
+            q += " from 2024-11-01 through 2024-11-04"
+        first = client.post(
+            "/api/agent/ask", json=dict(question=q, conversation_id="historical")
+        ).json()
+        assert first["status"] == "ok", first
+        follow = client.post(
+            "/api/agent/ask",
+            json=dict(
+                question="How many games did each player play?",
+                conversation_id="historical",
+            ),
+        ).json()
+        assert follow["status"] == "ok", follow
+        assert follow["appearance_evidence"][0]["scope"]["season"] == "2024-25"
+        assert follow["tables"][0]["rows"] == [
+            ["Avery Finch", 4 if explicit_dates else 8],
+            ["Blake Reed", 2 if explicit_dates else 4],
+        ]
+        assert planner.calls == 0
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Find out Nikola Jokic's points per game this season",
+        "Who leads the league in points per game among players with at least 50 games played?",
+    ],
+)
+def test_ordinary_questions_reach_governed_stats_route(bundle, question):
+    from types import SimpleNamespace
+
+    from app.agent.service import StatsAgent
+    from tests.test_api import FakeRepository
+
+    agent = StatsAgent(
+        settings=_test_settings(
+            openai_api_key="test-key", research_availability_path=str(bundle[0])
+        ),
+        repo=FakeRepository(),
+        client=Client({}),
+    )
+    agent.semantic_agent = SimpleNamespace(
+        answer=lambda q, **kwargs: {"route": "governed", "question": q}
+    )
+    assert agent._answer(question) == {"route": "governed", "question": question}
+
+
+def test_research_followup_keeps_research_route(bundle, monkeypatch):
+    from app.agent import research_ask
+    from app.agent.service import StatsAgent
+    from tests.test_api import FakeRepository
+
+    store = InMemoryConversationStore()
+    store.append_turn(
+        "research",
+        question="Research comparison",
+        answer="ok",
+        context={"research_scope": {"season": "2025-26"}},
+        max_turns=6,
+    )
+    agent = StatsAgent(
+        settings=_test_settings(
+            openai_api_key="test-key", research_availability_path=str(bundle[0])
+        ),
+        repo=FakeRepository(),
+        client=Client({}),
+        conversation_store=store,
+    )
+    monkeypatch.setattr(
+        research_ask, "answer_research", lambda *args, **kwargs: {"route": "research"}
+    )
+    assert agent._answer(
+        "What about the same players without their teammate?",
+        conversation_id="research",
+    ) == {"route": "research"}

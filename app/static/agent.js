@@ -140,7 +140,8 @@ function closeConversationTab(id) {
   } else renderTabs();
   document.querySelector('[data-chat-tabs] [aria-selected="true"]')?.focus();
 }
-function showHistory(show = true) {
+function showHistory(show = true, restore = true) {
+  const returning = historyVisible && !show;
   if (show) rememberDraft();
   historyVisible = show;
   const history = document.querySelector("[data-chat-history]");
@@ -153,6 +154,7 @@ function showHistory(show = true) {
     loadServerHistory(true);
     document.querySelector("[data-history-search]")?.focus();
   }
+  if (returning && restore && activeConversationId) return restoreConversation(activeConversationId);
 }
 
 function looksLikeMarkdownTableLine(line) {
@@ -1266,7 +1268,7 @@ function normalizeHistoryState(value) {
       conversation: normalizeHistoryConversation(conversation),
       index,
     }))
-    .filter((item) => item.conversation)
+    .filter((item) => item.conversation?.turns.length)
     .sort((a, b) => {
       const delta =
         Date.parse(b.conversation.updated_at) -
@@ -1489,10 +1491,7 @@ function appendRestoredTurn(turn, isLatest) {
 
 async function restoreConversation(conversationId) {
   const navigation = ++navigationGeneration;
-  if (!historyState.conversations.some((c) => c.id === conversationId) && tabState.drafts[conversationId]) {
-    saveHistoryState(mergeHistoryConversations([{id: conversationId, title: "New question", turns: []}]));
-  }
-  if (!historyState.conversations.some((c) => c.id === conversationId)) {
+  if (!historyState.conversations.some((c) => c.id === conversationId) && !tabState.drafts[conversationId]) {
     try {
       const response = await seasonFetch(
         `/api/agent/history?conversation_id=${encodeURIComponent(conversationId)}`,
@@ -1511,7 +1510,7 @@ async function restoreConversation(conversationId) {
   if (navigation !== navigationGeneration) return;
   const conversation = historyState.conversations.find(
     (item) => item.id === conversationId,
-  );
+  ) || (tabState.drafts[conversationId] ? {id: conversationId, turns: []} : null);
   if (!conversation) return;
   rememberDraft();
   const empty = document.querySelector("[data-agent-empty]");
@@ -1544,7 +1543,7 @@ async function restoreConversation(conversationId) {
   if (statusEl) statusEl.textContent = runtimeFor().inFlight ? "Thinking" : "Restored";
   if (statusEl) statusEl.hidden = true;
   tabState = openTab(tabState, conversationId);
-  showHistory(false);
+  showHistory(false, false);
   restoreDraft();
   saveTabs();
   renderTabs();
@@ -1561,7 +1560,6 @@ function startNewChat() {
   activeConversationId = newConversationId();
   tabState = openTab(tabState, activeConversationId);
   tabState.drafts[activeConversationId] = {question: "", followup: ""};
-  saveHistoryState(mergeHistoryConversations([{id: activeConversationId, title: "New question", turns: []}]));
   setBusy(false);
   runtimeFor().lastQuestion = "";
   runtimeFor().currentAnswerEl = null;
@@ -1575,7 +1573,7 @@ function startNewChat() {
   );
   if (statusEl) statusEl.textContent = "Ready";
   if (statusEl) statusEl.hidden = true;
-  showHistory(false);
+  showHistory(false, false);
   restoreDraft();
   saveTabs();
   renderTabs();
@@ -2168,6 +2166,7 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     renderOverviewTable,
     closeConversationTab,
     startNewChat,
+    showHistory,
     renderTabs,
     getNavigation: () => ({ ...tabState, activeConversationId }),
   };

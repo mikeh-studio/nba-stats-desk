@@ -92,3 +92,10 @@ Both participating players are checked, and every scoped record is reconciled
 once. Zero-minute verified membership and final DNP evidence can establish
 non-participation; null/missing minutes cannot. See the Ask guide for adjustable
 thresholds, inclusion overrides, source verification, and policy versioning.
+
+Explicit phase requests require source coverage for every requested phase.
+Default availability comparisons may use the available phase only when the
+answer and chart label it and disclose missing phases; follow-up scope carries
+the covered phases. Classification provenance identifies either the supporting
+statistics snapshot/game/player key or the actual final-box-score/Out-report
+source. Injury bulletins are not evidence for statistics-based classifications.

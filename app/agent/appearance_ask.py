@@ -13,7 +13,7 @@ from app.availability import load_availability
 def wants_appearances(question):
     return bool(
         re.search(
-            r"\bhow many (?:games|appearances)\b|\bgames (?:played|did .* play)\b",
+            r"\bhow many (?:games|appearances)\b|^(?:show|tell me|what (?:is|are))\s+(?:the\s+)?(?:number of games|games played|appearance counts?)\b",
             question,
             re.I,
         )
@@ -24,8 +24,23 @@ def answer_appearances(agent, question, context, conversation_id, trace=None):
     if trace:
         trace.route = "appearances"
     try:
-        resolved, _ = resolve_followup(question, context)
-        seasons = requested_seasons(resolved, agent.settings.season)
+        resolved, inherited = resolve_followup(question, context)
+        prior_season = (
+            context.get("scope", {}).get("season")
+            or context.get("availability_scope", {}).get("season")
+            or agent.settings.season
+        )
+        # Explicit relative periods refer to the selected season, not an old chat.
+        default_season = (
+            agent.settings.season
+            if re.search(
+                r"\b(?:this|current|last|previous|prior) season\b", question, re.I
+            )
+            else prior_season
+        )
+        seasons = inherited.get("seasons") or requested_seasons(
+            resolved, default_season
+        )
         if len(seasons) != 1:
             raise SemanticError(
                 "unsupported_scope", "Choose one season for games played."

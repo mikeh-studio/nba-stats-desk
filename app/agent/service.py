@@ -1529,7 +1529,7 @@ class StatsAgent:
             availability_followup,
             wants_availability,
         )
-        from app.agent.research_ask import mentioned_pairs
+        from app.agent.research_ask import mentioned_pairs, wants_research_followup
         from app.agent.teammate_ask import wants_study
 
         context = {}
@@ -1562,6 +1562,10 @@ class StatsAgent:
             )
         if availability_context or (
             wants_availability(cleaned_question)
+            and not (
+                context.get("research_scope")
+                and wants_research_followup(cleaned_question)
+            )
             and (
                 self.settings.research_availability_path
                 or (

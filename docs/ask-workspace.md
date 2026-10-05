@@ -258,6 +258,26 @@ and unfinished games remain excluded. Neither absence nor low minutes establishe
 injury causation. The prior `reported_out` evidence group becomes `did_not_play`;
 old saved answers are explicitly marked as using earlier rules, not recalculated.
 
+Each classification records its basis: positive/zero-minute statistics identify
+the statistics snapshot and season/game/player key; final box scores and Out
+reports retain their respective supporting URLs. A statistics-based DNP does not
+cite an unrelated injury bulletin as its classification evidence.
+
+Default comparisons label the phases actually covered by the source and disclose
+any missing phase in the answer and chart. An explicitly requested uncovered
+phase is refused. Follow-up context uses the covered phases, and games-played
+follow-ups retain the prior season unless the new question explicitly changes it.
+Displayed end dates do not extend beyond the observed source records.
+
+Informational phrases such as “find out” do not trigger availability analysis.
+Minimum-games rankings remain on the governed statistics route; explicit
+appearance-count questions use the count route. Existing research follow-ups
+retain their research scope.
+
+Empty chat drafts live in tab state and do not consume the saved-history limit.
+Returning from history restores the active chat, including answers completed
+while the history panel was open, and synchronizes the submission controls.
+
 By default, exclude an appearance when the focal player, or the teammate when
 both played, has minutes **strictly below 50%** of their own median over the
 previous ten positive-minute final appearances that season. At least five prior

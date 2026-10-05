@@ -71,7 +71,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261004-participation-v3"
+STATIC_VERSION = "20261004-review-fixes-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -129,6 +129,7 @@ class PriorAvailability(BaseModel):
     teammate_id: int = Field(ge=1)
     season: str = Field(max_length=7)
     phase: Literal["Regular Season", "Playoffs", "Both"]
+    explicit_phase: bool = False
     start: date | None = None
     end: date | None = None
     home_away: Literal["home", "away"] | None = None

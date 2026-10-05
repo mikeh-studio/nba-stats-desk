@@ -101,8 +101,8 @@ function createDocument(elements = {}) {
     querySelector(selector) {
       return elements[selector] || null;
     },
-    querySelectorAll() {
-      return [];
+    querySelectorAll(selector) {
+      return selector.split(',').map(s => elements[s.trim()]).filter(Boolean);
     },
     createElement(tagName) {
       return new FakeElement(tagName);
@@ -603,7 +603,7 @@ test("late stream results stay in their originating tab and mismatched IDs are r
   const saved = agent.loadHistoryState().conversations.find(c=>c.id===a);
   assert.equal(saved.turns[0].question,"Question A");
   assert.equal(saved.turns[0].payload.answer,"Answer A");
-  assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b).turns.length,0);
+  assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b),undefined);
 });
 
 test("two tab requests finish out of order without changing each other's state", async () => {
@@ -680,4 +680,44 @@ test("game inclusion audit is expandable and escapes source details", async () =
   assert.match(html, /&lt;limited&gt;/);
   assert.match(html, /Every game counted once/);
   assert.match(html, /<\/details>/);
+});
+
+test("history return restores an answer completed while hidden and clears busy controls", async () => {
+  const submit = new FakeElement('button');
+  const elements = {'[data-agent-empty]':new FakeElement(),'[data-agent-answer]':new FakeElement(),'[data-agent-status]':new FakeElement(),'[data-agent-submit]':submit};
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  let finish;
+  globalThis.fetch = async (url, options) => {
+    if (!options?.body) return {ok:true,json:async()=>({conversations:[]})};
+    const body=JSON.parse(options.body);
+    return new Promise(resolve=>{finish=()=>resolve({ok:true,body:new ReadableStream({start(controller){
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{conversation_id:body.conversation_id,status:'ok',answer:'Completed while hidden'}})}\n\n`));
+      controller.close();
+    }})});});
+  };
+  const task=agent.askQuestion('An analysis');
+  agent.showHistory(true);
+  finish(); await task;
+  assert.equal(submit.disabled,true);
+  await agent.showHistory(false);
+  assert.equal(submit.disabled,false);
+  assert.equal(submit.textContent,'Ask');
+  assert.match(elements['[data-agent-answer]'].children[0].querySelector('.agent-turn-answer').innerHTML,/Completed while hidden/);
+});
+
+test("blank tabs cannot evict answered chats from the capped history", async () => {
+  const storage=createStorage();
+  const elements={'[data-agent-empty]':new FakeElement(),'[data-agent-answer]':new FakeElement()};
+  const agent=await loadAgentModule({storage,elements});
+  agent.startNewChat();
+  const id=agent.getNavigation().activeConversationId;
+  agent.persistHistoryTurn('Keep this answer',{conversation_id:id,status:'ok',answer:'Evidence'});
+  for(let i=0;i<35;i++) agent.startNewChat();
+  const saved=agent.loadHistoryState().conversations;
+  assert.equal(saved.length,1);
+  assert.equal(saved[0].id,id);
+  const reloaded=await loadAgentModule({storage,elements});
+  reloaded.initHistory();
+  assert.equal(reloaded.loadHistoryState().conversations[0].turns[0].payload.answer,'Evidence');
 });

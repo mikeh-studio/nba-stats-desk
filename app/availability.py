@@ -90,6 +90,23 @@ def compare_availability(loaded, request):
     focal, teammate = request["player_id"], request["teammate_id"]
     if focal == teammate:
         raise SemanticError("invalid_scope", "Choose two different players.")
+    phases = (
+        ["Regular Season", "Playoffs"]
+        if request["phase"] == "Both"
+        else [request["phase"]]
+    )
+    covered_phases = [
+        p
+        for p in phases
+        if (request["season"], p) in evidence.covered_scopes
+        and (request["season"], p) in evidence.data_through
+    ]
+    missing_phases = [p for p in phases if p not in covered_phases]
+    if not covered_phases or (missing_phases and request.get("explicit_phase")):
+        raise SemanticError(
+            "unsupported_coverage",
+            "The source does not cover every explicitly requested season phase. No other phase was substituted.",
+        )
     rows = [
         r
         for r in evidence.rows
@@ -213,11 +230,31 @@ def compare_availability(loaded, request):
             reason = "unverified_status_or_membership"
         if group:
             detail["participation"] = group
+            basis = (
+                "stats_positive_minutes"
+                if other and other.get("min") is not None and other["min"] > 0
+                else "stats_zero_minutes"
+                if other and other.get("min") == 0
+                else "final_boxscore"
+                if final
+                else "out_report"
+            )
+            detail["classification_basis"] = basis
+            detail["classification_evidence"] = (
+                dict(
+                    snapshot_id=evidence.snapshot_id,
+                    season=row["season"],
+                    game_id=row["game_id"],
+                    player_id=teammate,
+                )
+                if basis.startswith("stats_")
+                else {}
+            )
             sources[row["game_id"]] = (
                 [final["source_url"]]
-                if final
+                if basis == "final_boxscore"
                 else report["sources"]
-                if group == "did_not_play"
+                if basis == "out_report"
                 else []
             )
             detail["minutes_checks"] = [
@@ -288,6 +325,8 @@ def compare_availability(loaded, request):
     }
     return dict(
         policy_version="availability/2",
+        covered_phases=covered_phases,
+        missing_phases=missing_phases,
         request=request,
         excluded_games=excluded_games,
         policy=dict(

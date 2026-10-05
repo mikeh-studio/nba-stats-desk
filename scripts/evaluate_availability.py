@@ -216,6 +216,8 @@ def main():
                 opponent=None,
             )
             cases.append((q, expected))
+            if "regular season" in q:
+                expected["explicit_phase"] = True
     failures = []
     answered = 0
     withheld = 0

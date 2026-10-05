@@ -167,3 +167,10 @@ insufficient history, no future leakage, and filter context persistence.
 The live `scripts/evaluate_availability.py` oracle uses the same frozen source
 bundle with an independent implementation; it does not establish upstream NBA
 source completeness. Keep downloaded repair sources and failed attempts private.
+
+Review regressions also cover informational “find out” routing, minimum-games
+rankings, research follow-up routing, prior-season appearance counts, explicit
+versus default phase coverage, and classification-specific provenance. Browser
+tests cover returning from history after a hidden completion and preventing
+empty drafts from evicting answered chats. Model PR reviews remain advisory;
+confirm findings against source and regressions before implementing them.

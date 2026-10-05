@@ -46,6 +46,10 @@ METRICS = {
 
 
 def wants_availability(question):
+    # These idioms ask for information; "out" is not a participation condition.
+    question = re.sub(
+        r"\b(?:find|figure|check|work|point|turns?)\s+out\b", "", question, flags=re.I
+    )
     return bool(
         re.search(
             r"\b(?:without|out|absent|absence|sidelined|unavailable|availability|injured|injury)\b|\b(?:did not|didn.t) play\b|\b(?:missed games?|sat out)\b",
@@ -228,6 +232,7 @@ def parse_request(question, players, season, previous=None, teams=()):
             "A phase-versus-phase comparison requires separate analyses; the phases were not pooled.",
         )
     if regular or playoffs:
+        request["explicit_phase"] = True
         request["phase"] = (
             "Both"
             if regular and playoffs
@@ -297,10 +302,22 @@ def render_answer(result, players):
     focal, teammate = (by_id[request[k]] for k in ("player_id", "teammate_id"))
     counts = {k: len(v) for k, v in result["groups"].items()}
     selected = result["metrics"]
+    covered_phases = result["covered_phases"]
+    effective_phase = "Both" if len(covered_phases) == 2 else covered_phases[0]
     phase_label = (
         "regular season and playoffs"
-        if request["phase"] == "Both"
-        else request["phase"].lower()
+        if effective_phase == "Both"
+        else effective_phase.lower()
+    )
+    coverage_note = (
+        " "
+        + ", ".join(result["missing_phases"])
+        + " are not covered by this source; only the labeled phase is included."
+        if result["missing_phases"]
+        else ""
+    )
+    display_end = min(
+        request["end"] or result["source_through"], result["source_through"]
     )
 
     def display(value):
@@ -345,7 +362,7 @@ def render_answer(result, players):
                     title=f"{focal['player_name']} · {label}",
                     x_label="Teammate status",
                     y_label=f"{label} ({unit})",
-                    description=f"{focal['player_name']}; {request['season']} {phase_label}; {request['start'] or 'season start'} through {request['end'] or result['source_through']}. Verified non-participation versus both played; not shared court time or a causal effect.",
+                    description=f"{focal['player_name']}; {request['season']} {phase_label}; {request['start'] or 'season start'} through {display_end}. Verified non-participation versus both played; not shared court time or a causal effect.{coverage_note}",
                     series=[
                         dict(
                             key=metric["metric"],
@@ -369,7 +386,8 @@ def render_answer(result, players):
     scope = {
         **request,
         "start": request["start"] or result["observed_start"],
-        "end": request["end"] or result["source_through"],
+        "end": display_end,
+        "phase": effective_phase,
     }
     qualifier = ", ".join(
         filter(None, [request.get("home_away"), request.get("opponent")])
@@ -389,6 +407,7 @@ def render_answer(result, players):
         + "."
     )
     missing = sum(result["excluded"].values())
+    answer += coverage_note
     if missing:
         answer += (
             f" {missing} other focal appearances were excluded: "
@@ -506,7 +525,7 @@ def render_answer(result, players):
                 season=request["season"],
                 start=request["start"],
                 end=request["end"],
-                phases=[request["phase"]],
+                phases=covered_phases,
             ),
             metrics=request["metrics"],
             availability_scope=request,
