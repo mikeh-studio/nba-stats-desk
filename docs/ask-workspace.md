@@ -169,6 +169,8 @@ and uses the first evidence-ranked candidate without failing the answer.
 Charts include their units, scope, a short description, and an explanation of the
 chart choice. Hover, tap, and keyboard focus expose value/sample details. Bar scales
 include zero and preserve negative values; missing values are never zero-filled.
+Long category labels wrap without truncating player names or availability status,
+and chart rows grow to keep labels separate at desktop and narrow widths.
 Unsupported answers and evidence without a suitable chart remain text/table-only.
 Existing specialized player overview/comparison charts retain their own rendering.
 

@@ -459,6 +459,36 @@ test("bar charts preserve negative values and expose accessible hover details", 
   assert.match(html, /agent-tooltip/);
 });
 
+test("chart labels wrap by rendered width without losing names or status", async () => {
+  const agent = await loadAgentModule();
+  const measure = (text) => Array.from(text).reduce((width, char) => width + (char === "W" ? 18 : 9), 0);
+  for (const label of ["Draymond Green reported Out", "Kentavious Caldwell-Pope reported Out", "WWWWWWWWWWWWWWWWWWWW", "Nikola Jokić reported Out"]) {
+    const lines = agent.wrapChartLabel(label, 160, measure);
+    assert.ok(lines.length > 1);
+    assert.ok(lines.every((line) => measure(line) <= 160));
+    assert.equal(lines.join("").replaceAll(" ", ""), label.replaceAll(" ", ""));
+  }
+  assert.deepEqual(agent.wrapChartLabel("Both played", 160, measure), ["Both played"]);
+});
+
+test("wrapped bar labels stay within their own rows and preserve accessible attribution", async () => {
+  const agent = await loadAgentModule();
+  const name = "Kentavious Caldwell-Pope reported Out";
+  const html = agent.renderBarChart({series: [{points: [
+    {x: name, y: 39}, {x: "Both played", y: 26.4}, {x: "<unsafe> & status", y: 0},
+  ]}]});
+  const rows = [...html.matchAll(/<rect x="0" y="([\d.]+)" width="760" height="([\d.]+)" fill="transparent" \/>\s*<text class="agent-point-label"[^>]*>(.*?)<\/text>/gs)];
+  assert.equal(rows.length, 3);
+  for (const [, start, height, label] of rows) {
+    const baselines = [...label.matchAll(/<tspan x="[\d.]+" y="([\d.]+)">/g)].map((m) => Number(m[1]));
+    assert.ok(baselines.length > 0);
+    assert.ok(baselines.every((y) => y - 18 >= Number(start) && y + 4 <= Number(start) + Number(height)));
+  }
+  assert.ok(Number(rows[0][2]) > Number(rows[1][2]));
+  assert.match(html, new RegExp(`aria-label="${name}: 39`));
+  assert.doesNotMatch(html, /<unsafe>/);
+});
+
 test("Source & Coverage follows the selected answer and clears on reset", async () => {
   const panel = new FakeElement();
   const context = new FakeElement();
