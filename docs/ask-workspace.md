@@ -285,3 +285,24 @@ unique keys and schedule alignment. Reads are size-bounded and cached by immutab
 file identity; source artifacts and local configuration stay out of Git. Updating
 underlying data requires publishing a new validated bundle and connecting it;
 merging application code does not automatically refresh evidence.
+
+### Metric naming and sample counts
+
+Use the shared presentation helpers in `app/agent/metric_presentation.py` for new
+metrics and renderers. Availability tables label sample completeness **Games with
+data — both played** and **Games with data — teammate reported Out**, formatted
+as **39 of 39**. Single-group tables use **Games in scope** and **Games with data**.
+The table description explains the numerator and denominator. These labels mean
+complete required inputs for that stat; they do not imply an entire season, an
+absence caused by injury, or a calculable rate when attempts/minutes are zero.
+Saved availability tables receive the same presentation without rewriting evidence.
+
+When adding a metric, provide a readable name (familiar basketball abbreviations
+such as PTS are acceptable), its unit and aggregation, explicit comparison groups
+and difference direction, and a definition of any sample count. Avoid internal
+terms such as "valid/observed" in user-facing labels. Keep completeness per metric;
+never substitute the group size for games with complete inputs. Render missing
+values as unavailable, retaining zero as zero. Include a partial-data case in the
+metric's validation and check the populated table and chart at a narrow viewport.
+Presentation helpers apply to all selected metrics, so new metrics inherit these
+coverage labels without player-specific or metric-specific copy.

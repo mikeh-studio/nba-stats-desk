@@ -347,8 +347,21 @@ function referenceTable(table, payload) {
 }
 
 function renderTable(table) {
-  const columns = asArray(table.columns);
+  // Presentation-only compatibility for saved answers; never change evidence.
+  const legacyCoverageLabels = {
+    "Both valid/observed": "Games with data — both played",
+    "Out valid/observed": "Games with data — teammate reported Out",
+  };
+  const originalColumns = asArray(table.columns);
+  const legacyCoverage = originalColumns.map((column) => Object.hasOwn(legacyCoverageLabels, column.label));
+  const columns = originalColumns.map((column, index) => ({
+    ...column,
+    label: legacyCoverage[index] ? legacyCoverageLabels[column.label] : column.label,
+  }));
   const rows = asArray(table.rows);
+  const description = table.description || (legacyCoverage.some(Boolean)
+    ? "Games with data counts games with all the information needed for a stat, out of all games in that group. Counts can differ by stat. Complete data can still yield an unavailable rate when its denominator is zero."
+    : "");
   return `
     <section class="stack">
       <h3>${escHtml(table.title || "Table")}</h3>
@@ -364,13 +377,19 @@ function renderTable(table) {
                   `<tr${index === table.reference_row_index ? ' class="reference-player-row"' : ""}>${asArray(
                     row,
                   )
-                    .map((value) => `<td>${escHtml(value)}</td>`)
+                    .map((value, columnIndex) => {
+                      const display = legacyCoverage[columnIndex]
+                        ? String(value).replace(/^(\d+)\/(\d+)$/, "$1 of $2")
+                        : value;
+                      return `<td>${escHtml(display)}</td>`;
+                    })
                     .join("")}</tr>`,
               )
               .join("")}
           </tbody>
         </table>
       </div>
+      ${description ? `<p class="meta">${escHtml(description)}</p>` : ""}
     </section>
   `;
 }

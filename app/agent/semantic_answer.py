@@ -9,6 +9,12 @@ from typing import Any
 
 from app.agent.followup import analysis_context, resolve_followup
 from app.agent.history import saved_context_question
+from app.agent.metric_presentation import (
+    GAME_COVERAGE_NOTE,
+    GAMES_IN_SCOPE,
+    GAMES_WITH_DATA,
+    game_coverage,
+)
 from app.agent.performance_overview import (
     build_overview,
     identity_profile,
@@ -355,7 +361,7 @@ def render_answer(
             )
             if len(section["rows"]) == 1:
                 statements.append(
-                    f"{title}: {name} — {metric['label']} {value} ({scope['aggregation']}, {row['valid_games']} valid / {row['observed_games']} observed games)."
+                    f"{title}: {name} — {metric['label']} {value} ({scope['aggregation']}, {game_coverage(row['valid_games'], row['observed_games'])} games with data)."
                 )
             if row["sample_warning"]:
                 payload["assumptions"].append(f"{name}: {row['sample_warning']}")
@@ -379,13 +385,14 @@ def render_answer(
                     for k, label in (
                         ("player", "Player"),
                         ("value", "Value"),
-                        ("observed", "Observed games"),
-                        ("valid", "Valid games"),
+                        ("observed", GAMES_IN_SCOPE),
+                        ("valid", GAMES_WITH_DATA),
                         ("rank", "Rank"),
                         ("percentile", "Percentile"),
                     )
                 ],
                 "rows": table_rows,
+                "description": GAME_COVERAGE_NOTE,
             }
         )
         if not table_rows:

@@ -147,6 +147,24 @@ test("reference row supports text-only emphasis without changing the league rank
   assert.doesNotMatch(html, /reference-player-label/);
 });
 
+test("saved sample counts get clear labels without changing evidence or unrelated fractions", async () => {
+  const agent = await loadAgentModule();
+  const table = {
+    columns: [{ label: "Makes/attempts" }, { label: "Both valid/observed" }, { label: "Out valid/observed" }],
+    rows: [["1/2", "0/2", "1/2"]],
+  };
+  const before = JSON.stringify(table);
+  const html = agent.renderTable(table);
+  assert.match(html, /Games with data — both played/);
+  assert.match(html, /Games with data — teammate reported Out/);
+  assert.match(html, /<td>1\/2<\/td><td>0 of 2<\/td><td>1 of 2<\/td>/);
+  assert.match(html, /Counts can differ by stat/);
+  assert.equal(JSON.stringify(table), before);
+  const withDescription = agent.renderTable({ ...table, description: "<script>alert(1)</script>" });
+  assert.match(withDescription, /&lt;script&gt;/);
+  assert.doesNotMatch(withDescription, /<script>/);
+});
+
 test("study cards retain their scoped identity and clear on a refusal", async () => {
   const elements = Object.fromEntries([
     "[data-agent-table-card]", "[data-agent-tables]",

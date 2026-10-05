@@ -278,9 +278,17 @@ def test_missing_component_withholds_difference(bundle):
     assert m["groups"]["reported_out"]["valid_games"] == 1
     assert m["groups"]["reported_out"]["missing_component_games"] == 1
     assert m["difference"] is None
-    assert (
-        "missing components" in render_answer(result, source_players(copy[1]))["answer"]
-    )
+    payload = render_answer(result, source_players(copy[1]))
+    assert "missing components" in payload["answer"]
+    table = payload["tables"][0]
+    assert [c["label"] for c in table["columns"]][-2:] == [
+        "Games with data — both played",
+        "Games with data — teammate reported Out",
+    ]
+    # Sample completeness must remain per-stat, not the group size copied to every row.
+    assert table["rows"][0][-2:] == ["2 of 2", "1 of 2"]
+    assert table["rows"][0][3] == "unavailable"
+    assert "Counts can differ by stat" in table["description"]
 
 
 def test_alias_roles_and_ambiguity_are_data_driven(bundle):

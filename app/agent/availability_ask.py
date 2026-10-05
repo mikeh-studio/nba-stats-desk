@@ -10,6 +10,11 @@ import logging
 import re
 
 from app.agent.followup import analysis_context
+from app.agent.metric_presentation import (
+    GAME_COVERAGE_NOTE,
+    game_coverage,
+    game_coverage_label,
+)
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.research_ask import refusal
 from app.agent.semantic_serving import requested_seasons, source_players
@@ -311,8 +316,8 @@ def render_answer(result, players):
                 display(b["display_value"]),
                 display(metric["difference"]),
                 ("% (values); percentage points (difference)" if unit == "%" else unit),
-                f"{a['valid_games']}/{a['observed_games']}",
-                f"{b['valid_games']}/{b['observed_games']}",
+                game_coverage(a["valid_games"], a["observed_games"]),
+                game_coverage(b["valid_games"], b["observed_games"]),
             ]
         )
         if all(
@@ -333,12 +338,12 @@ def render_answer(result, players):
                                 dict(
                                     x="Both played",
                                     y=a["display_value"],
-                                    meta=f"{a['valid_games']} valid games",
+                                    meta=f"{game_coverage(a['valid_games'], a['observed_games'])} games with data",
                                 ),
                                 dict(
                                     x=f"{teammate['player_name']} reported Out",
                                     y=b["display_value"],
-                                    meta=f"{b['valid_games']} valid games",
+                                    meta=f"{game_coverage(b['valid_games'], b['observed_games'])} games with data",
                                 ),
                             ],
                         )
@@ -378,7 +383,7 @@ def render_answer(result, players):
     if any(
         g["missing_component_games"] for m in selected for g in m["groups"].values()
     ):
-        answer += "\n\nSome statistics have missing components. The table shows valid/observed games for each metric; incomplete differences are withheld."
+        answer += "\n\nSome statistics have missing components. The table shows games with data for each stat; incomplete differences are withheld."
     answer += "\n\nThese are observed differences, not evidence that the absence caused them. Out does not establish an injury cause."
     public = {k: v for k, v in result.items() if k != "rows"}
     return dict(
@@ -396,12 +401,13 @@ def render_answer(result, players):
                             f"{teammate['player_name']} reported Out",
                             "Difference (Out − both)",
                             "Unit",
-                            "Both valid/observed",
-                            "Out valid/observed",
+                            game_coverage_label("both played"),
+                            game_coverage_label("teammate reported Out"),
                         ]
                     )
                 ],
                 rows=rows,
+                description=GAME_COVERAGE_NOTE,
             )
         ],
         charts=charts[:1],
