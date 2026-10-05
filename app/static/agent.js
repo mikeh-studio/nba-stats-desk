@@ -364,7 +364,7 @@ function renderTable(table) {
     : "");
   return `
     <section class="stack">
-      <h3>${escHtml(table.title || "Table")}</h3>
+      ${table.collapsible ? `<details><summary>${escHtml(table.title || "Table")}</summary>` : `<h3>${escHtml(table.title || "Table")}</h3>`}
       <div class="table-scroll">
         <table class="data-table compact">
           <thead>
@@ -390,6 +390,7 @@ function renderTable(table) {
         </table>
       </div>
       ${description ? `<p class="meta">${escHtml(description)}</p>` : ""}
+      ${table.collapsible ? "</details>" : ""}
     </section>
   `;
 }
@@ -765,7 +766,7 @@ function renderPlayerProfile(profile) {
   const metaParts = [
     player.team_abbr,
     profile.availability_state,
-    player.games_sampled ? `${player.games_sampled} appearances` : "",
+    profile.sampleLabel || (player.games_sampled ? `${player.games_sampled} appearances` : ""),
     profile.scopeLabel,
   ].filter(Boolean);
   const trend =
@@ -1005,6 +1006,9 @@ function renderAnswerPayload(payload, targetEl) {
   targetEl.innerHTML = overview
     ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p>${escHtml(p)}</p>`).join("")}</div>${overview.insights.length ? `<aside class="takeaways" aria-label="Key takeaways"><h2>Key takeaways</h2>${overview.insights.map((i) => `<section class="takeaway"><img src="/static/icons/${i.icon}.svg" alt="" /><div><h3>${escHtml(i.title)}</h3><p>${escHtml(i.text)}</p></div></section>`).join("")}</aside>` : ""}</div>`
     : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
+  if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
+    targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
+  }
   bindClarifyOptions(targetEl);
 }
 
@@ -1057,7 +1061,7 @@ function renderAuxiliaryPayload(
     const suggestions = document.querySelector("[data-followup-suggestions]");
     if (suggestions) {
       suggestions.innerHTML = asArray(payload.followups)
-        .slice(0, 2)
+        .slice(0, payload.availability_evidence?.policy_version ? 5 : 2)
         .map(
           (text, i) =>
             `<button class="button secondary" type="button" data-agent-example="${escHtml(text)}">${["Review scoring", "Review playmaking"][i]}</button>`,
@@ -1116,7 +1120,7 @@ function renderAuxiliaryPayload(
   const suggestions = document.querySelector("[data-followup-suggestions]");
   if (suggestions) {
     const prompts =
-      overview?.followups || asArray(payload.followups).slice(0, 2);
+      overview?.followups || asArray(payload.followups).slice(0, payload.availability_evidence?.policy_version ? 5 : 2);
     suggestions.innerHTML = prompts
       .map(
         (text, i) =>

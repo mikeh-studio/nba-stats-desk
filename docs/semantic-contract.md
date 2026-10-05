@@ -83,3 +83,12 @@ executed request and per-group game IDs to every metric. A teammate predicate
 cannot be represented by the ordinary `Query` contract and must never be reduced
 to an unfiltered summary. See [dynamic teammate availability](ask-workspace.md#dynamic-teammate-availability)
 for source membership, absence, missingness, rate and attribution rules.
+
+Availability policy `availability/2` uses final positive minutes as participation
+truth. Sample qualification is separate: the default 50% prior-ten median filter
+excludes limited appearances from comparisons, not games-played totals. Five
+prior appearances are required; no baseline uses the current or future game.
+Both participating players are checked, and every scoped record is reconciled
+once. Zero-minute verified membership and final DNP evidence can establish
+non-participation; null/missing minutes cannot. See the Ask guide for adjustable
+thresholds, inclusion overrides, source verification, and policy versioning.

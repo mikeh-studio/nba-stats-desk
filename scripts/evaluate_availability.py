@@ -13,6 +13,7 @@ import time
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
+from statistics import median
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -25,7 +26,34 @@ def oracle(document, request):
     reports = defaultdict(list)
     for r in document["reports"]:
         reports[(r["season"], r["game_date"], r["team_abbr"])].append(r)
-    groups = {"both_played": [], "reported_out": []}
+    groups = {"both_played": [], "did_not_play": []}
+    participation = {
+        (p["season"], p["game_id"], p["player_id"]): p
+        for p in document.get("participation", [])
+    }
+
+    def limited(pid, minutes, current):
+        if request.get("include_limited_minutes", False):
+            return False
+        history = sorted(
+            (
+                x
+                for x in rows
+                if x["player_id"] == pid
+                and x["season"] == current["season"]
+                and x["game_date"] < current["game_date"]
+                and (x.get("min") or 0) > 0
+                and games[(x["season"], x["game_id"], x["team_abbr"])]["final"]
+                and not games[(x["season"], x["game_id"], x["team_abbr"])].get(
+                    "postponed"
+                )
+            ),
+            key=lambda x: (x["game_date"], x["game_id"]),
+        )[-10:]
+        return len(history) >= 5 and minutes < median(
+            x["min"] for x in history
+        ) * request.get("minutes_threshold", 0.5)
+
     for r in rows:
         if r["player_id"] != request["player_id"] or r["season"] != request["season"]:
             continue
@@ -78,12 +106,22 @@ def oracle(document, request):
             == latest
             and x["player_id"] == request["teammate_id"]
         }
-        if len(statuses) > 1 or (other and other.get("min") and statuses == {"Out"}):
+        final = participation.get((r["season"], r["game_id"], request["teammate_id"]))
+        if final and final["team_abbr"] != r["team_abbr"]:
             continue
-        if other and other.get("min"):
-            groups["both_played"].append(r)
-        elif other is None and statuses == {"Out"}:
-            groups["reported_out"].append(r)
+        minutes = other.get("min") if other else None
+        if minutes is None and final:
+            minutes = final["minutes"]
+        group = None
+        if minutes is not None and minutes > 0:
+            group = "both_played"
+        elif minutes == 0 or (not other and not final and statuses == {"Out"}):
+            group = "did_not_play"
+        if group and not limited(request["player_id"], r["min"], r):
+            if group != "both_played" or not limited(
+                request["teammate_id"], minutes, r
+            ):
+                groups[group].append(r)
     return groups
 
 
@@ -119,6 +157,7 @@ def main():
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--url", default="http://127.0.0.1:8017")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--case-indices", type=int, nargs="+")
     args = parser.parse_args()
     if urlparse(args.url).hostname not in ("127.0.0.1", "localhost", "::1"):
         raise ValueError("Loopback only")
@@ -180,7 +219,12 @@ def main():
     failures = []
     answered = 0
     withheld = 0
-    for i, (question, expected) in enumerate(cases):
+    selected_cases = [
+        (i, case)
+        for i, case in enumerate(cases)
+        if args.case_indices is None or i in args.case_indices
+    ]
+    for i, (question, expected) in selected_cases:
         if i:
             time.sleep(5.2)  # Respect the normal local 12/minute limit.
         body = json.dumps(dict(question=question, provider="openai")).encode()
@@ -198,14 +242,22 @@ def main():
         )
         try:
             groups = oracle(doc, expected)
-            if not groups["reported_out"]:
-                assert not payload["tables"] and not payload["charts"], (
-                    "Unavailable sample substituted"
-                )
-                withheld += 1
-                continue
             result = payload["availability_evidence"]
+            assert result["policy_version"] == "availability/2"
+            expected = {
+                "include_limited_minutes": False,
+                "minutes_threshold": 0.5,
+                **expected,
+            }
             assert result["request"] == expected, "Requested scope changed"
+            assert (
+                sum(map(len, result["groups"].values())) + len(result["excluded_games"])
+                == result["scope_appearances"]
+            )
+            if not groups["did_not_play"]:
+                assert not payload["charts"]
+                assert all(m["difference"] is None for m in result["metrics"])
+                withheld += 1
             for group, sample in groups.items():
                 assert {x["game_id"] for x in result["groups"][group]} == {
                     r["game_id"] for r in sample
@@ -215,8 +267,8 @@ def main():
                         game["player_id"] == expected["player_id"]
                         and game["teammate_id"] == expected["teammate_id"]
                     )
-                    if group == "reported_out":
-                        assert game["source_urls"]
+                    if group == "did_not_play":
+                        assert game["source_urls"] or game["teammate_minutes"] == 0
             for m in result["metrics"]:
                 for group, sample in groups.items():
                     value, n, scale = metric_value(
@@ -242,16 +294,16 @@ def main():
             for row, metric in zip(
                 payload["tables"][0]["rows"], result["metrics"], strict=True
             ):
-                for col, group in [(1, "both_played"), (2, "reported_out")]:
+                for col, group in [(1, "both_played"), (2, "did_not_play")]:
                     value, _, scale = metric_value(
                         groups[group], metric["metric"], expected["aggregation"]
                     )
                     assert row[col] == (
                         "unavailable" if value is None else f"{value * scale:.1f}"
                     ), "Rendered table mismatch"
-            for metric in result["metrics"][:3]:
+            for metric in result["metrics"][:3] if groups["did_not_play"] else []:
                 value, _, scale = metric_value(
-                    groups["reported_out"], metric["metric"], expected["aggregation"]
+                    groups["did_not_play"], metric["metric"], expected["aggregation"]
                 )
                 assert (
                     "unavailable" if value is None else f"{value * scale:.1f}"
@@ -267,7 +319,7 @@ def main():
                 )
                 points = payload["charts"][0]["series"][0]["points"]
                 for point, group in zip(
-                    points, ["both_played", "reported_out"], strict=True
+                    points, ["both_played", "did_not_play"], strict=True
                 ):
                     value, _, scale = metric_value(
                         groups[group], metric["metric"], expected["aggregation"]
@@ -275,11 +327,12 @@ def main():
                     assert math.isclose(
                         point["y"], round(value * scale, 1), abs_tol=1e-9
                     ), "Chart attribution mismatch"
-            answered += 1
+            if groups["did_not_play"]:
+                answered += 1
         except (AssertionError, KeyError) as exc:
             failures.append(dict(case=i, error=str(exc)))
     report = dict(
-        total=len(cases),
+        total=len(selected_cases),
         answered=answered,
         correctly_withheld=withheld,
         failures=failures,

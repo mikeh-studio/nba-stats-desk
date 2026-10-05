@@ -71,7 +71,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261004-metric-labels-v1"
+STATIC_VERSION = "20261004-participation-v3"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -135,6 +135,8 @@ class PriorAvailability(BaseModel):
     opponent: str | None = Field(default=None, max_length=3)
     metrics: list[str] = Field(max_length=24)
     aggregation: Literal["average", "total"] = "average"
+    include_limited_minutes: bool = False
+    minutes_threshold: float = Field(default=0.5, gt=0, le=1)
 
 
 class PriorAnalysis(BaseModel):

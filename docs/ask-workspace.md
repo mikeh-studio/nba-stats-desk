@@ -248,16 +248,38 @@ also blocks availability conditions, so a model cannot discard them. The old
 published-study route remains compatibility support when dynamic evidence is not
 configured; it is not a prerequisite when dynamic evidence is available.
 
-“Both played” requires positive-minute same-team appearances. “Reported Out”
-requires an official game-specific pregame team bulletin naming the teammate Out,
-no appearance, and a final scheduled game. The bulletin establishes team
-membership for that date; missing box scores never establish an absence or extend
-membership across a trade. The latest team bulletin wins; omissions, stale/late
-reports, inconsistent statuses, and opposing-team appearances remain excluded.
-An Out listing does not establish injury causation. Answers disclose exclusions
-and small samples. Missing metric components retain valid/observed denominators
-and suppress incomplete differences. Percentages use pooled components; per-36
-uses pooled production and minutes.
+Availability policy `availability/2` classifies final participation before sample
+eligibility. Positive final minutes mean **played**, even when a pregame report
+said Out; the report disagreement remains an audit warning. **Did not play**
+requires a same-team zero-minute/final DNP record or a valid game-specific Out
+report and no appearance. A missing row alone never establishes non-participation
+or team membership. Conflicting membership, unknown minutes, stale/late reports,
+and unfinished games remain excluded. Neither absence nor low minutes establishes
+injury causation. The prior `reported_out` evidence group becomes `did_not_play`;
+old saved answers are explicitly marked as using earlier rules, not recalculated.
+
+By default, exclude an appearance when the focal player, or the teammate when
+both played, has minutes **strictly below 50%** of their own median over the
+previous ten positive-minute final appearances that season. At least five prior
+appearances are required; insufficient baselines stay included and are marked.
+Baseline games precede the evaluated game and ignore comparison date, venue,
+opponent and phase filters. Limited-minute appearances still count in ordinary
+games-played totals and are never reassigned to the absence group.
+
+Follow-ups **Include limited-minute appearances**, **Exclude limited-minute
+appearances**, and **Use a 60% minutes threshold** change this policy within the
+current tab. Thresholds must be above 0% and at most 100%. Options persist through
+follow-ups and restored context. Each answer reconciles all scoped records into
+both included groups and mutually exclusive exclusions. Expand **Game inclusion
+details** for dates, opponents, participation, reasons, actual minutes, prior-game
+baselines and data warnings. Evidence also preserves baseline game IDs. Empty
+comparison groups retain that audit and unavailable values; no substitute sample
+or comparison chart is returned.
+
+Missing metric components retain valid/observed denominators and suppress
+incomplete differences. Percentages use pooled components; per-36 uses pooled
+production and minutes. Statistics, labels and the scoped player card use only
+the included sample, with the full scoped record count disclosed separately.
 
 `availability_evidence` accompanies each response with the exact executed request,
 per-metric component totals/denominators/game IDs, group membership, report URLs,
@@ -290,7 +312,7 @@ merging application code does not automatically refresh evidence.
 
 Use the shared presentation helpers in `app/agent/metric_presentation.py` for new
 metrics and renderers. Availability tables label sample completeness **Games with
-data — both played** and **Games with data — teammate reported Out**, formatted
+data — both played** and **Games with data — teammate did not play**, formatted
 as **39 of 39**. Single-group tables use **Games in scope** and **Games with data**.
 The table description explains the numerator and denominator. These labels mean
 complete required inputs for that stat; they do not imply an entire season, an
@@ -306,3 +328,12 @@ values as unavailable, retaining zero as zero. Include a partial-data case in th
 metric's validation and check the populated table and chart at a narrow viewport.
 Presentation helpers apply to all selected metrics, so new metrics inherit these
 coverage labels without player-specific or metric-specific copy.
+
+Repair older report bundles with `scripts/repair_availability_evidence.py`. It
+reparses official PDFs referenced by inconsistent team/matchup rows, retains raw
+sources and full repair audits, and publishes a new immutable bundle only after
+validation. Optional final box-score capture adds explicit participation records;
+`--reports-only` performs the report repair without claiming that capture.
+`--cached-reports` reuses previously downloaded PDFs. The source builder/loader
+rejects inconsistent report team/matchup records. Connect the new bundle explicitly;
+never overwrite the prior snapshot or silently change historical answers.

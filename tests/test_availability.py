@@ -133,17 +133,16 @@ def test_generated_unregistered_questions(template, bundle):
     assert wants_availability(q)
     result = compare_availability(loaded, request(loaded, q))
     assert {k: [g["game_id"] for g in v] for k, v in result["groups"].items()} == {
-        "both_played": ["g1", "g3"],
-        "reported_out": ["g2", "g4"],
+        "both_played": ["g1", "g3", "g7"],
+        "did_not_play": ["g2", "g4"],
     }
     pts = next(m for m in result["metrics"] if m["metric"] == "pts")
-    assert pts["groups"]["both_played"]["value"] == 15
-    assert pts["groups"]["reported_out"]["value"] == 35
-    assert pts["difference"] == 20
+    assert pts["groups"]["both_played"]["value"] == 43
+    assert pts["groups"]["did_not_play"]["value"] == 35
+    assert pts["difference"] == -8
     assert result["excluded"] == {
         "unverified_status_or_membership": 1,
         "not_teammates": 1,
-        "conflicting_status": 1,
         "unfinished_game": 1,
     }
     payload = render_answer(result, source_players(loaded[1]))
@@ -152,7 +151,7 @@ def test_generated_unregistered_questions(template, bundle):
     for group, sample in result["groups"].items():
         for game in sample:
             assert game["player_id"] == 811 and game["teammate_id"] == 822
-            if group == "reported_out":
+            if group == "did_not_play":
                 assert game["source_urls"]
     assert payload["charts"][0]["series"][0]["points"][1]["y"] == 35
 
@@ -186,18 +185,18 @@ def test_filters_ratios_totals_and_followup_scope(bundle):
     result = compare_availability(loaded, q)
     metric = result["metrics"][0]
     assert metric["groups"]["both_played"]["display_value"] == 10
-    assert metric["groups"]["reported_out"]["display_value"] == 50
+    assert metric["groups"]["did_not_play"]["display_value"] == 50
     assert metric["difference"] == 40
     q = request(
         loaded,
         "Show Avery Finch total points without Blake Reed from 2025-11-02 to 2025-11-04 on the road against BOS",
     )
     result = compare_availability(loaded, q)
-    assert result["metrics"][0]["groups"]["reported_out"]["value"] == 70
+    assert result["metrics"][0]["groups"]["did_not_play"]["value"] == 70
     followup = request(loaded, "What about assists?", q)
     assert followup == {**q, "metrics": ["ast"]}
     assert (
-        compare_availability(loaded, followup)["metrics"][0]["groups"]["reported_out"][
+        compare_availability(loaded, followup)["metrics"][0]["groups"]["did_not_play"][
             "value"
         ]
         == 6
@@ -252,7 +251,7 @@ def test_json_sse_followups_and_no_model_calls(bundle, monkeypatch):
         ).json()
         assert follow["availability_scope"]["metrics"] == ["ast"]
         assert (
-            follow["availability_evidence"]["metrics"][0]["groups"]["reported_out"][
+            follow["availability_evidence"]["metrics"][0]["groups"]["did_not_play"][
                 "value"
             ]
             == 3
@@ -275,18 +274,18 @@ def test_missing_component_withholds_difference(bundle):
             row["pts"] = None
     result = compare_availability(copy, request(copy))
     m = result["metrics"][0]
-    assert m["groups"]["reported_out"]["valid_games"] == 1
-    assert m["groups"]["reported_out"]["missing_component_games"] == 1
+    assert m["groups"]["did_not_play"]["valid_games"] == 1
+    assert m["groups"]["did_not_play"]["missing_component_games"] == 1
     assert m["difference"] is None
     payload = render_answer(result, source_players(copy[1]))
     assert "missing components" in payload["answer"]
     table = payload["tables"][0]
     assert [c["label"] for c in table["columns"]][-2:] == [
         "Games with data — both played",
-        "Games with data — teammate reported Out",
+        "Games with data — teammate did not play",
     ]
     # Sample completeness must remain per-stat, not the group size copied to every row.
-    assert table["rows"][0][-2:] == ["2 of 2", "1 of 2"]
+    assert table["rows"][0][-2:] == ["3 of 3", "1 of 2"]
     assert table["rows"][0][3] == "unavailable"
     assert "Counts can differ by stat" in table["description"]
 
@@ -301,8 +300,7 @@ def test_alias_roles_and_ambiguity_are_data_driven(bundle):
         "How did Blake Reed play when Avery Finch was out?", players, "2025-26"
     )
     assert (reverse["player_id"], reverse["teammate_id"]) == (822, 811)
-    with pytest.raises(SemanticError):
-        compare_availability(loaded, reverse)
+    assert compare_availability(loaded, reverse)["groups"]["did_not_play"] == []
     players.append(dict(player_id=833, player_name="Blake Swift", aliases=[]))
     with pytest.raises(SemanticError, match="full names"):
         parse_request(
@@ -347,8 +345,12 @@ def test_late_reports_and_bulletin_omissions_do_not_prove_absence(bundle):
     )
     key4 = ("2025-26", "2025-11-04", "ATL")
     reports[key4][0]["report_timestamp_utc"] = "2025-11-04T21:00:00Z"
-    with pytest.raises(SemanticError, match="No games meet"):
-        compare_availability(loaded, request(loaded))
+    result = compare_availability(loaded, request(loaded))
+    assert result["groups"]["did_not_play"] == []
+    assert all(m["difference"] is None for m in result["metrics"])
+    payload = render_answer(result, source_players(loaded[1]))
+    assert not payload["charts"]
+    assert "Avery Finch" in payload["answer"] and "Blake Reed" in payload["answer"]
 
 
 @pytest.mark.parametrize(
@@ -559,3 +561,200 @@ def test_games_played_uses_unique_appearances_not_box_score_completeness(bundle)
     evidence.rows.append(dict(evidence.rows[0]))
     with pytest.raises(SemanticError):
         run_query(evidence, query)
+
+
+def with_baseline(bundle):
+    """Ten earlier appearances outside the requested comparison dates."""
+    loaded = deepcopy(load_availability(str(bundle[0])))
+    doc, evidence, games, reports, index = loaded
+    for day in range(1, 11):
+        for pid in (811, 822):
+            row = {
+                **evidence.rows[0],
+                "game_id": f"prior{day}",
+                "game_date": f"2025-10-{day:02}",
+                "player_id": pid,
+                "player_name": "Avery Finch" if pid == 811 else "Blake Reed",
+                "min": 30,
+            }
+            evidence.rows.append(row)
+            index[(row["season"], row["game_id"], pid)] = row
+            games[(row["season"], row["game_id"], "ATL")] = {
+                **games[("2025-26", "g1", "ATL")],
+                "game_id": row["game_id"],
+                "game_date": row["game_date"],
+                "scheduled_start_utc": row["game_date"] + "T20:00:00Z",
+            }
+    return loaded
+
+
+def test_final_minutes_override_out_report_and_reconcile(bundle):
+    loaded = load_availability(str(bundle[0]))
+    result = compare_availability(loaded, request(loaded))
+    g7 = next(g for g in result["groups"]["both_played"] if g["game_id"] == "g7")
+    assert g7["report_status"] == "Out"
+    assert g7["warnings"] == ["Recorded minutes override the pregame report"]
+    assert (
+        sum(map(len, result["groups"].values())) + len(result["excluded_games"])
+        == result["scope_appearances"]
+    )
+    ids = [g["game_id"] for group in result["groups"].values() for g in group] + [
+        g["game_id"] for g in result["excluded_games"]
+    ]
+    assert len(ids) == len(set(ids)) == 8
+    assert result["policy_version"] == "availability/2"
+
+
+def test_minutes_filter_uses_prior_history_both_roles_and_strict_boundary(bundle):
+    loaded = with_baseline(bundle)
+    req = {**request(loaded), "start": "2025-11-01", "end": "2025-11-08"}
+    loaded[4][("2025-26", "g2", 811)]["min"] = 14.9
+    loaded[4][("2025-26", "g3", 822)]["min"] = 14.9
+    loaded[4][("2025-26", "g4", 811)]["min"] = 15
+    # A future outlier must never affect these baselines.
+    loaded[4][("2025-26", "g8", 811)]["min"] = 200
+    result = compare_availability(loaded, req)
+    limited = [g for g in result["excluded_games"] if g["reason"] == "limited_minutes"]
+    assert {g["game_id"] for g in limited} == {"g2", "g3"}
+    assert {g["participation"] for g in limited} == {"both_played", "did_not_play"}
+    assert [g["game_id"] for g in result["groups"]["did_not_play"]] == ["g4"]
+    for game in limited:
+        for check in game["minutes_checks"]:
+            assert check["baseline_minutes"] == 30
+            assert check["cutoff_minutes"] == 15
+            assert "g8" not in check["baseline_game_ids"]
+    included = compare_availability(loaded, {**req, "include_limited_minutes": True})
+    assert included["scope_appearances"] == result["scope_appearances"] == 8
+    assert "limited_minutes" not in included["excluded"]
+    assert {g["game_id"] for g in included["groups"]["did_not_play"]} == {"g2", "g4"}
+    payload = render_answer(result, source_players(loaded[1]))
+    assert payload["tables"][1]["collapsible"]
+    assert len(payload["tables"][1]["rows"]) == 8
+    assert "Include limited-minute appearances" in payload["followups"]
+
+
+def test_final_dnp_and_questionable_report_unknown_stays_unknown(bundle):
+    loaded = deepcopy(load_availability(str(bundle[0])))
+    loaded[0]["participation"] = [
+        dict(
+            season="2025-26",
+            game_id="g5",
+            player_id=822,
+            team_abbr="ATL",
+            minutes=0,
+            source_url="https://example.com/final/g5",
+        )
+    ]
+    result = compare_availability(loaded, request(loaded))
+    assert "g5" in {g["game_id"] for g in result["groups"]["did_not_play"]}
+    # Without explicit participation or a verified Out report, a missing row is unknown.
+    loaded[0]["participation"] = []
+    result = compare_availability(loaded, request(loaded))
+    assert (
+        next(g for g in result["excluded_games"] if g["game_id"] == "g5")[
+            "participation"
+        ]
+        == "unknown"
+    )
+    assert (
+        result["groups"]["both_played"][0]["minutes_checks"][0]["status"]
+        == "insufficient_baseline"
+    )
+
+
+def test_minutes_options_survive_followups_and_validate_bounds(bundle):
+    loaded = load_availability(str(bundle[0]))
+    players = source_players(loaded[1])
+    prior = request(loaded)
+    option = parse_request(
+        "Include limited-minute appearances", players, "2025-26", prior
+    )
+    assert option["include_limited_minutes"]
+    option = parse_request("Use a 60% minutes threshold", players, "2025-26", option)
+    assert option["minutes_threshold"] == 0.6
+    assert parse_request("What about assists?", players, "2025-26", option)[
+        "include_limited_minutes"
+    ]
+    assert not parse_request(
+        "Exclude limited-minute appearances", players, "2025-26", option
+    )["include_limited_minutes"]
+    with pytest.raises(SemanticError):
+        parse_request("Use a 0% minutes threshold", players, "2025-26", option)
+
+
+def test_bad_report_matchup_rejected_before_serving(bundle):
+    from app.availability import prepare_availability
+
+    doc = deepcopy(bundle[1])
+    doc["reports"][0]["matchup"] = "BOS@NYK"
+    with pytest.raises(ValueError, match="does not belong"):
+        prepare_availability(doc)
+
+
+def test_restored_context_keeps_minutes_policy():
+    context = main.PriorAvailability(
+        player_id=811,
+        teammate_id=822,
+        season="2025-26",
+        phase="Both",
+        metrics=["pts"],
+        include_limited_minutes=True,
+        minutes_threshold=0.6,
+    )
+    assert context.model_dump()["include_limited_minutes"] is True
+    assert context.model_dump()["minutes_threshold"] == 0.6
+
+
+def test_final_boxscore_capture_preserves_dnp_and_rejects_unknown_minutes():
+    from scripts.repair_availability_evidence import participation_rows
+
+    schedule = dict(
+        game_id="g1",
+        season="2025-26",
+        team_abbr="ATL",
+        opponent_abbr="BOS",
+        scheduled_start_utc="2025-11-01T20:00:00Z",
+    )
+    payload = {
+        "game": dict(
+            gameId="g1",
+            gameStatus=3,
+            gameTimeUTC="2025-11-01T20:00:00Z",
+            homeTeam=dict(
+                teamTricode="ATL",
+                players=[
+                    dict(
+                        personId=811, played="1", statistics=dict(minutes="PT00M01.00S")
+                    ),
+                    dict(
+                        personId=822, played="0", statistics=dict(minutes="PT00M00.00S")
+                    ),
+                ],
+            ),
+            awayTeam=dict(teamTricode="BOS", players=[]),
+        )
+    }
+    records = participation_rows(payload, schedule, "https://example.com/boxscore")
+    assert records[0]["minutes"] > 0
+    assert records[1]["minutes"] == 0
+    payload["game"]["homeTeam"]["players"][1]["statistics"]["minutes"] = None
+    with pytest.raises(ValueError, match="Unknown final"):
+        participation_rows(payload, schedule, "https://example.com/boxscore")
+
+
+def test_participation_snapshot_rejects_conflicting_minutes(bundle):
+    from app.availability import prepare_availability
+
+    doc = deepcopy(bundle[1])
+    doc["participation"] = [
+        dict(
+            season="2025-26",
+            game_id="g1",
+            player_id=811,
+            team_abbr="ATL",
+            minutes=0,
+            source_url="https://example.com/g1",
+        )
+    ]
+    with pytest.raises(ValueError, match="disagree"):
+        prepare_availability(doc)

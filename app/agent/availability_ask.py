@@ -58,7 +58,7 @@ def wants_availability(question):
 def availability_followup(question):
     return bool(
         re.search(
-            r"^(?:and|what about|how about|only|now|instead|compare|show|use|in |from )|\b(?:both played|same games|same scope|significan\w*|reliable|consistent|pattern|causal|cause)\b",
+            r"^(?:include|exclude|and|what about|how about|only|now|instead|compare|show|use|in |from )|\b(?:both played|same games|same scope|significan\w*|reliable|consistent|pattern|causal|cause)\b",
             question.strip(),
             re.I,
         )
@@ -174,6 +174,22 @@ def parse_request(question, players, season, previous=None, teams=()):
             "clarification_required",
             "Please name the player and teammate using their full names or recognized aliases.",
         )
+    request.setdefault("include_limited_minutes", False)
+    request.setdefault("minutes_threshold", 0.5)
+    if re.search(r"\b(include|exclude) limited[ -]minute appearances\b", text):
+        request["include_limited_minutes"] = bool(re.search(r"\binclude limited", text))
+        text = re.sub(
+            r"\b(?:include|exclude) limited[ -]minute appearances\b", " ", text
+        )
+    threshold = re.search(r"\b(\d+(?:\.\d+)?)% minutes threshold\b", text)
+    if threshold:
+        value = float(threshold[1]) / 100
+        if not 0 < value <= 1:
+            raise SemanticError(
+                "invalid_scope", "Minutes threshold must be above 0% and at most 100%."
+            )
+        request["minutes_threshold"] = value
+        text = text[: threshold.start()] + " " + text[threshold.end() :]
     text = re.sub(r"player\d+", " ", text)
     selected = requested_seasons(question, request["season"])
     if len(selected) != 1:
@@ -294,7 +310,7 @@ def render_answer(result, players):
     rows = []
     charts = []
     for metric in selected:
-        a, b = (metric["groups"][k] for k in ("both_played", "reported_out"))
+        a, b = (metric["groups"][k] for k in ("both_played", "did_not_play"))
         label = metric["label"]
         unit = (
             "%"
@@ -329,7 +345,7 @@ def render_answer(result, players):
                     title=f"{focal['player_name']} · {label}",
                     x_label="Teammate status",
                     y_label=f"{label} ({unit})",
-                    description=f"{focal['player_name']}; {request['season']} {phase_label}; {request['start'] or 'season start'} through {request['end'] or result['source_through']}. Verified reported-Out games versus both played; not shared court time or a causal effect.",
+                    description=f"{focal['player_name']}; {request['season']} {phase_label}; {request['start'] or 'season start'} through {request['end'] or result['source_through']}. Verified non-participation versus both played; not shared court time or a causal effect.",
                     series=[
                         dict(
                             key=metric["metric"],
@@ -341,7 +357,7 @@ def render_answer(result, players):
                                     meta=f"{game_coverage(a['valid_games'], a['observed_games'])} games with data",
                                 ),
                                 dict(
-                                    x=f"{teammate['player_name']} reported Out",
+                                    x=f"{teammate['player_name']} did not play",
                                     y=b["display_value"],
                                     meta=f"{game_coverage(b['valid_games'], b['observed_games'])} games with data",
                                 ),
@@ -359,11 +375,13 @@ def render_answer(result, players):
         filter(None, [request.get("home_away"), request.get("opponent")])
     )
     answer = (
-        f"In {counts['reported_out']} {'appearance' if counts['reported_out'] == 1 else 'appearances'} with {teammate['player_name']} reported Out and not appearing, {focal['player_name']} recorded "
+        f"In {counts['did_not_play']} {'appearance' if counts['did_not_play'] == 1 else 'appearances'} where {teammate['player_name']} did not play, {focal['player_name']} recorded "
         + "; ".join(statements)
         + "."
     )
-    if counts["reported_out"] < 5:
+    if not counts["did_not_play"]:
+        answer = f"No eligible appearances for {focal['player_name']} with {teammate['player_name']} confirmed not playing remain in this scope. The absence comparison is unavailable; the game details explain exclusions."
+    if 0 < counts["did_not_play"] < 5:
         answer += " This is a very small verified sample; it should not be treated as a typical performance level."
     answer += (
         f"\n\nThe comparison group contains {counts['both_played']} same-team games where both appeared. {request['season']} · {phase_label} · {scope['start']} through {scope['end']}"
@@ -384,8 +402,51 @@ def render_answer(result, players):
         g["missing_component_games"] for m in selected for g in m["groups"].values()
     ):
         answer += "\n\nSome statistics have missing components. The table shows games with data for each stat; incomplete differences are withheld."
-    answer += "\n\nThese are observed differences, not evidence that the absence caused them. Out does not establish an injury cause."
+    answer += "\n\nThese are observed differences, not evidence that the absence caused them. Did not play does not establish an injury cause."
+    policy = result["policy"]
+    answer += (
+        f"\n\n{result['scope_appearances']} scoped records: {counts['both_played']} included when both played + "
+        f"{counts['did_not_play']} included when the teammate did not play + {missing} excluded. "
+        + (
+            "Limited-minute appearances are included. "
+            if policy["include_limited_minutes"]
+            else f"Appearances below {policy['minutes_threshold']:.0%} of either participating player's usual minutes are excluded. "
+        )
+        + "Usual minutes is the median of the previous 10 appearances this season (at least 5 required), using only earlier games. "
+        "Insufficient baselines stay included and are marked in the game details. Limited minutes do not establish an injury."
+    )
+    game_details = []
+    for group in result["groups"].values():
+        game_details.extend({**g, "reason": "included"} for g in group)
+    game_details.extend(result["excluded_games"])
+    audit_rows = []
+    for game in sorted(game_details, key=lambda g: (g["game_date"], g["game_id"])):
+        checks = "; ".join(
+            f"{by_id[c['player_id']]['player_name']}: {c['minutes']:g} min; "
+            + (
+                "insufficient baseline"
+                if c["baseline_minutes"] is None
+                else f"usual {c['baseline_minutes']:g}, cutoff {c['cutoff_minutes']:g} ({c['status'].replace('_', ' ')})"
+            )
+            for c in game["minutes_checks"]
+        )
+        audit_rows.append(
+            [
+                game["game_date"],
+                game["opponent"],
+                game["participation"].replace("_", " "),
+                game["reason"].replace("_", " "),
+                game["report_status"],
+                checks or "—",
+                "; ".join(game["warnings"]) or "—",
+            ]
+        )
+
     public = {k: v for k, v in result.items() if k != "rows"}
+    profile = scoped_identity_profile(focal, result["rows"], scope)
+    profile["sampleLabel"] = (
+        f"{len(result['rows'])} appearances included · {result['scope_appearances']} records in scope"
+    )
     return dict(
         status="ok",
         answer=answer,
@@ -398,20 +459,40 @@ def render_answer(result, players):
                         [
                             "Stat",
                             "Both played",
-                            f"{teammate['player_name']} reported Out",
-                            "Difference (Out − both)",
+                            f"{teammate['player_name']} did not play",
+                            "Difference (did not play − both)",
                             "Unit",
                             game_coverage_label("both played"),
-                            game_coverage_label("teammate reported Out"),
+                            game_coverage_label("teammate did not play"),
                         ]
                     )
                 ],
                 rows=rows,
                 description=GAME_COVERAGE_NOTE,
-            )
+            ),
+            dict(
+                title="Game inclusion details",
+                collapsible=True,
+                description="Every scoped record is included once or excluded once. Excluded limited-minute appearances still count as games played. Missing participation stays unknown.",
+                columns=[
+                    dict(key=str(i), label=v)
+                    for i, v in enumerate(
+                        [
+                            "Date",
+                            "Opponent",
+                            "Participation",
+                            "Decision",
+                            "Pregame report",
+                            "Minutes and baseline",
+                            "Data notes",
+                        ]
+                    )
+                ],
+                rows=audit_rows,
+            ),
         ],
         charts=charts[:1],
-        player_profile=scoped_identity_profile(focal, result["rows"], scope),
+        player_profile=profile,
         availability_evidence=public,
         availability_scope=request,
         conversation_context=dict(
@@ -434,9 +515,13 @@ def render_answer(result, players):
             "What about assists?",
             "Only the playoffs",
             "What about points per 36 minutes?",
+            "Exclude limited-minute appearances"
+            if request["include_limited_minutes"]
+            else "Include limited-minute appearances",
+            "Use a 60% minutes threshold",
         ],
         assumptions=[
-            "Out classification requires a game-specific pregame team report and no appearance. Both played requires same-team appearances.",
+            "Final positive minutes establish participation even if a pregame report said Out. Non-participation requires verified same-team zero minutes or a valid Out report with no appearance; missing records alone do not establish absence.",
             "Corrected historical statistics and retrospectively collected reports; not a reconstruction of what was known at the time.",
         ],
         tool_calls=[],

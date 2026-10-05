@@ -671,3 +671,13 @@ test("empty tabs keep distinct IDs and drafts across page reload", async () => {
   agent.persistHistoryTurn("New analytical question",{conversation_id:b,status:"ok",answer:"Result"});
   assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b).title,"New analytical question");
 });
+
+test("game inclusion audit is expandable and escapes source details", async () => {
+  const agent = await loadAgentModule();
+  const html = agent.renderTable({ title: 'Game inclusion details', collapsible: true,
+    columns: [{ label: 'Decision' }], rows: [['<limited>']], description: 'Every game counted once.' });
+  assert.match(html, /<details><summary>Game inclusion details<\/summary>/);
+  assert.match(html, /&lt;limited&gt;/);
+  assert.match(html, /Every game counted once/);
+  assert.match(html, /<\/details>/);
+});

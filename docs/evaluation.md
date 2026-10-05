@@ -157,3 +157,13 @@ counts, tables, narrative statistics and chart values. Missing verified samples
 must return no substitute statistics. It respects the normal per-minute request
 limit and makes no model calls. This proves attribution against the frozen inputs,
 not completeness of upstream reports or human-reviewed basketball interpretation.
+
+Availability evaluations must follow `availability/2`: independently classify
+final participation before applying prior-only minutes qualification, reconcile
+included and excluded game IDs, and verify unavailable values for empty groups.
+`tests/test_availability.py` covers played/Out conflicts, confirmed DNP versus
+unknown absence, both-player minute filters, the exact threshold boundary,
+insufficient history, no future leakage, and filter context persistence.
+The live `scripts/evaluate_availability.py` oracle uses the same frozen source
+bundle with an independent implementation; it does not establish upstream NBA
+source completeness. Keep downloaded repair sources and failed attempts private.
