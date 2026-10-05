@@ -31,6 +31,7 @@ valid games, missing-component counts, and ratio components where applicable.
 | Metric family | Rule |
 | --- | --- |
 | Counting statistics | Sum components for totals; divide by valid recorded appearances for per-game averages |
+| Games played (`gp`) | Count recorded appearances at unique season/game/player grain; total only, independent of missing box-score components |
 | Minutes | Minutes for totals; minutes per game for averages |
 | FG%, 3P%, FT% | Ratio of summed makes to summed attempts |
 | eFG% | `(SUM(FGM) + 0.5 * SUM(3PM)) / SUM(FGA)` |
@@ -76,3 +77,25 @@ results. Run instructions are in [Evaluation](evaluation.md). Passing fixtures
 establishes tested behavior, not universal model accuracy or production deployment.
 
 See [Players and research breakdowns](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
+
+Dynamic availability comparisons preserve focal/exposure roles and attach the
+executed request and per-group game IDs to every metric. A teammate predicate
+cannot be represented by the ordinary `Query` contract and must never be reduced
+to an unfiltered summary. See [dynamic teammate availability](ask-workspace.md#dynamic-teammate-availability)
+for source membership, absence, missingness, rate and attribution rules.
+
+Availability policy `availability/2` uses final positive minutes as participation
+truth. Sample qualification is separate: the default 50% prior-ten median filter
+excludes limited appearances from comparisons, not games-played totals. Five
+prior appearances are required; no baseline uses the current or future game.
+Both participating players are checked, and every scoped record is reconciled
+once. Zero-minute verified membership and final DNP evidence can establish
+non-participation; null/missing minutes cannot. See the Ask guide for adjustable
+thresholds, inclusion overrides, source verification, and policy versioning.
+
+Explicit phase requests require source coverage for every requested phase.
+Default availability comparisons may use the available phase only when the
+answer and chart label it and disclose missing phases; follow-up scope carries
+the covered phases. Classification provenance identifies either the supporting
+statistics snapshot/game/player key or the actual final-box-score/Out-report
+source. Injury bulletins are not evidence for statistics-based classifications.

@@ -12,6 +12,30 @@ scope. Explicit seasons/dates and conversational follow-up scope are preserved;
 permission errors and invalid evidence never trigger fallback. This does not
 create missing studies or infer an injury absence from a missing appearance.
 
+Named absence questions check the published pair's coverage before warehouse or
+model work. A missing comparison names the pair and explains that its verified
+study must be built or reconnected; an overall-player question is offered only
+as a separate follow-up. Broken catalog configuration, invalid planner output,
+and unavailable research evidence have distinct safe error codes. Paths and raw
+provider/data errors are not exposed. Published studies still require exact
+season, date, phase, role, and filter matches.
+
+Complete, unqualified questions such as “Tell me how LeBron James played while
+Luka was out” use a deterministic study plan for a registered pair. They read the
+published catalog directly, without warehouse access or model planning, and use
+the same season, phase, date and evidence guards as model-planned requests.
+Added filters, metrics or dates and conversational follow-ups stay on the scoped
+planner path. A partial catalog replaces a legacy study only when it publishes
+that same pair; invalid catalogs still fail closed. Local operators must build,
+validate and connect `RESEARCH_STUDIES_PATH`; code deployment alone does not
+publish private study evidence.
+
+The research planner's structured schema binds metrics to its selected route.
+Studies support the nine core box-score measures and eight shooting measures;
+per-36 requests remain supported by breakdowns only. Explicit unsupported study
+metrics are not silently dropped or replaced. The server validates the plan
+before rendering, even when a provider returns output outside the schema.
+
 ## Two-player comparisons
 
 Explicit `A vs B`, `A versus B`, and `Compare A and B` questions use a
@@ -53,6 +77,13 @@ response owning its profile, methodology, tables, and interactive charts. The
 question selector jumps to an existing response without replacing content.
 Suggestions fill the bottom follow-up composer without submitting.
 
+Each tab, including an empty draft, receives its own conversation UUID at creation.
+Drafts, pending requests, errors, and answers belong to that conversation. Switching
+tabs does not retarget an in-flight request; streaming and JSON responses are checked
+against the originating conversation and request IDs. A reopened saved chat retains
+its ID, while New chat always creates a new one. These IDs are navigation keys, not
+authentication credentials.
+
 ## Follow-up context
 
 The last successful analysis supplies a bounded structured context: resolved
@@ -60,6 +91,17 @@ identities, date/phase scope, metrics, and a short answer summary. Follow-ups
 receive that context without requiring pronoun keywords. Explicit new dates,
 phases, or full player names override inherited intent. Clarifications do not
 replace the last successful analysis. Prior prose is context, not fresh evidence.
+
+Availability answers retain both focal and teammate identities in this shared
+context, along with the separate availability predicate. Saved history and bounded
+browser recovery preserve the pair and validate legacy IDs against the source.
+References such as “each player” and “both players” resolve within this conversation.
+A season games-played follow-up counts each player's recorded appearances from the
+full player-game evidence, not the previous comparison samples. It carries player IDs,
+scope, snapshot provenance and game IDs in `appearance_evidence`; unsupported extra
+conditions are withheld. Availability-specific follow-ups retain their original
+predicate, while a successful season-count answer becomes an ordinary appearance
+analysis. Explicit new player names and periods override the prior request.
 
 For an overview follow-up such as “besides Johnson, who are the other top
 playmaking leads?”, a unique contextual surname resolves to the prior player;
@@ -94,6 +136,13 @@ percentiles still describe the full qualified league cohort.
   are shown without automatically issuing a second paid request.
 
 ## Analysis presentation
+
+Single-player research breakdowns and matching teammate-study answers include
+the focal player's name, headshot, profile link, and the answer's season, phase,
+and dates. Breakdown cards use team and appearance counts from the filtered
+games. Frozen studies omit those fields when scoped appearances are unavailable;
+they never borrow current rankings or team context. Multi-player breakdowns and
+scope refusals do not select an arbitrary player for a card.
 
 Teammate comparisons lead with a basketball takeaway, a few observed differences,
 and the counts of games when both played and when the teammate was out, stated
@@ -138,6 +187,8 @@ and uses the first evidence-ranked candidate without failing the answer.
 Charts include their units, scope, a short description, and an explanation of the
 chart choice. Hover, tap, and keyboard focus expose value/sample details. Bar scales
 include zero and preserve negative values; missing values are never zero-filled.
+Long category labels wrap without truncating player names or availability status,
+and chart rows grow to keep labels separate at desktop and narrow widths.
 Unsupported answers and evidence without a suitable chart remain text/table-only.
 Existing specialized player overview/comparison charts retain their own rendering.
 
@@ -175,3 +226,134 @@ Existing scope/evidence validation remains authoritative. Shared Ask retry limit
 apply, with SDK retries disabled. SSE progress remains available; token-by-token
 answer streaming is not enabled for this adapter. Mock checks do not establish
 live endpoint availability, schema compatibility, latency, or cost.
+
+## Dynamic teammate availability
+
+With `RESEARCH_AVAILABILITY_PATH` connected, Ask resolves player roles from the
+source-backed directory and computes descriptive splits on demand. Any observed
+pair can be queried; neither registration in the pilot catalog nor a pair-specific
+artifact is required. Full names and known aliases are supported; an ambiguous
+first name can be narrowed by a uniquely matching shared team in the requested
+season, otherwise Ask requests full names. Reversed roles produce a different
+sample rather than reusing the original pair's result.
+
+Supported requests compose box-score metrics, shooting ratios, points/assists per
+36, averages/totals, one season, explicit inclusive `from YYYY-MM-DD to YYYY-MM-DD`
+dates, regular season/playoffs/both, home/away, and opponent abbreviation. Scoped
+follow-ups such as “What about assists?” or “Only the playoffs” recalculate with
+the saved player roles and remaining filters. The parser accounts for the entire
+request; unsupported phrases, ambiguous roles and conflicting filters produce an
+explanation, never a partial season summary. Ordinary semantic planning/answering
+also blocks availability conditions, so a model cannot discard them. The old
+published-study route remains compatibility support when dynamic evidence is not
+configured; it is not a prerequisite when dynamic evidence is available.
+
+Availability policy `availability/2` classifies final participation before sample
+eligibility. Positive final minutes mean **played**, even when a pregame report
+said Out; the report disagreement remains an audit warning. **Did not play**
+requires a same-team zero-minute/final DNP record or a valid game-specific Out
+report and no appearance. A missing row alone never establishes non-participation
+or team membership. Conflicting membership, unknown minutes, stale/late reports,
+and unfinished games remain excluded. Neither absence nor low minutes establishes
+injury causation. The prior `reported_out` evidence group becomes `did_not_play`;
+old saved answers are explicitly marked as using earlier rules, not recalculated.
+
+Each classification records its basis: positive/zero-minute statistics identify
+the statistics snapshot and season/game/player key; final box scores and Out
+reports retain their respective supporting URLs. A statistics-based DNP does not
+cite an unrelated injury bulletin as its classification evidence.
+
+Default comparisons label the phases actually covered by the source and disclose
+any missing phase in the answer and chart. An explicitly requested uncovered
+phase is refused. Follow-up context uses the covered phases, and games-played
+follow-ups retain the prior season unless the new question explicitly changes it.
+Displayed end dates do not extend beyond the observed source records.
+
+Informational phrases such as “find out” do not trigger availability analysis.
+Minimum-games rankings remain on the governed statistics route; explicit
+appearance-count questions use the count route. Existing research follow-ups
+retain their research scope.
+
+Empty chat drafts live in tab state and do not consume the saved-history limit.
+Returning from history restores the active chat, including answers completed
+while the history panel was open, and synchronizes the submission controls.
+
+By default, exclude an appearance when the focal player, or the teammate when
+both played, has minutes **strictly below 50%** of their own median over the
+previous ten positive-minute final appearances that season. At least five prior
+appearances are required; insufficient baselines stay included and are marked.
+Baseline games precede the evaluated game and ignore comparison date, venue,
+opponent and phase filters. Limited-minute appearances still count in ordinary
+games-played totals and are never reassigned to the absence group.
+
+Follow-ups **Include limited-minute appearances**, **Exclude limited-minute
+appearances**, and **Use a 60% minutes threshold** change this policy within the
+current tab. Thresholds must be above 0% and at most 100%. Options persist through
+follow-ups and restored context. Each answer reconciles all scoped records into
+both included groups and mutually exclusive exclusions. Expand **Game inclusion
+details** for dates, opponents, participation, reasons, actual minutes, prior-game
+baselines and data warnings. Evidence also preserves baseline game IDs. Empty
+comparison groups retain that audit and unavailable values; no substitute sample
+or comparison chart is returned.
+
+Missing metric components retain valid/observed denominators and suppress
+incomplete differences. Percentages use pooled components; per-36 uses pooled
+production and minutes. Statistics, labels and the scoped player card use only
+the included sample, with the full scoped record count disclosed separately.
+
+`availability_evidence` accompanies each response with the exact executed request,
+per-metric component totals/denominators/game IDs, group membership, report URLs,
+exclusion counts, and immutable evidence and stats hashes. Player card, narrative,
+table and chart all use those same groups. Responses are deterministic, make no
+provider calls, and do not expose model-authored SQL. This capability does not
+support arbitrary natural-language operations, causal claims, unverified injury
+causes, or undocumented constraints; those are withheld explicitly.
+
+Build an immutable league-wide source bundle, then connect its path locally:
+
+```sh
+python scripts/build_availability_evidence.py \
+  --snapshot reports/inputs/stats.json \
+  --schedule reports/inputs/schedule.json \
+  --injuries reports/inputs/injuries.json \
+  --output reports/availability/unique-run.json
+```
+
+The snapshot must have the semantic source checksum and coverage contract; the
+schedule is the official schedule document and injuries contains `rows` with the
+existing pregame report provenance fields. The builder validates source joins
+before create-only publication. The reader verifies both bundle and stats hashes,
+unique keys and schedule alignment. Reads are size-bounded and cached by immutable
+file identity; source artifacts and local configuration stay out of Git. Updating
+underlying data requires publishing a new validated bundle and connecting it;
+merging application code does not automatically refresh evidence.
+
+### Metric naming and sample counts
+
+Use the shared presentation helpers in `app/agent/metric_presentation.py` for new
+metrics and renderers. Availability tables label sample completeness **Games with
+data — both played** and **Games with data — teammate did not play**, formatted
+as **39 of 39**. Single-group tables use **Games in scope** and **Games with data**.
+The table description explains the numerator and denominator. These labels mean
+complete required inputs for that stat; they do not imply an entire season, an
+absence caused by injury, or a calculable rate when attempts/minutes are zero.
+Saved availability tables receive the same presentation without rewriting evidence.
+
+When adding a metric, provide a readable name (familiar basketball abbreviations
+such as PTS are acceptable), its unit and aggregation, explicit comparison groups
+and difference direction, and a definition of any sample count. Avoid internal
+terms such as "valid/observed" in user-facing labels. Keep completeness per metric;
+never substitute the group size for games with complete inputs. Render missing
+values as unavailable, retaining zero as zero. Include a partial-data case in the
+metric's validation and check the populated table and chart at a narrow viewport.
+Presentation helpers apply to all selected metrics, so new metrics inherit these
+coverage labels without player-specific or metric-specific copy.
+
+Repair older report bundles with `scripts/repair_availability_evidence.py`. It
+reparses official PDFs referenced by inconsistent team/matchup rows, retains raw
+sources and full repair audits, and publishes a new immutable bundle only after
+validation. Optional final box-score capture adds explicit participation records;
+`--reports-only` performs the report repair without claiming that capture.
+`--cached-reports` reuses previously downloaded PDFs. The source builder/loader
+rejects inconsistent report team/matchup records. Connect the new bundle explicitly;
+never overwrite the prior snapshot or silently change historical answers.

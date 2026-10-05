@@ -9,6 +9,12 @@ from typing import Any
 
 from app.agent.followup import analysis_context, resolve_followup
 from app.agent.history import saved_context_question
+from app.agent.metric_presentation import (
+    GAME_COVERAGE_NOTE,
+    GAMES_IN_SCOPE,
+    GAMES_WITH_DATA,
+    game_coverage,
+)
 from app.agent.performance_overview import (
     build_overview,
     identity_profile,
@@ -355,7 +361,7 @@ def render_answer(
             )
             if len(section["rows"]) == 1:
                 statements.append(
-                    f"{title}: {name} — {metric['label']} {value} ({scope['aggregation']}, {row['valid_games']} valid / {row['observed_games']} observed games)."
+                    f"{title}: {name} — {metric['label']} {value} ({scope['aggregation']}, {game_coverage(row['valid_games'], row['observed_games'])} games with data)."
                 )
             if row["sample_warning"]:
                 payload["assumptions"].append(f"{name}: {row['sample_warning']}")
@@ -379,13 +385,14 @@ def render_answer(
                     for k, label in (
                         ("player", "Player"),
                         ("value", "Value"),
-                        ("observed", "Observed games"),
-                        ("valid", "Valid games"),
+                        ("observed", GAMES_IN_SCOPE),
+                        ("valid", GAMES_WITH_DATA),
                         ("rank", "Rank"),
                         ("percentile", "Percentile"),
                     )
                 ],
                 "rows": table_rows,
+                "description": GAME_COVERAGE_NOTE,
             }
         )
         if not table_rows:
@@ -433,6 +440,15 @@ class SemanticAsk:
         progress_callback: Any = None,
     ) -> dict[str, Any]:
         started = monotonic()
+        from app.agent.availability_ask import wants_availability
+        from app.agent.research_ask import refusal
+
+        if wants_availability(question):
+            return refusal(
+                "This question requires verified teammate availability. Overall statistics cannot answer that condition.",
+                code="availability_scope_required",
+                trace=trace,
+            )
         original = question
         store = self.store if conversation_id else None
         pending = store.get_pending_clarification(conversation_id) if store else None
@@ -789,6 +805,7 @@ class SemanticAsk:
                 next_context = analysis_context(original, payload)
                 if not next_context.get("players"):
                     next_context["players"] = context.get("players", [])
+                payload["conversation_context"] = next_context
                 store.append_turn(
                     conversation_id,
                     question=saved_context_question(original, payload),

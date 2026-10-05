@@ -52,7 +52,13 @@ class Client:
 
     def create(self, **kwargs):
         self.calls += 1
-        return SimpleNamespace(output_text=json.dumps(self.result), usage=None)
+        schema = kwargs.get("text", {}).get("format", {}).get("schema", {})
+        result = (
+            {"request": self.result}
+            if "request" in schema.get("properties", {})
+            else self.result
+        )
+        return SimpleNamespace(output_text=json.dumps(result), usage=None)
 
 
 def setup(tmp_path, data=None, response=None):
@@ -195,6 +201,14 @@ def test_public_ask_http_and_stream_handlers(tmp_path, stream):
             result = response.json()
         assert result["study_status"] == "answered"
         assert result["tables"][0]["rows"][2][1] == "+0.88"
+        profile = result["player_profile"]
+        assert profile["player"]["player_name"] == "Focal Player"
+        assert profile["player"]["headshot_url"].endswith("/1.png")
+        assert profile["profile_url"] == "/players/1"
+        assert profile["scopeLabel"] == (
+            "2025-26 regular season · 2025-10-22 through 2025-12-31"
+        )
+        assert profile["player"]["team_abbr"] is None
     finally:
         api.app.dependency_overrides.clear()
         api.app.dependency_overrides.update(previous)
@@ -233,3 +247,38 @@ def test_configured_research_catalog_keeps_route_precedence(tmp_path, monkeypatc
     )
     assert result == {"research_status": "tested"}
     assert client.calls == 0
+
+
+@pytest.mark.parametrize("replacement", [False, True])
+def test_partial_catalog_preserves_other_legacy_pairs(
+    tmp_path, monkeypatch, replacement
+):
+    from app.research_studies import PAIRS, pending
+
+    data = study()
+    data["scope"].update(
+        focal_player_id=1630552,
+        focal_player_name="Jalen Johnson",
+        teammate_id=1629027,
+        teammate_name="Trae Young",
+    )
+    agent, client = setup(tmp_path, data=data)
+    agent.settings = replace(agent.settings, research_studies_path="catalog.json")
+    entries = [pending(p) for p in PAIRS]
+    entries[0]["scope"] = {"season": "2025-26"}
+    if replacement:
+        entries[1]["scope"] = {"season": "2025-26"}
+    monkeypatch.setattr("app.research_studies.catalog", lambda path: entries)
+    monkeypatch.setattr(
+        "app.agent.research_ask.answer_research",
+        lambda *args: {"research_status": "tested"},
+    )
+    result = agent.answer(
+        "Using the teammate study, how did Jalen Johnson's assists differ when Trae Young was out from 2025-10-22 to 2025-12-31?"
+    )
+    if replacement:
+        assert result == {"research_status": "tested"}
+        assert client.calls == 0
+    else:
+        assert result["study_status"] == "answered"
+        assert client.calls == 1

@@ -51,6 +51,8 @@ class Metric:
 
     @property
     def aggregations(self) -> tuple[str, ...]:
+        if self.key == "gp":
+            return ("total",)
         return ("ratio",) if self.denominator else ("total", "average")
 
     def public(self) -> dict[str, Any]:
@@ -349,7 +351,15 @@ def aggregate(
         r for r in rows if all(_number(r.get(c)) is not None for c in metric.components)
     ]
     totals = {c: math.fsum(float(r[c]) for r in valid) for c in metric.components}
-    numerator = evaluate_formula(metric.numerator, totals) if valid else None
+    numerator = (
+        (
+            len(valid)
+            if metric.key == "gp"
+            else evaluate_formula(metric.numerator, totals)
+        )
+        if valid
+        else None
+    )
     denominator = (
         evaluate_formula(metric.denominator, totals)
         if metric.denominator and valid

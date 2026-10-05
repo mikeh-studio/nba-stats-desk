@@ -35,6 +35,7 @@ Game-by-game values, game logs, and a player's metric trend chart use game_log w
 Shooting rankings/percentiles without an explicit attempt threshold require clarification_required.
 Other ranking default is five games. TOV defaults to lower (ball security); most turnovers means higher.
 Count averages use average, totals use total, all shooting percentages use ratio.
+Games played uses gp with total: count recorded appearances, never sum another box-score statistic or reuse a previous comparison sample.
 Available team abbreviations are authoritative warehouse dimensions, including unfamiliar labels. Copy them with their supplied casing. Identifiers such as resolved_player_123 are already validated, unique player references. Copy them into player_name exactly; never ask to identify them or infer their names. Recognized entity mentions are authoritative even when a name looks generic; never reject an observed name based on world knowledge. Missing shooting qualification is clarification_required, never unsupported. For last_n_games, prior_n_games and last_n_days, copy the requested numeric count into n. Player names stay as mentioned for deterministic identity resolution; never invent an ID.
 A missing player for an individual summary requires clarification; league ranking uses null player_name.
 Use last_n_games for observed appearances, prior_n_games for the preceding disjoint N appearances.
@@ -184,6 +185,15 @@ def plan_question(
     validate_season(selected_season)
     if not question.strip() or len(question) > 2000:
         raise SemanticError("invalid_scope", "Question must contain 1..2000 characters")
+    from app.agent.availability_ask import wants_availability
+
+    if wants_availability(question):
+        return {
+            "status": "unsupported",
+            "queries": [],
+            "message": "Teammate availability requires verified game-level evidence. An ordinary statistics query cannot preserve this condition.",
+            "model_calls": 0,
+        }
     shooting = re.search(
         r"(?:\b(?:ts|fg|fg3|ft)%|true shooting|field goal percentage|three.point percentage|free.throw percentage)",
         question,

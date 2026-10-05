@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+from app.agent.performance_overview import scoped_identity_profile
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -90,6 +91,26 @@ def load_study(path):
     if value["statistics"]["validated_significance"] is not None:
         raise ValueError("Study must not advertise validated significance")
     return value
+
+
+def legacy_study_has_replacement(legacy_path, catalog_path):
+    """A partial catalog replaces only its published pair, never other studies."""
+    if not catalog_path:
+        return False
+    from app.research_studies import catalog
+
+    try:
+        scope = load_study(legacy_path)["scope"]
+        entries = catalog(catalog_path)
+        return any(
+            entry.get("scope")
+            and entry["player_id"] == scope["focal_player_id"]
+            and entry["teammate_id"] == scope["teammate_id"]
+            for entry in entries
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        # A broken replacement is not permission to reuse a different result.
+        return True
 
 
 def unavailable(study=None):
@@ -218,6 +239,11 @@ def answer_study(agent, question, provider, model, trace=None):
         study_status="answered",
         study_id=study["study_id"],
         evidence_scope=s,
+        player_profile=scoped_identity_profile(
+            {"player_id": s["focal_player_id"], "player_name": s["focal_player_name"]},
+            [],
+            s,
+        ),
         metric_definitions=[
             {
                 "key": "adjusted_ast_difference",

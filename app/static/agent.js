@@ -68,7 +68,7 @@ function restoreDraft() {
   const draft = tabState.drafts[activeConversationId || "new"] || {};
   const query = document.querySelector("[data-agent-question]");
   const followup = document.querySelector("[data-followup-question]");
-  if (query) query.value = draft.question ?? lastQuestion;
+  if (query) query.value = draft.question ?? runtimeFor().lastQuestion;
   if (followup) followup.value = draft.followup || "";
 }
 function renderTabs() {
@@ -79,7 +79,7 @@ function renderTabs() {
     ids
       .map((id, index) => {
         const chat = historyState.conversations.find((c) => c.id === id);
-        const title = chat?.title || "Saved chat";
+        const title = chat?.title || "New question";
         const playerName = chat?.turns.find(
           (t) => t.payload?.player_profile?.player?.player_name,
         )?.payload.player_profile.player.player_name;
@@ -127,11 +127,10 @@ function renderTabs() {
   const more = document.querySelector("[data-chat-more]");
   more?.setAttribute("aria-pressed", String(historyVisible));
   el.querySelectorAll("button").forEach((button) => {
-    button.disabled = askInFlight;
+    button.disabled = false;
   });
 }
 function closeConversationTab(id) {
-  if (askInFlight) return;
   rememberDraft();
   tabState = closeTab(tabState, id);
   saveTabs();
@@ -141,8 +140,8 @@ function closeConversationTab(id) {
   } else renderTabs();
   document.querySelector('[data-chat-tabs] [aria-selected="true"]')?.focus();
 }
-function showHistory(show = true) {
-  if (askInFlight) return;
+function showHistory(show = true, restore = true) {
+  const returning = historyVisible && !show;
   if (show) rememberDraft();
   historyVisible = show;
   const history = document.querySelector("[data-chat-history]");
@@ -155,6 +154,7 @@ function showHistory(show = true) {
     loadServerHistory(true);
     document.querySelector("[data-history-search]")?.focus();
   }
+  if (returning && restore && activeConversationId) return restoreConversation(activeConversationId);
 }
 
 function looksLikeMarkdownTableLine(line) {
@@ -349,11 +349,24 @@ function referenceTable(table, payload) {
 }
 
 function renderTable(table) {
-  const columns = asArray(table.columns);
+  // Presentation-only compatibility for saved answers; never change evidence.
+  const legacyCoverageLabels = {
+    "Both valid/observed": "Games with data — both played",
+    "Out valid/observed": "Games with data — teammate reported Out",
+  };
+  const originalColumns = asArray(table.columns);
+  const legacyCoverage = originalColumns.map((column) => Object.hasOwn(legacyCoverageLabels, column.label));
+  const columns = originalColumns.map((column, index) => ({
+    ...column,
+    label: legacyCoverage[index] ? legacyCoverageLabels[column.label] : column.label,
+  }));
   const rows = asArray(table.rows);
+  const description = table.description || (legacyCoverage.some(Boolean)
+    ? "Games with data counts games with all the information needed for a stat, out of all games in that group. Counts can differ by stat. Complete data can still yield an unavailable rate when its denominator is zero."
+    : "");
   return `
     <section class="stack">
-      <h3>${escHtml(table.title || "Table")}</h3>
+      ${table.collapsible ? `<details><summary>${escHtml(table.title || "Table")}</summary>` : `<h3>${escHtml(table.title || "Table")}</h3>`}
       <div class="table-scroll">
         <table class="data-table compact">
           <thead>
@@ -366,13 +379,20 @@ function renderTable(table) {
                   `<tr${index === table.reference_row_index ? ' class="reference-player-row"' : ""}>${asArray(
                     row,
                   )
-                    .map((value) => `<td>${escHtml(value)}</td>`)
+                    .map((value, columnIndex) => {
+                      const display = legacyCoverage[columnIndex]
+                        ? String(value).replace(/^(\d+)\/(\d+)$/, "$1 of $2")
+                        : value;
+                      return `<td>${escHtml(display)}</td>`;
+                    })
                     .join("")}</tr>`,
               )
               .join("")}
           </tbody>
         </table>
       </div>
+      ${description ? `<p class="meta">${escHtml(description)}</p>` : ""}
+      ${table.collapsible ? "</details>" : ""}
     </section>
   `;
 }
@@ -489,13 +509,59 @@ function renderLineChart(chart) {
   `;
 }
 
+function wrapChartLabel(label, maxWidth = 160, measureWidth) {
+  if (!measureWidth) {
+    const context = document.createElement("canvas").getContext?.("2d");
+    if (context) {
+      // Size for the largest axis font, so resizing cannot clip saved charts.
+      const family = getComputedStyle(document.body).getPropertyValue("--font-body").trim() || "sans-serif";
+      context.font = `18px ${family}`;
+    }
+    measureWidth = context ? (text) => context.measureText(text).width : (text) => Array.from(text).length * 18;
+  }
+  const lines = [];
+  let line = "";
+  for (const word of String(label ?? "").trim().split(/\s+/)) {
+    const candidate = line ? `${line} ${word}` : word;
+    if (measureWidth(candidate) <= maxWidth) {
+      line = candidate;
+      continue;
+    }
+    if (line) lines.push(line);
+    line = "";
+    // Keep every character, even in a single unusually long name.
+    for (const character of word) {
+      if (line && measureWidth(line + character) > maxWidth) {
+        lines.push(line);
+        line = "";
+      }
+      line += character;
+    }
+  }
+  if (line || !lines.length) lines.push(line);
+  return lines;
+}
+
+function chartLabelMarkup(lines, x, centerY) {
+  const firstY = centerY + 6 - (lines.length - 1) * 11;
+  return `<text class="agent-point-label" text-anchor="end">${lines.map((line, i) => `<tspan x="${x}" y="${firstY + i * 22}">${escHtml(line)}</tspan>`).join(" ")}</text>`;
+}
+
 function renderBarChart(chart) {
   const width = 760;
   const points = asArray(chart.series?.[0]?.points)
     .filter((p) => typeof p.y === "number" && Number.isFinite(p.y));
   if (!points.length) return '<div class="empty-state">No chart data.</div>';
-  const height = 80 + points.length * 58;
   const left = 190, right = 690, top = 28;
+  let bottom = top;
+  const rows = points.map((point) => {
+    const lines = wrapChartLabel(point.x);
+    const height = Math.max(58, lines.length * 22 + 16);
+    const row = { point, lines, y: bottom, height };
+    bottom += height;
+    return row;
+  });
+  const height = bottom + 38;
   const minimum = Math.min(0, ...points.map((p) => p.y));
   const maximum = Math.max(0, ...points.map((p) => p.y));
   const span = maximum - minimum || 1;
@@ -508,18 +574,18 @@ function renderBarChart(chart) {
     <text class="agent-axis-title" x="${left}" y="14">${escHtml(chart.y_label || "Value")}</text>
     ${ticks.map((v) => `<line class="agent-grid" x1="${scale(v)}" x2="${scale(v)}" y1="${top}" y2="${height - 38}" /><text class="agent-axis" text-anchor="middle" x="${scale(v)}" y="${height - 18}">${escHtml(formatNumber(v))}</text>`).join("")}
     <line class="agent-reference" x1="${zero}" x2="${zero}" y1="${top}" y2="${height - 38}" />
-    ${points.map((point, i) => {
-      const y = top + i * 58;
+    ${rows.map(({ point, lines, y, height: rowHeight }) => {
+      const centerY = y + rowHeight / 2;
       const x = scale(point.y);
       const value = formatNumber(point.y);
       const detail = `${point.x}: ${value} ${chart.y_label || ""}; ${point.meta || ""}`;
       return `<g class="agent-point" tabindex="0" aria-label="${escHtml(detail)}">
         <title>${escHtml(detail)}</title>
-        <rect x="0" y="${y}" width="${width}" height="50" fill="transparent" />
-        <text class="agent-point-label" text-anchor="end" x="${left - 16}" y="${y + 25}">${escHtml(point.x)}</text>
-        <rect class="agent-bar" x="${Math.min(x, zero)}" y="${y + 7}" width="${Math.abs(x - zero)}" height="28" rx="3" />
-        <text class="agent-bar-value" text-anchor="${point.y < 0 ? "end" : "start"}" x="${x + (point.y < 0 ? -8 : 8)}" y="${y + 26}">${escHtml(value)}</text>
-        ${tooltipMarkup({ x, y: y + 7, label: `${value} ${chart.y_label || ""}`, meta: point.meta || "" }, width)}
+        <rect x="0" y="${y}" width="${width}" height="${rowHeight}" fill="transparent" />
+        ${chartLabelMarkup(lines, left - 16, centerY)}
+        <rect class="agent-bar" x="${Math.min(x, zero)}" y="${centerY - 14}" width="${Math.abs(x - zero)}" height="28" rx="3" />
+        <text class="agent-bar-value" text-anchor="${point.y < 0 ? "end" : "start"}" x="${x + (point.y < 0 ? -8 : 8)}" y="${centerY + 5}">${escHtml(value)}</text>
+        ${tooltipMarkup({ x, y: centerY - 14, label: `${value} ${chart.y_label || ""}`, meta: point.meta || "" }, width)}
       </g>`;
     }).join("")}
   </svg>`;
@@ -635,7 +701,10 @@ function comparisonExplorerBody(explorer, key) {
   const valid = games.filter((g) => Number.isFinite(g.values?.[key]));
   const missing = games.length - valid.length;
   if (!valid.length) return table + '<p class="meta">Game-level values are unavailable for this statistic.</p>';
-  const width = 760, height = 230, left = 190, right = 720;
+  const width = 760, left = 190, right = 720;
+  const groupLabels = groupNames.map((name) => wrapChartLabel(name));
+  const rowHeight = Math.max(72, ...groupLabels.map((lines) => (lines.length + 1) * 22 + 20));
+  const height = 45 + rowHeight * 2 + 35;
   const min = Math.min(0, ...valid.map((g) => g.values[key]));
   const max = Math.max(0, ...valid.map((g) => g.values[key]));
   const span = max - min || 1;
@@ -644,13 +713,13 @@ function comparisonExplorerBody(explorer, key) {
   const groups = ["both", "out"];
   const lines = groups.map((group, i) => {
     const points = valid.filter((g) => g.group === group);
-    const y = 65 + i * 72;
-    return `<text class="agent-point-label" text-anchor="end" x="${left - 14}" y="${y - 4}">${escHtml(groupNames[i])}</text><text class="agent-point-label" text-anchor="end" x="${left - 14}" y="${y + 16}">${points.length} games</text><line class="agent-grid" x1="${left}" x2="${right}" y1="${y}" y2="${y}" />` + points.map((g, j) => {
+    const y = 45 + rowHeight * (i + 0.5);
+    return `${chartLabelMarkup([...groupLabels[i], `${points.length} games`], left - 14, y)}<line class="agent-grid" x1="${left}" x2="${right}" y1="${y}" y2="${y}" />` + points.map((g, j) => {
       const text = `${groupNames[i]} · ${display(g.values[key])} ${metric.label} (${metric.unit}) · ${g.date} · vs ${g.opponent || "unknown opponent"} · Game ${g.game_id} · ${g.phase || ""}`;
       return `<g class="agent-point" tabindex="0" role="button" aria-label="${escHtml(text)}" data-explore-point data-detail="${escHtml(text)}"><circle class="comparison-game-dot ${group}" cx="${x(g.values[key])}" cy="${y + ((j % 5) - 2) * 6}" r="5" /><title>${escHtml(text)}</title></g>`;
     }).join("");
   }).join("");
-  const ticks = Array.from({ length: 5 }, (_, i) => low + (high - low) * i / 4).map((v) => `<text class="agent-axis" text-anchor="middle" x="${x(v)}" y="195">${escHtml(display(v))}</text>`).join("");
+  const ticks = Array.from({ length: 5 }, (_, i) => low + (high - low) * i / 4).map((v) => `<text class="agent-axis" text-anchor="middle" x="${x(v)}" y="${height - 18}">${escHtml(display(v))}</text>`).join("");
   const relative = Number.isFinite(metric.relative_change) ? ` (${metric.relative_change > 0 ? "+" : ""}${metric.relative_change.toFixed(1)}% versus both played)` : "";
   return `<p>${escHtml(metric.label)}: <strong>${display(metric.out)}</strong> with ${escHtml(explorer.teammate)} out versus <strong>${display(metric.both)}</strong> when both played. Difference: ${display(metric.difference)} ${escHtml(metric.unit === "%" ? "percentage points" : metric.unit)}${relative}.</p>${table}<p class="meta">Per-36 rates account for minutes played, not opponent strength or role. Rates require complete statistic and minutes records in each group.</p><div class="agent-chart"><h3>Game-by-game ${escHtml(metric.label)}</h3><svg class="agent-bar-chart" role="group" aria-label="${escHtml(metric.label)} by game and teammate participation" viewBox="0 0 ${width} ${height}"><text class="agent-axis-title" x="${left}" y="20">${escHtml(metric.label)} (${escHtml(metric.unit)})</text>${lines}${ticks}</svg><p data-explore-tooltip class="comparison-game-detail" role="status">Hover, tap or focus a dot for its game details.</p><p class="meta">Each dot is one game. Vertical offsets separate overlapping dots and have no statistical meaning. ${missing ? `${missing} games have no value for this statistic and are omitted. ` : ""}${metric.unit === "%" ? "Dots show each game's percentage; season averages use combined makes and attempts. " : ""}These groups describe observed games, not a causal effect.</p></div>`;
 }
@@ -699,7 +768,7 @@ function renderPlayerProfile(profile) {
   const metaParts = [
     player.team_abbr,
     profile.availability_state,
-    player.games_sampled ? `${player.games_sampled} appearances` : "",
+    profile.sampleLabel || (player.games_sampled ? `${player.games_sampled} appearances` : ""),
     profile.scopeLabel,
   ].filter(Boolean);
   const trend =
@@ -800,7 +869,7 @@ function bindExampleButtons(root = document) {
     button.addEventListener("click", () => {
       const followup = document.querySelector("[data-followup-question]");
       const input =
-        activeConversationId && followup
+        historyState.conversations.some((c) => c.id === activeConversationId && c.turns.length) && followup
           ? followup
           : document.querySelector("[data-agent-question]");
       if (!(input instanceof HTMLTextAreaElement)) return;
@@ -812,9 +881,16 @@ function bindExampleButtons(root = document) {
 }
 
 let activeConversationId = null;
-let lastQuestion = "";
-let currentAnswerEl = null;
-let askInFlight = false;
+const conversationRuntime = new Map();
+function runtimeFor(id = activeConversationId) {
+  if (!conversationRuntime.has(id)) conversationRuntime.set(id, {
+    lastQuestion: "", currentAnswerEl: null, inFlight: false, pending: null,
+  });
+  return conversationRuntime.get(id);
+}
+function newConversationId() {
+  return `agent-${crypto.randomUUID()}`;
+}
 let historyState = { version: 1, conversations: [] };
 
 function startTurn(label) {
@@ -837,7 +913,7 @@ function startTurn(label) {
     ${turnEvidenceMarkup()}
   `;
   thread.appendChild(turn);
-  currentAnswerEl = turn.querySelector(".agent-turn-answer");
+  runtimeFor().currentAnswerEl = turn.querySelector(".agent-turn-answer");
   // Keep the document anchored while streaming; don't jump to the composer.
   return turn;
 }
@@ -905,7 +981,7 @@ function bindClarifyOptions(root) {
   root.querySelectorAll("[data-agent-player-option]").forEach((button) => {
     button.addEventListener("click", () => {
       const playerId = Number(button.dataset.playerId);
-      askQuestion(lastQuestion || button.dataset.playerName || "", {
+      askQuestion(runtimeFor().lastQuestion || button.dataset.playerName || "", {
         playerId: Number.isFinite(playerId) && playerId > 0 ? playerId : null,
         playerName: button.dataset.playerName || "",
       });
@@ -914,11 +990,11 @@ function bindClarifyOptions(root) {
 }
 
 function renderPayload(payload) {
-  if (!currentAnswerEl) startTurn(lastQuestion || "Question");
-  if (!currentAnswerEl) return;
+  if (!runtimeFor().currentAnswerEl) startTurn(runtimeFor().lastQuestion || "Question");
+  if (!runtimeFor().currentAnswerEl) return;
 
-  renderAnswerPayload(payload, currentAnswerEl);
-  renderAuxiliaryPayload(payload, currentAnswerEl.parentElement || document);
+  renderAnswerPayload(payload, runtimeFor().currentAnswerEl);
+  renderAuxiliaryPayload(payload, runtimeFor().currentAnswerEl.parentElement || document);
 }
 
 function renderAnswerPayload(payload, targetEl) {
@@ -932,6 +1008,9 @@ function renderAnswerPayload(payload, targetEl) {
   targetEl.innerHTML = overview
     ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p>${escHtml(p)}</p>`).join("")}</div>${overview.insights.length ? `<aside class="takeaways" aria-label="Key takeaways"><h2>Key takeaways</h2>${overview.insights.map((i) => `<section class="takeaway"><img src="/static/icons/${i.icon}.svg" alt="" /><div><h3>${escHtml(i.title)}</h3><p>${escHtml(i.text)}</p></div></section>`).join("")}</aside>` : ""}</div>`
     : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
+  if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
+    targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
+  }
   bindClarifyOptions(targetEl);
 }
 
@@ -984,7 +1063,7 @@ function renderAuxiliaryPayload(
     const suggestions = document.querySelector("[data-followup-suggestions]");
     if (suggestions) {
       suggestions.innerHTML = asArray(payload.followups)
-        .slice(0, 2)
+        .slice(0, payload.availability_evidence?.policy_version ? 5 : 2)
         .map(
           (text, i) =>
             `<button class="button secondary" type="button" data-agent-example="${escHtml(text)}">${["Review scoring", "Review playmaking"][i]}</button>`,
@@ -1022,7 +1101,7 @@ function renderAuxiliaryPayload(
             ...payload.player_profile,
             scopeLabel: overview
               ? `${overview.scope.phases.join(" + ")} · ${overview.range}`
-              : "",
+              : payload.player_profile.scopeLabel,
           }
         : null,
     );
@@ -1030,7 +1109,7 @@ function renderAuxiliaryPayload(
   const followup = document.querySelector("[data-followup-section]");
   if (followup) followup.hidden = false;
   const heading = document.querySelector("[data-followup-heading]");
-  const name = payload.player_profile?.player?.player_name;
+  const name = payload.conversation_context?.players?.map((p) => p.player_name).join(" and ") || payload.player_profile?.player?.player_name;
   if (heading)
     heading.textContent = name
       ? `Ask a follow-up about ${name}`
@@ -1043,7 +1122,7 @@ function renderAuxiliaryPayload(
   const suggestions = document.querySelector("[data-followup-suggestions]");
   if (suggestions) {
     const prompts =
-      overview?.followups || asArray(payload.followups).slice(0, 2);
+      overview?.followups || asArray(payload.followups).slice(0, payload.availability_evidence?.policy_version ? 5 : 2);
     suggestions.innerHTML = prompts
       .map(
         (text, i) =>
@@ -1084,14 +1163,19 @@ function renderOverviewCharts(payload, key, root = document) {
 }
 
 function setInterimAnswer(text) {
-  if (!currentAnswerEl) return;
-  currentAnswerEl.innerHTML = `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(text || "")}</div>`;
+  if (!runtimeFor().currentAnswerEl) return;
+  runtimeFor().currentAnswerEl.innerHTML = `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(text || "")}</div>`;
 }
 
-function applyConversation(payload) {
-  if (payload?.conversation_id) {
-    activeConversationId = payload.conversation_id;
-  }
+function validateResponseOwner(payload, request) {
+  if (payload?.conversation_id && payload.conversation_id !== request.conversationId)
+    throw new Error("The response belongs to a different conversation.");
+  if (request.serverRequestId && payload?.request_id && payload.request_id !== request.serverRequestId)
+    throw new Error("The response belongs to a different request.");
+  if (payload?.request_id) request.serverRequestId = payload.request_id;
+}
+function requestIsVisible(request) {
+  return activeConversationId === request.conversationId && !historyVisible;
 }
 
 function truncateText(value, maxLength = 72) {
@@ -1164,7 +1248,7 @@ function normalizeHistoryConversation(rawConversation) {
     .filter(Boolean);
   const newestTurn = turns[turns.length - 1] || null;
   const title = truncateText(
-    rawConversation.title || turns[0]?.question || "Ask NBA Stats chat",
+    (rawConversation.title === "New question" && turns.length ? turns[0].question : rawConversation.title) || turns[0]?.question || "Ask NBA Stats chat",
     80,
   );
   return {
@@ -1184,7 +1268,7 @@ function normalizeHistoryState(value) {
       conversation: normalizeHistoryConversation(conversation),
       index,
     }))
-    .filter((item) => item.conversation)
+    .filter((item) => item.conversation?.turns.length)
     .sort((a, b) => {
       const delta =
         Date.parse(b.conversation.updated_at) -
@@ -1289,7 +1373,7 @@ function mergeHistoryConversations(conversations) {
     merged.set(incoming.id, {
       ...existing,
       ...incoming,
-      title: existing.title || incoming.title,
+      title: existing.turns.length ? existing.title : incoming.title,
       updated_at: newestTurn?.timestamp || incoming.updated_at,
       turns,
     });
@@ -1332,19 +1416,17 @@ function renderHistoryList() {
   });
 }
 
-function persistHistoryTurn(question, payload) {
+function persistHistoryTurn(question, payload, ownerId = null, requestBody = null) {
   const payloadObject = payload && typeof payload === "object" ? payload : {};
   const conversationId = String(
-    payloadObject.conversation_id ||
-      activeConversationId ||
-      `local-${Date.now().toString(36)}`,
+    ownerId || payloadObject.conversation_id || activeConversationId || newConversationId(),
   );
-  activeConversationId = conversationId;
+  if (!ownerId) activeConversationId = conversationId;
   let provider = "";
   let model = "";
   try {
-    provider = selectedProvider();
-    model = selectedModel();
+    provider = requestBody?.provider || selectedProvider();
+    model = requestBody?.model || selectedModel();
   } catch {
     provider = "";
     model = "";
@@ -1371,7 +1453,7 @@ function persistHistoryTurn(question, payload) {
     },
   ]);
   saveHistoryState(nextState);
-  tabState = openTab(tabState, conversationId);
+  if (activeConversationId === conversationId) tabState = openTab(tabState, conversationId);
   saveTabs();
   renderTabs();
   renderTurnNavigation();
@@ -1403,14 +1485,13 @@ function appendRestoredTurn(turn, isLatest) {
     article.querySelectorAll("[data-agent-player-option]").forEach((button) => {
       button.disabled = true;
     });
-  if (isLatest) currentAnswerEl = answerEl;
+  if (isLatest) runtimeFor().currentAnswerEl = answerEl;
   return article;
 }
 
 async function restoreConversation(conversationId) {
-  if (askInFlight) return;
   const navigation = ++navigationGeneration;
-  if (!historyState.conversations.some((c) => c.id === conversationId)) {
+  if (!historyState.conversations.some((c) => c.id === conversationId) && !tabState.drafts[conversationId]) {
     try {
       const response = await seasonFetch(
         `/api/agent/history?conversation_id=${encodeURIComponent(conversationId)}`,
@@ -1426,10 +1507,10 @@ async function restoreConversation(conversationId) {
       return;
     }
   }
-  if (navigation !== navigationGeneration || askInFlight) return;
+  if (navigation !== navigationGeneration) return;
   const conversation = historyState.conversations.find(
     (item) => item.id === conversationId,
-  );
+  ) || (tabState.drafts[conversationId] ? {id: conversationId, turns: []} : null);
   if (!conversation) return;
   rememberDraft();
   const empty = document.querySelector("[data-agent-empty]");
@@ -1437,20 +1518,32 @@ async function restoreConversation(conversationId) {
   const statusEl = document.querySelector("[data-agent-status]");
   if (!thread || !empty) return;
   activeConversationId = conversation.id;
-  lastQuestion =
+  runtimeFor().lastQuestion =
     conversation.turns[conversation.turns.length - 1]?.question || "";
-  currentAnswerEl = null;
+  runtimeFor().currentAnswerEl = null;
+  resetAuxiliaryPanels();
   thread.innerHTML = "";
-  empty.hidden = true;
-  thread.hidden = false;
+  empty.hidden = conversation.turns.length > 0;
+  thread.hidden = !conversation.turns.length;
   viewedTurn = conversation.turns.length - 1;
   conversation.turns.forEach((turn, index) =>
     appendRestoredTurn(turn, index === viewedTurn),
   );
-  if (statusEl) statusEl.textContent = "Restored";
+  const pending = runtimeFor().pending;
+  if (runtimeFor().inFlight && pending) {
+    runtimeFor().lastQuestion = pending.question;
+    startTurn(pending.question);
+    setInterimAnswer(pending.answerText);
+  }
+  if (!runtimeFor().inFlight && runtimeFor().error) {
+    startTurn(runtimeFor().error.question);
+    renderAskFailure(runtimeFor().error.message, runtimeFor().error.statusText);
+  }
+  setBusy(runtimeFor().inFlight);
+  if (statusEl) statusEl.textContent = runtimeFor().inFlight ? "Thinking" : "Restored";
   if (statusEl) statusEl.hidden = true;
   tabState = openTab(tabState, conversationId);
-  showHistory(false);
+  showHistory(false, false);
   restoreDraft();
   saveTabs();
   renderTabs();
@@ -1459,18 +1552,17 @@ async function restoreConversation(conversationId) {
 }
 
 function startNewChat() {
-  if (askInFlight) return;
   navigationGeneration += 1;
   rememberDraft();
   const empty = document.querySelector("[data-agent-empty]");
   const thread = document.querySelector("[data-agent-answer]");
   const statusEl = document.querySelector("[data-agent-status]");
-  activeConversationId = null;
-  tabState.active = null;
-  // The draft tab also occupies one of the five visible positions.
-  if (tabState.open.length >= 5) tabState.open = tabState.open.slice(-4);
-  lastQuestion = "";
-  currentAnswerEl = null;
+  activeConversationId = newConversationId();
+  tabState = openTab(tabState, activeConversationId);
+  tabState.drafts[activeConversationId] = {question: "", followup: ""};
+  setBusy(false);
+  runtimeFor().lastQuestion = "";
+  runtimeFor().currentAnswerEl = null;
   if (thread) {
     thread.innerHTML = "";
     thread.hidden = true;
@@ -1481,7 +1573,7 @@ function startNewChat() {
   );
   if (statusEl) statusEl.textContent = "Ready";
   if (statusEl) statusEl.hidden = true;
-  showHistory(false);
+  showHistory(false, false);
   restoreDraft();
   saveTabs();
   renderTabs();
@@ -1490,6 +1582,10 @@ function startNewChat() {
 }
 
 async function clearHistory() {
+  if ([...conversationRuntime.values()].some((state) => state.inFlight)) {
+    storageNotice("Wait for running answers to finish before clearing history.");
+    return;
+  }
   historyState = { version: 1, conversations: [] };
   removeStoredHistory();
   startNewChat();
@@ -1579,7 +1675,16 @@ function initHistory() {
       timer = setTimeout(() => loadServerHistory(true), 250);
     });
   if (tabState.active) restoreConversation(tabState.active);
-  else restoreDraft();
+  else {
+    const legacyDraft = tabState.drafts.new;
+    startNewChat();
+    if (legacyDraft) {
+      tabState.drafts[activeConversationId] = legacyDraft;
+      delete tabState.drafts.new;
+      restoreDraft();
+      saveTabs();
+    }
+  }
   loadServerHistory();
 }
 
@@ -1591,10 +1696,9 @@ function renderTurnNavigation() {
   if (!el || !chat) return;
   el.hidden = chat.turns.length < 2;
   if (viewedTurn < 0) viewedTurn = chat.turns.length - 1;
-  el.innerHTML = `<label for="chat-turn">Review question</label><select id="chat-turn" class="input" ${askInFlight ? "disabled" : ""}>${chat.turns.map((t, i) => `<option value="${i}" ${i === viewedTurn ? "selected" : ""}>${i + 1}. ${escHtml(truncateText(t.question, 100))}</option>`).join("")}</select><span class="meta">Follow-ups continue the latest question in this chat.</span>`;
+  el.innerHTML = `<label for="chat-turn">Review question</label><select id="chat-turn" class="input" ${runtimeFor().inFlight ? "disabled" : ""}>${chat.turns.map((t, i) => `<option value="${i}" ${i === viewedTurn ? "selected" : ""}>${i + 1}. ${escHtml(truncateText(t.question, 100))}</option>`).join("")}</select><span class="meta">Follow-ups continue the latest question in this chat.</span>`;
   el.querySelector("select")?.addEventListener("change", (event) => {
-    if (askInFlight) return;
-    viewedTurn = Number(event.target.value);
+      viewedTurn = Number(event.target.value);
     const selected = chat.turns[viewedTurn];
     updateSourceCoverage(selected?.payload || null, selected?.question || "");
     const thread = document.querySelector("[data-agent-answer]");
@@ -1605,9 +1709,11 @@ function renderTurnNavigation() {
 }
 
 function handleStreamEvent(eventName, payload, state) {
-  const statusEl = document.querySelector("[data-agent-status]");
+  if (state.finished) return;
+  const statusEl = requestIsVisible(state) ? document.querySelector("[data-agent-status]") : null;
+  if (!requestIsVisible(state) && !["meta", "answer_delta", "final", "error"].includes(eventName)) return;
   if (eventName === "meta") {
-    applyConversation(payload);
+    validateResponseOwner(payload, state);
     return;
   }
   if (eventName === "plan") {
@@ -1625,29 +1731,23 @@ function handleStreamEvent(eventName, payload, state) {
   }
   if (eventName === "answer_delta") {
     state.answerText += payload.delta || "";
-    setInterimAnswer(state.answerText);
+    if (requestIsVisible(state)) setInterimAnswer(state.answerText);
     if (statusEl) statusEl.textContent = "Writing";
     return;
   }
   if (eventName === "final") {
-    applyConversation(payload.payload);
-    renderPayload(payload.payload || {});
-    persistHistoryTurn(lastQuestion || "Question", payload.payload || {});
-    if (statusEl) statusEl.textContent = "Answered";
+    validateResponseOwner(payload.payload, state);
+    persistHistoryTurn(state.question, payload.payload || {}, state.conversationId, state.body);
+    if (requestIsVisible(state)) {
+      renderPayload(payload.payload || {});
+      if (statusEl) statusEl.textContent = "Answered";
+    }
     state.finished = true;
     return;
   }
   if (eventName === "error") {
-    renderPayload({
-      answer: payload.detail || "Ask NBA Stats is unavailable.",
-      assumptions: [],
-      tables: [],
-      charts: [],
-      metric_definitions: [],
-      followups: [],
-    });
-    if (statusEl) statusEl.textContent = "Unavailable";
     state.finished = true;
+    renderAskFailure(payload.detail || "Ask NBA Stats is unavailable.", "Unavailable", state);
   }
 }
 
@@ -1751,36 +1851,42 @@ function initProviderSelect() {
   }
 }
 
-function buildAskBody(question, selection) {
+function buildAskBody(question, selection, conversationId = activeConversationId) {
   const body = {
     question,
-    conversation_id: activeConversationId,
+    conversation_id: conversationId,
     provider: selectedProvider(),
     model: selectedModel(),
   };
   const conversation = historyState.conversations.find(
-    (item) => item.id === activeConversationId,
+    (item) => item.id === conversationId,
   );
   const previous = [...(conversation?.turns || [])]
     .reverse()
-    .find((turn) => turn.payload?.status === "ok");
+    .find((turn) => turn.payload?.status === "ok" ||
+      (turn.payload?.status == null && turn.payload?.availability_scope && turn.payload?.availability_evidence));
   if (previous) {
     const payload = previous.payload;
     const evidence = payload.semantic_evidence || {};
-    const scope = evidence.scope || {};
+    const canonical = payload.conversation_context;
+    const availability = canonical?.availability_scope || payload.availability_scope;
+    const scope = canonical?.scope || (availability ? {season: availability.season, start: availability.start, end: availability.end, phases: [availability.phase]} : evidence.scope) || {};
     const profiles = payload.player_profiles || [
       payload.player_profile || payload.reference_player,
     ];
     body.previous_context = {
       question: previous.question.slice(0, 4000),
-      players: profiles
+      players: canonical?.players?.slice(0, 2) || profiles
         .filter((p) => p?.player?.player_id && p.player.player_name)
         .slice(0, 2)
         .map((p) => ({
           player_id: p.player.player_id,
           player_name: p.player.player_name.slice(0, 80),
         })),
+      analysis_type: canonical?.analysis_type || (availability ? "availability" : null),
+      availability_scope: availability || null,
       scope: {
+        season: scope.season || null,
         start: scope.start || scope.start_date || null,
         end: scope.end || scope.as_of || null,
         phases: (scope.phases || (scope.season_type ? [scope.season_type] : []))
@@ -1789,7 +1895,7 @@ function buildAskBody(question, selection) {
           )
           .slice(0, 2),
       },
-      metrics: (evidence.metrics || [evidence.metric])
+      metrics: canonical?.metrics?.slice(0, 24) || (evidence.metrics || [evidence.metric])
         .map((m) => m?.key)
         .filter((key) => ["pts", "reb", "ast", "stl", "blk"].includes(key))
         .slice(0, 5),
@@ -1802,30 +1908,25 @@ function buildAskBody(question, selection) {
   return body;
 }
 
-async function askQuestionJson(question, selection) {
+async function askQuestionJson(request) {
   const statusEl = document.querySelector("[data-agent-status]");
   const response = await seasonFetch("/api/agent/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(buildAskBody(question, selection)),
+    body: JSON.stringify(request.body),
   });
   const payload = await response.json();
   if (!response.ok) {
-    renderPayload({
-      answer: payload.detail || "Ask NBA Stats is unavailable.",
-      assumptions: [],
-      tables: [],
-      charts: [],
-      metric_definitions: [],
-      followups: [],
-    });
-    if (statusEl) statusEl.textContent = "Unavailable";
+    renderAskFailure(payload.detail || "Ask NBA Stats is unavailable.", "Unavailable", request);
     return;
   }
-  applyConversation(payload);
-  renderPayload(payload);
-  persistHistoryTurn(question, payload);
-  if (statusEl) statusEl.textContent = "Answered";
+  validateResponseOwner(payload, request);
+  persistHistoryTurn(request.question, payload, request.conversationId, request.body);
+  request.finished = true;
+  if (requestIsVisible(request)) {
+    renderPayload(payload);
+    if (statusEl) statusEl.textContent = "Answered";
+  }
 }
 
 function parseSseChunk(buffer, onEvent) {
@@ -1837,16 +1938,17 @@ function parseSseChunk(buffer, onEvent) {
     const dataLine = lines.find((line) => line.startsWith("data:"));
     if (!dataLine) return;
     const eventName = eventLine ? eventLine.slice(6).trim() : "message";
-    try {
-      onEvent(eventName, JSON.parse(dataLine.slice(5).trim()));
-    } catch {
-      // Ignore malformed SSE fragments; the final JSON fallback still protects UX.
-    }
+    let payload;
+    try { payload = JSON.parse(dataLine.slice(5).trim()); }
+    catch { return; }
+    onEvent(eventName, payload);
   });
   return remaining;
 }
 
-function renderAskFailure(message, statusText) {
+function renderAskFailure(message, statusText, request) {
+  if (request) runtimeFor(request.conversationId).error = {message, statusText, question: request.question};
+  if (request && !requestIsVisible(request)) return;
   const statusEl = document.querySelector("[data-agent-status]");
   renderPayload({
     answer: message,
@@ -1859,11 +1961,11 @@ function renderAskFailure(message, statusText) {
   if (statusEl) statusEl.textContent = statusText;
 }
 
-async function askQuestionStream(question, selection) {
+async function askQuestionStream(request) {
   const response = await seasonFetch("/api/agent/ask/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(buildAskBody(question, selection)),
+    body: JSON.stringify(request.body),
   });
   if (!response.ok) {
     // The server answered (rate limit, validation, ...): surface its detail
@@ -1876,7 +1978,7 @@ async function askQuestionStream(question, selection) {
     } catch {
       // Keep the generic message when the error body is not JSON.
     }
-    renderAskFailure(detail, "Unavailable");
+    renderAskFailure(detail, "Unavailable", request);
     return;
   }
   if (!response.body) {
@@ -1884,7 +1986,7 @@ async function askQuestionStream(question, selection) {
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const state = { answerText: "", finished: false, eventCount: 0 };
+  const state = request;
   let buffer = "";
   try {
     while (true) {
@@ -1908,11 +2010,16 @@ async function askQuestionStream(question, selection) {
 }
 
 async function askQuestion(question, selection = null) {
-  if (askInFlight || !String(question).trim()) return;
+  if (runtimeFor().inFlight || !String(question).trim()) return;
   navigationGeneration += 1;
   rememberDraft();
-  const wasNewChat = !activeConversationId;
-  askInFlight = true;
+  if (!activeConversationId) startNewChat();
+  const owner = runtimeFor();
+  const request = {conversationId: activeConversationId, question,
+    body: buildAskBody(question, selection), answerText: "", finished: false, eventCount: 0};
+  owner.pending = request;
+  owner.error = null;
+  owner.inFlight = true;
   setBusy(true);
   const statusEl = document.querySelector("[data-agent-status]");
   const submit = document.querySelector("[data-agent-submit]");
@@ -1922,31 +2029,31 @@ async function askQuestion(question, selection = null) {
   if (selection && selection.playerName) {
     startTurn(selection.playerName);
   } else {
-    lastQuestion = question;
+    runtimeFor().lastQuestion = question;
     startTurn(question);
   }
   try {
-    await askQuestionStream(question, selection);
+    await askQuestionStream(request);
   } catch (streamError) {
     if (streamError instanceof Error && streamError.receivedEvents) {
       renderAskFailure(
         "Ask NBA Stats lost the connection before finishing. Try again shortly.",
-        "Failed",
+        "Failed", request,
       );
     } else {
       try {
-        await askQuestionJson(question, selection);
+        await askQuestionJson(request);
       } catch {
-        renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed");
+        renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed", request);
       }
     }
   } finally {
-    askInFlight = false;
+    owner.inFlight = false;
+    owner.pending = null;
+    if (!requestIsVisible(request)) { renderTabs(); return; }
     setBusy(false);
     renderTabs();
     renderTurnNavigation();
-    if (wasNewChat && statusEl?.textContent === "Answered")
-      delete tabState.drafts.new;
     rememberDraft();
     if (statusEl?.textContent === "Answered") statusEl.hidden = true;
     if (submit instanceof HTMLButtonElement) submit.disabled = false;
@@ -1968,7 +2075,7 @@ function setBusy(busy) {
   if (status) status.dataset.thinking = String(busy);
   document
     .querySelectorAll(
-      "[data-chat-tabs] button, [data-chat-more], [data-agent-new-chat], [data-followup-submit], [data-agent-submit], [data-agent-provider], [data-agent-model], #chat-turn",
+      "[data-followup-submit], [data-agent-submit], [data-agent-provider], [data-agent-model], #chat-turn",
     )
     .forEach((el) => {
       el.disabled = busy;
@@ -1997,16 +2104,18 @@ function initAgentPage() {
   const followupInput = document.querySelector("[data-followup-question]");
   followupForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!followupInput.value.trim() || askInFlight) return;
+    if (!followupInput.value.trim() || runtimeFor().inFlight) return;
     const sentQuestion = followupInput.value.trim();
+    const submittedId = activeConversationId;
     await askQuestion(sentQuestion);
     if (
+      activeConversationId === submittedId &&
       document.querySelector("[data-agent-status]")?.textContent ===
         "Answered" &&
       followupInput.value.trim() === sentQuestion
     )
       followupInput.value = "";
-    rememberDraft();
+    if (activeConversationId === submittedId) rememberDraft();
   });
   followupInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
@@ -2028,12 +2137,18 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
   globalThis.__askAgentTest = {
     referenceTable,
     renderTable,
+    renderAuxiliaryPayload,
     updateSourceCoverage,
     turnEvidenceMarkup,
     buildAskBody,
+    askQuestion,
+    handleStreamEvent,
+    runtimeFor,
+    initHistory,
     startTurn,
     setBusy,
     renderLineChart,
+    wrapChartLabel,
     renderBarChart,
     renderChart,
     comparisonExplorerBody,
@@ -2051,6 +2166,7 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     renderOverviewTable,
     closeConversationTab,
     startNewChat,
+    showHistory,
     renderTabs,
     getNavigation: () => ({ ...tabState, activeConversationId }),
   };

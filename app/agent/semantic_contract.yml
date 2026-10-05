@@ -7,6 +7,7 @@ defaults:
   timezone: America/New_York
   fantasy_metric: fantasy_proxy_weighted
 metrics:
+  gp: {label: Games played, numerator: '1', unit: games, direction: higher}
   pts: {label: PTS, numerator: pts, unit: count, direction: higher}
   reb: {label: REB, numerator: reb, unit: count, direction: higher}
   ast: {label: AST, numerator: ast, unit: count, direction: higher}

@@ -101,8 +101,8 @@ function createDocument(elements = {}) {
     querySelector(selector) {
       return elements[selector] || null;
     },
-    querySelectorAll() {
-      return [];
+    querySelectorAll(selector) {
+      return selector.split(',').map(s => elements[s.trim()]).filter(Boolean);
     },
     createElement(tagName) {
       return new FakeElement(tagName);
@@ -145,6 +145,51 @@ test("reference row supports text-only emphasis without changing the league rank
     /Jalen Johnson<\/td><td>8<\/td>/,
   );
   assert.doesNotMatch(html, /reference-player-label/);
+});
+
+test("saved sample counts get clear labels without changing evidence or unrelated fractions", async () => {
+  const agent = await loadAgentModule();
+  const table = {
+    columns: [{ label: "Makes/attempts" }, { label: "Both valid/observed" }, { label: "Out valid/observed" }],
+    rows: [["1/2", "0/2", "1/2"]],
+  };
+  const before = JSON.stringify(table);
+  const html = agent.renderTable(table);
+  assert.match(html, /Games with data — both played/);
+  assert.match(html, /Games with data — teammate reported Out/);
+  assert.match(html, /<td>1\/2<\/td><td>0 of 2<\/td><td>1 of 2<\/td>/);
+  assert.match(html, /Counts can differ by stat/);
+  assert.equal(JSON.stringify(table), before);
+  const withDescription = agent.renderTable({ ...table, description: "<script>alert(1)</script>" });
+  assert.match(withDescription, /&lt;script&gt;/);
+  assert.doesNotMatch(withDescription, /<script>/);
+});
+
+test("study cards retain their scoped identity and clear on a refusal", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-agent-profile]",
+  ].map((selector) => [selector, new FakeElement("div")]));
+  const agent = await loadAgentModule({ elements });
+  agent.renderAuxiliaryPayload({
+    player_profile: {
+      player: {
+        player_name: "Focal Player",
+        headshot_url: "https://cdn.nba.com/headshots/nba/latest/1040x760/1.png",
+      },
+      profile_url: "/players/1",
+      scopeLabel: "2024-25 regular season · 2024-11-01 through 2024-11-30",
+    },
+  }, globalThis.document, false);
+  const profile = elements["[data-agent-profile]"];
+  assert.match(profile.innerHTML, /Focal Player/);
+  assert.match(profile.innerHTML, /2024-25 regular season/);
+  assert.match(profile.innerHTML, /2024-11-01 through 2024-11-30/);
+  assert.match(profile.innerHTML, /headshots\/nba\/latest\/1040x760\/1.png/);
+  assert.match(profile.innerHTML, /href="\/players\/1"/);
+  assert.doesNotMatch(profile.innerHTML, /Rank #|P-Rating/);
+  agent.renderAuxiliaryPayload({ answer: "Scope unavailable" }, globalThis.document, false);
+  assert.equal(profile.innerHTML, "");
 });
 
 test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure", async () => {
@@ -432,6 +477,36 @@ test("bar charts preserve negative values and expose accessible hover details", 
   assert.match(html, /agent-tooltip/);
 });
 
+test("chart labels wrap by rendered width without losing names or status", async () => {
+  const agent = await loadAgentModule();
+  const measure = (text) => Array.from(text).reduce((width, char) => width + (char === "W" ? 18 : 9), 0);
+  for (const label of ["Draymond Green reported Out", "Kentavious Caldwell-Pope reported Out", "WWWWWWWWWWWWWWWWWWWW", "Nikola Jokić reported Out"]) {
+    const lines = agent.wrapChartLabel(label, 160, measure);
+    assert.ok(lines.length > 1);
+    assert.ok(lines.every((line) => measure(line) <= 160));
+    assert.equal(lines.join("").replaceAll(" ", ""), label.replaceAll(" ", ""));
+  }
+  assert.deepEqual(agent.wrapChartLabel("Both played", 160, measure), ["Both played"]);
+});
+
+test("wrapped bar labels stay within their own rows and preserve accessible attribution", async () => {
+  const agent = await loadAgentModule();
+  const name = "Kentavious Caldwell-Pope reported Out";
+  const html = agent.renderBarChart({series: [{points: [
+    {x: name, y: 39}, {x: "Both played", y: 26.4}, {x: "<unsafe> & status", y: 0},
+  ]}]});
+  const rows = [...html.matchAll(/<rect x="0" y="([\d.]+)" width="760" height="([\d.]+)" fill="transparent" \/>\s*<text class="agent-point-label"[^>]*>(.*?)<\/text>/gs)];
+  assert.equal(rows.length, 3);
+  for (const [, start, height, label] of rows) {
+    const baselines = [...label.matchAll(/<tspan x="[\d.]+" y="([\d.]+)">/g)].map((m) => Number(m[1]));
+    assert.ok(baselines.length > 0);
+    assert.ok(baselines.every((y) => y - 18 >= Number(start) && y + 4 <= Number(start) + Number(height)));
+  }
+  assert.ok(Number(rows[0][2]) > Number(rows[1][2]));
+  assert.match(html, new RegExp(`aria-label="${name}: 39`));
+  assert.doesNotMatch(html, /<unsafe>/);
+});
+
 test("Source & Coverage follows the selected answer and clears on reset", async () => {
   const panel = new FakeElement();
   const context = new FakeElement();
@@ -479,4 +554,170 @@ test("Ask sends the OpenRouter provider and its selected model", async () => {
   const body=agent.buildAskBody('How did LeBron play?',null);
   assert.equal(body.provider,'openrouter');
   assert.equal(body.model,'qwen/qwen3-235b-a22b-2507');
+});
+
+test("each new tab owns a stable ID, draft, and both-player context", async () => {
+  const input = new FakeElement("textarea");
+  const followup = new FakeElement("textarea");
+  const elements = {"[data-agent-question]": input, "[data-followup-question]": followup,
+    "[data-agent-empty]": new FakeElement(), "[data-agent-answer]": new FakeElement()};
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  const a = agent.getNavigation().activeConversationId;
+  input.value = "Question A";
+  const context = {players:[{player_id:811,player_name:"Avery Finch",role:"focal"},{player_id:822,player_name:"Blake Reed",role:"teammate"}],scope:{season:"2025-26",phases:["Both"]},metrics:["pts"]};
+  agent.persistHistoryTurn("Question A", {conversation_id:a,status:"ok",conversation_context:context});
+  agent.startNewChat();
+  const b = agent.getNavigation().activeConversationId;
+  assert.notEqual(a,b);
+  assert.equal(agent.buildAskBody("each player").conversation_id,b);
+  assert.equal(agent.buildAskBody("each player").previous_context,undefined);
+  input.value = "Question B";
+  await agent.restoreConversation(a);
+  assert.equal(input.value,"Question A");
+  const body = agent.buildAskBody("How many games did each player play?");
+  assert.equal(body.conversation_id,a);
+  assert.deepEqual(body.previous_context.players,context.players);
+  await agent.restoreConversation(b);
+  assert.equal(input.value,"Question B");
+  assert.equal(agent.buildAskBody("follow-up").previous_context,undefined);
+});
+
+test("late stream results stay in their originating tab and mismatched IDs are rejected", async () => {
+  const elements = {"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement(),"[data-agent-status]":new FakeElement()};
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  const a = agent.getNavigation().activeConversationId;
+  const request = {conversationId:a,question:"Question A",answerText:"",body:{provider:"openai",model:"fixture"}};
+  agent.runtimeFor(a).inFlight = true;
+  agent.startNewChat();
+  const b = agent.getNavigation().activeConversationId;
+  agent.handleStreamEvent("meta",{conversation_id:a,request_id:"request-a"},request);
+  agent.handleStreamEvent("answer_delta",{delta:"Answer A"},request);
+  assert.equal(elements["[data-agent-answer]"].innerHTML,"");
+  assert.throws(()=>agent.handleStreamEvent("final",{payload:{conversation_id:b,request_id:"request-a"}},request),/different conversation/);
+  assert.throws(()=>agent.handleStreamEvent("final",{payload:{conversation_id:a,request_id:"request-b"}},request),/different request/);
+  agent.handleStreamEvent("final",{payload:{conversation_id:a,request_id:"request-a",status:"ok",answer:"Answer A"}},request);
+  assert.equal(agent.getNavigation().activeConversationId,b);
+  assert.equal(agent.buildAskBody("followup").previous_context,undefined);
+  const saved = agent.loadHistoryState().conversations.find(c=>c.id===a);
+  assert.equal(saved.turns[0].question,"Question A");
+  assert.equal(saved.turns[0].payload.answer,"Answer A");
+  assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b),undefined);
+});
+
+test("two tab requests finish out of order without changing each other's state", async () => {
+  const elements = {"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement(),"[data-agent-status]":new FakeElement()};
+  const agent = await loadAgentModule({elements});
+  const pending = [];
+  globalThis.fetch = async (url, options) => new Promise(resolve=>pending.push({body:JSON.parse(options.body),resolve}));
+  const complete = (index, answer) => {
+    const {body,resolve}=pending[index];
+    resolve({ok:true,body:new ReadableStream({start(controller){
+      controller.enqueue(new TextEncoder().encode(`event: meta\ndata: ${JSON.stringify({conversation_id:body.conversation_id,request_id:`r${index}`})}\n\nevent: final\ndata: ${JSON.stringify({payload:{conversation_id:body.conversation_id,request_id:`r${index}`,status:"ok",answer}})}\n\n`));
+      controller.close();
+    }})});
+  };
+  agent.startNewChat();
+  const a = agent.getNavigation().activeConversationId;
+  const first = agent.askQuestion("Question A");
+  agent.startNewChat();
+  const b = agent.getNavigation().activeConversationId;
+  const second = agent.askQuestion("Question B");
+  assert.equal(pending[0].body.conversation_id,a);
+  assert.equal(pending[1].body.conversation_id,b);
+  complete(1,"Answer B"); await second;
+  assert.equal(agent.runtimeFor(a).inFlight,true);
+  assert.equal(agent.runtimeFor(b).inFlight,false);
+  complete(0,"Answer A"); await first;
+  assert.equal(agent.getNavigation().activeConversationId,b);
+  for (const [id,answer] of [[a,"Answer A"],[b,"Answer B"]]) {
+    assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===id).turns[0].payload.answer,answer);
+  }
+});
+
+test("legacy availability answers recover the pair after a clarification", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  const scope = {player_id:811,teammate_id:822,season:"2025-26",phase:"Both",start:null,end:null,metrics:["pts"],aggregation:"average"};
+  agent.persistHistoryTurn("Avery Finch without Blake Reed",{conversation_id:id,availability_scope:scope,availability_evidence:{snapshot_id:"fixture"},player_profile:{player:{player_id:811,player_name:"Avery Finch"}}});
+  agent.persistHistoryTurn("each player",{conversation_id:id,status:"clarification_required",answer:"Which players?"});
+  const context = agent.buildAskBody("How many games did each player play?").previous_context;
+  assert.equal(context.availability_scope.teammate_id,822);
+  assert.deepEqual(context.scope.phases,["Both"]);
+  assert.equal(context.question,"Avery Finch without Blake Reed");
+});
+
+test("empty tabs keep distinct IDs and drafts across page reload", async () => {
+  const storage = createStorage();
+  const input = new FakeElement("textarea");
+  const elements={"[data-agent-question]":input,"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement()};
+  let agent=await loadAgentModule({storage,elements});
+  agent.startNewChat();
+  const a=agent.getNavigation().activeConversationId;
+  input.value="Draft A";
+  agent.startNewChat();
+  const b=agent.getNavigation().activeConversationId;
+  input.value="Draft B";
+  await agent.restoreConversation(a);
+  agent=await loadAgentModule({storage,elements});
+  agent.initHistory();
+  assert.equal(agent.getNavigation().activeConversationId,a);
+  assert.equal(input.value,"Draft A");
+  await agent.restoreConversation(b);
+  assert.equal(input.value,"Draft B");
+  assert.equal(agent.buildAskBody("follow-up").previous_context,undefined);
+  agent.persistHistoryTurn("New analytical question",{conversation_id:b,status:"ok",answer:"Result"});
+  assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b).title,"New analytical question");
+});
+
+test("game inclusion audit is expandable and escapes source details", async () => {
+  const agent = await loadAgentModule();
+  const html = agent.renderTable({ title: 'Game inclusion details', collapsible: true,
+    columns: [{ label: 'Decision' }], rows: [['<limited>']], description: 'Every game counted once.' });
+  assert.match(html, /<details><summary>Game inclusion details<\/summary>/);
+  assert.match(html, /&lt;limited&gt;/);
+  assert.match(html, /Every game counted once/);
+  assert.match(html, /<\/details>/);
+});
+
+test("history return restores an answer completed while hidden and clears busy controls", async () => {
+  const submit = new FakeElement('button');
+  const elements = {'[data-agent-empty]':new FakeElement(),'[data-agent-answer]':new FakeElement(),'[data-agent-status]':new FakeElement(),'[data-agent-submit]':submit};
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  let finish;
+  globalThis.fetch = async (url, options) => {
+    if (!options?.body) return {ok:true,json:async()=>({conversations:[]})};
+    const body=JSON.parse(options.body);
+    return new Promise(resolve=>{finish=()=>resolve({ok:true,body:new ReadableStream({start(controller){
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{conversation_id:body.conversation_id,status:'ok',answer:'Completed while hidden'}})}\n\n`));
+      controller.close();
+    }})});});
+  };
+  const task=agent.askQuestion('An analysis');
+  agent.showHistory(true);
+  finish(); await task;
+  assert.equal(submit.disabled,true);
+  await agent.showHistory(false);
+  assert.equal(submit.disabled,false);
+  assert.equal(submit.textContent,'Ask');
+  assert.match(elements['[data-agent-answer]'].children[0].querySelector('.agent-turn-answer').innerHTML,/Completed while hidden/);
+});
+
+test("blank tabs cannot evict answered chats from the capped history", async () => {
+  const storage=createStorage();
+  const elements={'[data-agent-empty]':new FakeElement(),'[data-agent-answer]':new FakeElement()};
+  const agent=await loadAgentModule({storage,elements});
+  agent.startNewChat();
+  const id=agent.getNavigation().activeConversationId;
+  agent.persistHistoryTurn('Keep this answer',{conversation_id:id,status:'ok',answer:'Evidence'});
+  for(let i=0;i<35;i++) agent.startNewChat();
+  const saved=agent.loadHistoryState().conversations;
+  assert.equal(saved.length,1);
+  assert.equal(saved[0].id,id);
+  const reloaded=await loadAgentModule({storage,elements});
+  reloaded.initHistory();
+  assert.equal(reloaded.loadHistoryState().conversations[0].turns[0].payload.answer,'Evidence');
 });

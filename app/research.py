@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.agent.performance_overview import scoped_identity_profile
 from app.agent.semantic_serving import source_players, warehouse_for_repository
 from app.agent.semantic_source import load_snapshot
 from app.agent.semantics import Evidence, Query, SemanticError, load_contract, run_query
@@ -317,4 +318,11 @@ def answer_payload(result: dict[str, Any]) -> dict[str, Any]:
         "assumptions": result["limitations"],
         "research": result,
         "research_scope": scope,
+        "player_profile": (
+            scoped_identity_profile(
+                result["players"][0], result["players"][0]["games"], scope
+            )
+            if len(result["players"]) == 1
+            else None
+        ),
     }

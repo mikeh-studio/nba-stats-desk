@@ -1523,6 +1523,61 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.appearance_ask import answer_appearances, wants_appearances
+        from app.agent.availability_ask import (
+            answer_availability,
+            availability_followup,
+            wants_availability,
+        )
+        from app.agent.research_ask import mentioned_pairs, wants_research_followup
+        from app.agent.teammate_ask import wants_study
+
+        context = {}
+        if conversation_id and self.conversation_store:
+            context = next(
+                (
+                    turn.context
+                    for turn in reversed(
+                        self.conversation_store.get_turns(
+                            conversation_id,
+                            max_turns=self.settings.agent_conversation_max_turns,
+                        )
+                    )
+                    if turn.context
+                ),
+                {},
+            )
+        if wants_appearances(cleaned_question) and (
+            self.semantic_agent or context.get("availability_scope")
+        ):
+            return answer_appearances(
+                self, cleaned_question, context, conversation_id, trace
+            )
+
+        availability_context = False
+        if conversation_id and self.conversation_store:
+            availability_context = bool(
+                context.get("availability_scope")
+                and availability_followup(cleaned_question)
+            )
+        if availability_context or (
+            wants_availability(cleaned_question)
+            and not (
+                context.get("research_scope")
+                and wants_research_followup(cleaned_question)
+            )
+            and (
+                self.settings.research_availability_path
+                or (
+                    not mentioned_pairs(cleaned_question)
+                    and not wants_study(
+                        cleaned_question, self.settings.agent_teammate_study_path
+                    )
+                )
+            )
+        ):
+            return answer_availability(self, cleaned_question, conversation_id, trace)
+
         from app.agent.research_ask import (
             answer_research,
             wants_research,
@@ -1537,7 +1592,11 @@ class StatsAgent:
                 and recent[-1].context.get("research_scope")
                 and wants_research_followup(cleaned_question)
             )
-        from app.agent.teammate_ask import answer_study, wants_study
+        from app.agent.teammate_ask import (
+            answer_study,
+            legacy_study_has_replacement,
+            wants_study,
+        )
 
         study_followup = False
         if conversation_id and self.conversation_store:
@@ -1555,13 +1614,16 @@ class StatsAgent:
             wants_study(cleaned_question, self.settings.agent_teammate_study_path)
             or study_followup
         )
-        # Preserve published v1 studies until a replacement catalog is configured.
+        # Preserve published v1 studies until their pair has a replacement.
         # Never use this compatibility route to replace an active research scope.
         use_legacy_study = (
             bool(self.settings.agent_teammate_study_path)
-            and not self.settings.research_studies_path
             and legacy_study_requested
             and not research_followup
+            and not legacy_study_has_replacement(
+                self.settings.agent_teammate_study_path,
+                self.settings.research_studies_path,
+            )
         )
         if (
             wants_research(cleaned_question) or research_followup
