@@ -28,7 +28,11 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from app.agent.conversation import get_conversation_store
-from app.agent.followup import analysis_context
+from app.agent.followup import (
+    analysis_context,
+    hydrate_availability_context,
+    successful_analysis,
+)
 from app.agent.history import (
     append_history_turn,
     clear_history,
@@ -67,7 +71,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261004-chart-labels-v1"
+STATIC_VERSION = "20261004-tab-context-v3"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -108,9 +112,11 @@ class CacheControlledStaticFiles(StaticFiles):
 class PriorPlayer(BaseModel):
     player_id: int = Field(ge=1)
     player_name: str = Field(min_length=1, max_length=80)
+    role: Literal["focal", "teammate"] | None = None
 
 
 class PriorScope(BaseModel):
+    season: str | None = Field(default=None, max_length=7)
     start: date | None = None
     end: date | None = None
     phases: list[Literal["Regular Season", "Playoffs", "Both"]] = Field(
@@ -118,13 +124,28 @@ class PriorScope(BaseModel):
     )
 
 
+class PriorAvailability(BaseModel):
+    player_id: int = Field(ge=1)
+    teammate_id: int = Field(ge=1)
+    season: str = Field(max_length=7)
+    phase: Literal["Regular Season", "Playoffs", "Both"]
+    start: date | None = None
+    end: date | None = None
+    home_away: Literal["home", "away"] | None = None
+    opponent: str | None = Field(default=None, max_length=3)
+    metrics: list[str] = Field(max_length=24)
+    aggregation: Literal["average", "total"] = "average"
+
+
 class PriorAnalysis(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     players: list[PriorPlayer] = Field(default_factory=list, max_length=2)
     scope: PriorScope = Field(default_factory=PriorScope)
-    metrics: list[Literal["pts", "reb", "ast", "stl", "blk"]] = Field(
-        default_factory=list, max_length=5
-    )
+    metrics: list[str] = Field(default_factory=list, max_length=24)
+    availability_scope: PriorAvailability | None = None
+    analysis_type: (
+        Literal["availability", "summary", "comparison", "appearances"] | None
+    ) = None
 
 
 class AgentAskRequest(BaseModel):
@@ -543,8 +564,15 @@ def _prepare_agent_request(
                         or turn["question"],
                         query_plan=stored_payload.get("semantic_plan"),
                     )
-                elif stored_payload.get("status") == "ok":
+                elif successful_analysis(stored_payload):
                     next_context = analysis_context(turn["question"], stored_payload)
+                    if next_context.get("availability_scope"):
+                        try:
+                            next_context = hydrate_availability_context(
+                                next_context, settings.research_availability_path
+                            )
+                        except (ValueError, OSError, KeyError):
+                            continue
                     if not next_context.get("players"):
                         next_context["players"] = recovered_context.get("players", [])
                     recovered_context = next_context
@@ -571,6 +599,20 @@ def _prepare_agent_request(
         )
     ):
         context = payload.previous_context.model_dump(mode="json", exclude_none=True)
+        if payload.previous_context.availability_scope:
+            # Preserve nullable filters when rebuilding an availability request.
+            context["availability_scope"] = (
+                payload.previous_context.availability_scope.model_dump(mode="json")
+            )
+            try:
+                context = hydrate_availability_context(
+                    context, settings.research_availability_path
+                )
+            except (ValueError, OSError, KeyError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Saved conversation context could not be validated. Restate the player names.",
+                ) from exc
         context["browser_recovered"] = True
         if not payload.selected_player_name:
             store.clear_pending_clarification(conversation_id)

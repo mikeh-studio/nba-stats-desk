@@ -798,6 +798,7 @@ class SemanticAsk:
                 next_context = analysis_context(original, payload)
                 if not next_context.get("players"):
                     next_context["players"] = context.get("players", [])
+                payload["conversation_context"] = next_context
                 store.append_turn(
                     conversation_id,
                     question=saved_context_question(original, payload),

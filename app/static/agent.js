@@ -68,7 +68,7 @@ function restoreDraft() {
   const draft = tabState.drafts[activeConversationId || "new"] || {};
   const query = document.querySelector("[data-agent-question]");
   const followup = document.querySelector("[data-followup-question]");
-  if (query) query.value = draft.question ?? lastQuestion;
+  if (query) query.value = draft.question ?? runtimeFor().lastQuestion;
   if (followup) followup.value = draft.followup || "";
 }
 function renderTabs() {
@@ -79,7 +79,7 @@ function renderTabs() {
     ids
       .map((id, index) => {
         const chat = historyState.conversations.find((c) => c.id === id);
-        const title = chat?.title || "Saved chat";
+        const title = chat?.title || "New question";
         const playerName = chat?.turns.find(
           (t) => t.payload?.player_profile?.player?.player_name,
         )?.payload.player_profile.player.player_name;
@@ -127,11 +127,10 @@ function renderTabs() {
   const more = document.querySelector("[data-chat-more]");
   more?.setAttribute("aria-pressed", String(historyVisible));
   el.querySelectorAll("button").forEach((button) => {
-    button.disabled = askInFlight;
+    button.disabled = false;
   });
 }
 function closeConversationTab(id) {
-  if (askInFlight) return;
   rememberDraft();
   tabState = closeTab(tabState, id);
   saveTabs();
@@ -142,7 +141,6 @@ function closeConversationTab(id) {
   document.querySelector('[data-chat-tabs] [aria-selected="true"]')?.focus();
 }
 function showHistory(show = true) {
-  if (askInFlight) return;
   if (show) rememberDraft();
   historyVisible = show;
   const history = document.querySelector("[data-chat-history]");
@@ -849,7 +847,7 @@ function bindExampleButtons(root = document) {
     button.addEventListener("click", () => {
       const followup = document.querySelector("[data-followup-question]");
       const input =
-        activeConversationId && followup
+        historyState.conversations.some((c) => c.id === activeConversationId && c.turns.length) && followup
           ? followup
           : document.querySelector("[data-agent-question]");
       if (!(input instanceof HTMLTextAreaElement)) return;
@@ -861,9 +859,16 @@ function bindExampleButtons(root = document) {
 }
 
 let activeConversationId = null;
-let lastQuestion = "";
-let currentAnswerEl = null;
-let askInFlight = false;
+const conversationRuntime = new Map();
+function runtimeFor(id = activeConversationId) {
+  if (!conversationRuntime.has(id)) conversationRuntime.set(id, {
+    lastQuestion: "", currentAnswerEl: null, inFlight: false, pending: null,
+  });
+  return conversationRuntime.get(id);
+}
+function newConversationId() {
+  return `agent-${crypto.randomUUID()}`;
+}
 let historyState = { version: 1, conversations: [] };
 
 function startTurn(label) {
@@ -886,7 +891,7 @@ function startTurn(label) {
     ${turnEvidenceMarkup()}
   `;
   thread.appendChild(turn);
-  currentAnswerEl = turn.querySelector(".agent-turn-answer");
+  runtimeFor().currentAnswerEl = turn.querySelector(".agent-turn-answer");
   // Keep the document anchored while streaming; don't jump to the composer.
   return turn;
 }
@@ -954,7 +959,7 @@ function bindClarifyOptions(root) {
   root.querySelectorAll("[data-agent-player-option]").forEach((button) => {
     button.addEventListener("click", () => {
       const playerId = Number(button.dataset.playerId);
-      askQuestion(lastQuestion || button.dataset.playerName || "", {
+      askQuestion(runtimeFor().lastQuestion || button.dataset.playerName || "", {
         playerId: Number.isFinite(playerId) && playerId > 0 ? playerId : null,
         playerName: button.dataset.playerName || "",
       });
@@ -963,11 +968,11 @@ function bindClarifyOptions(root) {
 }
 
 function renderPayload(payload) {
-  if (!currentAnswerEl) startTurn(lastQuestion || "Question");
-  if (!currentAnswerEl) return;
+  if (!runtimeFor().currentAnswerEl) startTurn(runtimeFor().lastQuestion || "Question");
+  if (!runtimeFor().currentAnswerEl) return;
 
-  renderAnswerPayload(payload, currentAnswerEl);
-  renderAuxiliaryPayload(payload, currentAnswerEl.parentElement || document);
+  renderAnswerPayload(payload, runtimeFor().currentAnswerEl);
+  renderAuxiliaryPayload(payload, runtimeFor().currentAnswerEl.parentElement || document);
 }
 
 function renderAnswerPayload(payload, targetEl) {
@@ -1079,7 +1084,7 @@ function renderAuxiliaryPayload(
   const followup = document.querySelector("[data-followup-section]");
   if (followup) followup.hidden = false;
   const heading = document.querySelector("[data-followup-heading]");
-  const name = payload.player_profile?.player?.player_name;
+  const name = payload.conversation_context?.players?.map((p) => p.player_name).join(" and ") || payload.player_profile?.player?.player_name;
   if (heading)
     heading.textContent = name
       ? `Ask a follow-up about ${name}`
@@ -1133,14 +1138,19 @@ function renderOverviewCharts(payload, key, root = document) {
 }
 
 function setInterimAnswer(text) {
-  if (!currentAnswerEl) return;
-  currentAnswerEl.innerHTML = `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(text || "")}</div>`;
+  if (!runtimeFor().currentAnswerEl) return;
+  runtimeFor().currentAnswerEl.innerHTML = `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(text || "")}</div>`;
 }
 
-function applyConversation(payload) {
-  if (payload?.conversation_id) {
-    activeConversationId = payload.conversation_id;
-  }
+function validateResponseOwner(payload, request) {
+  if (payload?.conversation_id && payload.conversation_id !== request.conversationId)
+    throw new Error("The response belongs to a different conversation.");
+  if (request.serverRequestId && payload?.request_id && payload.request_id !== request.serverRequestId)
+    throw new Error("The response belongs to a different request.");
+  if (payload?.request_id) request.serverRequestId = payload.request_id;
+}
+function requestIsVisible(request) {
+  return activeConversationId === request.conversationId && !historyVisible;
 }
 
 function truncateText(value, maxLength = 72) {
@@ -1213,7 +1223,7 @@ function normalizeHistoryConversation(rawConversation) {
     .filter(Boolean);
   const newestTurn = turns[turns.length - 1] || null;
   const title = truncateText(
-    rawConversation.title || turns[0]?.question || "Ask NBA Stats chat",
+    (rawConversation.title === "New question" && turns.length ? turns[0].question : rawConversation.title) || turns[0]?.question || "Ask NBA Stats chat",
     80,
   );
   return {
@@ -1338,7 +1348,7 @@ function mergeHistoryConversations(conversations) {
     merged.set(incoming.id, {
       ...existing,
       ...incoming,
-      title: existing.title || incoming.title,
+      title: existing.turns.length ? existing.title : incoming.title,
       updated_at: newestTurn?.timestamp || incoming.updated_at,
       turns,
     });
@@ -1381,19 +1391,17 @@ function renderHistoryList() {
   });
 }
 
-function persistHistoryTurn(question, payload) {
+function persistHistoryTurn(question, payload, ownerId = null, requestBody = null) {
   const payloadObject = payload && typeof payload === "object" ? payload : {};
   const conversationId = String(
-    payloadObject.conversation_id ||
-      activeConversationId ||
-      `local-${Date.now().toString(36)}`,
+    ownerId || payloadObject.conversation_id || activeConversationId || newConversationId(),
   );
-  activeConversationId = conversationId;
+  if (!ownerId) activeConversationId = conversationId;
   let provider = "";
   let model = "";
   try {
-    provider = selectedProvider();
-    model = selectedModel();
+    provider = requestBody?.provider || selectedProvider();
+    model = requestBody?.model || selectedModel();
   } catch {
     provider = "";
     model = "";
@@ -1420,7 +1428,7 @@ function persistHistoryTurn(question, payload) {
     },
   ]);
   saveHistoryState(nextState);
-  tabState = openTab(tabState, conversationId);
+  if (activeConversationId === conversationId) tabState = openTab(tabState, conversationId);
   saveTabs();
   renderTabs();
   renderTurnNavigation();
@@ -1452,13 +1460,15 @@ function appendRestoredTurn(turn, isLatest) {
     article.querySelectorAll("[data-agent-player-option]").forEach((button) => {
       button.disabled = true;
     });
-  if (isLatest) currentAnswerEl = answerEl;
+  if (isLatest) runtimeFor().currentAnswerEl = answerEl;
   return article;
 }
 
 async function restoreConversation(conversationId) {
-  if (askInFlight) return;
   const navigation = ++navigationGeneration;
+  if (!historyState.conversations.some((c) => c.id === conversationId) && tabState.drafts[conversationId]) {
+    saveHistoryState(mergeHistoryConversations([{id: conversationId, title: "New question", turns: []}]));
+  }
   if (!historyState.conversations.some((c) => c.id === conversationId)) {
     try {
       const response = await seasonFetch(
@@ -1475,7 +1485,7 @@ async function restoreConversation(conversationId) {
       return;
     }
   }
-  if (navigation !== navigationGeneration || askInFlight) return;
+  if (navigation !== navigationGeneration) return;
   const conversation = historyState.conversations.find(
     (item) => item.id === conversationId,
   );
@@ -1486,17 +1496,29 @@ async function restoreConversation(conversationId) {
   const statusEl = document.querySelector("[data-agent-status]");
   if (!thread || !empty) return;
   activeConversationId = conversation.id;
-  lastQuestion =
+  runtimeFor().lastQuestion =
     conversation.turns[conversation.turns.length - 1]?.question || "";
-  currentAnswerEl = null;
+  runtimeFor().currentAnswerEl = null;
+  resetAuxiliaryPanels();
   thread.innerHTML = "";
-  empty.hidden = true;
-  thread.hidden = false;
+  empty.hidden = conversation.turns.length > 0;
+  thread.hidden = !conversation.turns.length;
   viewedTurn = conversation.turns.length - 1;
   conversation.turns.forEach((turn, index) =>
     appendRestoredTurn(turn, index === viewedTurn),
   );
-  if (statusEl) statusEl.textContent = "Restored";
+  const pending = runtimeFor().pending;
+  if (runtimeFor().inFlight && pending) {
+    runtimeFor().lastQuestion = pending.question;
+    startTurn(pending.question);
+    setInterimAnswer(pending.answerText);
+  }
+  if (!runtimeFor().inFlight && runtimeFor().error) {
+    startTurn(runtimeFor().error.question);
+    renderAskFailure(runtimeFor().error.message, runtimeFor().error.statusText);
+  }
+  setBusy(runtimeFor().inFlight);
+  if (statusEl) statusEl.textContent = runtimeFor().inFlight ? "Thinking" : "Restored";
   if (statusEl) statusEl.hidden = true;
   tabState = openTab(tabState, conversationId);
   showHistory(false);
@@ -1508,18 +1530,18 @@ async function restoreConversation(conversationId) {
 }
 
 function startNewChat() {
-  if (askInFlight) return;
   navigationGeneration += 1;
   rememberDraft();
   const empty = document.querySelector("[data-agent-empty]");
   const thread = document.querySelector("[data-agent-answer]");
   const statusEl = document.querySelector("[data-agent-status]");
-  activeConversationId = null;
-  tabState.active = null;
-  // The draft tab also occupies one of the five visible positions.
-  if (tabState.open.length >= 5) tabState.open = tabState.open.slice(-4);
-  lastQuestion = "";
-  currentAnswerEl = null;
+  activeConversationId = newConversationId();
+  tabState = openTab(tabState, activeConversationId);
+  tabState.drafts[activeConversationId] = {question: "", followup: ""};
+  saveHistoryState(mergeHistoryConversations([{id: activeConversationId, title: "New question", turns: []}]));
+  setBusy(false);
+  runtimeFor().lastQuestion = "";
+  runtimeFor().currentAnswerEl = null;
   if (thread) {
     thread.innerHTML = "";
     thread.hidden = true;
@@ -1539,6 +1561,10 @@ function startNewChat() {
 }
 
 async function clearHistory() {
+  if ([...conversationRuntime.values()].some((state) => state.inFlight)) {
+    storageNotice("Wait for running answers to finish before clearing history.");
+    return;
+  }
   historyState = { version: 1, conversations: [] };
   removeStoredHistory();
   startNewChat();
@@ -1628,7 +1654,16 @@ function initHistory() {
       timer = setTimeout(() => loadServerHistory(true), 250);
     });
   if (tabState.active) restoreConversation(tabState.active);
-  else restoreDraft();
+  else {
+    const legacyDraft = tabState.drafts.new;
+    startNewChat();
+    if (legacyDraft) {
+      tabState.drafts[activeConversationId] = legacyDraft;
+      delete tabState.drafts.new;
+      restoreDraft();
+      saveTabs();
+    }
+  }
   loadServerHistory();
 }
 
@@ -1640,10 +1675,9 @@ function renderTurnNavigation() {
   if (!el || !chat) return;
   el.hidden = chat.turns.length < 2;
   if (viewedTurn < 0) viewedTurn = chat.turns.length - 1;
-  el.innerHTML = `<label for="chat-turn">Review question</label><select id="chat-turn" class="input" ${askInFlight ? "disabled" : ""}>${chat.turns.map((t, i) => `<option value="${i}" ${i === viewedTurn ? "selected" : ""}>${i + 1}. ${escHtml(truncateText(t.question, 100))}</option>`).join("")}</select><span class="meta">Follow-ups continue the latest question in this chat.</span>`;
+  el.innerHTML = `<label for="chat-turn">Review question</label><select id="chat-turn" class="input" ${runtimeFor().inFlight ? "disabled" : ""}>${chat.turns.map((t, i) => `<option value="${i}" ${i === viewedTurn ? "selected" : ""}>${i + 1}. ${escHtml(truncateText(t.question, 100))}</option>`).join("")}</select><span class="meta">Follow-ups continue the latest question in this chat.</span>`;
   el.querySelector("select")?.addEventListener("change", (event) => {
-    if (askInFlight) return;
-    viewedTurn = Number(event.target.value);
+      viewedTurn = Number(event.target.value);
     const selected = chat.turns[viewedTurn];
     updateSourceCoverage(selected?.payload || null, selected?.question || "");
     const thread = document.querySelector("[data-agent-answer]");
@@ -1654,9 +1688,11 @@ function renderTurnNavigation() {
 }
 
 function handleStreamEvent(eventName, payload, state) {
-  const statusEl = document.querySelector("[data-agent-status]");
+  if (state.finished) return;
+  const statusEl = requestIsVisible(state) ? document.querySelector("[data-agent-status]") : null;
+  if (!requestIsVisible(state) && !["meta", "answer_delta", "final", "error"].includes(eventName)) return;
   if (eventName === "meta") {
-    applyConversation(payload);
+    validateResponseOwner(payload, state);
     return;
   }
   if (eventName === "plan") {
@@ -1674,29 +1710,23 @@ function handleStreamEvent(eventName, payload, state) {
   }
   if (eventName === "answer_delta") {
     state.answerText += payload.delta || "";
-    setInterimAnswer(state.answerText);
+    if (requestIsVisible(state)) setInterimAnswer(state.answerText);
     if (statusEl) statusEl.textContent = "Writing";
     return;
   }
   if (eventName === "final") {
-    applyConversation(payload.payload);
-    renderPayload(payload.payload || {});
-    persistHistoryTurn(lastQuestion || "Question", payload.payload || {});
-    if (statusEl) statusEl.textContent = "Answered";
+    validateResponseOwner(payload.payload, state);
+    persistHistoryTurn(state.question, payload.payload || {}, state.conversationId, state.body);
+    if (requestIsVisible(state)) {
+      renderPayload(payload.payload || {});
+      if (statusEl) statusEl.textContent = "Answered";
+    }
     state.finished = true;
     return;
   }
   if (eventName === "error") {
-    renderPayload({
-      answer: payload.detail || "Ask NBA Stats is unavailable.",
-      assumptions: [],
-      tables: [],
-      charts: [],
-      metric_definitions: [],
-      followups: [],
-    });
-    if (statusEl) statusEl.textContent = "Unavailable";
     state.finished = true;
+    renderAskFailure(payload.detail || "Ask NBA Stats is unavailable.", "Unavailable", state);
   }
 }
 
@@ -1800,36 +1830,42 @@ function initProviderSelect() {
   }
 }
 
-function buildAskBody(question, selection) {
+function buildAskBody(question, selection, conversationId = activeConversationId) {
   const body = {
     question,
-    conversation_id: activeConversationId,
+    conversation_id: conversationId,
     provider: selectedProvider(),
     model: selectedModel(),
   };
   const conversation = historyState.conversations.find(
-    (item) => item.id === activeConversationId,
+    (item) => item.id === conversationId,
   );
   const previous = [...(conversation?.turns || [])]
     .reverse()
-    .find((turn) => turn.payload?.status === "ok");
+    .find((turn) => turn.payload?.status === "ok" ||
+      (turn.payload?.status == null && turn.payload?.availability_scope && turn.payload?.availability_evidence));
   if (previous) {
     const payload = previous.payload;
     const evidence = payload.semantic_evidence || {};
-    const scope = evidence.scope || {};
+    const canonical = payload.conversation_context;
+    const availability = canonical?.availability_scope || payload.availability_scope;
+    const scope = canonical?.scope || (availability ? {season: availability.season, start: availability.start, end: availability.end, phases: [availability.phase]} : evidence.scope) || {};
     const profiles = payload.player_profiles || [
       payload.player_profile || payload.reference_player,
     ];
     body.previous_context = {
       question: previous.question.slice(0, 4000),
-      players: profiles
+      players: canonical?.players?.slice(0, 2) || profiles
         .filter((p) => p?.player?.player_id && p.player.player_name)
         .slice(0, 2)
         .map((p) => ({
           player_id: p.player.player_id,
           player_name: p.player.player_name.slice(0, 80),
         })),
+      analysis_type: canonical?.analysis_type || (availability ? "availability" : null),
+      availability_scope: availability || null,
       scope: {
+        season: scope.season || null,
         start: scope.start || scope.start_date || null,
         end: scope.end || scope.as_of || null,
         phases: (scope.phases || (scope.season_type ? [scope.season_type] : []))
@@ -1838,7 +1874,7 @@ function buildAskBody(question, selection) {
           )
           .slice(0, 2),
       },
-      metrics: (evidence.metrics || [evidence.metric])
+      metrics: canonical?.metrics?.slice(0, 24) || (evidence.metrics || [evidence.metric])
         .map((m) => m?.key)
         .filter((key) => ["pts", "reb", "ast", "stl", "blk"].includes(key))
         .slice(0, 5),
@@ -1851,30 +1887,25 @@ function buildAskBody(question, selection) {
   return body;
 }
 
-async function askQuestionJson(question, selection) {
+async function askQuestionJson(request) {
   const statusEl = document.querySelector("[data-agent-status]");
   const response = await seasonFetch("/api/agent/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(buildAskBody(question, selection)),
+    body: JSON.stringify(request.body),
   });
   const payload = await response.json();
   if (!response.ok) {
-    renderPayload({
-      answer: payload.detail || "Ask NBA Stats is unavailable.",
-      assumptions: [],
-      tables: [],
-      charts: [],
-      metric_definitions: [],
-      followups: [],
-    });
-    if (statusEl) statusEl.textContent = "Unavailable";
+    renderAskFailure(payload.detail || "Ask NBA Stats is unavailable.", "Unavailable", request);
     return;
   }
-  applyConversation(payload);
-  renderPayload(payload);
-  persistHistoryTurn(question, payload);
-  if (statusEl) statusEl.textContent = "Answered";
+  validateResponseOwner(payload, request);
+  persistHistoryTurn(request.question, payload, request.conversationId, request.body);
+  request.finished = true;
+  if (requestIsVisible(request)) {
+    renderPayload(payload);
+    if (statusEl) statusEl.textContent = "Answered";
+  }
 }
 
 function parseSseChunk(buffer, onEvent) {
@@ -1886,16 +1917,17 @@ function parseSseChunk(buffer, onEvent) {
     const dataLine = lines.find((line) => line.startsWith("data:"));
     if (!dataLine) return;
     const eventName = eventLine ? eventLine.slice(6).trim() : "message";
-    try {
-      onEvent(eventName, JSON.parse(dataLine.slice(5).trim()));
-    } catch {
-      // Ignore malformed SSE fragments; the final JSON fallback still protects UX.
-    }
+    let payload;
+    try { payload = JSON.parse(dataLine.slice(5).trim()); }
+    catch { return; }
+    onEvent(eventName, payload);
   });
   return remaining;
 }
 
-function renderAskFailure(message, statusText) {
+function renderAskFailure(message, statusText, request) {
+  if (request) runtimeFor(request.conversationId).error = {message, statusText, question: request.question};
+  if (request && !requestIsVisible(request)) return;
   const statusEl = document.querySelector("[data-agent-status]");
   renderPayload({
     answer: message,
@@ -1908,11 +1940,11 @@ function renderAskFailure(message, statusText) {
   if (statusEl) statusEl.textContent = statusText;
 }
 
-async function askQuestionStream(question, selection) {
+async function askQuestionStream(request) {
   const response = await seasonFetch("/api/agent/ask/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(buildAskBody(question, selection)),
+    body: JSON.stringify(request.body),
   });
   if (!response.ok) {
     // The server answered (rate limit, validation, ...): surface its detail
@@ -1925,7 +1957,7 @@ async function askQuestionStream(question, selection) {
     } catch {
       // Keep the generic message when the error body is not JSON.
     }
-    renderAskFailure(detail, "Unavailable");
+    renderAskFailure(detail, "Unavailable", request);
     return;
   }
   if (!response.body) {
@@ -1933,7 +1965,7 @@ async function askQuestionStream(question, selection) {
   }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const state = { answerText: "", finished: false, eventCount: 0 };
+  const state = request;
   let buffer = "";
   try {
     while (true) {
@@ -1957,11 +1989,16 @@ async function askQuestionStream(question, selection) {
 }
 
 async function askQuestion(question, selection = null) {
-  if (askInFlight || !String(question).trim()) return;
+  if (runtimeFor().inFlight || !String(question).trim()) return;
   navigationGeneration += 1;
   rememberDraft();
-  const wasNewChat = !activeConversationId;
-  askInFlight = true;
+  if (!activeConversationId) startNewChat();
+  const owner = runtimeFor();
+  const request = {conversationId: activeConversationId, question,
+    body: buildAskBody(question, selection), answerText: "", finished: false, eventCount: 0};
+  owner.pending = request;
+  owner.error = null;
+  owner.inFlight = true;
   setBusy(true);
   const statusEl = document.querySelector("[data-agent-status]");
   const submit = document.querySelector("[data-agent-submit]");
@@ -1971,31 +2008,31 @@ async function askQuestion(question, selection = null) {
   if (selection && selection.playerName) {
     startTurn(selection.playerName);
   } else {
-    lastQuestion = question;
+    runtimeFor().lastQuestion = question;
     startTurn(question);
   }
   try {
-    await askQuestionStream(question, selection);
+    await askQuestionStream(request);
   } catch (streamError) {
     if (streamError instanceof Error && streamError.receivedEvents) {
       renderAskFailure(
         "Ask NBA Stats lost the connection before finishing. Try again shortly.",
-        "Failed",
+        "Failed", request,
       );
     } else {
       try {
-        await askQuestionJson(question, selection);
+        await askQuestionJson(request);
       } catch {
-        renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed");
+        renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed", request);
       }
     }
   } finally {
-    askInFlight = false;
+    owner.inFlight = false;
+    owner.pending = null;
+    if (!requestIsVisible(request)) { renderTabs(); return; }
     setBusy(false);
     renderTabs();
     renderTurnNavigation();
-    if (wasNewChat && statusEl?.textContent === "Answered")
-      delete tabState.drafts.new;
     rememberDraft();
     if (statusEl?.textContent === "Answered") statusEl.hidden = true;
     if (submit instanceof HTMLButtonElement) submit.disabled = false;
@@ -2017,7 +2054,7 @@ function setBusy(busy) {
   if (status) status.dataset.thinking = String(busy);
   document
     .querySelectorAll(
-      "[data-chat-tabs] button, [data-chat-more], [data-agent-new-chat], [data-followup-submit], [data-agent-submit], [data-agent-provider], [data-agent-model], #chat-turn",
+      "[data-followup-submit], [data-agent-submit], [data-agent-provider], [data-agent-model], #chat-turn",
     )
     .forEach((el) => {
       el.disabled = busy;
@@ -2046,16 +2083,18 @@ function initAgentPage() {
   const followupInput = document.querySelector("[data-followup-question]");
   followupForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!followupInput.value.trim() || askInFlight) return;
+    if (!followupInput.value.trim() || runtimeFor().inFlight) return;
     const sentQuestion = followupInput.value.trim();
+    const submittedId = activeConversationId;
     await askQuestion(sentQuestion);
     if (
+      activeConversationId === submittedId &&
       document.querySelector("[data-agent-status]")?.textContent ===
         "Answered" &&
       followupInput.value.trim() === sentQuestion
     )
       followupInput.value = "";
-    rememberDraft();
+    if (activeConversationId === submittedId) rememberDraft();
   });
   followupInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
@@ -2081,6 +2120,10 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     updateSourceCoverage,
     turnEvidenceMarkup,
     buildAskBody,
+    askQuestion,
+    handleStreamEvent,
+    runtimeFor,
+    initHistory,
     startTurn,
     setBusy,
     renderLineChart,

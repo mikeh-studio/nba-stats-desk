@@ -374,3 +374,180 @@ def test_unexecutable_or_conflicting_intent_cannot_be_partially_answered(
     assert wants_availability(question)
     with pytest.raises(SemanticError):
         request(loaded, question)
+
+
+@pytest.mark.parametrize("transport", ["/api/agent/ask", "/api/agent/ask/stream"])
+@pytest.mark.parametrize("restore", ["live", "browser", "legacy_browser", "disk"])
+def test_pair_followup_counts_full_appearances_after_restore(
+    bundle, monkeypatch, tmp_path, transport, restore
+):
+    planner = Client({})
+    settings = _test_settings(
+        openai_api_key="test-key",
+        research_availability_path=str(bundle[0]),
+        agent_history_enabled=restore == "disk",
+        agent_history_path=str(tmp_path / "history.jsonl"),
+        agent_rate_limit_per_minute=0,
+        agent_rate_limit_daily=0,
+    )
+    store = InMemoryConversationStore()
+    monkeypatch.setattr(main, "_season_conversation_store", lambda season: store)
+    client = build_client(settings=settings, agent_client=planner)
+    question = (
+        "How did Avery Finch play while Blake Reed was out in the regular season?"
+    )
+    first = client.post(
+        "/api/agent/ask", json={"question": question, "conversation_id": "tab-a"}
+    ).json()
+    assert first["status"] == "ok"
+    assert [p["player_id"] for p in first["conversation_context"]["players"]] == [
+        811,
+        822,
+    ]
+    prior = dict(first["conversation_context"], question=question)
+    if restore == "legacy_browser":
+        prior = {
+            "question": question,
+            "players": [{"player_id": 811, "player_name": "Avery Finch"}],
+            "availability_scope": first["availability_scope"],
+            "scope": {"phases": ["Regular Season"]},
+        }
+    if restore != "live":
+        store = InMemoryConversationStore()
+    # An unrelated tab's successful state must not replace tab A's context.
+    store.append_turn(
+        "tab-b",
+        question="Other player",
+        answer="ok",
+        context={"players": [{"player_id": 999, "player_name": "Casey Vale"}]},
+        max_turns=6,
+    )
+    body = {
+        "question": "How many games do each player played this season",
+        "conversation_id": "tab-a",
+    }
+    if "browser" in restore:
+        body["previous_context"] = prior
+    response = client.post(transport, json=body)
+    assert response.status_code == 200
+    if transport.endswith("stream"):
+        events = [
+            json.loads(line[6:])
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        result = next(e["payload"] for e in events if e.get("type") == "final")
+    else:
+        result = response.json()
+    assert result["status"] == "ok", result
+    assert result["tables"][0]["rows"] == [["Avery Finch", 8], ["Blake Reed", 4]]
+    for player, evidence in zip(
+        result["conversation_context"]["players"], result["appearance_evidence"]
+    ):
+        expected = {
+            r["game_id"]
+            for r in bundle[1]["stats"]["rows"]
+            if r["player_id"] == player["player_id"]
+        }
+        assert set(evidence["rows"][0]["game_ids"]) == expected
+        assert evidence["rows"][0]["value"] == len(expected)
+        assert evidence["scope"]["player_id"] == player["player_id"]
+        assert evidence["provenance"]["snapshot_id"] == bundle[1]["stats"]["sha256"]
+    assert store.get_turns("tab-b", 6)[-1].context["players"][0]["player_id"] == 999
+    assert planner.calls == 0
+    main.app.dependency_overrides.clear()
+
+
+def test_appearance_count_rejects_unconsumed_filters_and_context_mismatch(
+    bundle, monkeypatch
+):
+    planner = Client({})
+    settings = _test_settings(
+        openai_api_key="test-key",
+        research_availability_path=str(bundle[0]),
+        agent_rate_limit_per_minute=0,
+        agent_rate_limit_daily=0,
+    )
+    store = InMemoryConversationStore()
+    monkeypatch.setattr(main, "_season_conversation_store", lambda season: store)
+    client = build_client(settings=settings, agent_client=planner)
+    first = client.post(
+        "/api/agent/ask",
+        json={
+            "question": "How did Avery Finch play without Blake Reed in the regular season?",
+            "conversation_id": "tab-a",
+        },
+    ).json()
+    for question in [
+        "How many games did each player play at home this season?",
+        "How many games did each player play in those same games?",
+        "How many games did each player play while Blake Reed was out?",
+    ]:
+        result = client.post(
+            "/api/agent/ask", json={"question": question, "conversation_id": "tab-a"}
+        ).json()
+        assert not result["tables"]
+    # A failed follow-up does not erase the last successful pair.
+    result = client.post(
+        "/api/agent/ask",
+        json={
+            "question": "How many games did both players play this season?",
+            "conversation_id": "tab-a",
+        },
+    ).json()
+    assert result["tables"][0]["rows"] == [["Avery Finch", 8], ["Blake Reed", 4]]
+    store = InMemoryConversationStore()
+    prior = dict(first["conversation_context"], question="Earlier question")
+    prior["players"][0]["player_name"] = "Wrong Identity"
+    response = client.post(
+        "/api/agent/ask",
+        json={
+            "question": "How many games did each player play?",
+            "conversation_id": "tab-a",
+            "previous_context": prior,
+        },
+    )
+    assert response.status_code == 400
+    assert planner.calls == 0
+    main.app.dependency_overrides.clear()
+
+
+def test_pre_status_availability_history_recovers_both_players(bundle):
+    from app.agent.followup import analysis_context, hydrate_availability_context
+
+    legacy = render_answer(
+        compare_availability(
+            load_availability(str(bundle[0])),
+            request(load_availability(str(bundle[0]))),
+        ),
+        source_players(load_availability(str(bundle[0]))[1]),
+    )
+    legacy.pop("status")
+    legacy.pop("conversation_context")
+    context = hydrate_availability_context(
+        analysis_context("Earlier pair", legacy), str(bundle[0])
+    )
+    assert [p["player_id"] for p in context["players"]] == [811, 822]
+    assert context["availability_scope"]["teammate_id"] == 822
+
+
+def test_games_played_uses_unique_appearances_not_box_score_completeness(bundle):
+    from app.agent.semantics import Query, run_query
+
+    evidence = deepcopy(load_availability(str(bundle[0]))[1])
+    for row in evidence.rows:
+        for component in COMPONENTS:
+            row[component] = None
+    query = Query(metric="gp", season="2025-26", aggregation="total", player_id=811)
+    result = run_query(evidence, query)
+    assert result["rows"][0]["value"] == 8
+    assert result["rows"][0]["missing_component_games"] == 0
+    assert result["metric"]["unit"] == "games"
+    with pytest.raises(SemanticError):
+        run_query(
+            evidence,
+            Query(metric="gp", season="2025-26", aggregation="average", player_id=811),
+        )
+    evidence.rows.append(dict(evidence.rows[0]))
+    with pytest.raises(SemanticError):
+        run_query(evidence, query)

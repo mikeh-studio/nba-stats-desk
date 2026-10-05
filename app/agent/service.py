@@ -1523,6 +1523,7 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.appearance_ask import answer_appearances, wants_appearances
         from app.agent.availability_ask import (
             answer_availability,
             availability_followup,
@@ -1531,12 +1532,32 @@ class StatsAgent:
         from app.agent.research_ask import mentioned_pairs
         from app.agent.teammate_ask import wants_study
 
+        context = {}
+        if conversation_id and self.conversation_store:
+            context = next(
+                (
+                    turn.context
+                    for turn in reversed(
+                        self.conversation_store.get_turns(
+                            conversation_id,
+                            max_turns=self.settings.agent_conversation_max_turns,
+                        )
+                    )
+                    if turn.context
+                ),
+                {},
+            )
+        if wants_appearances(cleaned_question) and (
+            self.semantic_agent or context.get("availability_scope")
+        ):
+            return answer_appearances(
+                self, cleaned_question, context, conversation_id, trace
+            )
+
         availability_context = False
         if conversation_id and self.conversation_store:
-            turns = self.conversation_store.get_turns(conversation_id, max_turns=1)
             availability_context = bool(
-                turns
-                and turns[-1].context.get("availability_scope")
+                context.get("availability_scope")
                 and availability_followup(cleaned_question)
             )
         if availability_context or (

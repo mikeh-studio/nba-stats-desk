@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 
+from app.agent.followup import analysis_context
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.research_ask import refusal
 from app.agent.semantic_serving import requested_seasons, source_players
@@ -381,6 +382,7 @@ def render_answer(result, players):
     answer += "\n\nThese are observed differences, not evidence that the absence caused them. Out does not establish an injury cause."
     public = {k: v for k, v in result.items() if k != "rows"}
     return dict(
+        status="ok",
         answer=answer,
         tables=[
             dict(
@@ -406,6 +408,22 @@ def render_answer(result, players):
         player_profile=scoped_identity_profile(focal, result["rows"], scope),
         availability_evidence=public,
         availability_scope=request,
+        conversation_context=dict(
+            version=1,
+            analysis_type="availability",
+            players=[
+                dict(player_id=p["player_id"], player_name=p["player_name"], role=role)
+                for p, role in ((focal, "focal"), (teammate, "teammate"))
+            ],
+            scope=dict(
+                season=request["season"],
+                start=request["start"],
+                end=request["end"],
+                phases=[request["phase"]],
+            ),
+            metrics=request["metrics"],
+            availability_scope=request,
+        ),
         followups=[
             "What about assists?",
             "Only the playoffs",
@@ -426,9 +444,13 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
     try:
         previous = None
         if conversation_id and agent.conversation_store:
-            turns = agent.conversation_store.get_turns(conversation_id, max_turns=1)
-            if turns:
-                previous = turns[-1].context.get("availability_scope")
+            turns = agent.conversation_store.get_turns(
+                conversation_id, max_turns=agent.settings.agent_conversation_max_turns
+            )
+            context = next(
+                (turn.context for turn in reversed(turns) if turn.context), {}
+            )
+            previous = context.get("availability_scope")
         loaded = load_availability(agent.settings.research_availability_path)
         players = source_players(loaded[1])
         selected_season = requested_seasons(
@@ -459,7 +481,7 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
                 question=question,
                 answer=payload["answer"],
                 max_turns=agent.settings.agent_conversation_max_turns,
-                context={"availability_scope": request},
+                context=analysis_context(question, payload),
             )
         if trace:
             trace.outcome = "answered"

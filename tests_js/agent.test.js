@@ -537,3 +537,119 @@ test("Ask sends the OpenRouter provider and its selected model", async () => {
   assert.equal(body.provider,'openrouter');
   assert.equal(body.model,'qwen/qwen3-235b-a22b-2507');
 });
+
+test("each new tab owns a stable ID, draft, and both-player context", async () => {
+  const input = new FakeElement("textarea");
+  const followup = new FakeElement("textarea");
+  const elements = {"[data-agent-question]": input, "[data-followup-question]": followup,
+    "[data-agent-empty]": new FakeElement(), "[data-agent-answer]": new FakeElement()};
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  const a = agent.getNavigation().activeConversationId;
+  input.value = "Question A";
+  const context = {players:[{player_id:811,player_name:"Avery Finch",role:"focal"},{player_id:822,player_name:"Blake Reed",role:"teammate"}],scope:{season:"2025-26",phases:["Both"]},metrics:["pts"]};
+  agent.persistHistoryTurn("Question A", {conversation_id:a,status:"ok",conversation_context:context});
+  agent.startNewChat();
+  const b = agent.getNavigation().activeConversationId;
+  assert.notEqual(a,b);
+  assert.equal(agent.buildAskBody("each player").conversation_id,b);
+  assert.equal(agent.buildAskBody("each player").previous_context,undefined);
+  input.value = "Question B";
+  await agent.restoreConversation(a);
+  assert.equal(input.value,"Question A");
+  const body = agent.buildAskBody("How many games did each player play?");
+  assert.equal(body.conversation_id,a);
+  assert.deepEqual(body.previous_context.players,context.players);
+  await agent.restoreConversation(b);
+  assert.equal(input.value,"Question B");
+  assert.equal(agent.buildAskBody("follow-up").previous_context,undefined);
+});
+
+test("late stream results stay in their originating tab and mismatched IDs are rejected", async () => {
+  const elements = {"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement(),"[data-agent-status]":new FakeElement()};
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  const a = agent.getNavigation().activeConversationId;
+  const request = {conversationId:a,question:"Question A",answerText:"",body:{provider:"openai",model:"fixture"}};
+  agent.runtimeFor(a).inFlight = true;
+  agent.startNewChat();
+  const b = agent.getNavigation().activeConversationId;
+  agent.handleStreamEvent("meta",{conversation_id:a,request_id:"request-a"},request);
+  agent.handleStreamEvent("answer_delta",{delta:"Answer A"},request);
+  assert.equal(elements["[data-agent-answer]"].innerHTML,"");
+  assert.throws(()=>agent.handleStreamEvent("final",{payload:{conversation_id:b,request_id:"request-a"}},request),/different conversation/);
+  assert.throws(()=>agent.handleStreamEvent("final",{payload:{conversation_id:a,request_id:"request-b"}},request),/different request/);
+  agent.handleStreamEvent("final",{payload:{conversation_id:a,request_id:"request-a",status:"ok",answer:"Answer A"}},request);
+  assert.equal(agent.getNavigation().activeConversationId,b);
+  assert.equal(agent.buildAskBody("followup").previous_context,undefined);
+  const saved = agent.loadHistoryState().conversations.find(c=>c.id===a);
+  assert.equal(saved.turns[0].question,"Question A");
+  assert.equal(saved.turns[0].payload.answer,"Answer A");
+  assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b).turns.length,0);
+});
+
+test("two tab requests finish out of order without changing each other's state", async () => {
+  const elements = {"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement(),"[data-agent-status]":new FakeElement()};
+  const agent = await loadAgentModule({elements});
+  const pending = [];
+  globalThis.fetch = async (url, options) => new Promise(resolve=>pending.push({body:JSON.parse(options.body),resolve}));
+  const complete = (index, answer) => {
+    const {body,resolve}=pending[index];
+    resolve({ok:true,body:new ReadableStream({start(controller){
+      controller.enqueue(new TextEncoder().encode(`event: meta\ndata: ${JSON.stringify({conversation_id:body.conversation_id,request_id:`r${index}`})}\n\nevent: final\ndata: ${JSON.stringify({payload:{conversation_id:body.conversation_id,request_id:`r${index}`,status:"ok",answer}})}\n\n`));
+      controller.close();
+    }})});
+  };
+  agent.startNewChat();
+  const a = agent.getNavigation().activeConversationId;
+  const first = agent.askQuestion("Question A");
+  agent.startNewChat();
+  const b = agent.getNavigation().activeConversationId;
+  const second = agent.askQuestion("Question B");
+  assert.equal(pending[0].body.conversation_id,a);
+  assert.equal(pending[1].body.conversation_id,b);
+  complete(1,"Answer B"); await second;
+  assert.equal(agent.runtimeFor(a).inFlight,true);
+  assert.equal(agent.runtimeFor(b).inFlight,false);
+  complete(0,"Answer A"); await first;
+  assert.equal(agent.getNavigation().activeConversationId,b);
+  for (const [id,answer] of [[a,"Answer A"],[b,"Answer B"]]) {
+    assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===id).turns[0].payload.answer,answer);
+  }
+});
+
+test("legacy availability answers recover the pair after a clarification", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  const scope = {player_id:811,teammate_id:822,season:"2025-26",phase:"Both",start:null,end:null,metrics:["pts"],aggregation:"average"};
+  agent.persistHistoryTurn("Avery Finch without Blake Reed",{conversation_id:id,availability_scope:scope,availability_evidence:{snapshot_id:"fixture"},player_profile:{player:{player_id:811,player_name:"Avery Finch"}}});
+  agent.persistHistoryTurn("each player",{conversation_id:id,status:"clarification_required",answer:"Which players?"});
+  const context = agent.buildAskBody("How many games did each player play?").previous_context;
+  assert.equal(context.availability_scope.teammate_id,822);
+  assert.deepEqual(context.scope.phases,["Both"]);
+  assert.equal(context.question,"Avery Finch without Blake Reed");
+});
+
+test("empty tabs keep distinct IDs and drafts across page reload", async () => {
+  const storage = createStorage();
+  const input = new FakeElement("textarea");
+  const elements={"[data-agent-question]":input,"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement()};
+  let agent=await loadAgentModule({storage,elements});
+  agent.startNewChat();
+  const a=agent.getNavigation().activeConversationId;
+  input.value="Draft A";
+  agent.startNewChat();
+  const b=agent.getNavigation().activeConversationId;
+  input.value="Draft B";
+  await agent.restoreConversation(a);
+  agent=await loadAgentModule({storage,elements});
+  agent.initHistory();
+  assert.equal(agent.getNavigation().activeConversationId,a);
+  assert.equal(input.value,"Draft A");
+  await agent.restoreConversation(b);
+  assert.equal(input.value,"Draft B");
+  assert.equal(agent.buildAskBody("follow-up").previous_context,undefined);
+  agent.persistHistoryTurn("New analytical question",{conversation_id:b,status:"ok",answer:"Result"});
+  assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b).title,"New analytical question");
+});

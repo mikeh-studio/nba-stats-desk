@@ -9,9 +9,20 @@ from typing import Any
 from app.seasons import SEASONS, season_bounds
 
 
+def successful_analysis(payload: dict[str, Any]) -> bool:
+    # Early availability answers predate the shared status field.
+    return payload.get("status") == "ok" or (
+        payload.get("status") is None
+        and bool(payload.get("availability_scope"))
+        and bool(payload.get("availability_evidence"))
+    )
+
+
 def analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:
-    if payload.get("status") != "ok":
+    if not successful_analysis(payload):
         return {}
+    if payload.get("conversation_context"):
+        return dict(payload["conversation_context"], question=question)
     evidence = payload.get("semantic_evidence") or {}
     profiles = payload.get("player_profiles") or [
         payload.get("player_profile") or payload.get("reference_player")
@@ -24,7 +35,7 @@ def analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:
             key in profile.get("player", {}) for key in ("player_id", "player_name")
         )
     ]
-    return {
+    context = {
         "question": question,
         "answer_summary": str(payload.get("answer", ""))[:1500],
         "players": players,
@@ -42,6 +53,56 @@ def analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:
             )
         ),
     }
+    if payload.get("availability_scope"):
+        request = payload["availability_scope"]
+        context.update(
+            analysis_type="availability",
+            availability_scope=request,
+            scope={
+                "season": request["season"],
+                "start": request.get("start"),
+                "end": request.get("end"),
+                "phases": [request["phase"]],
+            },
+            metrics=request["metrics"],
+        )
+    return context
+
+
+def hydrate_availability_context(context, source_path):
+    """Recover legacy pair identities from validated source IDs, never prose."""
+    request = context.get("availability_scope")
+    if not request:
+        return context
+    from app.agent.semantic_serving import source_players
+    from app.agent.semantics import SemanticError
+    from app.availability import load_availability
+
+    players = source_players(load_availability(source_path)[1])
+    recovered = []
+    for key, role in (("player_id", "focal"), ("teammate_id", "teammate")):
+        player = next((p for p in players if p["player_id"] == request[key]), None)
+        if not player:
+            raise SemanticError(
+                "invalid_context", "Saved players are absent from this source."
+            )
+        recovered.append(
+            {
+                "player_id": player["player_id"],
+                "player_name": player["player_name"],
+                "role": role,
+            }
+        )
+    for hint in context.get("players", []):
+        if not any(
+            p["player_id"] == hint["player_id"]
+            and p["player_name"] == hint["player_name"]
+            for p in recovered
+        ):
+            raise SemanticError(
+                "invalid_context", "Saved player identity does not match this source."
+            )
+    return dict(context, players=recovered)
 
 
 def resolve_followup(
@@ -52,6 +113,16 @@ def resolve_followup(
         return question, {}
     players = context.get("players", [])
     resolved = question
+    if len(players) == 2:
+        resolved = re.sub(
+            r"\b(?:each player|both players|both of them|these two|they|them|their)\b",
+            lambda m: (
+                " and ".join(p["player_name"] for p in players)
+                + ("’s" if m[0].lower() == "their" else "")
+            ),
+            resolved,
+            flags=re.I,
+        )
     for player in players:
         name = player["player_name"]
         surname = name.split()[-1]

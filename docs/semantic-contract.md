@@ -31,6 +31,7 @@ valid games, missing-component counts, and ratio components where applicable.
 | Metric family | Rule |
 | --- | --- |
 | Counting statistics | Sum components for totals; divide by valid recorded appearances for per-game averages |
+| Games played (`gp`) | Count recorded appearances at unique season/game/player grain; total only, independent of missing box-score components |
 | Minutes | Minutes for totals; minutes per game for averages |
 | FG%, 3P%, FT% | Ratio of summed makes to summed attempts |
 | eFG% | `(SUM(FGM) + 0.5 * SUM(3PM)) / SUM(FGA)` |

@@ -77,6 +77,13 @@ response owning its profile, methodology, tables, and interactive charts. The
 question selector jumps to an existing response without replacing content.
 Suggestions fill the bottom follow-up composer without submitting.
 
+Each tab, including an empty draft, receives its own conversation UUID at creation.
+Drafts, pending requests, errors, and answers belong to that conversation. Switching
+tabs does not retarget an in-flight request; streaming and JSON responses are checked
+against the originating conversation and request IDs. A reopened saved chat retains
+its ID, while New chat always creates a new one. These IDs are navigation keys, not
+authentication credentials.
+
 ## Follow-up context
 
 The last successful analysis supplies a bounded structured context: resolved
@@ -84,6 +91,17 @@ identities, date/phase scope, metrics, and a short answer summary. Follow-ups
 receive that context without requiring pronoun keywords. Explicit new dates,
 phases, or full player names override inherited intent. Clarifications do not
 replace the last successful analysis. Prior prose is context, not fresh evidence.
+
+Availability answers retain both focal and teammate identities in this shared
+context, along with the separate availability predicate. Saved history and bounded
+browser recovery preserve the pair and validate legacy IDs against the source.
+References such as “each player” and “both players” resolve within this conversation.
+A season games-played follow-up counts each player's recorded appearances from the
+full player-game evidence, not the previous comparison samples. It carries player IDs,
+scope, snapshot provenance and game IDs in `appearance_evidence`; unsupported extra
+conditions are withheld. Availability-specific follow-ups retain their original
+predicate, while a successful season-count answer becomes an ordinary appearance
+analysis. Explicit new player names and periods override the prior request.
 
 For an overview follow-up such as “besides Johnson, who are the other top
 playmaking leads?”, a unique contextual surname resolves to the prior player;
