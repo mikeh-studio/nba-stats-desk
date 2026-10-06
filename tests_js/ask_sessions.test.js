@@ -106,7 +106,8 @@ test("overview provides three evidence-backed areas, explicit scope and no causa
     ["Playmaking", "Trajectory", "Defense"],
   );
   assert.match(overview.comparison, /Sep 13, 2024/);
-  assert.match(overview.paragraphs.join(" "), /have not been evaluated/);
+  assert.equal(overview.paragraphs.length, 2);
+  assert.doesNotMatch(overview.paragraphs.join(" "), /have not been evaluated/);
   assert.match(overview.followups[0], /Fixture Player.*2025-09-13.*2026-09-12/);
   assert.equal(overview.preferredMetric, "ast");
 });
@@ -119,4 +120,27 @@ test("partial metric data never creates a percentile or trend insight", () => {
   assert.equal(overviewPresentation({ answer: "generic" }), null);
   assert.equal(ordinal(11), "11th");
   assert.equal(ordinal(21), "21st");
+});
+
+test("overview renders canonical summary without appending a metric inventory", () => {
+  const data = payload();
+  const paragraphs = [
+    "Scoring and playmaking assessment.",
+    "Compared with the regular season, scoring increased.",
+    "Game-level variation across 12 appearances.",
+  ];
+  data.semantic_evidence.summary_paragraphs = paragraphs;
+  const overview = overviewPresentation(data);
+  assert.deepEqual(overview.paragraphs, paragraphs);
+  assert.equal(overview.metrics.length, 5);
+  assert.equal(overview.insights.length, 3);
+});
+
+test("playoff comparison label preserves the regular-season baseline phase", () => {
+  const data = payload();
+  data.semantic_evidence.scope.phases = ["Playoffs"];
+  data.semantic_evidence.scope.previous_phases = ["Regular Season"];
+  const overview = overviewPresentation(data);
+  assert.match(overview.comparison, /^Regular Season/);
+  assert.equal(overview.scope.phases[0], "Playoffs");
 });

@@ -7,7 +7,7 @@ Explore NBA players, ask basketball questions, and investigate changes in perfor
 NBA Stats Desk connects a read-only web application to a governed data platform,
 with explicit season scope, evidence-backed answers, and interactive charts.
 
-![Ask page](docs/images/ask-page.jpg)
+![Ask: Stephen Curry's 2025–26 regular-season performance, with a three-paragraph overview and key takeaways](docs/images/ask-page.jpg)
 
 ## Explore
 

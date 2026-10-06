@@ -1523,6 +1523,24 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.award_lookup import wants_award
+        from app.agent.question_intent import round_scope_message
+
+        if not wants_award(cleaned_question) and (
+            message := round_scope_message(cleaned_question)
+        ):
+            if trace:
+                trace.route = "governed_metrics"
+                trace.outcome = "unsupported"
+                trace.error_type = "unsupported_scope"
+            return {
+                **_default_agent_answer(message),
+                "status": "unsupported_scope",
+                "semantic_evidence": None,
+                "player_profile": None,
+                "conversation_id": conversation_id,
+            }
+
         from app.agent.appearance_ask import answer_appearances, wants_appearances
         from app.agent.availability_ask import (
             answer_availability,

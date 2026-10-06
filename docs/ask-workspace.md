@@ -157,6 +157,31 @@ The chart initially selects the strongest eligible category; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and
 table/chart renderers instead of receiving invented overview insights.
 
+Supported broad overviews use three ordinary paragraphs: scoped scoring,
+playmaking and efficiency; a named comparison; then game-level variation.
+Stable scoring remains relevant and small rebound changes do not become the
+headline. Complete comparable data is required for changes, which use a display
+threshold of at least 0.1 and 2% of the current value. These are descriptive
+observations, not causal claims. The backend and browser share the same prose.
+Older saved responses retain a short fallback until the question is asked again.
+
+Full playoff overviews compare with the same season's regular season. Season
+overviews compare with the corresponding prior-season dates; calendar windows
+compare with the preceding window (calendar months for month requests).
+Explicit split questions retain their user-selected groups. Both current and
+comparison phases are recorded and displayed; missing baseline coverage
+withholds changes. Finals, championship series and individual playoff rounds
+are unsupported until verified round-level data is connected. They never fall
+back to full-season or all-playoff statistics. Finals-to-earlier-round and
+Finals-to-regular-season comparisons therefore remain unavailable.
+
+Game insights use the same scoped player appearances: scoring minimum, maximum,
+median, 20-point game count and a dated high (ties disclosed). Any missing scoring
+value withholds the distribution. Samples below five games carry a caution.
+Narrow metric requests, awards and unsupported requests remain concise. No-data
+responses do not pad out three paragraphs. All detailed metrics remain in the
+tables and evidence, with their original units.
+
 The overview describes relative category strength, monthly variation, and
 box-score activity, with additional minutes, attempt, shooting-efficiency,
 turnover, and per-36 context. These metrics do not establish causal drivers.
@@ -442,3 +467,13 @@ server reconstructs award evidence from the reviewed catalog and verifies the
 saved winner identity. This preserves the Finals-only limitation across process
 restarts; legacy award questions are re-resolved using their saved season.
 Unverifiable award context is rejected rather than broadened to another phase.
+
+Broad player performance questions (including “how did he perform/play/do” and
+“how has he been doing”) use the full overview when no specific metric or
+unsupported condition is requested. The generic metric planner cannot silently
+replace basketball performance with a fantasy proxy. Fantasy queries require
+explicit intent or a metric-preserving continuation of an existing fantasy
+analysis; otherwise Ask requests clarification before executing the query.
+Metric abbreviations and scoring/efficiency requests replace inherited fantasy
+intent. Home/away qualifiers bypass the broad overview so their filters remain
+part of the governed metric plan.

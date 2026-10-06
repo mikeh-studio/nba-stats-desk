@@ -334,3 +334,45 @@ def test_month_comparisons_do_not_overwrite_distinct_windows(baseline):
         selected_season="2025-26",
     )
     assert plan["status"] == "clarification_required"
+
+
+@pytest.mark.parametrize(
+    "metric", ["fantasy_proxy_weighted", "fantasy_points_simple", "fantasy_score"]
+)
+@pytest.mark.parametrize(
+    "question", ["How was Curry this season?", "Curry points per game?"]
+)
+def test_unsolicited_fantasy_metric_is_withheld(metric, question):
+    proposed = query_plan()
+    proposed["queries"][0]["metric"] = metric
+    plan = plan_question(
+        client_for(proposed), model="test", question=question, selected_season="2025-26"
+    )
+    assert plan["status"] == "clarification_required"
+    assert plan["queries"] == []
+
+
+@pytest.mark.parametrize(
+    "question,allowed",
+    [
+        ("What about the playoffs?", True),
+        ("What about points?", False),
+        ("What about scoring?", False),
+        ("What about FGM?", False),
+        ("What about FG%?", False),
+        ("What about efficiency?", False),
+        ("What about games played?", False),
+        ("How did Curry perform?", False),
+    ],
+)
+def test_fantasy_context_only_allows_metric_preserving_followup(question, allowed):
+    proposed = query_plan()
+    proposed["queries"][0]["metric"] = "fantasy_proxy_weighted"
+    plan = plan_question(
+        client_for(proposed),
+        model="test",
+        question=question,
+        selected_season="2025-26",
+        conversation_context={"metrics": ["fantasy_proxy_weighted"]},
+    )
+    assert bool(plan["queries"]) is allowed

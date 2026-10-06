@@ -15,7 +15,7 @@ import {
 import {
   overviewPresentation,
   ordinal,
-} from "./ask_presentation.js?v=20260912-v3";
+} from "./ask_presentation.js?v=20261005-performance-narrative-v7";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
