@@ -38,7 +38,7 @@ select
         when {{ regex_contains('matchup', "'vs\\\\.'") }} then 'HOME'
         else 'UNKNOWN'
     end) as home_away,
-    ingested_at_utc
+    logs.ingested_at_utc
 from {{ ref('stg_game_logs_clean') }} logs
 left join {{ ref('stg_schedule_clean') }} schedule
     on logs.game_id = schedule.game_id

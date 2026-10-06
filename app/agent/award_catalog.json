@@ -1,0 +1,244 @@
+{
+  "version": 1,
+  "awards": [
+    {
+      "key": "roy",
+      "label": "NBA Rookie of the Year",
+      "aliases": [
+        "rookie of the year",
+        "rookie-of-the-year",
+        "roty",
+        "roy"
+      ],
+      "default_performance_phase": "Regular Season",
+      "records": [
+        {
+          "season": "2023-24",
+          "player_id": 1641705,
+          "player_name": "Victor Wembanyama",
+          "source_url": "https://www.nba.com/news/history-rookie-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2024-25",
+          "player_id": 1642264,
+          "player_name": "Stephon Castle",
+          "source_url": "https://www.nba.com/news/history-rookie-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2025-26",
+          "player_id": 1642843,
+          "player_name": "Cooper Flagg",
+          "source_url": "https://www.nba.com/news/history-rookie-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        }
+      ]
+    },
+    {
+      "key": "mvp",
+      "label": "NBA Most Valuable Player",
+      "aliases": [
+        "most valuable player",
+        "regular season mvp",
+        "regular-season mvp",
+        "mvp"
+      ],
+      "default_performance_phase": "Regular Season",
+      "records": [
+        {
+          "season": "2023-24",
+          "player_id": 203999,
+          "player_name": "Nikola Jokić",
+          "source_url": "https://www.nba.com/news/history-mvp-award-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2024-25",
+          "player_id": 1628983,
+          "player_name": "Shai Gilgeous-Alexander",
+          "source_url": "https://www.nba.com/news/history-mvp-award-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2025-26",
+          "player_id": 1628983,
+          "player_name": "Shai Gilgeous-Alexander",
+          "source_url": "https://www.nba.com/news/history-mvp-award-winners",
+          "verified_on": "2026-10-05"
+        }
+      ]
+    },
+    {
+      "key": "dpoy",
+      "label": "NBA Defensive Player of the Year",
+      "aliases": [
+        "defensive player of the year",
+        "defensive player",
+        "dpoy",
+        "dpoty"
+      ],
+      "default_performance_phase": "Regular Season",
+      "records": [
+        {
+          "season": "2023-24",
+          "player_id": 203497,
+          "player_name": "Rudy Gobert",
+          "source_url": "https://www.nba.com/news/history-defensive-player-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2024-25",
+          "player_id": 1630596,
+          "player_name": "Evan Mobley",
+          "source_url": "https://www.nba.com/news/history-defensive-player-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2025-26",
+          "player_id": 1641705,
+          "player_name": "Victor Wembanyama",
+          "source_url": "https://www.nba.com/news/history-defensive-player-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        }
+      ]
+    },
+    {
+      "key": "sixth_man",
+      "label": "NBA Sixth Man of the Year",
+      "aliases": [
+        "sixth man of the year",
+        "6th man of the year",
+        "sixth man",
+        "6th man",
+        "6moy",
+        "smoy"
+      ],
+      "default_performance_phase": "Regular Season",
+      "records": [
+        {
+          "season": "2023-24",
+          "player_id": 1629675,
+          "player_name": "Naz Reid",
+          "source_url": "https://www.nba.com/news/history-sixth-man-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2024-25",
+          "player_id": 1630202,
+          "player_name": "Payton Pritchard",
+          "source_url": "https://www.nba.com/news/history-sixth-man-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2025-26",
+          "player_id": 1629640,
+          "player_name": "Keldon Johnson",
+          "source_url": "https://www.nba.com/news/history-sixth-man-of-the-year-winners",
+          "verified_on": "2026-10-05"
+        }
+      ]
+    },
+    {
+      "key": "mip",
+      "label": "NBA Most Improved Player",
+      "aliases": [
+        "most improved player",
+        "most improved",
+        "mip"
+      ],
+      "default_performance_phase": "Regular Season",
+      "records": [
+        {
+          "season": "2023-24",
+          "player_id": 1630178,
+          "player_name": "Tyrese Maxey",
+          "source_url": "https://www.nba.com/news/history-most-improved-award-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2024-25",
+          "player_id": 1630700,
+          "player_name": "Dyson Daniels",
+          "source_url": "https://www.nba.com/news/history-most-improved-award-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2025-26",
+          "player_id": 1629638,
+          "player_name": "Nickeil Alexander-Walker",
+          "source_url": "https://www.nba.com/news/history-most-improved-award-winners",
+          "verified_on": "2026-10-05"
+        }
+      ]
+    },
+    {
+      "key": "clutch",
+      "label": "NBA Clutch Player of the Year",
+      "aliases": [
+        "clutch player of the year",
+        "clutch player",
+        "cpoy"
+      ],
+      "default_performance_phase": "Regular Season",
+      "records": [
+        {
+          "season": "2023-24",
+          "player_id": 201939,
+          "player_name": "Stephen Curry",
+          "source_url": "https://www.nba.com/news/clutch-player-of-the-year-award-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2024-25",
+          "player_id": 1628973,
+          "player_name": "Jalen Brunson",
+          "source_url": "https://www.nba.com/news/clutch-player-of-the-year-award-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2025-26",
+          "player_id": 1628983,
+          "player_name": "Shai Gilgeous-Alexander",
+          "source_url": "https://www.nba.com/news/clutch-player-of-the-year-award-winners",
+          "verified_on": "2026-10-05"
+        }
+      ]
+    },
+    {
+      "key": "finals_mvp",
+      "label": "NBA Finals MVP",
+      "aliases": [
+        "nba finals most valuable player",
+        "finals most valuable player",
+        "nba finals mvp",
+        "finals mvp",
+        "fmvp"
+      ],
+      "default_performance_phase": "Finals",
+      "records": [
+        {
+          "season": "2023-24",
+          "player_id": 1627759,
+          "player_name": "Jaylen Brown",
+          "source_url": "https://www.nba.com/news/history-finals-mvp-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2024-25",
+          "player_id": 1628983,
+          "player_name": "Shai Gilgeous-Alexander",
+          "source_url": "https://www.nba.com/news/history-finals-mvp-winners",
+          "verified_on": "2026-10-05"
+        },
+        {
+          "season": "2025-26",
+          "player_id": 1628973,
+          "player_name": "Jalen Brunson",
+          "source_url": "https://www.nba.com/news/history-finals-mvp-winners",
+          "verified_on": "2026-10-05"
+        }
+      ]
+    }
+  ]
+}

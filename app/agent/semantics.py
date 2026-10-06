@@ -207,6 +207,7 @@ class Query:
     player_id: int | None = None
     team_abbr: str | None = None
     opponent_abbr: str | None = None
+    home_away: str | None = None
     min_games: int | None = None
     min_attempts: int | None = None
     direction: str | None = None
@@ -215,6 +216,8 @@ class Query:
     excluded_player_ids: list[int] | None = None
 
     def validate(self, metric: Metric) -> None:
+        if self.home_away not in (None, "HOME", "AWAY"):
+            raise SemanticError("invalid_scope", "Venue must be HOME or AWAY")
         if self.seasons is not None:
             if (
                 not isinstance(self.seasons, list)
@@ -415,6 +418,20 @@ def run_query(
     if anchor is None:
         raise SemanticError("unavailable", "No game date can anchor this scope")
     start, end = _window(query, anchor)
+    if query.home_away and any(
+        r.get("home_away") not in ("HOME", "AWAY")
+        for r in scoped
+        if (query.player_id is None or r["player_id"] == query.player_id)
+        and _date(r["game_date"]) <= end
+        and (start is None or _date(r["game_date"]) >= start)
+        and (query.team_abbr is None or r.get("team_abbr") == query.team_abbr)
+        and (
+            query.opponent_abbr is None or r.get("opponent_abbr") == query.opponent_abbr
+        )
+    ):
+        raise SemanticError(
+            "incomplete_evidence", "Home/away is missing for games in this scope"
+        )
     selected = [
         r
         for r in scoped
@@ -424,6 +441,7 @@ def run_query(
         and (
             query.opponent_abbr is None or r.get("opponent_abbr") == query.opponent_abbr
         )
+        and (query.home_away is None or r.get("home_away") == query.home_away)
     ]
     if query.operation == "game_log":
         rows = sorted(
@@ -712,6 +730,10 @@ def compare_queries(
     current_row: dict[str, Any] = next(iter(current_result["rows"]), {})
     baseline_row: dict[str, Any] = next(iter(baseline_result["rows"]), {})
     a, b = current_row.get("value"), baseline_row.get("value")
+    if current_row.get("missing_component_games") or baseline_row.get(
+        "missing_component_games"
+    ):
+        a = b = None
     ratio = current_result["metric"]["unit"] == "ratio"
     difference = (
         (a - b) * (100 if ratio else 1) if a is not None and b is not None else None

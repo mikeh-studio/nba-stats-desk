@@ -39,16 +39,24 @@ with latest_profile as (
         ) as row_num
     from {{ ref('stg_player_reference_clean') }}
 ),
-latest_seen as (
+observed_players as (
     select
         player_id,
-        max(ingested_at_utc) as last_seen_at_utc
+        player_name,
+        team_abbr,
+        ingested_at_utc as last_seen_at_utc,
+        row_number() over (
+            partition by player_id
+            order by game_date desc, ingested_at_utc desc, game_id desc
+        ) as row_num
     from {{ ref('int_player_game_enriched') }}
-    group by 1
+),
+latest_seen as (
+    select * from observed_players where row_num = 1
 )
 select
-    p.player_id,
-    p.player_name,
+    coalesce(p.player_id, s.player_id) as player_id,
+    coalesce(p.player_name, s.player_name) as player_name,
     p.first_name,
     p.last_name,
     p.player_slug,
@@ -66,7 +74,7 @@ select
     p.roster_status,
     p.team_id,
     p.team_name,
-    p.team_abbr as latest_team_abbr,
+    coalesce(p.team_abbr, s.team_abbr) as latest_team_abbr,
     p.team_code,
     p.team_city,
     p.from_year,
@@ -78,6 +86,6 @@ select
     coalesce(s.last_seen_at_utc, p.ingested_at_utc) as last_seen_at_utc,
     p.ingested_at_utc as last_profile_refresh_at_utc
 from latest_profile p
-left join latest_seen s
+full outer join latest_seen s
     on p.player_id = s.player_id
-where p.row_num = 1
+where p.row_num = 1 or p.player_id is null

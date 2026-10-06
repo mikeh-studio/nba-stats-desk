@@ -195,6 +195,9 @@ def repair(directory, original_path, season="2025-26"):
                     "game_date": r["GAME_DATE"],
                     "team_abbr": r["TEAM_ABBREVIATION"],
                     "opponent_abbr": r["MATCHUP"].split()[-1],
+                    "home_away": "AWAY" if "@" in r["MATCHUP"] else "HOME",
+                    "matchup": r["MATCHUP"],
+                    "wl": r["WL"],
                     **{c.lower(): r[c] for c in [*COUNTS, "MIN", "PLUS_MINUS"]},
                 }
             )

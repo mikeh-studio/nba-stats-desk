@@ -174,3 +174,67 @@ versus default phase coverage, and classification-specific provenance. Browser
 tests cover returning from history after a hidden completion and preventing
 empty drafts from evicting answered chats. Model PR reviews remain advisory;
 confirm findings against source and regressions before implementing them.
+
+## Split routing and completed-season warehouse repair
+
+Synthetic regressions cover phase words versus identities, pooled ratios,
+disjoint appearance windows, inclusive event boundaries, missing venue/components,
+unsupported modifiers, source-free capability clarification, follow-ups, and
+JSON/SSE parity:
+
+```sh
+python -m pytest tests/test_player_splits.py tests/test_game_log_repair_stage.py \
+  tests/test_repair_game_schedule.py tests/test_repair_promotion.py -q
+```
+
+`scripts/stage_game_log_repair.py` rebuilds a completed 2025–26 repair in unique,
+expiring BigQuery datasets. This is a warehouse-writing operator tool, separate
+from read-only Ask. It validates official player/team logs and the official full
+schedule, preserves raw sources and prior attempts, backs up existing tables,
+rebuilds dbt dependencies, checks exact repaired fact equality, and refreshes
+similarity/archetype outputs together. Neutral-site designations are reconciled
+against schedule teams/dates/scores, not guessed from two away labels. Missing
+profile attributes stay null while identities observed in facts are retained.
+Similarity validation handles nullable warehouse measurements and checks compact
+archetype labels against the matching player’s feature measurements.
+
+```sh
+python scripts/stage_game_log_repair.py --project YOUR_PROJECT \
+  --source-dir reports/repair-sources --original reports/inputs/snapshot.json \
+  --schedule reports/repair-sources/schedule.json \
+  --run-dir reports/repair-stage-UNIQUE --dbt /path/to/compatible/dbt
+```
+
+Inspect the complete dbt run results, source/version manifests, changed-value
+ledger, schedule reconciliation and warnings. Fatal checks or skipped dependencies
+block validation; configured warnings retain their severity and full results.
+`--resume-from` can retry a failed preparing baseline into a new local run directory
+only while its live sources remain unchanged. Do not rerun a validated or promoted
+candidate as a failed attempt.
+
+The separate `scripts/promote_game_log_repair.py` requires a validated manifest,
+its exact SHA-256 and a new receipt path. It rejects changed source/candidate
+versions, incompatible schemas and missing dependencies. Nullable schema additions
+precede the transaction; all row replacements occur in one transaction with
+multiset baseline assertions and a 3 GB script billing cap (including per-statement
+minimums). Before-tables remain in the isolated datasets for
+seven days by default. Preserve needed backups before expiration. Existing views
+and historical analysis snapshots are not automatically republished.
+
+```sh
+python scripts/promote_game_log_repair.py --manifest reports/repair-stage-UNIQUE/validated.json \
+  --expected-sha256 REVIEWED_MANIFEST_SHA256 --receipt reports/repair-receipt-UNIQUE.json
+```
+
+Test deliberate promotion failures only on disposable tables. A successful staged
+build does not establish live promotion; the receipt and independent post-promotion
+checks do. No paid language-model evaluation is part of this workflow.
+
+Validated repair manifests now bind each candidate's schema and complete row
+multiset with SHA-256. Promotion asserts those digests inside the same transaction
+as the inserts, before any live row mutation; concurrent candidate writes cannot
+change the transaction's read snapshot. Metadata versions are also rechecked
+before schema additions. Older manifests without content evidence must be
+restaged. These additional reads remain subject to the script billing cap.
+The concurrency guarantee relies on BigQuery's
+[transaction snapshot isolation](https://docs.cloud.google.com/bigquery/docs/transactions).

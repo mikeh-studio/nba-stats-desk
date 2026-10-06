@@ -14,7 +14,7 @@ player_team_context as (
         max(season) as season,
         team_abbr,
         max(opponent_abbr) as opponent_team_abbr,
-        sum(coalesce(pts, 0)) as player_team_pts,
+        case when count(pts) = count(*) then sum(pts) else null end as player_team_pts,
         case
             when max(case when home_away = 'HOME' then 1 else 0 end) = 1 then 'HOME'
             when max(case when home_away = 'AWAY' then 1 else 0 end) = 1 then 'AWAY'
@@ -72,7 +72,7 @@ line_team_scores as (
         ) end as team_pts_ot_total,
         l.ingested_at_utc
     from line_scores l
-    left join player_team_context p
+    inner join player_team_context p
         on l.game_id = p.game_id
        and l.team_abbr = p.team_abbr
 ),
@@ -87,22 +87,22 @@ player_only_team_scores as (
         d.team_nickname,
         cast(null as {{ varchar_type() }}) as team_wins_losses,
         p.player_home_away as home_away,
-        cast(0 as {{ int64_type() }}) as pts_qtr1,
-        cast(0 as {{ int64_type() }}) as pts_qtr2,
-        cast(0 as {{ int64_type() }}) as pts_qtr3,
-        cast(0 as {{ int64_type() }}) as pts_qtr4,
-        cast(0 as {{ int64_type() }}) as pts_ot1,
-        cast(0 as {{ int64_type() }}) as pts_ot2,
-        cast(0 as {{ int64_type() }}) as pts_ot3,
-        cast(0 as {{ int64_type() }}) as pts_ot4,
-        cast(0 as {{ int64_type() }}) as pts_ot5,
-        cast(0 as {{ int64_type() }}) as pts_ot6,
-        cast(0 as {{ int64_type() }}) as pts_ot7,
-        cast(0 as {{ int64_type() }}) as pts_ot8,
-        cast(0 as {{ int64_type() }}) as pts_ot9,
-        cast(0 as {{ int64_type() }}) as pts_ot10,
+        cast(null as {{ int64_type() }}) as pts_qtr1,
+        cast(null as {{ int64_type() }}) as pts_qtr2,
+        cast(null as {{ int64_type() }}) as pts_qtr3,
+        cast(null as {{ int64_type() }}) as pts_qtr4,
+        cast(null as {{ int64_type() }}) as pts_ot1,
+        cast(null as {{ int64_type() }}) as pts_ot2,
+        cast(null as {{ int64_type() }}) as pts_ot3,
+        cast(null as {{ int64_type() }}) as pts_ot4,
+        cast(null as {{ int64_type() }}) as pts_ot5,
+        cast(null as {{ int64_type() }}) as pts_ot6,
+        cast(null as {{ int64_type() }}) as pts_ot7,
+        cast(null as {{ int64_type() }}) as pts_ot8,
+        cast(null as {{ int64_type() }}) as pts_ot9,
+        cast(null as {{ int64_type() }}) as pts_ot10,
         p.player_team_pts as team_pts,
-        cast(0 as {{ int64_type() }}) as team_pts_ot_total,
+        cast(null as {{ int64_type() }}) as team_pts_ot_total,
         p.ingested_at_utc
     from player_team_context p
     left join line_scores l

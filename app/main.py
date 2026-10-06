@@ -71,7 +71,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261004-review-fixes-v1"
+STATIC_VERSION = "20261005-review-recovery-v4"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -140,14 +140,23 @@ class PriorAvailability(BaseModel):
     minutes_threshold: float = Field(default=0.5, gt=0, le=1)
 
 
+class PriorAward(BaseModel):
+    award_key: str = Field(min_length=1, max_length=32)
+    season: str = Field(pattern=r"^20\d{2}-\d{2}$")
+    performance_phase: Literal["Regular Season", "Playoffs", "Finals"]
+
+
 class PriorAnalysis(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     players: list[PriorPlayer] = Field(default_factory=list, max_length=2)
     scope: PriorScope = Field(default_factory=PriorScope)
     metrics: list[str] = Field(default_factory=list, max_length=24)
     availability_scope: PriorAvailability | None = None
+    split_question: str | None = Field(default=None, max_length=4000)
+    award_reference: PriorAward | None = None
     analysis_type: (
-        Literal["availability", "summary", "comparison", "appearances"] | None
+        Literal["availability", "summary", "comparison", "appearances", "player_split"]
+        | None
     ) = None
 
 
@@ -602,6 +611,16 @@ def _prepare_agent_request(
         )
     ):
         context = payload.previous_context.model_dump(mode="json", exclude_none=True)
+        from app.agent.award_lookup import hydrate_award_context
+        from app.agent.semantics import SemanticError
+
+        try:
+            context = hydrate_award_context(context)
+        except (ValueError, KeyError, SemanticError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Saved award context could not be validated. Restate the award and season.",
+            ) from exc
         if payload.previous_context.availability_scope:
             # Preserve nullable filters when rebuilding an availability request.
             context["availability_scope"] = (

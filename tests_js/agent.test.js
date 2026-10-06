@@ -721,3 +721,49 @@ test("blank tabs cannot evict answered chats from the capped history", async () 
   reloaded.initHistory();
   assert.equal(reloaded.loadHistoryState().conversations[0].turns[0].payload.answer,'Evidence');
 });
+
+test("split follow-ups retain canonical scope in browser history", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  const split = "Compare Avery Finch points home vs away 2024-25 Regular Season from 2024-09-01 through 2025-08-31 average";
+  agent.persistHistoryTurn("Compare Avery Finch home vs away", {
+    conversation_id: id, status: "ok",
+    conversation_context: { analysis_type: "player_split", question: "Compare Avery Finch home vs away", split_question: split,
+      players: [{player_id: 811, player_name: "Avery Finch"}], metrics: ["pts"], scope: {} },
+  });
+  const context = agent.buildAskBody("What about assists?").previous_context;
+  assert.equal(context.analysis_type, "player_split");
+  assert.equal(context.split_question, split);
+});
+
+test("award answers keep the winner statement and safe source link visible", async () => {
+  const agent = await loadAgentModule();
+  const target = new FakeElement();
+  agent.renderAnswerPayload({award_evidence: {season: "2025-26"},
+    answer: "Example Player won the award. [NBA award record](https://www.nba.com/news/history-rookie-of-the-year-winners).\n\nPoints: 20 per game.",
+    semantic_evidence: {kind: "performance_overview"}}, target);
+  assert.match(target.innerHTML, /Example Player won the award/);
+  assert.match(target.innerHTML, /href="https:\/\/www.nba.com\/news\/history-rookie-of-the-year-winners"/);
+  assert.match(target.innerHTML, /Points: 20 per game/);
+  assert.doesNotMatch(agent.renderAnswerMarkdown("[bad](javascript:alert(1))"), /<a /);
+  assert.doesNotMatch(agent.renderAnswerMarkdown('[bad](https://example.test/\"onclick=\"alert(1))'), /href="[^"]*"onclick=/);
+});
+
+test("award recovery sends a bounded reference without trusting saved source facts", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  agent.persistHistoryTurn("Who won Finals MVP?", {
+    conversation_id: id, status: "ok",
+    conversation_context: {
+      players: [{player_id: 811, player_name: "Avery Finch"}],
+      scope: {season: "2024-25", phases: ["Finals"]},
+      award_evidence: {award_key: "finals_mvp", season: "2024-25", performance_phase: "Finals", source_url: "https://example.com/untrusted", player_id: 999},
+    },
+  });
+  const context = agent.buildAskBody("Show his performance").previous_context;
+  assert.deepEqual(context.award_reference, {award_key: "finals_mvp", season: "2024-25", performance_phase: "Finals"});
+  assert.equal(context.award_evidence, undefined);
+  assert.equal(context.award_reference.source_url, undefined);
+});

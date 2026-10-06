@@ -172,7 +172,7 @@ def resolve_followup(
                 and season_bounds(season)[0] <= date.fromisoformat(end)
                 and season_bounds(season)[1] >= date.fromisoformat(start)
             ]
-    if not re.search(r"\b(?:playoffs?|postseason|regular season)\b", question, re.I):
+    if not re.search(r"\b(?:playoffs?|postseason|regular[ -]season)\b", question, re.I):
         phases = scope.get("phases") or (
             [scope["season_type"]] if scope.get("season_type") else []
         )

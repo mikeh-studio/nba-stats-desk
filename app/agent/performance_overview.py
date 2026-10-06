@@ -121,8 +121,8 @@ def overview_scope(question, selected_season, today=None):
             "clarification_required",
             "Please state the included phase: regular season, playoffs, or both.",
         )
-    if re.search(r"\b(regular season|playoffs?|postseason)\b", question, re.I):
-        regular = bool(re.search(r"regular season", question, re.I))
+    if re.search(r"\b(regular[ -]season|playoffs?|postseason)\b", question, re.I):
+        regular = bool(re.search(r"regular[ -]season", question, re.I))
         playoffs = bool(re.search(r"playoffs?|postseason", question, re.I))
         phases = (["Regular Season"] if regular else []) + (
             ["Playoffs"] if playoffs else []

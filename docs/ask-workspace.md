@@ -357,3 +357,88 @@ validation. Optional final box-score capture adds explicit participation records
 `--cached-reports` reuses previously downloaded PDFs. The source builder/loader
 rejects inconsistent report team/matchup records. Connect the new bundle explicitly;
 never overwrite the prior snapshot or silently change historical answers.
+
+## Descriptive player splits
+
+Ask recognizes a comparison's axis before resolving comparison sides as players.
+Singular “playoff” and “postseason” are phases. A deterministic player-split route
+supports one observed player and one season, with no model calls:
+
+- Regular season versus playoffs.
+- Home versus away, optionally restricted to one phase or both.
+- Last N versus prior N appearances, with equal N from 1–100 and an optional
+  as-of date. The two windows are disjoint.
+- Before and after an explicit ISO event date. “After” includes that date;
+  “before” ends the preceding day. A trade/injury date is never guessed.
+
+Examples: “Compare Avery Example FG% home vs away in 2024-25”, “Avery Example
+regular season vs playoff in 2024-25”, and “Compare Avery Example points before
+and after 2025-01-01 in 2024-25”. The name must resolve in the selected source;
+the example identity is fictional. Shared date ranges and an opponent abbreviation
+compose with phase, venue and event comparisons. Explicit historical dates are
+never replaced with current-season data. Unknown conditions withhold the answer.
+
+Unspecified metrics return points, rebounds, assists, minutes and TS%. Ratios use
+pooled components; differences use unrounded values and are withheld if either
+sample is incomplete. Evidence includes both executed queries, metric components,
+game IDs, coverage and source provenance. Tables label comparison direction and
+per-game/total units. A metric-only follow-up keeps the player and frozen split
+scope, including after browser-context recovery. Every follow-up recalculates.
+
+“Why” or “better” within a supported split receives an explicitly descriptive
+partial answer, not a causal conclusion or overall ranking. Possession/lineup
+requests identify the missing data grain. Fantasy decision questions request
+league scoring and roster context instead of treating built-in proxy scores as
+league rules. These guards do not provide forecasts or support every natural
+language phrasing. Other research and availability contracts remain distinct.
+
+## Award lookup and performance composition
+
+Award questions use one shared resolver backed by
+[`award_catalog.json`](../app/agent/award_catalog.json). The catalog defines award
+names, aliases, default performance scope and source-backed winner records.
+Adding a reviewed award or season requires catalog data, not a handler branch.
+The seven connected awards are MVP, Rookie of the Year, Defensive Player of the
+Year, Sixth Man of the Year, Most Improved Player, Clutch Player of the Year and
+NBA Finals MVP. Each covers 2023–24 through 2025–26; official NBA winner lists
+were checked on 2026-10-05. Each record retains its own URL and verification date.
+
+The resolver recognizes long names and common abbreviations before player
+resolution. Longest aliases take precedence, so Finals MVP is distinct from MVP.
+Unknown awards, other leagues and unconnected competition variants receive an
+award coverage response, never a request to name the winner. Multiple awards
+require choosing one. Predictions, voting explanations and unsupported filters
+are withheld rather than silently discarded.
+
+The selected season applies when omitted; explicit seasons override it. A bare
+year means the season ending in that year. “Latest” means the latest reviewed
+record for that award, not a guarantee of live coverage. Winner-only requests
+use reference evidence without loading the warehouse. Their conversation context
+retains the winner and season for performance follow-ups and supersedes stale
+player selections or failed clarifications.
+
+Player performance uses the existing governed overview and verifies the NBA
+player ID and name against warehouse evidence (accent differences are accepted).
+Regular season is the default for season awards; explicit playoff requests use
+full playoff scope. Finals MVP lookup is supported, but Finals-only performance
+is not: it retains the award answer and explains the missing game-round scope.
+The user can explicitly request regular-season or full-playoff performance.
+Whole playoffs are never silently presented as Finals statistics. Clutch award
+lookup does not establish clutch statistics or explain voting; its default
+performance overview is whole regular-season games.
+
+A missing statistical source preserves the sourced winner with a partial-answer
+limitation and never substitutes a different season. The catalog is reviewed
+reference data, not model memory or runtime web scraping. Before adding records,
+verify the official NBA winner list and player identity, retain provenance, and
+run the catalog-wide regression matrix in `tests/test_award_lookup.py`.
+
+Monthly performance overviews retain five selectable trends (PTS, REB, AST, STL,
+BLK) when complete data is available. Visualization selection preserves these
+views without a model call; missing metric observations still withhold that trend.
+
+Browser recovery carries only an award key, season and performance phase. The
+server reconstructs award evidence from the reviewed catalog and verifies the
+saved winner identity. This preserves the Finals-only limitation across process
+restarts; legacy award questions are re-resolved using their saved season.
+Unverifiable award context is rejected rather than broadened to another phase.
