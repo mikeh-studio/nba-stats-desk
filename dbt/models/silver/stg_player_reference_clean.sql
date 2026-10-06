@@ -3,6 +3,10 @@
     schema=env_var('BQ_DATASET_SILVER', env_var('BQ_DATASET', 'nba_silver'))
 ) }}
 
+{% set reference = source('bronze', 'raw_player_reference') %}
+{% set reference_columns = adapter.get_columns_in_relation(reference) %}
+{% set names = reference_columns | map(attribute='name') | map('lower') | list %}
+
 select
     cast(player_id as {{ int64_type() }}) as player_id,
     cast(first_name as {{ varchar_type() }}) as first_name,
@@ -15,8 +19,8 @@ select
     cast(last_affiliation as {{ varchar_type() }}) as last_affiliation,
     cast(height as {{ varchar_type() }}) as height,
     cast(weight as {{ int64_type() }}) as weight,
-    cast(wingspan as {{ float64_type() }}) as wingspan,
-    cast(wingspan_ft_in as {{ varchar_type() }}) as wingspan_ft_in,
+    cast({{ 'wingspan' if 'wingspan' in names else 'null' }} as {{ float64_type() }}) as wingspan,
+    cast({{ 'wingspan_ft_in' if 'wingspan_ft_in' in names else 'null' }} as {{ varchar_type() }}) as wingspan_ft_in,
     cast(season_exp as {{ int64_type() }}) as season_exp,
     cast(jersey as {{ varchar_type() }}) as jersey,
     cast(position as {{ varchar_type() }}) as position,

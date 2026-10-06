@@ -16,7 +16,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 def saved_context_question(question: str, payload: dict[str, Any]) -> str:
     """Freeze overview dates for future follow-ups; never rerun a relative window."""
     evidence = payload.get("semantic_evidence") or {}
-    if evidence.get("kind") == "player_comparison":
+    if evidence.get("kind") in ("player_comparison", "player_split"):
         return evidence.get("context_question") or question
     scope = evidence.get("scope") or {}
     player = (payload.get("player_profile") or {}).get("player") or {}

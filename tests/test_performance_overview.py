@@ -92,6 +92,12 @@ def test_overview_math_table_charts_profile_agree(evidence):
         "6 / 6",
         "3",
     ]
+    from app.agent.visualization import VisualizationAgent
+
+    expected_charts = list(result["charts"])
+    result = VisualizationAgent().enrich(None, result, "performance", "none", "none")
+    assert result["charts"] == expected_charts
+    assert result["visualization"]["chart_ids"] == ["pts", "reb", "ast", "stl", "blk"]
     assert len(result["charts"]) == 5
     assert result["charts"][0]["series"][0]["points"][0]["y"] == 20
     assert "Points: 20.0 per game (50th percentile), +10.0" in result["answer"]

@@ -719,3 +719,38 @@ def test_train_player_similarity_model_emits_axis_drivers() -> None:
     assert axes[0]["drivers"], "first component should have driving features"
     assert all(isinstance(name, str) for name in axes[0]["drivers"])
     assert result.diagnostics["projection_axes"] == axes
+
+
+def test_nullable_warehouse_profile_fields_do_not_crash_similarity():
+    frame = _training_frame()
+    for column in ("height_inches", "weight_lbs", "wingspan_inches", "season_exp"):
+        frame[column] = frame[column].astype("Float64")
+        frame.loc[0, column] = pd.NA
+    frame.loc[0, "position"] = pd.NA
+    result = model.build_player_similarity_outputs(frame)
+    assert len(result["features"]) == len(frame)
+    assert (
+        model._optional_numeric_value({"height_inches": pd.NA}, "height_inches") is None
+    )
+
+
+def test_compact_archetype_validation_uses_matching_feature_measurements():
+    features = pd.DataFrame(
+        [
+            dict(
+                season="2025-26",
+                player_id=1,
+                player_name="Example Forward",
+                position="F",
+                height_inches=83,
+                weight_lbs=240,
+                wingspan_inches=86,
+                archetype_label="Stretch Big - Shooting",
+            )
+        ]
+    )
+    compact = features.drop(columns=["height_inches", "weight_lbs", "wingspan_inches"])
+    model._validate_similarity_output_frames(features, compact)
+    compact.loc[0, "position"] = "PG"
+    with pytest.raises(ValueError, match="eligible position"):
+        model._validate_similarity_output_frames(features, compact)

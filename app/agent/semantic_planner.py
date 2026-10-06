@@ -68,6 +68,7 @@ def plan_schema() -> dict[str, Any]:
             "player_name",
             "team_abbr",
             "opponent_abbr",
+            "home_away",
             "direction",
         )
     }
@@ -105,6 +106,7 @@ def plan_schema() -> dict[str, Any]:
     }.items():
         fields[field]["enum"] = values
     fields["direction"]["enum"] = ["higher", "lower", None]
+    fields["home_away"]["enum"] = ["HOME", "AWAY", None]
 
     return _object(
         {
@@ -136,6 +138,10 @@ def response_schema(schema: dict[str, Any]) -> dict[str, Any]:
 def explicit_scope(question: str) -> dict[str, Any]:
     """Extract unambiguous literal scope; leave inferred language to the planner."""
     hints: dict[str, Any] = {}
+    home = bool(re.search(r"\bat home\b|\bhome games\b", question, re.I))
+    away = bool(re.search(r"\bon the road\b|\baway games\b", question, re.I))
+    if home != away:
+        hints["home_away"] = "HOME" if home else "AWAY"
     match = re.search(
         r"\bfrom\s+(\d{4}-\d{2}-\d{2})\s+(?:through|to)\s+(\d{4}-\d{2}-\d{2})\b",
         question,
@@ -186,6 +192,19 @@ def plan_question(
     if not question.strip() or len(question) > 2000:
         raise SemanticError("invalid_scope", "Question must contain 1..2000 characters")
     from app.agent.availability_ask import wants_availability
+    from app.agent.question_intent import question_intent, split_kind
+
+    intent = question_intent(question)
+    if intent["status"] or split_kind(question):
+        return {
+            "status": "clarification_required"
+            if intent["status"] == "clarification_required"
+            else "unsupported",
+            "queries": [],
+            "message": intent["message"]
+            or "This comparison requires the explicit player-split route; its groups cannot be pooled into one summary.",
+            "model_calls": 0,
+        }
 
     if wants_availability(question):
         return {

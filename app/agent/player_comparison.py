@@ -28,7 +28,7 @@ def comparison_sides(question):
         parts = list(match.groups())
     # A baseline is not a second player, regardless of comparison wording.
     if re.match(
-        r"\s*(?:(?:the|his|her|their|its)\s+)?(?:prior|previous|last|past|this|current|regular season|playoffs|20\d{2})\b",
+        r"\s*(?:(?:the|his|her|their|its)\s+)?(?:prior|previous|last|past|this|current|regular season|playoffs?|postseason|home|away|road|before|after|20\d{2})\b",
         parts[1],
         re.I,
     ):

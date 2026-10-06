@@ -1578,6 +1578,7 @@ class StatsAgent:
         ):
             return answer_availability(self, cleaned_question, conversation_id, trace)
 
+        from app.agent.question_intent import split_kind
         from app.agent.research_ask import (
             answer_research,
             wants_research,
@@ -1626,8 +1627,10 @@ class StatsAgent:
             )
         )
         if (
-            wants_research(cleaned_question) or research_followup
-        ) and not use_legacy_study:
+            (wants_research(cleaned_question) or research_followup)
+            and not use_legacy_study
+            and not split_kind(cleaned_question)
+        ):
             return answer_research(
                 self,
                 cleaned_question,

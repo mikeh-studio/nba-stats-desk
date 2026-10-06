@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import replace
 from time import monotonic
 from typing import Any
 
+from app.agent.award_lookup import award_intro, resolve_award_question, wants_award
 from app.agent.followup import analysis_context, resolve_followup
 from app.agent.history import saved_context_question
 from app.agent.metric_presentation import (
@@ -27,6 +29,8 @@ from app.agent.player_comparison import (
     comparison_scope,
     comparison_sides,
 )
+from app.agent.player_splits import answer_split
+from app.agent.question_intent import question_intent, split_kind
 from app.agent.semantic_planner import execute_plan, explicit_scope, plan_question
 from app.agent.semantic_serving import (
     fallback_notice,
@@ -37,6 +41,7 @@ from app.agent.semantic_serving import (
     source_players,
 )
 from app.agent.semantics import Query, SemanticError, run_query
+from app.seasons import season_bounds
 
 
 def contextual_leader_plan(question, context, season):
@@ -254,6 +259,8 @@ def render_answer(
             payload["assumptions"].append(f"Appearance team: {scope['team_abbr']}")
         if scope.get("opponent_abbr"):
             payload["assumptions"].append(f"Opponent: {scope['opponent_abbr']}")
+        if scope.get("home_away"):
+            payload["assumptions"].append(f"Venue: {scope['home_away']}")
         if scope["operation"] == "game_log":
             source = section["provenance"]
             payload["assumptions"].append(
@@ -450,6 +457,8 @@ class SemanticAsk:
                 trace=trace,
             )
         original = question
+        award = None
+        award_request = wants_award(original)
         store = self.store if conversation_id else None
         pending = store.get_pending_clarification(conversation_id) if store else None
         turns = (
@@ -462,12 +471,20 @@ class SemanticAsk:
         context: dict[str, Any] = next(
             (turn.context for turn in reversed(turns) if turn.context), {}
         )
+        if award_request:
+            context = {}
+            pending = None
+            selected_player = None
         leader_plan = contextual_leader_plan(original, context, self.settings.season)
         if leader_plan:
             # A fully restated supported request supersedes an earlier mistaken
             # request for a count; do not feed that clarification back in.
             pending = None
-        if pending and not selected_player and comparison_sides(question):
+        if (
+            pending
+            and not selected_player
+            and (comparison_sides(question) or split_kind(question))
+        ):
             # A fully restated comparison replaces a scope clarification rather
             # than remaining trapped behind the unsupported original scope.
             pending = None
@@ -481,6 +498,10 @@ class SemanticAsk:
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
             ):
                 question = f"Previous question: {turns[-1].question}\nCurrent question: {question}"
+        if context.get("split_question") and not pending:
+            from app.agent.player_splits import split_followup
+
+            question = split_followup(question, context["split_question"])
         question, inherited = resolve_followup(question, context)
         if selected_player:
             question += f"\nSelected player: {selected_player.get('player_name', '')}"
@@ -495,6 +516,74 @@ class SemanticAsk:
             )
         try:
             notice = None
+            prior_award = context.get("award_evidence") or {}
+            if (
+                prior_award.get("performance_phase") == "Finals"
+                and re.search(r"\b(?:his|him|he|their|them)\b", original, re.I)
+                and not re.search(
+                    r"\b(?:regular[ -]season|playoffs?|postseason)\b", original, re.I
+                )
+            ):
+                award = prior_award
+                raise SemanticError(
+                    "unsupported_scope",
+                    "Finals-only performance is not connected. Specify regular-season or full-playoff performance to use game-level statistics.",
+                )
+            if award_request:
+                award = resolve_award_question(original, self.settings.season)
+                if not award["performance_requested"]:
+                    payload = _payload(award_intro(award), "ok")
+                    payload["award_evidence"] = award
+                    payload["semantic_plan"] = {
+                        "kind": "award_lookup",
+                        "model_calls": 0,
+                    }
+                    payload["agent_plan"] = {
+                        "route": "governed_metrics",
+                        "needs_clarification": False,
+                        "confidence": 1.0,
+                    }
+                    payload["conversation_id"] = conversation_id
+                    payload["conversation_context"] = {
+                        "award_evidence": award,
+                        "players": [
+                            {k: award[k] for k in ("player_id", "player_name")}
+                        ],
+                        "scope": {
+                            "season": award["season"],
+                            "start": season_bounds(award["season"])[0].isoformat(),
+                            "end": season_bounds(award["season"])[1].isoformat(),
+                            "phases": [award["performance_phase"]],
+                        },
+                    }
+                    if store:
+                        store.clear_pending_clarification(conversation_id)
+                        store.append_turn(
+                            conversation_id,
+                            question=original,
+                            answer=payload["answer"],
+                            max_turns=self.settings.agent_conversation_max_turns,
+                            context=payload["conversation_context"],
+                        )
+                    if trace:
+                        trace.set_plan(route="governed_metrics", confidence=1.0)
+                        trace.outcome = "answered"
+                    return payload
+                if award["performance_phase"] == "Finals":
+                    raise SemanticError(
+                        "unsupported_scope",
+                        "Finals-only game scope is not connected. Ask for this winner's regular-season or full-playoff performance explicitly; I will not substitute either for Finals performance.",
+                    )
+                question = award["performance_question"]
+                inherited = {}
+                selected_player = {k: award[k] for k in ("player_id", "player_name")}
+            intent = question_intent(question)
+            if award:
+                intent["kind"] = "award_lookup_then_performance"
+            if intent["status"]:
+                raise SemanticError(
+                    intent["status"], intent["message"] or "Unsupported question"
+                )
             # Resolve relative season language before the overview date parser.
             if re.search(r"\b(?:last|previous|prior) season\b", question, re.I):
                 requested = requested_seasons(question, self.settings.season)[0]
@@ -504,12 +593,13 @@ class SemanticAsk:
                     question,
                     flags=re.I,
                 )
-            comparison = comparison_sides(question)
+            split = split_kind(question)
+            comparison = None if split else comparison_sides(question)
             overview = (
                 comparison_scope(question, self.settings.season)
                 if comparison
                 else overview_scope(question, self.settings.season)
-                if wants_overview(question)
+                if wants_overview(question) and not split
                 else None
             )
             seasons = (
@@ -517,6 +607,10 @@ class SemanticAsk:
                 if overview
                 else requested_seasons(question, self.settings.season)
             )
+            if split:
+                from app.agent.player_splits import split_seasons
+
+                seasons = split_seasons(question, self.settings.season)
             if inherited.get("seasons") and not overview:
                 seasons = [s for s in inherited["seasons"] if s]
             allow_fallback = (
@@ -584,6 +678,19 @@ class SemanticAsk:
                     )
                 # A selection resolves ambiguous aliases only to this source ID.
                 chosen = matches[0]
+                if (
+                    award
+                    and unicodedata.normalize("NFKD", chosen["player_name"])
+                    .encode("ascii", "ignore")
+                    .lower()
+                    != unicodedata.normalize("NFKD", award["player_name"])
+                    .encode("ascii", "ignore")
+                    .lower()
+                ):
+                    raise SemanticError(
+                        "invalid_evidence",
+                        "Award identity does not match the warehouse player record.",
+                    )
                 players = [
                     dict(
                         p,
@@ -595,7 +702,11 @@ class SemanticAsk:
                     if p["player_id"] == chosen["player_id"]
                     or p["player_name"].casefold() != chosen["player_name"].casefold()
                 ]
-            if overview:
+            if split:
+                payload = answer_split(question, evidence, players, seasons[0])
+                plan = payload["semantic_plan"]
+                result = {"status": payload["status"]}
+            elif overview:
                 if comparison:
                     payload = build_comparison(
                         question,
@@ -731,7 +842,18 @@ class SemanticAsk:
                     option["label"] = (
                         f"{option['player_name']} (ID {option['player_id']})"
                     )
+            if award:
+                payload["answer"] = award_intro(award) + "\n\n" + payload["answer"]
+                payload["award_evidence"] = award
+                payload["assumptions"].append(
+                    "Award season: "
+                    + award["season"]
+                    + "; "
+                    + award["season_basis"]
+                    + ". Performance is computed from warehouse game records."
+                )
             payload["semantic_plan"] = plan
+            payload["question_intent"] = intent
             if notice:
                 payload["answer"] = notice + "\n\n" + payload["answer"]
                 payload["assumptions"].append(notice)
@@ -755,6 +877,14 @@ class SemanticAsk:
             ]
         except SemanticError as exc:
             payload = _payload(str(exc), exc.code)
+            if award:
+                payload["answer"] = (
+                    award_intro(award)
+                    + "\n\nPerformance could not be verified: "
+                    + str(exc)
+                )
+                payload["award_evidence"] = award
+                payload["answerability"] = "partial"
         if trace:
             trace.add_tool(
                 name="governed_metrics",

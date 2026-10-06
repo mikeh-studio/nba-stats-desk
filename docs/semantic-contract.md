@@ -99,3 +99,26 @@ answer and chart label it and disclose missing phases; follow-up scope carries
 the covered phases. Classification provenance identifies either the supporting
 statistics snapshot/game/player key or the actual final-box-score/Out-report
 source. Injury bulletins are not evidence for statistics-based classifications.
+
+Player split evidence uses `player_splits/1`. The ordinary `Query` also accepts
+`home_away=HOME|AWAY`; unknown venue values in the requested player/date/team/
+opponent scope block a venue-filtered result. `Both` does not erase a phase-versus-
+phase comparison. Explicit split groups execute independently under the same
+metric contract. Incomplete components suppress differences even when a partial
+individual average can be displayed. Percentage changes remain percentage points.
+
+Warehouse home/away follows official schedule designation when available. A
+neutral-site game can have a designated home side; this field does not establish
+home-court advantage or physical venue. Repaired schedule assignments retain
+source hashes and a change ledger.
+
+Award lookup is separate reference evidence, not a metric calculation. The
+versioned award catalog supplies aliases, scope, season, NBA player ID and source
+provenance through one shared resolver. Winner-only answers require no warehouse
+coverage. Performance composition verifies identity and preserves award season;
+missing statistics never change the winner. MVP variants are distinct awards;
+unknown awards and unsupported conditions must not become player clarifications.
+Finals-only performance is withheld until round scope is connected. Tests in
+`tests/test_award_lookup.py` cover every catalog award and season, aliases,
+lookup-only and composed answers, follow-up scope, stale context, provenance,
+unsupported variants and JSON/SSE parity.

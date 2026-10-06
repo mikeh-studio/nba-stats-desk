@@ -337,7 +337,7 @@ def _rank_similarity_traits(
     ranked: List[Tuple[str, float]] = []
     for feature_name, trait_label in SIMILARITY_TRAIT_LABELS.items():
         raw_value = values.get(feature_name)
-        if raw_value in (None, ""):
+        if raw_value is None or pd.isna(raw_value) or raw_value == "":
             continue
         score = float(raw_value)
         if positive_only and score <= 0:
@@ -360,7 +360,7 @@ def _feature_signal(values: Dict[str, float], *feature_names: str) -> float:
     scores = []
     for feature_name in feature_names:
         value = values.get(feature_name, 0.0)
-        if value in (None, ""):
+        if value is None or (isinstance(value, str) and not value):
             continue
         try:
             if pd.isna(value):
@@ -528,7 +528,7 @@ def _archetype_id_suffix(label: str) -> str:
 
 def _numeric_value(values: Dict[str, Any], name: str, default: float = 0.0) -> float:
     value = values.get(name)
-    if value in (None, ""):
+    if value is None or (isinstance(value, str) and not value):
         return default
     try:
         if pd.isna(value):
@@ -540,7 +540,7 @@ def _numeric_value(values: Dict[str, Any], name: str, default: float = 0.0) -> f
 
 def _optional_numeric_value(values: Dict[str, Any], name: str) -> float | None:
     value = values.get(name)
-    if value in (None, ""):
+    if value is None or (isinstance(value, str) and not value):
         return None
     try:
         if pd.isna(value):
@@ -554,7 +554,7 @@ def _optional_numeric_value(values: Dict[str, Any], name: str) -> float | None:
 
 
 def _position_tokens(position: Any) -> set[str]:
-    if position in (None, ""):
+    if position is None or pd.isna(position) or position == "":
         return set()
     tokens = re.split(r"[^a-z0-9]+", str(position).lower())
     resolved: set[str] = set()
@@ -814,6 +814,13 @@ def _validate_similarity_output_frames(
         )
 
     invalid_position_assignments: List[str] = []
+    physical_profiles = {
+        (row["season"], row["player_id"]): {
+            name: row.get(name)
+            for name in ("height_inches", "weight_lbs", "wingspan_inches")
+        }
+        for _, row in features_df.iterrows()
+    }
     for source_name, frame in (
         ("player_similarity_features", features_df),
         ("player_archetypes", archetypes_df),
@@ -822,6 +829,14 @@ def _validate_similarity_output_frames(
             label = str(row.get("archetype_label") or "")
             base_label = label.split(" - ", maxsplit=1)[0]
             raw_values = row.to_dict()
+            if source_name == "player_archetypes":
+                # The compact archetype table omits measurements. Validate its
+                # label against the same player's feature evidence, not absent fields.
+                for name, value in physical_profiles.get(
+                    (row["season"], row["player_id"]), {}
+                ).items():
+                    if name not in raw_values:
+                        raw_values[name] = value
             if _base_archetype_eligible(base_label, raw_values):
                 continue
             invalid_position_assignments.append(

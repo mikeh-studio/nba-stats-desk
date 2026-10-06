@@ -227,6 +227,7 @@ function renderInlineMarkdown(value) {
     },
   );
   return withCodePlaceholders
+    .replace(/\[([^\]\n]+)\]\((https:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(
       /@@CODE(\d+)@@/g,
@@ -1004,7 +1005,7 @@ function renderAnswerPayload(payload, targetEl) {
     targetEl.innerHTML = comparisonAnswer(comparison);
     return;
   }
-  const overview = overviewPresentation(payload);
+  const overview = payload.award_evidence ? null : overviewPresentation(payload);
   targetEl.innerHTML = overview
     ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p>${escHtml(p)}</p>`).join("")}</div>${overview.insights.length ? `<aside class="takeaways" aria-label="Key takeaways"><h2>Key takeaways</h2>${overview.insights.map((i) => `<section class="takeaway"><img src="/static/icons/${i.icon}.svg" alt="" /><div><h3>${escHtml(i.title)}</h3><p>${escHtml(i.text)}</p></div></section>`).join("")}</aside>` : ""}</div>`
     : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
@@ -1151,7 +1152,7 @@ function renderOverviewCharts(payload, key, root = document) {
   const metric = payload.semantic_evidence.metrics.find(
     (m) => m.key === chart.series[0].key,
   );
-  el.innerHTML = `<div class="chart-header"><div><h2>Monthly ${escHtml(metric.label.toLowerCase())}</h2><p class="meta">${escHtml(metric.label)} per game · months with appearances</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(c.series[0].key.toUpperCase())}</button>`).join("")}</div></div><div class="agent-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for sample size. Months without appearances are omitted; lines do not imply games were played between observations.</p>`;
+  el.innerHTML = `<div class="chart-header"><div><h2>Monthly performance</h2><p class="meta">${escHtml(metric.label)} per game · months with appearances</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(c.series[0].key.toUpperCase())}</button>`).join("")}</div></div><div class="agent-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for sample size. Months without appearances are omitted; lines do not imply games were played between observations.</p>`;
   el.querySelectorAll("[data-chart-key]").forEach((button) =>
     button.addEventListener("click", () => {
       renderOverviewCharts(payload, button.dataset.chartKey, root);
@@ -1885,6 +1886,7 @@ function buildAskBody(question, selection, conversationId = activeConversationId
         })),
       analysis_type: canonical?.analysis_type || (availability ? "availability" : null),
       availability_scope: availability || null,
+      split_question: canonical?.split_question?.slice(0, 4000) || null,
       scope: {
         season: scope.season || null,
         start: scope.start || scope.start_date || null,
@@ -2156,6 +2158,7 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     bindComparisonExplorer,
     normalizeAnswerMarkdown,
     renderAnswerMarkdown,
+    renderAnswerPayload,
     loadHistoryState,
     saveHistoryState,
     persistHistoryTurn,

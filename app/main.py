@@ -71,7 +71,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261004-review-fixes-v1"
+STATIC_VERSION = "20261005-monthly-five-stats"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -146,8 +146,10 @@ class PriorAnalysis(BaseModel):
     scope: PriorScope = Field(default_factory=PriorScope)
     metrics: list[str] = Field(default_factory=list, max_length=24)
     availability_scope: PriorAvailability | None = None
+    split_question: str | None = Field(default=None, max_length=4000)
     analysis_type: (
-        Literal["availability", "summary", "comparison", "appearances"] | None
+        Literal["availability", "summary", "comparison", "appearances", "player_split"]
+        | None
     ) = None
 
 
