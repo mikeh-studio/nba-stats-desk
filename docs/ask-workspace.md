@@ -436,3 +436,9 @@ run the catalog-wide regression matrix in `tests/test_award_lookup.py`.
 Monthly performance overviews retain five selectable trends (PTS, REB, AST, STL,
 BLK) when complete data is available. Visualization selection preserves these
 views without a model call; missing metric observations still withhold that trend.
+
+Browser recovery carries only an award key, season and performance phase. The
+server reconstructs award evidence from the reviewed catalog and verifies the
+saved winner identity. This preserves the Finals-only limitation across process
+restarts; legacy award questions are re-resolved using their saved season.
+Unverifiable award context is rejected rather than broadened to another phase.

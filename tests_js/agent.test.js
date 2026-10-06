@@ -749,3 +749,21 @@ test("award answers keep the winner statement and safe source link visible", asy
   assert.doesNotMatch(agent.renderAnswerMarkdown("[bad](javascript:alert(1))"), /<a /);
   assert.doesNotMatch(agent.renderAnswerMarkdown('[bad](https://example.test/\"onclick=\"alert(1))'), /href="[^"]*"onclick=/);
 });
+
+test("award recovery sends a bounded reference without trusting saved source facts", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  agent.persistHistoryTurn("Who won Finals MVP?", {
+    conversation_id: id, status: "ok",
+    conversation_context: {
+      players: [{player_id: 811, player_name: "Avery Finch"}],
+      scope: {season: "2024-25", phases: ["Finals"]},
+      award_evidence: {award_key: "finals_mvp", season: "2024-25", performance_phase: "Finals", source_url: "https://example.com/untrusted", player_id: 999},
+    },
+  });
+  const context = agent.buildAskBody("Show his performance").previous_context;
+  assert.deepEqual(context.award_reference, {award_key: "finals_mvp", season: "2024-25", performance_phase: "Finals"});
+  assert.equal(context.award_evidence, undefined);
+  assert.equal(context.award_reference.source_url, undefined);
+});

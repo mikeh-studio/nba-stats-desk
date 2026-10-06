@@ -366,8 +366,21 @@ def finalize_stage(args, plan, env, run, snapshot, client):
         features_df=outputs["features"],
         archetypes_df=outputs["archetypes"],
     )
+    from scripts.promote_game_log_repair import content_digest_sql
+
     for pair in plan["candidates"]:
-        pair["candidate_etag"] = client.get_table(pair["candidate"]).etag
+        table = client.get_table(pair["candidate"])
+        pair["candidate_columns"] = [field.name for field in table.schema]
+        digest = list(
+            client.query(
+                content_digest_sql(pair["candidate"], pair["candidate_columns"]),
+                job_config=bigquery.QueryJobConfig(maximum_bytes_billed=100_000_000),
+            ).result()
+        )[0]["digest"]
+        if client.get_table(pair["candidate"]).etag != table.etag:
+            raise ValueError("Candidate changed while recording validation evidence")
+        pair["candidate_etag"] = table.etag
+        pair["candidate_digest"] = digest
     plan.update(
         status="validated",
         dbt_results=len(results["results"]),

@@ -229,3 +229,12 @@ python scripts/promote_game_log_repair.py --manifest reports/repair-stage-UNIQUE
 Test deliberate promotion failures only on disposable tables. A successful staged
 build does not establish live promotion; the receipt and independent post-promotion
 checks do. No paid language-model evaluation is part of this workflow.
+
+Validated repair manifests now bind each candidate's schema and complete row
+multiset with SHA-256. Promotion asserts those digests inside the same transaction
+as the inserts, before any live row mutation; concurrent candidate writes cannot
+change the transaction's read snapshot. Metadata versions are also rechecked
+before schema additions. Older manifests without content evidence must be
+restaged. These additional reads remain subject to the script billing cap.
+The concurrency guarantee relies on BigQuery's
+[transaction snapshot isolation](https://docs.cloud.google.com/bigquery/docs/transactions).

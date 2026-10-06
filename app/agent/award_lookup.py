@@ -176,3 +176,38 @@ def resolve_award_question(question: str, selected_season: str):
 
 def award_intro(award):
     return f"{award['player_name']} won the {award['season']} {award['award']} award. [NBA award record]({award['source_url']})."
+
+
+def hydrate_award_context(context):
+    """Rebuild reference evidence from the catalog, never browser-supplied facts."""
+    hint = context.get("award_reference")
+    if hint:
+        entry = CATALOG.get(hint["award_key"])
+        if not entry:
+            raise ValueError("Unknown saved award")
+        award = resolve_award_question(
+            f"Who won {entry['label']} in {hint['season']}?", hint["season"]
+        )
+        phase = hint["performance_phase"]
+        if phase == "Finals" and entry["default_performance_phase"] != "Finals":
+            raise ValueError("Invalid saved award phase")
+        award["performance_phase"] = phase
+    elif wants_award(context.get("question", "")):
+        # Older browser histories did not serialize award hints.
+        season = context.get("scope", {}).get("season")
+        if not season:
+            raise ValueError("Saved award season missing")
+        award = resolve_award_question(context["question"], season)
+    else:
+        return context
+    if context.get("players") != [{k: award[k] for k in ("player_id", "player_name")}]:
+        raise ValueError("Saved winner differs from the reviewed catalog")
+    return dict(
+        context,
+        award_evidence=award,
+        scope=dict(
+            context.get("scope", {}),
+            season=award["season"],
+            phases=[award["performance_phase"]],
+        ),
+    )

@@ -319,3 +319,75 @@ def test_finals_lookup_followup_does_not_invent_round_coverage():
     )
     assert result["status"] == "ok", result["answer"]
     assert result["player_profile"]["player"]["player_id"] == 1628973
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])
+def test_browser_restored_finals_scope_is_revalidated(legacy, endpoint):
+    import json
+    from uuid import uuid4
+
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+
+    config = settings("2025-26")
+    repo = BigQueryWarehouseRepository(config, client=SimpleNamespace())
+    source = warehouse()
+    repo._governed_warehouse = source
+    award = resolve_award_question("Who won Finals MVP?", "2025-26")
+    context = dict(
+        question="Who won Finals MVP?",
+        players=[{k: award[k] for k in ("player_id", "player_name")}],
+        scope=dict(season="2025-26", start="2025-07-01", end="2026-06-30", phases=[]),
+    )
+    if not legacy:
+        context["award_reference"] = {
+            k: award[k] for k in ("award_key", "season", "performance_phase")
+        }
+    old = dict(app.dependency_overrides)
+    app.dependency_overrides.update(
+        {
+            get_settings: lambda: config,
+            get_repository: lambda: repo,
+            get_agent_client: lambda: object(),
+        }
+    )
+    try:
+        with TestClient(app) as client:
+            body = dict(
+                question="Show his performance",
+                conversation_id=uuid4().hex,
+                previous_context=context,
+            )
+            response = client.post(endpoint + "?season=2025-26", json=body)
+            assert response.status_code == 200, response.text
+            if endpoint.endswith("/stream"):
+                events = [
+                    json.loads(line[6:])
+                    for line in response.text.splitlines()
+                    if line.startswith("data: ")
+                ]
+                final = next(e for e in events if e.get("type") == "final")
+                result = final.get("payload", final.get("response", final))
+            else:
+                result = response.json()
+            assert result["status"] == "unsupported_scope", result["answer"]
+            assert "Finals-only" in result["answer"]
+            assert result["award_evidence"]["player_id"] == 1628973
+            assert not source.calls
+            # Explicit supported scope remains usable after recovery.
+            body["question"] = "Show his regular-season performance"
+            result = client.post("/api/agent/ask?season=2025-26", json=body).json()
+            assert result["status"] == "ok", result["answer"]
+            assert result["player_profile"]["player"]["player_id"] == 1628973
+            # New process/context must reject a spoofed winner.
+            body["conversation_id"] = uuid4().hex
+            body["previous_context"]["players"][0]["player_id"] = 999
+            assert (
+                client.post("/api/agent/ask?season=2025-26", json=body).status_code
+                == 400
+            )
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(old)

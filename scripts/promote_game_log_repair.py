@@ -52,6 +52,10 @@ def validate_plan(plan, expected_sha):
             raise ValueError("Candidate or backup escaped isolated repair")
         if not pair.get("candidate_etag"):
             raise ValueError("Candidate version missing")
+        if not re.fullmatch(
+            r"[A-Fa-f0-9]{64}", pair.get("candidate_digest", "")
+        ) or not pair.get("candidate_columns"):
+            raise ValueError("Candidate content evidence missing; restage the repair")
         seen.add(active)
     required = {
         "nba_bronze.raw_game_logs",
@@ -85,8 +89,29 @@ def equal_rows_assertion(active, backup, columns):
     )
 
 
+def content_digest_sql(table, columns):
+    """Order-independent SHA-256 of the complete row multiset, including duplicates."""
+    if not columns or any(
+        not re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*", c) for c in columns
+    ):
+        raise ValueError("Invalid digest columns")
+    fields = ", ".join(f"`{c}`" for c in columns)
+    return (
+        "SELECT TO_HEX(SHA256(COALESCE(STRING_AGG(row_hash, '' ORDER BY row_hash), ''))) AS digest "
+        f"FROM (SELECT TO_HEX(SHA256(TO_JSON_STRING(STRUCT({fields})))) AS row_hash FROM {quoted_table(table)})"
+    )
+
+
 def transaction_sql(pairs, sources=()):
     statements = ["BEGIN TRANSACTION;"]
+    for pair in pairs:
+        digest = pair["candidate_digest"]
+        if not re.fullmatch(r"[A-Fa-f0-9]{64}", digest):
+            raise ValueError("Invalid candidate digest")
+        statements.append(
+            f"ASSERT ({content_digest_sql(pair['candidate'], pair['candidate_columns'])}) = '{digest.upper()}' "
+            'AS "Validated candidate changed; repair aborted";'
+        )
     for pair in [*sources, *pairs]:
         statements.append(
             equal_rows_assertion(
@@ -145,6 +170,8 @@ def promote(plan, expected_sha, client):
             raise ValueError("Live or candidate table version changed")
         fields = {f.name: f for f in active.schema}
         proposed = {f.name: f for f in candidate.schema}
+        if list(proposed) != pair["candidate_columns"]:
+            raise ValueError("Candidate schema changed")
         if set(fields) - set(proposed):
             raise ValueError("Repair cannot remove active columns")
         for name, field in proposed.items():
@@ -167,6 +194,8 @@ def promote(plan, expected_sha, client):
     # Recheck every pair first so an incompatible later table cannot partially add schemas.
     for pair in pairs:
         active, candidate = (client.get_table(pair[k]) for k in ("active", "candidate"))
+        if candidate.etag != pair["candidate_etag"]:
+            raise ValueError("Candidate changed before publication")
         names = {f.name for f in active.schema}
         additions = [f for f in candidate.schema if f.name not in names]
         if additions:

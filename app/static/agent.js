@@ -1887,6 +1887,11 @@ function buildAskBody(question, selection, conversationId = activeConversationId
       analysis_type: canonical?.analysis_type || (availability ? "availability" : null),
       availability_scope: availability || null,
       split_question: canonical?.split_question?.slice(0, 4000) || null,
+      award_reference: canonical?.award_evidence ? {
+        award_key: canonical.award_evidence.award_key,
+        season: canonical.award_evidence.season,
+        performance_phase: canonical.award_evidence.performance_phase,
+      } : null,
       scope: {
         season: scope.season || null,
         start: scope.start || scope.start_date || null,
