@@ -1488,6 +1488,10 @@ def test_ask_page_smoke() -> None:
     assert response.status_code == 200
     assert "Ask NBA Stats" in response.text
     assert f"/static/agent.js?v={STATIC_VERSION}" in response.text
+    assert (
+        f"ask_presentation.js?v={STATIC_VERSION}"
+        in (Path(__file__).parents[1] / "app/static/agent.js").read_text()
+    )
     assert "data-health-status" in response.text
     assert "data-agent-provider" in response.text
     assert "data-agent-model" in response.text

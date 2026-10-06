@@ -122,3 +122,25 @@ Finals-only performance is withheld until round scope is connected. Tests in
 `tests/test_award_lookup.py` cover every catalog award and season, aliases,
 lookup-only and composed answers, follow-up scope, stale context, provenance,
 unsupported variants and JSON/SSE parity.
+
+Broad player performance questions (including “how did he perform/play/do” and
+“how has he been doing”) use the full overview when no specific metric or
+unsupported condition is requested. The generic metric planner cannot silently
+replace basketball performance with a fantasy proxy. Fantasy queries require
+explicit intent or a metric-preserving continuation of an existing fantasy
+analysis; otherwise Ask requests clarification before executing the query.
+
+Overview prose is deterministic and shared between the API answer and the UI
+through `semantic_evidence.summary_paragraphs`. Summary comparisons use the
+already-validated metric changes, never differences between rounded display
+values. Partial metrics cannot support headline, efficiency, or minutes claims.
+Percentages and per-36 rates are not appended to a per-game sentence; the full
+values and their units remain available in the detailed evidence and tables.
+
+Overview comparison scope includes `previous_phases`, alongside explicit date
+bounds and a display label. Full playoffs use same-season regular-season
+appearances as the baseline; source coverage is checked independently for both
+phases. `semantic_evidence.game_insights` records the scoring distribution and
+peak game identity used in paragraph three. Distribution claims require complete
+scoring coverage. Round-specific requests fail closed before querying evidence;
+season-wide observations cannot stand in for a requested Finals or playoff round.

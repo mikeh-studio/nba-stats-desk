@@ -8,6 +8,8 @@ from collections import defaultdict
 from datetime import date, timedelta
 
 from app.agent.context_metrics import context_metrics, context_table
+from app.agent.overview_summary import game_insights, summary_paragraphs
+from app.agent.question_intent import has_specific_metric
 from app.agent.semantics import SemanticError, aggregate, load_contract
 from app.seasons import SEASONS, season_bounds
 
@@ -22,17 +24,22 @@ METRICS = (
 
 def wants_overview(question):
     original = question.split("\nClarification:", 1)[0]
-    return bool(
-        re.search(
-            r"\b(performing|performed|performance|overview|stats|statistics)\b",
-            original,
-            re.I,
+    return (
+        bool(
+            re.search(
+                r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics)\b"
+                r"|\bhow\b[^?\n]*\b(?:play(?:ed|ing)?|do(?:ing)?|done|fare[ds]?)\b",
+                original,
+                re.I,
+            )
         )
-    ) and not bool(
-        re.search(
-            r"\b(points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|fantasy|rank|top|compare|versus|opponent|against)\b|%",
-            original,
-            re.I,
+        and not has_specific_metric(original)
+        and not bool(
+            re.search(
+                r"\b(fantasy|rank|top|compare|versus|opponent|against|home|away|road)\b",
+                original,
+                re.I,
+            )
         )
     )
 
@@ -46,6 +53,16 @@ def shift_months(day, n):
 
 
 def overview_scope(question, selected_season, today=None):
+    from app.agent.question_intent import round_scope_message
+
+    if message := round_scope_message(question):
+        raise SemanticError("unsupported_scope", message)
+    question = re.sub(
+        r"\b(20\d{2})\s+(playoffs?|postseason)\b",
+        lambda m: f"{int(m[1]) - 1}-{m[1][-2:]} {m[2]}",
+        question,
+        flags=re.I,
+    )
     today = today or date.today()
     explicit = re.search(
         r"\bfrom (\d{4}-\d{2}-\d{2}) (?:to|through) (\d{4}-\d{2}-\d{2})\b",
@@ -128,12 +145,26 @@ def overview_scope(question, selected_season, today=None):
             ["Playoffs"] if playoffs else []
         )
     if re.search(
-        r"\b(preseason|play.in|summer league|quarter|injur)\w*", question, re.I
+        r"\b(preseason|play-in|playin|play in tournament|summer league|quarter|injur)\w*",
+        question,
+        re.I,
     ):
         raise SemanticError(
             "unsupported_coverage",
             "This overview covers regular-season and playoff box scores only.",
         )
+    previous_phases = list(phases)
+    if not trailing and not explicit:
+        if phases == ["Playoffs"]:
+            # A full playoff overview compares against this season's regular season.
+            previous_start, previous_end = start, end
+            previous_phases = ["Regular Season"]
+        else:
+            previous_start = shift_months(start, 12)
+            previous_end = shift_months(end, 12)
+    comparison_label = (
+        f"{' + '.join(previous_phases)} from {previous_start} through {previous_end}"
+    )
     seasons = [
         s
         for s in SEASONS
@@ -150,6 +181,8 @@ def overview_scope(question, selected_season, today=None):
         previous_start=previous_start,
         previous_end=previous_end,
         phases=phases,
+        previous_phases=previous_phases,
+        comparison_label=comparison_label,
         seasons=seasons,
     )
 
@@ -267,16 +300,19 @@ def build_overview(question, evidence, players, scope, selected=None):
     player = candidates[0]
     start, end = scope["start"], scope["end"]
 
-    def rows_between(lo, hi):
+    def rows_between(lo, hi, phases):
         return [
             r
             for r in evidence.rows
-            if r["season_type"] in scope["phases"]
+            if r["season_type"] in phases
             and lo <= date.fromisoformat(str(r["game_date"])) <= hi
         ]
 
-    current = rows_between(start, end)
-    previous = rows_between(scope["previous_start"], scope["previous_end"])
+    current = rows_between(start, end, scope["phases"])
+    previous_phases = scope.get("previous_phases", scope["phases"])
+    previous = rows_between(
+        scope["previous_start"], scope["previous_end"], previous_phases
+    )
     own = [r for r in current if r["player_id"] == player["player_id"]]
     prior = [r for r in previous if r["player_id"] == player["player_id"]]
     contract = load_contract()
@@ -292,13 +328,14 @@ def build_overview(question, evidence, players, scope, selected=None):
                 raise SemanticError(
                     "unsupported_coverage", f"Missing {season} {phase} source coverage."
                 )
+        for phase in previous_phases:
             if (
                 bounds[0] <= scope["previous_end"]
                 and bounds[1] >= scope["previous_start"]
                 and (season, phase) not in evidence.covered_scopes
             ):
                 baseline_covered = False
-    metrics, table, charts, sentences = [], [], [], []
+    metrics, table, charts = [], [], []
     grouped = defaultdict(list)
     for row in current:
         grouped[row["player_id"]].append(row)
@@ -343,19 +380,6 @@ def build_overview(question, evidence, players, scope, selected=None):
                 str(len(cohort)),
             ]
         )
-        sentences.append(
-            f"{label}: {avg} per game"
-            + (
-                f" ({pct:.0f}th percentile)"
-                if pct is not None
-                else " (percentile unavailable)"
-            )
-            + (
-                f", {delta:+.1f} versus {scope['previous_start']} through {scope['previous_end']}"
-                if delta is not None
-                else ""
-            )
-        )
         buckets = defaultdict(list)
         for row in own:
             buckets[str(row["game_date"])[:7]].append(row)
@@ -393,30 +417,13 @@ def build_overview(question, evidence, players, scope, selected=None):
                 "monthly": points,
             }
         )
-    missing = [m["label"] for m in metrics if m["missing_component_games"]]
     phase = " + ".join(scope["phases"])
-    answer = (
-        f"{player['player_name']} — {len(own)} recorded appearances from {start} through {end} ({phase}).\n\n"
-        + "\n".join("- " + sentence for sentence in sentences)
-    )
-    if missing:
-        answer += (
-            "\n\nPartial data for "
-            + ", ".join(missing)
-            + ": averages use available values; percentiles, changes, and trend charts are withheld. Missing values are not zero."
-        )
-    available = [m for m in metrics if m["percentile"] is not None]
-    if available:
-        strongest = max(available, key=lambda m: m["percentile"])
-        answer += f"\n\nStrongest relative category: {strongest['label'].lower()} ({strongest['percentile']:.0f}th percentile among qualified players)."
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
-    answer += "\n\nMinutes and shooting context:\n" + "\n".join(
-        f"- {m['label']}: "
-        + (f"{m['value']:.1f} {m['unit']}" if m["value"] is not None else "Unavailable")
-        + f" ({m['valid_games']} / {len(own)} appearances with complete components)"
-        for m in extra
-        if m["key"] in ("min", "fga", "fg_pct", "ts_pct")
+    insights = game_insights(own)
+    paragraphs = summary_paragraphs(
+        player["player_name"], metrics + extra, scope, len(own), insights
     )
+    answer = "\n\n".join(paragraphs)
     return {
         **empty,
         "status": "ok" if own else "no_observations",
@@ -444,7 +451,7 @@ def build_overview(question, evidence, players, scope, selected=None):
         "charts": charts,
         "assumptions": [
             f"Requested dates: {start} through {end}; {phase}. All matching available seasons are combined.",
-            f"Comparison dates: {scope['previous_start']} through {scope['previous_end']}."
+            f"Comparison: {scope.get('comparison_label', str(scope['previous_start']) + ' through ' + str(scope['previous_end']))}."
             + (
                 " Baseline extends outside available archives; changes are unavailable."
                 if not baseline_covered
@@ -468,6 +475,8 @@ def build_overview(question, evidence, players, scope, selected=None):
         ]
         + [{k: m[k] for k in ("key", "label", "definition", "unit")} for m in extra],
         "semantic_evidence": {
+            "summary_paragraphs": paragraphs,
+            "game_insights": insights,
             "scope": {
                 k: str(v) if isinstance(v, date) else v for k, v in scope.items()
             },

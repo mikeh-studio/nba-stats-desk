@@ -9,6 +9,20 @@ from __future__ import annotations
 import re
 
 
+def has_specific_metric(question: str) -> bool:
+    """Recognize metric changes before inheriting or broadening analysis intent."""
+    return bool(
+        re.search(
+            r"\b(?:points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|"
+            r"minutes?|turnovers?|efficiency|field[ -]goals?|free[ -]throws?|"
+            r"three[ -]pointers?|3[ -]pointers?|games? played|"
+            r"pts|reb|ast|stl|blk|tov|fgm|fga|fg|ftm|fta|ft|3pm|3pa|3p|ts|efg)\b|%",
+            question,
+            re.I,
+        )
+    )
+
+
 def split_kind(question: str) -> str | None:
     text = question.lower()
     compare = re.search(
@@ -38,9 +52,31 @@ def split_kind(question: str) -> str | None:
     return None
 
 
+def round_scope_message(question: str) -> str | None:
+    """No round dimension exists: never pool a series request into a season."""
+    if re.search(
+        r"\b(?:finals|(?:nba|conference) final|the final(?!\s+(?:\d+|score|games?))|"
+        r"championship series|semi[ -]?finals?|conference semis|"
+        r"(?:first|second|third|1st|2nd|3rd|early|earlier|opening|final)[ -](?:playoff[ -])?rounds?|"
+        r"round[ -](?:one|two|three|[1-4]))\b",
+        question,
+        re.I,
+    ):
+        return (
+            "Finals and individual playoff rounds cannot be isolated with the connected data. "
+            "I cannot compare that series with earlier rounds or the regular season reliably. "
+            "I can summarize the full playoff run or regular season if you request that scope."
+        )
+    return None
+
+
 def question_intent(question: str) -> dict[str, str | None]:
     """Return a route hint and, for unsupported grains, a precise next step."""
     kind = split_kind(question)
+    if message := round_scope_message(question):
+        return dict(
+            kind="unavailable_round", status="unsupported_scope", message=message
+        )
     if re.search(
         r"\b(?:lineups?|starting five|closing five|on[ -]court|off[ -]court|on/off|clutch|"
         r"possessions?|assisted baskets|deflections?|shot contests?)\b",

@@ -20,7 +20,7 @@ export function overviewPresentation(payload) {
   const metrics = evidence.metrics;
   const scope = evidence.scope;
   const range = `${dateLabel(scope.start)} – ${dateLabel(scope.end)}`;
-  const comparison = `${dateLabel(scope.previous_start)} – ${dateLabel(scope.previous_end)}`;
+  const comparison = `${(scope.previous_phases || scope.phases).join(" + ")} · ${dateLabel(scope.previous_start)} – ${dateLabel(scope.previous_end)}`;
   const eligible = metrics.filter(
     (m) => finite(m.percentile) && !m.missing_component_games,
   );
@@ -29,17 +29,30 @@ export function overviewPresentation(payload) {
   )[0];
   const paragraphs = [],
     candidates = [];
-  const values = metrics
-    .filter((m) => finite(m.value))
-    .map((m) => `${m.value.toFixed(1)} ${m.label.toLowerCase()}`);
-  const name = payload.player_profile?.player?.player_name || "The player";
-  paragraphs.push(
-    values.length
-      ? `${name} averaged ${values.join(", ")} per game.`
-      : "No recorded appearances are available in the requested dates and phases.",
+  const values = metrics.filter(
+    (m) => finite(m.value) && !m.missing_component_games,
   );
+  const name = payload.player_profile?.player?.player_name || "The player";
+  const supplied = evidence.summary_paragraphs;
+  const canonical =
+    Array.isArray(supplied) &&
+    supplied.length > 0 &&
+    supplied.every((p) => typeof p === "string");
+  if (canonical) paragraphs.push(...supplied);
+  else {
+    // Older saved responses lack the canonical summary. Keep their evidence,
+    // and avoid reconstructing comparison or efficiency claims in the browser.
+    const headline = values.find((m) => m.key === "pts") || strongest;
+    paragraphs.push(
+      headline
+        ? `${name} averaged ${headline.value.toFixed(1)} ${headline.label.toLowerCase()} per game in the requested period.`
+        : "Complete metric data is unavailable for an overall assessment.",
+    );
+    paragraphs.push(
+      `This summary covers ${payload.player_profile?.player?.games_sampled || 0} recorded appearances. See Key Metrics for the detailed breakdown.`,
+    );
+  }
   if (strongest) {
-    paragraphs[0] += ` The ${strongest.label.toLowerCase()} average ranks highest among these five categories (${ordinal(strongest.percentile)} league percentile), making it the standout relative contribution.`;
     candidates.push({
       area: strongest.key === "ast" ? "Playmaking" : "Production",
       icon: "chart-bar",
@@ -50,17 +63,6 @@ export function overviewPresentation(payload) {
       text: `${strongest.value.toFixed(1)} per game, ${ordinal(strongest.percentile)} percentile among ${strongest.cohort_size} qualified players.`,
     });
   }
-  const changed = metrics.filter(
-    (m) =>
-      finite(m.change) && Math.abs(m.change) >= Math.max(0.1, m.value * 0.02),
-  );
-  const stable = metrics.filter(
-    (m) => finite(m.change) && !changed.includes(m),
-  );
-  if (changed.length)
-    paragraphs.push(
-      `Versus ${comparison}, ${changed.map((m) => `${m.label.toLowerCase()} ${m.change > 0 ? "rose" : "fell"} ${Math.abs(m.change).toFixed(1)}`).join(", ")} per game.${stable.length ? ` ${stable.map((m) => m.label).join(" and ")} remained broadly similar.` : ""} A higher average can reflect more playing time, better production per minute, or both.`,
-    );
   const trajectory = strongest || eligible[0];
   // Require five valid games per bucket and meaningful variation before a trend claim.
   const months = (trajectory?.monthly || []).filter(
@@ -102,17 +104,13 @@ export function overviewPresentation(payload) {
       title: "Defensive activity, not a verdict",
       text: `${defense.map((m) => `${m.value.toFixed(1)} ${m.label.toLowerCase()}`).join(" and ")} per game. Box scores alone do not establish defensive impact; minutes, defensive rebounds and fouls need context.`,
     });
-  if (metrics.some((m) => m.missing_component_games)) {
+  if (!canonical && metrics.some((m) => m.missing_component_games)) {
     const labels = metrics
       .filter((m) => m.missing_component_games)
       .map((m) => m.label);
-    paragraphs.push(
-      `Partial data for ${labels.join(", ")}: available-value averages are shown; percentiles, changes and trend charts are withheld. Missing values are not zero.`,
-    );
+    paragraphs[1] += ` Partial data for ${labels.join(", ")}: incomplete metrics are excluded from this assessment. Missing values are not zero.`;
   }
-  paragraphs.push(
-    "Minutes, shooting efficiency, turnovers and opponent strength have not been evaluated here; these observations do not establish why performance changed.",
-  );
+
   if (candidates.length < 3 && values.length)
     candidates.push({
       area: "Sample",

@@ -30,6 +30,7 @@ Use selected_season unless a season is explicitly named; normalize 2024-2025 to 
 Unqualified season uses default_season_type. Playoffs is separate; combine only when explicitly requested.
 Unsupported seasons, play-in, preseason, quarter scoring, injury questions, arbitrary formulas or
 metrics absent from the contract require unsupported, never substitution or a guessed answer.
+Never substitute a fantasy proxy for a general performance question or a requested basketball metric. Fantasy metrics require explicit fantasy or box-score-index intent in the question or an unambiguous continuation of that intent.
 Unspecified Fantasy Score, fantasy points, or fantasy scoring defaults to fantasy_proxy_weighted. Honor explicit simple scoring as fantasy_points_simple; other supplied league systems remain unsupported rather than substituted.
 Game-by-game values, game logs, and a player's metric trend chart use game_log with one explicit player and metric. For game_log use total for count metrics, ratio for percentages, null min_games/min_attempts/direction, and limit 100 unless a smaller display limit is explicit. Last N appearances specifies window last_n_games and n, not a ranking. A game_log returns chronological observations and a chart, never a rolling average or cumulative series. Clarify an unspecified game-log metric; unsupported rolling or cumulative calculations must not be replaced with raw observations.
 Shooting rankings/percentiles without an explicit attempt threshold require clarification_required.
@@ -354,7 +355,44 @@ def plan_question(
     required = {"query": 1, "compare": 2}.get(plan["status"], 0)
     if len(plan["queries"]) != required:
         raise SemanticError("invalid_plan", "Invalid query count")
+    from app.agent.question_intent import has_specific_metric
+
+    fantasy_keys = {"fantasy_proxy_weighted", "fantasy_points_simple"}
+    fantasy_request = bool(
+        re.search(r"\b(?:fantasy|box[ -]score[ -]index|bsi)\b", question, re.I)
+    )
+    context = conversation_context or {}
+    continuation = (
+        bool(
+            re.match(
+                r"^(?:and|what about|how about|same|instead|now|only)\b", question, re.I
+            )
+        )
+        and not has_specific_metric(question)
+        and not bool(
+            re.search(
+                r"\b(?:perform\w*|overview|stats|statistics)\b",
+                question,
+                re.I,
+            )
+        )
+    )
+    inherited_fantasy = continuation and bool(
+        fantasy_keys.intersection(context.get("metrics", []))
+    )
     for query in plan["queries"]:
+        metric = query.get("metric", "")
+        if (
+            isinstance(metric, str)
+            and (metric in fantasy_keys or metric.casefold().startswith("fantasy"))
+            and not (fantasy_request or inherited_fantasy)
+        ):
+            return {
+                "status": "clarification_required",
+                "queries": [],
+                "message": "Which basketball statistic would you like to examine? A fantasy proxy cannot substitute for the requested performance analysis.",
+                "model_calls": 1,
+            }
         handle = query.get("player_name")
         if players and handle is not None:
             if handle not in references:
