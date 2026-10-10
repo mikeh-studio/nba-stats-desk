@@ -22,7 +22,6 @@ from app.agent.performance_overview import (
     identity_profile,
     overview_scope,
     resolve_overview_player,
-    wants_overview,
 )
 from app.agent.player_comparison import (
     build_comparison,
@@ -186,19 +185,9 @@ def add_leaderboard_reference(payload, result, evidence, players, player_id):
 
 
 def _payload(message: str, status: str) -> dict[str, Any]:
-    return {
-        "answer": message,
-        "status": status,
-        "assumptions": [],
-        "tables": [],
-        "charts": [],
-        "metric_definitions": [],
-        "followups": [],
-        "player_profile": None,
-        "clarification_options": [],
-        "tool_calls": [],
-        "semantic_evidence": None,
-    }
+    from app.agent.payload import answer_payload
+
+    return answer_payload(message, status=status)
 
 
 def render_answer(
@@ -593,13 +582,18 @@ class SemanticAsk:
                     question,
                     flags=re.I,
                 )
-            split = split_kind(question)
-            comparison = None if split else comparison_sides(question)
+            from app.agent.routes import semantic_shape
+
+            shape = semantic_shape(question)
+            split = split_kind(question) if shape == "player_split" else None
+            comparison = (
+                comparison_sides(question) if shape == "player_comparison" else None
+            )
             overview = (
                 comparison_scope(question, self.settings.season)
                 if comparison
                 else overview_scope(question, self.settings.season)
-                if wants_overview(question) and not split
+                if shape == "overview"
                 else None
             )
             seasons = (

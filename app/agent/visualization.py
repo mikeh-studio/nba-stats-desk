@@ -150,6 +150,12 @@ class VisualizationAgent:
 
     def enrich(self, agent, payload, question, provider, model, trace=None):
         evidence = payload.get("semantic_evidence") or {}
+        if evidence.get("kind") == "league_baseline":
+            payload["visualization"] = {
+                "selection": "rule",
+                "reason": "Compare the same metric and calendar scope across the player and league.",
+            }
+            return payload
         if (
             evidence.get("player_id")
             and evidence.get("metrics")

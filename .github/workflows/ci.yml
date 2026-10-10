@@ -60,8 +60,20 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install browser test dependencies
+        run: npm ci
+
       - name: Run JS tests
         run: npm run test:tracking
+
+      - name: Evaluate Ask endpoints with frozen evidence
+        run: python scripts/evaluate_ask.py --output reports/ask-harness/ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify populated Ask browser flows
+        run: npm run test:ask-browser
 
       - name: Parse dbt project
         run: dbt parse --project-dir . --profiles-dir dbt/profiles --target dev

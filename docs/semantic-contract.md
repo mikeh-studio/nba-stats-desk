@@ -144,3 +144,19 @@ phases. `semantic_evidence.game_insights` records the scoring distribution and
 peak game identity used in paragraph three. Distribution claims require complete
 scoring coverage. Round-specific requests fail closed before querying evidence;
 season-wide observations cannot stand in for a requested Finals or playoff round.
+
+## League reference and similarity contracts
+
+`league_baseline/1` compares a governed individual summary with pooled player
+appearances in the explicitly disclosed shared calendar scope. It includes the
+focal player, uses a one-appearance minimum, retains all membership keys without
+top-N cohort truncation, and withholds differences if either sample has incomplete
+components. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references)
+for supported language and weighting. Dashboard baseline values are not reused.
+
+`similarity_reference/1` validates a separate published feature-profile result;
+it is not an ordinary metric query. The profile must match the selected identity
+and season. Self/duplicate neighbors and missing, nonfinite or out-of-range scores
+invalidate the answer. No model-authored similarity numbers or filter substitutes
+are accepted. Publication hashes identify returned evidence, not an independently
+verified training run or model build version.

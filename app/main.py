@@ -71,7 +71,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261005-performance-narrative-v7"
+STATIC_VERSION = "20261009-ask-harness-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -153,6 +153,7 @@ class PriorAnalysis(BaseModel):
     metrics: list[str] = Field(default_factory=list, max_length=24)
     availability_scope: PriorAvailability | None = None
     split_question: str | None = Field(default=None, max_length=4000)
+    reference_question: str | None = Field(default=None, max_length=4000)
     award_reference: PriorAward | None = None
     analysis_type: (
         Literal["availability", "summary", "comparison", "appearances", "player_split"]
