@@ -150,6 +150,8 @@ class VisualizationAgent:
 
     def enrich(self, agent, payload, question, provider, model, trace=None):
         evidence = payload.get("semantic_evidence") or {}
+        if payload.get("visualization") is not None:
+            return payload
         if (
             evidence.get("player_id")
             and evidence.get("metrics")

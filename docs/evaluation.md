@@ -238,3 +238,139 @@ before schema additions. Older manifests without content evidence must be
 restaged. These additional reads remain subject to the script billing cap.
 The concurrency guarantee relies on BigQuery's
 [transaction snapshot isolation](https://docs.cloud.google.com/bigquery/docs/transactions).
+
+## Ask endpoint regression and human review
+
+The Ask harness has 61 draft scenarios in `tests/fixtures/ask/cases.json` and
+fictional statistics in `tests/fixtures/ask/source.json`. The schema validates
+case shape, IDs, structured assertions and review provenance. Expectations cover
+identity, phase/date scope, numeric tolerances, missingness, rendered values,
+refusals and multi-turn behavior. Award cases use the existing reviewed catalog.
+Availability/study cases test missing-source refusals; successful availability
+arithmetic remains covered by the separate availability suite above.
+
+Run in the app Python environment, using a **new** output directory each time:
+
+```sh
+python scripts/evaluate_ask.py --output reports/ask-harness/candidate-01
+python scripts/evaluate_ask.py --code-root /path/to/baseline-checkout \
+  --label baseline --output reports/ask-harness/baseline-01
+python -m scripts.ask_eval.review \
+  --baseline reports/ask-harness/baseline-01/results.json \
+  --candidate reports/ask-harness/candidate-01/results.json \
+  --output reports/ask-harness/review-01.html
+```
+
+Both code revisions run through real loopback JSON/SSE endpoints, using the same
+fixture adapter, source, cases and grader. The baseline checkout supplies app
+code; the current evaluation runner supplies controlled model responses. Cases
+with legacy narratives use an explicit placeholder, so missing evidence contracts
+must not be presented as a measured increase in real-model factual accuracy.
+The comparator rejects mismatched inputs. Reports retain code/content hashes,
+provider/model, per-turn payloads and checks, timing, parity, and failed attempts.
+Progress is flushed per case; failed runs are never overwritten.
+
+Controlled runs measure endpoint contract behavior, not natural-language planning
+accuracy. CI runs these checks without credentials. Real-provider evaluations are
+separate, explicit operations against the same frozen sources:
+
+```sh
+python scripts/evaluate_ask.py --live --provider openai --model APPROVED_MODEL_ID \
+  --case points_mean --case follow_metric --max-model-calls 12 \
+  --output reports/ask-harness/provider-01
+```
+
+Select an endpoint-allowlisted model and configured provider credentials. Live
+runs require a model, explicit cases (or a private input directory) and a bounded
+model-call budget. Calls are
+counted across both transports, SDK retries are disabled in the evaluation
+adapter, and the runner does not retry runs or substitute models. Controlled
+invalid-plan injection cases cannot be submitted as real-model cases. Live parity
+means that both transports satisfy the same structured expectations; it does not
+require identical prose. These runs have not been implied by offline CI success.
+
+The self-contained HTML shows questions, expected/baseline/candidate values,
+answers, tables, complete responses, source inputs, hashes and limitations. It
+supports filtering, named review decisions and a JSON export. Decisions are stored
+in browser storage under the source/case/candidate hashes. Serve locally for stable
+storage, and retain the exported file privately. Reviewer decisions do not change
+automated scores. Cases remain pending until a human approves them; passing the
+suite does not make it a human-reviewed benchmark.
+
+Real-browser smoke checks use the same local fixture server and actual responses:
+
+```sh
+npm ci
+npx playwright install chromium
+npm run test:ask-browser
+```
+
+They check populated baseline values/charts, follow-up scope after reload,
+clarification, and narrow-screen similarity tables. The test server uses the local
+`.venv-app` when present, otherwise `python`. Generated artifacts stay in ignored
+`reports/`. Test infrastructure is separate from the public application; never
+serve the fixture server remotely or deploy it as the app entry point.
+
+### Production snapshot comparisons
+
+The endpoint runner also accepts `--input-dir PRIVATE_DIR`, containing a
+schema-valid `cases.json` and `source.json` with `source_kind: production_snapshot`,
+`season`, a checksum-validated semantic `snapshot`, and captured repository
+`details` keyed by player ID. Facts and profiles must be frozen before either code
+revision runs. Record separate profile capture timestamps; they are not an atomic
+cross-table snapshot. Use independent arithmetic to author expected values and
+retain the oracle builder with the private capture. Similarity scores from a
+published profile test faithful serving, not the quality of the similarity model.
+
+```sh
+python scripts/evaluate_ask.py --input-dir reports/PRIVATE_CAPTURE \
+  --live --provider openai --model CONFIGURED_MODEL --max-model-calls 80 \
+  --output reports/PRIVATE_CAPTURE/candidate-live
+python -m scripts.ask_eval.review \
+  --source reports/PRIVATE_CAPTURE/source.json \
+  --baseline reports/PRIVATE_CAPTURE/baseline-live/results.json \
+  --candidate reports/PRIVATE_CAPTURE/candidate-live/results.json \
+  --output reports/PRIVATE_CAPTURE/review.html
+```
+
+Use `--code-root` for the archived baseline. The live evaluation server loads the
+working checkout's `.env` for both code revisions without copying credentials to
+the archive or artifacts; already-exported environment variables take precedence.
+Uncaptured repository reads fail explicitly; there is no live warehouse fallback.
+Runs retain per-call usage, raw model responses, exception types and timings in
+private `model-calls.jsonl`, plus per-turn usage in the scored report. No provider
+keys or production captures belong in CI or Git. The call cap bounds attempts,
+not dollar cost; token usage is not an invoice. A small paired run and draft human
+labels do not establish broad accuracy or deployed-service health.
+
+
+### Interpreting results and review limits
+
+A case passes only when every structured assertion and both endpoint transports
+pass. Missing evidence fields fail this contract even when the old narrative is
+correct. Compare refusals separately from numeric answers. New league baselines
+pool appearances within the requested calendar scope; the older dashboard baseline
+uses a different population, so a difference is not automatically hallucination.
+Uncaptured replay reads must be called out as evaluation limitations, not deployed
+service defects. Use `--notes PRIVATE_NOTES.json` when generating the review to
+attach a `summary` string and a `cases` mapping from case ID to interpretation.
+These notes do not change the immutable raw scores or mark cases human-approved.
+
+The local 2026-10-09 review used 61 synthetic scenarios (48 baseline / 61 updated
+passes), followed by 18 production-snapshot scenarios for two players with
+`gpt-5.4-mini` (9 baseline / 18 updated passes; 48 / 16 model calls). The production
+run included one baseline request blocked by an uncaptured rankings read. These
+are small contract-conformance runs, not broad accuracy estimates, latency
+benchmarks, or tests of the deployed service. Per-case human decisions remain
+pending. Detailed cases, captures, model responses and HTML remain private under
+`reports/`; do not attach them to the public PR. Later code review fixes use
+focused offline regressions rather than silently rerunning paid experiments.
+
+
+PR review regressions additionally cover pending-reference replacement, participation
+routing ahead of incidental similarity/baseline wording, appearance windows ending
+on the focal player's last game, bounded membership payloads and stable hashes,
+reference error wrapping, and zero SDK retries in both Claude/OpenRouter adapters.
+The production snapshot run above used the earlier `league_baseline/1` contract;
+its saved artifacts are immutable and are not relabeled as a live test of version 2.
+No new paid run is implied by these offline fixes.

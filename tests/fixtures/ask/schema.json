@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "human_reviewed", "cases"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 1},
+    "human_reviewed": {"type": "boolean"},
+    "cases": {"type": "array", "minItems": 1, "maxItems": 500, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "family", "source_variant", "review", "oracle_note", "turns"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]{0,80}$"},
+        "family": {"type": "string", "minLength": 1},
+        "source_variant": {"enum": ["complete", "missing_points", "duplicate", "ambiguous", "invalid_similarity", "missing_similarity"]},
+        "review": {"type": "object", "required": ["status", "reviewer"], "properties": {"status": {"enum": ["pending", "approved", "revise"]}, "reviewer": {"type": ["string", "null"]}}},
+        "oracle_note": {"type": "string", "minLength": 1},
+        "turns": {"type": "array", "minItems": 1, "maxItems": 8, "items": {
+          "type": "object", "additionalProperties": false, "required": ["question", "checks"],
+          "properties": {
+            "question": {"type": "string", "minLength": 1, "maxLength": 500},
+            "planner_response": {"type": "object"},
+            "checks": {"type": "array", "minItems": 1, "items": {
+              "type": "object", "additionalProperties": false, "required": ["path", "equals"],
+              "properties": {"path": {"type": "string", "minLength": 1}, "equals": {}, "absolute_tolerance": {"type": "number", "minimum": 0, "maximum": 1}}
+            }}
+          }
+        }}
+      }
+    }}
+  }
+}

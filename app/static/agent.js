@@ -15,7 +15,7 @@ import {
 import {
   overviewPresentation,
   ordinal,
-} from "./ask_presentation.js?v=20261005-performance-narrative-v7";
+} from "./ask_presentation.js?v=20261009-ask-harness-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1887,6 +1887,7 @@ function buildAskBody(question, selection, conversationId = activeConversationId
       analysis_type: canonical?.analysis_type || (availability ? "availability" : null),
       availability_scope: availability || null,
       split_question: canonical?.split_question?.slice(0, 4000) || null,
+      reference_question: canonical?.reference_question?.slice(0, 4000) || null,
       award_reference: canonical?.award_evidence ? {
         award_key: canonical.award_evidence.award_key,
         season: canonical.award_evidence.season,

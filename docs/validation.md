@@ -33,7 +33,11 @@ ruff format --check .
 mypy
 python -m pytest -q
 python scripts/evaluate_semantics.py --output reports/semantic-layer/evaluation.json
+npm ci
 npm run test:tracking
+python scripts/evaluate_ask.py --output reports/ask-harness/unique-validation-run
+npx playwright install chromium
+npm run test:ask-browser
 dbt parse --project-dir . --profiles-dir dbt/profiles --target dev
 git diff --check
 git diff --check origin/main...HEAD

@@ -261,15 +261,9 @@ class AgentExecutionError(RuntimeError):
 
 
 def _default_agent_answer(answer: str) -> dict[str, Any]:
-    return {
-        "answer": answer,
-        "assumptions": [],
-        "tables": [],
-        "charts": [],
-        "metric_definitions": [],
-        "followups": [],
-        "player_profile": None,
-    }
+    from app.agent.payload import answer_payload
+
+    return answer_payload(answer)
 
 
 def normalize_agent_answer(payload: Any) -> dict[str, Any]:
@@ -1480,8 +1474,12 @@ class StatsAgent:
             if provider_name == "claude"
             else self.settings.openai_agent_model
         )
-        return VisualizationAgent().enrich(
-            self, payload, question, provider_name, selected_model, trace
+        from app.agent.payload import complete_payload
+
+        return complete_payload(
+            VisualizationAgent().enrich(
+                self, payload, question, provider_name, selected_model, trace
+            )
         )
 
     def _answer(
@@ -1523,132 +1521,85 @@ class StatsAgent:
         elif self.client is None and not self.settings.openai_api_key:
             self._get_client()
 
+        from app.agent.appearance_ask import answer_appearances
+        from app.agent.availability_ask import answer_availability
         from app.agent.award_lookup import wants_award
+        from app.agent.payload import answer_payload
         from app.agent.question_intent import round_scope_message
+        from app.agent.reference_ask import answer_reference, reference_kind
+        from app.agent.research_ask import answer_research
+        from app.agent.routes import RouteContext, select_route
+        from app.agent.teammate_ask import answer_study
 
-        if not wants_award(cleaned_question) and (
-            message := round_scope_message(cleaned_question)
-        ):
-            if trace:
-                trace.route = "governed_metrics"
-                trace.outcome = "unsupported"
-                trace.error_type = "unsupported_scope"
-            return {
-                **_default_agent_answer(message),
-                "status": "unsupported_scope",
-                "semantic_evidence": None,
-                "player_profile": None,
-                "conversation_id": conversation_id,
-            }
-
-        from app.agent.appearance_ask import answer_appearances, wants_appearances
-        from app.agent.availability_ask import (
-            answer_availability,
-            availability_followup,
-            wants_availability,
+        turns = (
+            self.conversation_store.get_turns(
+                conversation_id, max_turns=self.settings.agent_conversation_max_turns
+            )
+            if conversation_id and self.conversation_store
+            else []
         )
-        from app.agent.research_ask import mentioned_pairs, wants_research_followup
-        from app.agent.teammate_ask import wants_study
-
-        context = {}
-        if conversation_id and self.conversation_store:
-            context = next(
-                (
-                    turn.context
-                    for turn in reversed(
-                        self.conversation_store.get_turns(
-                            conversation_id,
-                            max_turns=self.settings.agent_conversation_max_turns,
-                        )
-                    )
-                    if turn.context
-                ),
-                {},
-            )
-        if wants_appearances(cleaned_question) and (
-            self.semantic_agent or context.get("availability_scope")
-        ):
-            return answer_appearances(
-                self, cleaned_question, context, conversation_id, trace
-            )
-
-        availability_context = False
-        if conversation_id and self.conversation_store:
-            availability_context = bool(
-                context.get("availability_scope")
-                and availability_followup(cleaned_question)
-            )
-        if availability_context or (
-            wants_availability(cleaned_question)
-            and not (
-                context.get("research_scope")
-                and wants_research_followup(cleaned_question)
-            )
-            and (
-                self.settings.research_availability_path
-                or (
-                    not mentioned_pairs(cleaned_question)
-                    and not wants_study(
-                        cleaned_question, self.settings.agent_teammate_study_path
-                    )
-                )
-            )
-        ):
-            return answer_availability(self, cleaned_question, conversation_id, trace)
-
-        from app.agent.question_intent import split_kind
-        from app.agent.research_ask import (
-            answer_research,
-            wants_research,
-            wants_research_followup,
+        context = next((turn.context for turn in reversed(turns) if turn.context), {})
+        pending_route = (
+            self.conversation_store.get_pending_clarification(conversation_id)
+            if conversation_id and self.conversation_store
+            else None
         )
-
-        research_followup = False
-        if conversation_id and self.conversation_store:
-            recent = self.conversation_store.get_turns(conversation_id, max_turns=1)
-            research_followup = bool(
-                recent
-                and recent[-1].context.get("research_scope")
-                and wants_research_followup(cleaned_question)
-            )
-        from app.agent.teammate_ask import (
-            answer_study,
-            legacy_study_has_replacement,
-            wants_study,
-        )
-
-        study_followup = False
-        if conversation_id and self.conversation_store:
-            prior = self.conversation_store.get_turns(conversation_id, max_turns=1)
-            study_followup = bool(
-                prior
-                and prior[-1].context.get("teammate_study")
-                and re.search(
-                    r"^(?:is|was|does|did|what|how).*(?:significan|caus|uncertain|confidence|p-value|sample)",
+        reference_reply = None
+        if (
+            pending_route
+            and conversation_id
+            and self.conversation_store
+            and reference_kind(pending_route.question)
+        ):
+            reply = _clarify_reply_name(cleaned_question)
+            new_question = bool(
+                reference_kind(cleaned_question)
+                or wants_award(cleaned_question)
+                or re.search(
+                    r"\b(?:how|what|who|which|show|compare|rank|when|without|out|sits|games|per)\b",
                     cleaned_question,
                     re.I,
                 )
             )
-        legacy_study_requested = (
-            wants_study(cleaned_question, self.settings.agent_teammate_study_path)
-            or study_followup
+            if selected_player:
+                reference_reply = str(selected_player.get("player_name", ""))
+            elif reply and not new_question:
+                reference_reply = reply
+            else:
+                self.conversation_store.clear_pending_clarification(conversation_id)
+                pending_route = None
+        route_context = RouteContext(
+            cleaned_question,
+            pending_route.question
+            if pending_route
+            and not reference_kind(cleaned_question)
+            and not wants_award(cleaned_question)
+            else cleaned_question,
+            context,
+            turns[-1].context if turns else {},
+            self.settings,
+            self.semantic_agent is not None,
+            reference_reply=reference_reply,
         )
-        # Preserve published v1 studies until their pair has a replacement.
-        # Never use this compatibility route to replace an active research scope.
-        use_legacy_study = (
-            bool(self.settings.agent_teammate_study_path)
-            and legacy_study_requested
-            and not research_followup
-            and not legacy_study_has_replacement(
-                self.settings.agent_teammate_study_path,
-                self.settings.research_studies_path,
+        route = select_route(route_context)
+        if trace:
+            trace.set_plan(route=route.key, confidence=1.0)
+        if route.handler == "scope_refusal":
+            if trace:
+                trace.outcome = "unsupported_scope"
+                trace.error_type = "unsupported_scope"
+            return answer_payload(
+                round_scope_message(cleaned_question) or "Unsupported scope",
+                status="unsupported_scope",
+                conversation_id=conversation_id,
             )
-        )
-        if (
-            (wants_research(cleaned_question) or research_followup)
-            and not use_legacy_study
-            and not split_kind(cleaned_question)
-        ):
+        if route.handler == "appearances":
+            return answer_appearances(
+                self, cleaned_question, context, conversation_id, trace
+            )
+        if route.handler == "availability":
+            return answer_availability(self, cleaned_question, conversation_id, trace)
+        if route.handler == "research":
             return answer_research(
                 self,
                 cleaned_question,
@@ -1657,19 +1608,32 @@ class StatsAgent:
                 conversation_id,
                 trace,
             )
-        if legacy_study_requested:
+        if route.handler == "reference":
+            try:
+                return answer_reference(
+                    self,
+                    cleaned_question,
+                    route.key,
+                    conversation_id,
+                    trace,
+                    selected_player,
+                    route_context=route_context,
+                )
+            except Exception as exc:
+                raise AgentExecutionError("Governed reference request failed") from exc
+        if route.handler == "teammate_study":
             try:
                 payload = answer_study(
                     self,
                     ("Using the teammate study: " + cleaned_question)
-                    if study_followup
+                    if route_context.study_followup
                     else cleaned_question,
                     provider_name,
                     selected_model,
                     trace,
                 )
                 payload["conversation_id"] = conversation_id
-                if trace is not None:
+                if trace:
                     trace.outcome = payload["study_status"]
                 if conversation_id and self.conversation_store:
                     self.conversation_store.append_turn(
@@ -1684,26 +1648,10 @@ class StatsAgent:
                 return payload
             except Exception as exc:
                 raise AgentExecutionError("Teammate study request failed") from exc
-
-        routing_question = cleaned_question
-        if conversation_id and self.conversation_store:
-            pending_route = self.conversation_store.get_pending_clarification(
-                conversation_id
-            )
-            if pending_route is not None:
-                routing_question = pending_route.question
-        legacy_route = build_agent_plan(
-            routing_question
-        ).route == AgentRoute.SIMILARITY or bool(
-            re.search(
-                r"\bleague\s+(?:average|baseline)\b|\bagainst\s+baseline\b",
-                routing_question,
-                re.I,
-            )
-        )
-        if self.semantic_agent is not None and not legacy_route:
+        if route.handler == "semantic":
             try:
-                return self.semantic_agent.answer(
+                assert self.semantic_agent is not None
+                payload = self.semantic_agent.answer(
                     cleaned_question,
                     client=self._get_client(provider_name),
                     model=selected_model,
@@ -1712,6 +1660,7 @@ class StatsAgent:
                     trace=trace,
                     progress_callback=progress_callback,
                 )
+                return payload
             except ValueError:
                 raise
             except Exception as exc:

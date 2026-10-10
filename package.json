@@ -4,6 +4,10 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "test:tracking": "node --test tests_js/*.test.js"
+    "test:tracking": "node --test tests_js/*.test.js",
+    "test:ask-browser": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0"
   }
 }

@@ -84,3 +84,8 @@ credentials/
 *.p12
 *.pfx
 *.tfstate.*
+
+# Browser test dependencies and generated artifacts
+node_modules/
+playwright-report/
+test-results/

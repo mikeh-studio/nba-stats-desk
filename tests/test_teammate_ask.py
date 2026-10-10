@@ -245,7 +245,8 @@ def test_configured_research_catalog_keeps_route_precedence(tmp_path, monkeypatc
     result = agent.answer(
         "How did Jalen Johnson's assists differ when Trae Young was out?"
     )
-    assert result == {"research_status": "tested"}
+    assert result["research_status"] == "tested"
+    assert result["tables"] == []
     assert client.calls == 0
 
 
@@ -277,7 +278,8 @@ def test_partial_catalog_preserves_other_legacy_pairs(
         "Using the teammate study, how did Jalen Johnson's assists differ when Trae Young was out from 2025-10-22 to 2025-12-31?"
     )
     if replacement:
-        assert result == {"research_status": "tested"}
+        assert result["research_status"] == "tested"
+        assert result["tables"] == []
         assert client.calls == 0
     else:
         assert result["study_status"] == "answered"

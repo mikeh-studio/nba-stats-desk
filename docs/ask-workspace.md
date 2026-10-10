@@ -477,3 +477,55 @@ analysis; otherwise Ask requests clarification before executing the query.
 Metric abbreviations and scoring/efficiency requests replace inherited fantasy
 intent. Home/away qualifiers bypass the broad overview so their filters remain
 part of the governed metric plan.
+
+## Governed similarity and league references
+
+Similarity and league-baseline questions use deterministic evidence handlers;
+models do not write their numbers, tables or factual summaries. Similarity uses
+one selected-season publication, validates identities and finite 0–1 scores, and
+returns at most six neighbors. The score is `1 / (1 + Euclidean distance)` over
+normalized features, not a probability or forecast. Its evidence retains a hash
+of the returned publication; the serving response does not provide a model build
+version. Custom dates, phases, metrics and other neighbor filters are withheld.
+
+League references support one metric, one season, one phase (regular season by
+default), and an optional last-N appearance window or explicit ISO date range.
+“Recent” means the last ten recorded appearances. The reference pools all recorded
+player appearances, including the focal player, across the same calendar window.
+For last-N requests, the window begins at the focal player's earliest selected
+appearance and ends at their latest selected appearance, even if the league has
+played more games since then. Each player appearance has equal weight
+for count averages; shooting ratios pool makes/attempts. This is deliberately
+not the average of player averages or the older dashboard baseline table.
+
+Evidence includes player and league values, components, sample counts, scoped
+a peer-membership count and SHA-256 digest, source provenance, and the unrounded
+player-minus-league change. The digest uses sorted `(season, game_id, player_id)`
+tuples serialized as compact UTF-8 JSON. Full peer IDs remain reconstructible from
+the source snapshot rather than being copied into browser chat history.
+Missing components suppress the change; partial individual averages remain
+labeled with their complete-input counts. Ratios differ in percentage points.
+A metric-only follow-up recalculates the same reference scope, including browser
+context recovery. Recovered identity hints are validated when a follow-up inherits
+them; a new explicit player question starts from its own identity. Unknown
+conditions never fall back to an unfiltered answer.
+
+`app/agent/routes.py` is the ordered dispatch registry. The first matching route
+wins; semantic subroutes reuse its precedence after resolving conversation scope.
+Each route declares its handler, capability and evidence contract. A shared
+payload builder supplies common fields while preserving route-specific statuses
+and evidence. The older adapter remains only for repositories without a governed
+warehouse; the production BigQuery path does not fall back to it on errors.
+
+Reference routing recognizes “nearest comps” and “alike” as similarity requests.
+Participation, research and published-study intents retain priority over incidental
+reference wording (for example “similar minutes when a teammate is out”). Explicit
+peer-similarity filters such as “similar players at home” are still refused rather
+than replaced by unrelated research. New questions clear a pending reference
+clarification; short name or metric replies can resume it. Routing and rendering
+share the same captured conversation context.
+
+Reference handlers own visualization selection and call no chart-selection model.
+Unexpected source errors use the normal agent error response. Non-warehouse
+compatibility repositories retain other legacy workflows, but similarity and
+league references deliberately require a governed source and refuse when absent.
