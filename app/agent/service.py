@@ -1545,7 +1545,12 @@ class StatsAgent:
             else None
         )
         reference_reply = None
-        if pending_route and reference_kind(pending_route.question):
+        if (
+            pending_route
+            and conversation_id
+            and self.conversation_store
+            and reference_kind(pending_route.question)
+        ):
             reply = _clarify_reply_name(cleaned_question)
             new_question = bool(
                 reference_kind(cleaned_question)
