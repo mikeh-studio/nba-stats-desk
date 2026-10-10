@@ -365,3 +365,12 @@ benchmarks, or tests of the deployed service. Per-case human decisions remain
 pending. Detailed cases, captures, model responses and HTML remain private under
 `reports/`; do not attach them to the public PR. Later code review fixes use
 focused offline regressions rather than silently rerunning paid experiments.
+
+
+PR review regressions additionally cover pending-reference replacement, participation
+routing ahead of incidental similarity/baseline wording, appearance windows ending
+on the focal player's last game, bounded membership payloads and stable hashes,
+reference error wrapping, and zero SDK retries in both Claude/OpenRouter adapters.
+The production snapshot run above used the earlier `league_baseline/1` contract;
+its saved artifacts are immutable and are not relabeled as a live test of version 2.
+No new paid run is implied by these offline fixes.

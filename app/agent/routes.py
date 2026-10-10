@@ -2,12 +2,15 @@
 
 Semantic subroutes use the existing evidence handlers. Compatibility is explicit
 and is only selected for repositories without a governed warehouse adapter.
+Reference questions require governed evidence even for compatibility repositories;
+other legacy tool workflows remain available.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Any, Callable
 
 from app.agent.appearance_ask import wants_appearances
@@ -33,6 +36,7 @@ class RouteContext:
     recent_context: dict[str, Any]
     settings: Any
     governed: bool
+    reference_reply: str | None = None
 
     @property
     def research_followup(self):
@@ -71,12 +75,19 @@ class RouteContext:
             )
         )
 
-    @property
+    @cached_property
+    def reference_followup_question(self):
+        return reference_followup(self.question, self.context)
+
+    @cached_property
+    def reference_question(self):
+        if self.reference_reply is not None:
+            return self.routing_question + " " + self.reference_reply
+        return self.reference_followup_question or self.routing_question
+
+    @cached_property
     def reference(self):
-        question = (
-            reference_followup(self.question, self.context) or self.routing_question
-        )
-        return reference_kind(question)
+        return reference_kind(self.reference_question)
 
 
 def availability(c):
@@ -115,20 +126,6 @@ ROUTES = (
         "Reject unavailable playoff round scope",
     ),
     Route(
-        "similarity",
-        "reference",
-        lambda c: c.reference == "similarity",
-        "similarity_reference/1",
-        "Published season neighbors only",
-    ),
-    Route(
-        "league_baseline",
-        "reference",
-        lambda c: c.reference == "league_baseline",
-        "league_baseline/1",
-        "Pooled same-calendar-scope league reference",
-    ),
-    Route(
         "appearances",
         "appearances",
         lambda c: bool(
@@ -152,6 +149,7 @@ ROUTES = (
             (wants_research(c.question) or c.research_followup)
             and not c.preserve_study
             and not split_kind(c.question)
+            and (not c.reference or wants_availability(c.question))
         ),
         "research study",
         "Published studies and descriptive breakdowns",
@@ -162,6 +160,20 @@ ROUTES = (
         lambda c: bool(c.study_requested),
         "frozen teammate study",
         "Compatibility for unreplaced published studies",
+    ),
+    Route(
+        "similarity",
+        "reference",
+        lambda c: c.reference == "similarity",
+        "similarity_reference/1",
+        "Published season neighbors only",
+    ),
+    Route(
+        "league_baseline",
+        "reference",
+        lambda c: c.reference == "league_baseline",
+        "league_baseline/2",
+        "Pooled same-calendar-scope league reference",
     ),
     Route(
         "award",

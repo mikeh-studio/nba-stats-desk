@@ -63,7 +63,9 @@ def settings():
 
 
 # A global budget bounds attempted model calls across both endpoint transports.
-# SDK retries are disabled on the evaluation clients; runtime defaults are untouched.
+# Claude/OpenRouter SDKs are constructed with max_retries=0 in StatsAgent.
+# OpenAI is disabled explicitly below; settings() disables the shared app retry loop.
+# Provider adapters preserve those SDK settings when cloning their timeout.
 from scripts.ask_eval.budget import BudgetClient, CallBudget  # noqa: E402
 
 budget = CallBudget(

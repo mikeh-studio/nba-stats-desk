@@ -52,7 +52,7 @@ def wants_availability(question):
     )
     return bool(
         re.search(
-            r"\b(?:without|out|absent|absence|sidelined|unavailable|availability|injured|injury)\b|\b(?:did not|didn.t) play\b|\b(?:missed games?|sat out)\b",
+            r"\b(?:without|out|absent|absence|sidelined|unavailable|availability|injured|injury)\b|\b(?:did not|didn.t) play\b|\b(?:missed games?|sat out|sits|sitting)\b",
             question,
             re.I,
         )
@@ -138,7 +138,7 @@ def parse_request(question, players, season, previous=None, teams=()):
             )
         teammate_matches = list(
             re.finditer(
-                r"\bwithout\s+player(\d+)|\bplayer(\d+)\s+(?:(?:was|is|were|has been|being)\s+)?(?:out|absent|sidelined|unavailable|missing|did not play|didn.t play|missed games?|sat out)\b|\bplayer(\d+)\s*[\x27’]s\s+absence\b",
+                r"\bwithout\s+player(\d+)|\bplayer(\d+)\s+(?:(?:was|is|were|has been|being)\s+)?(?:out|absent|sidelined|unavailable|missing|did not play|didn.t play|missed games?|sat out|sits|sitting)\b|\bplayer(\d+)\s*[\x27’]s\s+absence\b",
                 text,
             )
         )

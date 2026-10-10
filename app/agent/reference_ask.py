@@ -22,14 +22,16 @@ from app.agent.semantics import (
 )
 
 BASELINE = r"\b(?:league\s+(?:average|baseline)|against\s+(?:the\s+)?baseline)\b"
-SIMILARITY = r"\b(?:similar(?:ity)?|resembles?|like)\b"
+SIMILARITY = r"\b(?:similar(?:ity)?|resembles?|like|alike|nearest)\b"
 
 
 def reference_kind(question: str) -> str | None:
     if re.search(BASELINE, question, re.I):
         return "league_baseline"
     if re.search(
-        r"\b(?:similar(?:ity)?|resembles?)\b|\bplayers? like\b", question, re.I
+        r"\b(?:similarity|resembles?|alike|nearest)\b|\bplayers? (?:like|similar)\b|\bsimilar (?:to|players?)\b|\b(?:who|which)\b.*\bsimilar\b",
+        question,
+        re.I,
     ):
         return "similarity"
     return None
@@ -81,7 +83,7 @@ def parse_reference(question, players, season, kind):
             text = text[: count.start()] + " " + text[count.end() :]
         text = re.sub(SIMILARITY, " ", text)
         text = re.sub(
-            r"\b(?:who|which|are|is|the|most|players?|to|show|find|me|for|in|season|this)\b",
+            r"\b(?:who|which|are|is|the|most|players?|comps?|to|show|find|me|for|in|season|this)\b",
             " ",
             text,
         )
@@ -162,7 +164,7 @@ def parse_reference(question, players, season, kind):
 def build_baseline(evidence, player, query):
     """Appearance-weighted league baseline across the player's calendar window.
 
-    No top-N truncation: each identity is queried separately under one scope.
+    No top-N truncation: all appearances in the shared interval are pooled.
     A missing component anywhere withholds the league comparison, not the row.
     """
     current = run_query(evidence, query)
@@ -184,7 +186,13 @@ def build_baseline(evidence, player, query):
         if query.window == "last_n_games"
         else current["scope"]["window_start"]
     )
-    end = current["scope"]["as_of"]
+    end = (
+        max(r["game_date"] for r in player_games)
+        if query.window == "last_n_games"
+        else current["scope"]["as_of"]
+    )
+    if query.window == "last_n_games":
+        current["scope"].update(window_start=start, window_end=end)
     peers = [
         r
         for r in evidence.rows
@@ -195,6 +203,16 @@ def build_baseline(evidence, player, query):
     ]
     metric = load_contract().metric(query.metric)
     baseline = aggregate(peers, metric, query.aggregation)
+    baseline.pop("game_ids", None)  # Full peer membership belongs in source artifacts.
+    membership_keys = sorted((r["season"], r["game_id"], r["player_id"]) for r in peers)
+    membership = {
+        "count": len(membership_keys),
+        "sha256": hashlib.sha256(
+            json.dumps(membership_keys, separators=(",", ":")).encode()
+        ).hexdigest(),
+        "key_fields": ["season", "game_id", "player_id"],
+        "encoding": "SHA-256 of UTF-8 compact JSON sorted key tuples",
+    }
     complete = all(
         v["value"] is not None and v["missing_component_games"] == 0
         for v in (row, baseline)
@@ -203,7 +221,7 @@ def build_baseline(evidence, player, query):
     difference = (row["value"] - baseline["value"]) * scale if complete else None
     return {
         "kind": "league_baseline",
-        "contract_version": "league_baseline/1",
+        "contract_version": "league_baseline/2",
         "player_id": player["player_id"],
         "metric": metric.public(),
         "scope": current["scope"],
@@ -225,14 +243,7 @@ def build_baseline(evidence, player, query):
             "minimum_appearances": 1,
             "player_count": len({r["player_id"] for r in peers}),
         },
-        "membership": [
-            {
-                "season": r["season"],
-                "game_id": r["game_id"],
-                "player_id": r["player_id"],
-            }
-            for r in peers
-        ],
+        "membership": membership,
         "provenance": current["provenance"],
         "warnings": current["warnings"]
         + ([row["sample_warning"]] if row["sample_warning"] else []),
@@ -385,36 +396,21 @@ def render_reference(evidence, player):
 
 
 def answer_reference(
-    agent, question, kind, conversation_id=None, trace=None, selected_player=None
+    agent,
+    question,
+    kind,
+    conversation_id=None,
+    trace=None,
+    selected_player=None,
+    *,
+    route_context,
 ):
     started = monotonic()
     original = question
     store = agent.conversation_store if conversation_id else None
-    context = {}
-    inherited_reference = False
-    pending = store.get_pending_clarification(conversation_id) if store else None
-    if (
-        pending
-        and reference_kind(pending.question) == kind
-        and not reference_kind(question)
-    ):
-        question = (
-            pending.question
-            + " "
-            + (
-                str(selected_player.get("player_name", ""))
-                if selected_player
-                else question
-            )
-        )
-    if store:
-        turns = store.get_turns(
-            conversation_id, max_turns=agent.settings.agent_conversation_max_turns
-        )
-        context = next((t.context for t in reversed(turns) if t.context), {})
-        followup = reference_followup(question, context)
-        inherited_reference = followup is not None
-        question = followup or question
+    context = route_context.context
+    inherited_reference = route_context.reference_followup_question is not None
+    question = route_context.reference_question
     try:
         seasons = requested_seasons(question, agent.settings.season)
         if agent.semantic_agent is None:
@@ -517,6 +513,10 @@ def answer_reference(
                 dict(p, label=f"{p['player_name']} (ID {p['player_id']})")
                 for p in options
             ]
+    payload["visualization"] = {
+        "selection": "rule",
+        "reason": "Reference rendering owns its evidence-derived charts; no model selection is needed.",
+    }
     payload.update(
         conversation_id=conversation_id,
         agent_plan={

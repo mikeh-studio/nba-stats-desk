@@ -52,11 +52,12 @@ def test_baseline_pools_unequal_samples_and_preserves_identity_membership():
     )
     assert result["baseline"]["value"] == pytest.approx(40 / 7)
     assert result["difference"] == pytest.approx(5 - 40 / 7)
-    assert len(result["membership"]) == 7
+    assert result["membership"]["count"] == 7
     assert (
-        len({(r["season"], r["game_id"], r["player_id"]) for r in result["membership"]})
-        == 7
+        result["membership"]["sha256"]
+        == "3bbfe8b4d597917fcd2c9857f55cc72a8589ecd5e63b00c5abb4dce35b063365"
     )
+    assert "game_ids" not in result["baseline"]
 
 
 def test_reference_paths_never_call_a_narrative_model_and_recompute_followups():
@@ -395,3 +396,163 @@ def test_custom_input_directory_cannot_submit_controlled_injection_live(
         main()
     assert exc.value.code == 2
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "question,route",
+    [
+        (
+            "Did Avery Example score more in similar minutes when Blair Sample was out?",
+            "availability",
+        ),
+        (
+            "Is Avery Example above league average when Blair Sample sits?",
+            "availability",
+        ),
+        ("How did Jalen Johnson's assists differ when Trae Young was out?", "research"),
+        ("Who is similar to Avery Example at home?", "similarity"),
+    ],
+)
+def test_reference_keywords_do_not_preempt_participation_intents(question, route):
+    c = RouteContext(question, question, {}, {}, settings(), True)
+    assert select_route(c).key == route
+
+
+def test_pending_reference_allows_new_availability_question(monkeypatch):
+    a = agent()
+    a.answer("Who is similar in 2024-25?", conversation_id="pending")
+    seen = []
+
+    def availability(agent, question, conversation_id, trace):
+        seen.append(question)
+        return {"answer": "availability handler"}
+
+    monkeypatch.setattr("app.agent.availability_ask.answer_availability", availability)
+    question = "How did Avery Example's assists differ when Blair Sample was out?"
+    result = a.answer(question, conversation_id="pending")
+    assert seen == [question] and result["answer"] == "availability handler"
+    assert a.conversation_store.get_pending_clarification("pending") is None
+
+
+@pytest.mark.parametrize(
+    "wording",
+    [
+        "Who are Avery Example's nearest comps?",
+        "Which players are alike to Avery Example?",
+    ],
+)
+def test_similarity_aliases_use_deterministic_evidence(wording):
+    a = agent()
+    a.client = object()
+    assert a.answer(wording)["semantic_evidence"]["kind"] == "similarity"
+
+
+def test_reference_identity_clarification_resumes_from_one_store_read(monkeypatch):
+    a = agent()
+    a.answer("Who is similar in 2024-25?", conversation_id="pending")
+    reads = []
+    original = a.conversation_store.get_turns
+
+    def tracked(*args, **kwargs):
+        reads.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(a.conversation_store, "get_turns", tracked)
+    result = a.answer("Avery Example", conversation_id="pending")
+    assert result["status"] == "ok" and len(reads) == 1
+
+
+def test_last_n_baseline_ends_on_last_player_appearance():
+    data = copy.deepcopy(SOURCE)
+    # Avery's season stops Apr 12; peers continue through Apr 15.
+    data["rows"] = [
+        r
+        for r in data["rows"]
+        if r["player_id"] != 101 or r["game_date"] <= "2025-04-12"
+    ]
+    _, evidence = FrozenWarehouse(data, "complete").load(["2024-25"])
+    result = build_baseline(
+        evidence,
+        {"player_id": 101},
+        Query(
+            "pts",
+            "2024-25",
+            "average",
+            player_id=101,
+            window="last_n_games",
+            n=2,
+            min_games=1,
+        ),
+    )
+    assert result["baseline_scope"]["start_date"] == "2025-04-11"
+    assert result["baseline_scope"]["end_date"] == "2025-04-12"
+    assert result["membership"]["count"] == 6
+    assert result["player"]["value"] == 3
+    assert result["baseline"]["value"] == 11
+    assert result["difference"] == -8
+
+
+def test_full_league_payload_stays_bounded_and_hash_is_order_independent():
+    import json
+
+    data = copy.deepcopy(SOURCE)
+    anchor = data["rows"][0]
+    data["rows"] += [
+        {**anchor, "player_id": i, "player_name": f"Synthetic {i}"}
+        for i in range(1000, 3000)
+    ]
+    _, evidence = FrozenWarehouse(data, "complete").load(["2024-25"])
+    query = Query("pts", "2024-25", "average", player_id=101, min_games=1)
+    result = build_baseline(evidence, {"player_id": 101}, query)
+    assert result["membership"]["count"] == 2018
+    assert len(json.dumps(result)) < 8000
+    evidence.rows.reverse()
+    assert (
+        build_baseline(evidence, {"player_id": 101}, query)["membership"]
+        == result["membership"]
+    )
+
+
+def test_unexpected_reference_errors_use_agent_execution_error(monkeypatch):
+    from app.agent.service import AgentExecutionError
+
+    a = agent()
+
+    def failure(*args):
+        raise RuntimeError("warehouse unavailable")
+
+    monkeypatch.setattr(a.semantic_agent.warehouse, "load", failure)
+    with pytest.raises(AgentExecutionError, match="Governed reference") as exc:
+        a.answer("Who is similar to Avery Example?")
+    assert isinstance(exc.value.__cause__, RuntimeError)
+
+
+@pytest.mark.parametrize(
+    "provider,module,constructor",
+    [("claude", "anthropic", "Anthropic"), ("openrouter", "openai", "OpenAI")],
+)
+def test_evaluation_provider_adapters_preserve_zero_sdk_retries(
+    monkeypatch, provider, module, constructor
+):
+    import importlib
+    from dataclasses import replace
+
+    created = []
+
+    class SDK:
+        def __init__(self, **kwargs):
+            created.append(kwargs)
+
+        def with_options(self, **kwargs):
+            return self
+
+    monkeypatch.setattr(importlib.import_module(module), constructor, SDK)
+    a = agent()
+    a.settings = replace(
+        a.settings,
+        anthropic_api_key="test",
+        openrouter_api_key="test",
+        openai_agent_max_retries=0,
+    )
+    wrapped = a._get_client(provider).with_options(timeout=3)
+    assert wrapped is not None and created[0]["max_retries"] == 0

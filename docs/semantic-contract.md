@@ -147,11 +147,13 @@ season-wide observations cannot stand in for a requested Finals or playoff round
 
 ## League reference and similarity contracts
 
-`league_baseline/1` compares a governed individual summary with pooled player
+`league_baseline/2` compares a governed individual summary with pooled player
 appearances in the explicitly disclosed shared calendar scope. It includes the
-focal player, uses a one-appearance minimum, retains all membership keys without
-top-N cohort truncation, and withholds differences if either sample has incomplete
-components. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references)
+focal player, uses a one-appearance minimum, aggregates the complete cohort without
+top-N truncation, and withholds differences if either sample has incomplete
+components. Last-N calendar bounds are the first and last selected player appearance.
+Version 2 replaces the full peer membership and repeated league game IDs with a
+count and deterministic membership digest, avoiding season-sized browser payloads. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references)
 for supported language and weighting. Dashboard baseline values are not reused.
 
 `similarity_reference/1` validates a separate published feature-profile result;

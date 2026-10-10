@@ -1544,6 +1544,25 @@ class StatsAgent:
             if conversation_id and self.conversation_store
             else None
         )
+        reference_reply = None
+        if pending_route and reference_kind(pending_route.question):
+            reply = _clarify_reply_name(cleaned_question)
+            new_question = bool(
+                reference_kind(cleaned_question)
+                or wants_award(cleaned_question)
+                or re.search(
+                    r"\b(?:how|what|who|which|show|compare|rank|when|without|out|sits|games|per)\b",
+                    cleaned_question,
+                    re.I,
+                )
+            )
+            if selected_player:
+                reference_reply = str(selected_player.get("player_name", ""))
+            elif reply and not new_question:
+                reference_reply = reply
+            else:
+                self.conversation_store.clear_pending_clarification(conversation_id)
+                pending_route = None
         route_context = RouteContext(
             cleaned_question,
             pending_route.question
@@ -1555,6 +1574,7 @@ class StatsAgent:
             turns[-1].context if turns else {},
             self.settings,
             self.semantic_agent is not None,
+            reference_reply=reference_reply,
         )
         route = select_route(route_context)
         if trace:
@@ -1584,14 +1604,18 @@ class StatsAgent:
                 trace,
             )
         if route.handler == "reference":
-            return answer_reference(
-                self,
-                cleaned_question,
-                route.key,
-                conversation_id,
-                trace,
-                selected_player,
-            )
+            try:
+                return answer_reference(
+                    self,
+                    cleaned_question,
+                    route.key,
+                    conversation_id,
+                    trace,
+                    selected_player,
+                    route_context=route_context,
+                )
+            except Exception as exc:
+                raise AgentExecutionError("Governed reference request failed") from exc
         if route.handler == "teammate_study":
             try:
                 payload = answer_study(
