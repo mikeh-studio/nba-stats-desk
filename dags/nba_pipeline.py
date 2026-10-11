@@ -298,7 +298,14 @@ def build_run_metadata_record(
 
 
 def ensure_dataset(bq_client: bigquery.Client, dataset_id: str, location: str) -> None:
-    """Create the dataset if it does not exist."""
+    """Use provisioned datasets without requiring project-level create access."""
+    try:
+        bq_client.get_dataset(dataset_id)
+        return
+    except NotFound:
+        # Bootstrap remains available to privileged callers. Runtime identities
+        # rely on Terraform to provision their datasets before the pipeline runs.
+        pass
     dataset = bigquery.Dataset(dataset_id)
     dataset.location = location
     bq_client.create_dataset(dataset, exists_ok=True)
