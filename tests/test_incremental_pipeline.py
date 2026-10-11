@@ -2546,3 +2546,38 @@ Injury Report: 11/07/25 05:30 PM Page 4 of 9
     )
     assert frame["PLAYER_ID"].tolist() == [1, 2]
     assert frame.iloc[0]["REASON"] == "Injury/Illness - Knee Sprain"
+
+
+def test_ensure_dataset_uses_existing_dataset_without_create_permission():
+    from unittest.mock import Mock
+
+    client = Mock()
+    client.create_dataset.side_effect = AssertionError("runtime cannot create datasets")
+    pipeline.ensure_dataset(client, "project.nba_bronze", "US")
+    client.get_dataset.assert_called_once_with("project.nba_bronze")
+    client.create_dataset.assert_not_called()
+
+
+def test_ensure_dataset_bootstraps_only_missing_datasets():
+    from unittest.mock import Mock
+
+    client = Mock()
+    client.get_dataset.side_effect = pipeline.NotFound("missing")
+    pipeline.ensure_dataset(client, "project.nba_bronze", "US")
+    dataset = client.create_dataset.call_args.args[0]
+    assert dataset.project == "project"
+    assert dataset.dataset_id == "nba_bronze"
+    assert dataset.location == "US"
+    assert client.create_dataset.call_args.kwargs == {"exists_ok": True}
+
+
+def test_ensure_dataset_does_not_hide_permission_errors():
+    from unittest.mock import Mock
+
+    from google.api_core.exceptions import Forbidden
+
+    client = Mock()
+    client.get_dataset.side_effect = Forbidden("denied")
+    with pytest.raises(Forbidden):
+        pipeline.ensure_dataset(client, "project.nba_bronze", "US")
+    client.create_dataset.assert_not_called()

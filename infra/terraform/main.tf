@@ -40,14 +40,25 @@ resource "google_project_iam_member" "bq_job_user" {
   member  = "serviceAccount:${google_service_account.pipeline.email}"
 }
 
-resource "google_project_iam_member" "bq_data_editor" {
-  project = var.project_id
-  role    = "roles/bigquery.dataEditor"
-  member  = "serviceAccount:${google_service_account.pipeline.email}"
+# Scope transformation/publication writes to the five managed datasets.
+resource "google_bigquery_dataset_iam_member" "pipeline_editor" {
+  for_each = {
+    bronze   = google_bigquery_dataset.bronze.dataset_id
+    silver   = google_bigquery_dataset.silver.dataset_id
+    gold     = google_bigquery_dataset.gold.dataset_id
+    agent    = google_bigquery_dataset.agent.dataset_id
+    metadata = google_bigquery_dataset.metadata.dataset_id
+  }
+
+  project    = var.project_id
+  dataset_id = each.value
+  role       = "roles/bigquery.dataEditor"
+  member     = "serviceAccount:${google_service_account.pipeline.email}"
 }
 
-resource "google_project_iam_member" "storage_admin" {
-  project = var.project_id
-  role    = "roles/storage.objectAdmin"
-  member  = "serviceAccount:${google_service_account.pipeline.email}"
+# Supports landing overwrites and export reads, without object ACL administration.
+resource "google_storage_bucket_iam_member" "pipeline_objects" {
+  bucket = google_storage_bucket.landing.name
+  role   = "roles/storage.objectUser"
+  member = "serviceAccount:${google_service_account.pipeline.email}"
 }

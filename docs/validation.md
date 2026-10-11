@@ -52,9 +52,15 @@ For DAG changes, also run `make airflow-parse` in the configured local Airflow
 environment. For infrastructure changes, use the CI commands:
 
 ```bash
+terraform -chdir=infra/terraform fmt -check -recursive
 terraform -chdir=infra/terraform init -backend=false
 terraform -chdir=infra/terraform validate
+terraform -chdir=infra/terraform test
 ```
+
+The policy tests use a mock provider and require Terraform 1.7 or later.
+Read the [pipeline IAM migration](../infra/terraform/README.md) before planning
+or applying changes to existing deployments.
 
 These Terraform commands do not apply infrastructure changes. Initialization may
 download providers and modules. Live checks below require the appropriate access
