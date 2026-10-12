@@ -89,3 +89,35 @@ test('known nonparticipation is explained without fabricated Finals statistics',
   await expect(page.locator('[data-agent-answer] a')).toHaveAttribute('href','https://www.nba.com/game/gsw-vs-phx-0052500211');
   await expect(page.locator('[data-agent-tables] table')).toHaveCount(0);
 });
+
+test('availability shows verified groups, source exclusions and metric follow-up', async ({page}) => {
+  const c = await prepare(page, 'availability_followup');
+  await submit(page, c.turns[0].question);
+  await expect(page.locator('[data-agent-answer]')).toContainText('3 appearances');
+  await expect(page.locator('[data-agent-answer]')).toContainText('1 other focal appearances were excluded');
+  await expect(page.locator('[data-agent-tables]')).toContainText('Blair Sample did not play');
+  await expect(page.locator('[data-agent-tables]')).toContainText('6.0');
+  await page.locator('[data-followup-question]').fill(c.turns[1].question);
+  await page.locator('[data-followup-submit]').click();
+  await expect(page.locator('[data-agent-answer]')).toContainText('3.0 AST');
+  await expect(page.locator('[data-agent-charts] svg').first()).toBeVisible();
+});
+
+test('research displays populated filtered values and explicit player override', async ({page}) => {
+  const c = await prepare(page, 'context_research_player_override');
+  await submit(page, c.turns[0].question);
+  await expect(page.locator('[data-agent-tables]')).toContainText('Research breakdown');
+  await expect(page.locator('[data-agent-tables]')).toContainText('Avery Example');
+  await page.locator('[data-followup-question]').fill(c.turns[1].question);
+  await page.locator('[data-followup-submit]').click();
+  await expect(page.locator('[data-agent-answer]')).toContainText('Blair Sample');
+  await expect(page.locator('[data-agent-tables]').last()).toContainText('13');
+});
+
+test('published study shows estimates and uncertainty without claiming significance', async ({page}) => {
+  const c = await prepare(page, 'research_published_study');
+  await submit(page, c.turns[0].question);
+  await expect(page.locator('[data-agent-tables]')).toContainText('+1.50');
+  await expect(page.locator('[data-agent-tables]')).toContainText('-2.00 to +5.00');
+  await expect(page.locator('[data-agent-answer]')).toContainText('no validated statistical-significance or causal claim');
+});

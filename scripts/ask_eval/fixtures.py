@@ -5,7 +5,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from dataclasses import fields, replace
 from pathlib import Path
+from threading import Lock
 from types import SimpleNamespace
 
 
@@ -143,6 +145,10 @@ class ControlledModel:
             if plan is None:
                 raise ValueError("No controlled plan was declared for this turn")
             value = {"plan": plan}
+        elif name == "research_scope":
+            value = {"request": self.turn["research_response"]}
+        elif name == "teammate_study_answer":
+            value = self.turn["study_response"]
         elif name == "visualization_choice":
             values = kwargs["text"]["format"]["schema"]["properties"]["chart_id"][
                 "enum"
@@ -171,7 +177,11 @@ def validate_cases(document, schema):
     ids = [c["id"] for c in document["cases"]]
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate evaluation case IDs")
+    by_id = {c["id"]: c for c in document["cases"]}
     for case in document["cases"]:
+        parent = case.get("variant_of")
+        if parent and (parent not in by_id or by_id[parent].get("variant_of")):
+            raise ValueError("Paraphrase must reference a distinct scenario")
         for turn in case["turns"]:
             paths = [c["path"] for c in turn["checks"]]
             if len(paths) != len(set(paths)):
@@ -194,3 +204,85 @@ def load_inputs(root: Path, input_dir: Path | None = None):
 
         validate_production_source(source)
     return source, document
+
+
+def fixture_artifacts(source, directory, attachments=None):
+    """Materialize synthetic attachments in an evaluation-owned temporary directory.
+
+    Hashes are calculated over frozen inputs, not application-computed answers.
+    Production captures never use this adapter.
+    """
+    paths = {}
+    for key in attachments if attachments is not None else ("availability", "study"):
+        if key not in source:
+            continue
+        value = copy.deepcopy(source[key])
+        if key == "availability":
+            # A study-only or attachment-free baseline need not provide these modules.
+            from app.agent.semantic_source import snapshot_digest
+            from app.research_snapshots import digest
+
+            value["stats"]["sha256"] = snapshot_digest(value["stats"])
+            value["sha256"] = digest(value)
+        path = Path(directory) / (key + ".json")
+        path.write_text(json.dumps(value))
+        paths[key] = str(path)
+    return paths
+
+
+ATTACHMENT_SETTINGS = {
+    "availability": "research_availability_path",
+    "study": "agent_teammate_study_path",
+}
+
+
+class FixtureCapabilityError(ValueError):
+    """This application revision cannot consume a requested frozen attachment."""
+
+    def __init__(self, attachment, reason):
+        self.detail = {
+            "code": "evaluation_fixture_capability_unavailable",
+            "attachment": attachment,
+            "reason": reason,
+        }
+        super().__init__(f"{attachment}: {reason}")
+
+
+class FixtureAttachments:
+    """Lazy, case-scoped attachment setup across baseline application versions."""
+
+    def __init__(self, source, directory):
+        self.source = source
+        self.directory = directory
+        self.paths = {}
+        self.lock = Lock()
+
+    def configure(self, base, attachments):
+        if not attachments:
+            return base
+        supported = {field.name for field in fields(base)}
+        # Check the whole request before preparing any files or applying settings.
+        for key in attachments:
+            setting = ATTACHMENT_SETTINGS.get(key)
+            if setting is None or setting not in supported:
+                raise FixtureCapabilityError(key, "application_setting_missing")
+            if (
+                self.source.get("source_kind") == "production_snapshot"
+                or key not in self.source
+            ):
+                raise FixtureCapabilityError(key, "frozen_attachment_missing")
+        with self.lock:
+            for key in attachments:
+                if key not in self.paths:
+                    try:
+                        self.paths.update(
+                            fixture_artifacts(self.source, self.directory, [key])
+                        )
+                    except ImportError as exc:
+                        raise FixtureCapabilityError(
+                            key, "application_attachment_module_missing"
+                        ) from exc
+            return replace(
+                base,
+                **{ATTACHMENT_SETTINGS[key]: self.paths[key] for key in attachments},
+            )

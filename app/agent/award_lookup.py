@@ -138,7 +138,7 @@ def resolve_award_question(question: str, selected_season: str):
     )
     text = re.sub(r"\bregular[ -]season\b", " ", text)
     text = re.sub(
-        r"\b(?:who|which|player|won|winner|win|is|was|the|a|an|nba|kia|award|in|for|of|and|how|did|does|he|his|him|they|their|them|play|played|perform|performed|performance|stats|statistics|show|me|tell|about|please|season|year|this|current|last|previous|latest|playoff|playoffs|postseason)\b",
+        r"\b(?:who|which|player|won|winner|win|name|received|is|was|the|a|an|nba|kia|award|in|for|of|and|how|did|does|he|his|him|they|their|them|play|played|perform|performed|performance|stats|statistics|show|me|tell|about|please|season|year|this|current|last|previous|latest|playoff|playoffs|postseason)\b",
         " ",
         text,
     )

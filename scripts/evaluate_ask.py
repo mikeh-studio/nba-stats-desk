@@ -51,6 +51,10 @@ def evaluate(
                         "conversation_id": conversation,
                         "provider": provider,
                     }
+                    if turn.get("reset_context"):
+                        client.post("/__eval/reset-conversations").raise_for_status()
+                    if turn.get("client_context"):
+                        body["previous_context"] = turn["client_context"]
                     if model:
                         body["model"] = model
                     headers = {
@@ -65,7 +69,9 @@ def evaluate(
                             endpoint + "?season=" + season, json=body, headers=headers
                         )
                         status = response.status_code
-                        if mode == "json":
+                        # Dependency failures are JSON even for the SSE endpoint.
+                        # Preserve the explicit capability error in both raw results.
+                        if mode == "json" or status != 200:
                             payload = response.json()
                         else:
                             for block in response.text.replace("\r\n", "\n").split(
@@ -125,6 +131,7 @@ def evaluate(
                 {
                     "id": case["id"],
                     "family": case["family"],
+                    "variant_of": case.get("variant_of"),
                     "passed": parity
                     and all(t["passed"] for turns in modes.values() for t in turns),
                     "parity": parity,
@@ -166,8 +173,19 @@ def main():
     )
     p.add_argument("--model")
     p.add_argument("--case", action="append")
-    p.add_argument("--max-requests", type=int, default=160)
+    p.add_argument(
+        "--max-requests",
+        type=int,
+        help="HTTP request budget (offline default 400; live default 160)",
+    )
     args = p.parse_args()
+    if args.max_requests is not None and args.max_requests <= 0:
+        p.error("--max-requests must be positive")
+    request_budget = (
+        args.max_requests
+        if args.max_requests is not None
+        else (160 if args.live else 400)
+    )
     source, document = load_inputs(ROOT, args.input_dir)
     input_dir = args.input_dir or ROOT / "tests/fixtures/ask"
     if args.case:
@@ -175,7 +193,7 @@ def main():
         if len(document["cases"]) != len(set(args.case)):
             p.error("Unknown case ID")
     requests = 2 * sum(len(c["turns"]) for c in document["cases"])
-    if not document["cases"] or requests > args.max_requests:
+    if not document["cases"] or requests > request_budget:
         p.error("Empty selection or request budget exceeded")
     if not args.live and (args.provider != "openai" or args.model):
         p.error(
@@ -229,7 +247,9 @@ def main():
             stdout=log,
             stderr=log,
         )
-        for _ in range(100):
+        # Cold imports can exceed ten seconds while other offline QA runs.
+        startup_deadline = time.monotonic() + 30
+        while time.monotonic() < startup_deadline:
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=0.2):
                     break
@@ -301,6 +321,24 @@ def main():
             "request_count": requests,
             "passed": sum(r["passed"] for r in results),
             "total": len(results),
+            "coverage": {
+                kind: {
+                    "total": len(selected),
+                    "passed": sum(r["passed"] for r in selected),
+                }
+                for kind, selected in (
+                    ("distinct", [r for r in results if not r.get("variant_of")]),
+                    ("paraphrases", [r for r in results if r.get("variant_of")]),
+                )
+            },
+            "families": {
+                family: {
+                    "total": len(selected),
+                    "passed": sum(r["passed"] for r in selected),
+                }
+                for family in sorted({r["family"] for r in results})
+                for selected in [[r for r in results if r["family"] == family]]
+            },
             "cases": document["cases"],
             "results": results,
             "limitations": [
