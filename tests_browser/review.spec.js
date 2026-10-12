@@ -116,3 +116,24 @@ test('coverage separates distinct scenarios from paraphrase variants and exposes
   await expect(page.locator('#coverage-summary')).toContainText('Availability success');
   await expect(page.locator('#stats .stat').first()).toContainText('100');
 });
+
+for (const [id, expected] of [
+  ['availability_points', ['both-played and verified nonparticipation groups', 'game IDs, sample counts and exclusions', 'pregame Out report with no appearance or verified zero-minute DNP', 'never become proof of absence or injury']],
+  ['research_home', ['exact player, filters, phase and date window', 'pooled shooting ratios', 'valid versus observed samples, and missing components', 'rather than becoming zero']],
+  ['research_published_study', ['contrast direction, sample counts and confidence interval', 'frozen published study', 'Distinguish raw and adjusted estimates', 'not validated significance or evidence of a causal effect']],
+  ['boundary_study_wrong_dates', ['clarification or refusal is warranted', 'without substituting an answer or inventing numbers']],
+]) {
+  test(`review guidance uses the actual ${id} case contract`, async ({page}) => {
+    const fixture = JSON.parse(fs.readFileSync('tests/fixtures/ask/cases.json','utf8')).cases.find(c=>c.id===id);
+    const scopedRun = structuredClone(run);
+    scopedRun.cases = [fixture];
+    scopedRun.results = [{id,passed:true,parity:true,modes:{json:[turn],sse:[turn]}}];
+    const body = fs.readFileSync('scripts/ask_eval/review.html','utf8').replace('/*__DATA__*/',JSON.stringify({baseline:scopedRun,candidate:scopedRun,source:{description:'Synthetic contract fixture'}}));
+    await page.route('**/__case-review',route=>route.fulfill({contentType:'text/html',body}));
+    await page.goto('/__case-review');
+    const guide = page.locator('[data-review-guide]');
+    for (const text of expected) await expect(guide).toContainText(text);
+    await expect(guide).not.toContainText('Confirm the expected calculation matches the question');
+    await expect(guide).toContainText('Passing automated checks is not human approval');
+  });
+}
