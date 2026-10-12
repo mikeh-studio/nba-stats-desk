@@ -556,3 +556,60 @@ league references deliberately require a governed source and refuse when absent.
 Availability questions accept “how many points … average”; award lookups accept
 “Name the MVP winner” and “Who received MVP”. These wording variants preserve
 the same bounded scope checks; unsupported additional constraints still refuse.
+
+
+## Request budgets and execution traces
+
+Semantic planning, research planning, legacy planning, narrative generation and
+optional chart selection use `app/agent/execution.py`. Each `StatsAgent.answer`
+gets an isolated context-local budget, default **120 seconds**, configured with
+`AGENT_REQUEST_DEADLINE_SECONDS`. Planning, evidence loading, calculation,
+rendering, model attempts and exponential backoff consume that same budget.
+Each provider attempt receives the smaller of its configured timeout and the
+remaining request budget. Legacy route planning also retains its tighter
+`AGENT_PLANNER_TIMEOUT_SECONDS` cap. Semantic planning no longer has a fixed
+45-second timeout. Provider timeouts are SDK I/O timeouts, not a guarantee that
+an entire streamed response finishes within that duration.
+
+`OPENAI_AGENT_MAX_RETRIES`, `ANTHROPIC_AGENT_MAX_RETRIES` and
+`OPENROUTER_AGENT_MAX_RETRIES` independently configure retries (default two;
+zero means one attempt). The shared backoff base remains
+`OPENAI_AGENT_RETRY_BASE_DELAY_SECONDS`. Only connection/timeouts, HTTP
+408/409/429 and 5xx errors are retryable. SDK retries are disabled on every
+client clone. Retry sleeps must fit the remaining budget, and the next attempt
+receives a freshly reduced timeout. Validation and authentication errors are
+not retried. After any Claude text chunk has been received, a failed stream is
+never replayed. OpenAI and OpenRouter responses currently remain buffered.
+Live evaluation explicitly sets all three retry limits to zero in addition to
+its global attempted-call budget.
+
+The deadline is **cooperative**: checks run before and after instrumented stages,
+between Claude stream chunks, before provider attempts and after returns.
+BigQuery query submission/result waits are capped by the remaining budget.
+Blocking Python work, a warehouse lock wait, an SDK read, or result-page iteration
+cannot be forcibly interrupted here; a late return is rejected before downstream
+work or a successful response. In-memory successful conversation turns are
+staged until the full answer, including optional chart enrichment, passes its
+final budget check. Failed executions do not write local answer history. This is
+not client-disconnect cancellation or a
+strict wall-clock termination guarantee. Disconnects, queue bounds and capacity
+controls are separate work.
+
+Service summaries include attempted `model_calls` (including failures),
+`provider_failures`, and `stage_latency_ms` for executed routing, identity,
+planning, evidence, calculation, rendering and generation boundaries. Absent
+stages were not instrumented/executed, not measured at zero cost. Timings are
+inclusive within each stage; nested same-name spans count once, but different
+stages can overlap and should not be summed into total latency. Total request
+latency remains separately recorded. This instrumentation covers the governed
+paths and model calls; legacy repository tool durations also remain in existing
+tool records. No question, tool arguments, evidence, or provider exception body
+is added to the log.
+
+Terminal traces distinguish `request_timeout`, `provider_timeout`,
+`provider_failure`, `invalid_plan`, and scope refusals. Legacy planner failures
+can still recover through its deterministic fallback; failed attempts remain
+counted and the final outcome describes the resulting answer. Optional chart
+selection can likewise fall back without failing an otherwise supported answer.
+HTTP/SSE provider failures keep the existing safe generic error response, while
+the server-generated request ID links to the private operational summary.

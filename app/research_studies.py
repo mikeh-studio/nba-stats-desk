@@ -6,6 +6,7 @@ import logging
 from pathlib import Path
 
 from app.agent.comparison_detail import comparison_detail, relative_change
+from app.agent.execution import timed
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.visualization import study_charts
 from app.research import CORE_METRICS, SHOOTING_METRICS
@@ -62,6 +63,7 @@ def pending(pair):
     }
 
 
+@timed("evidence")
 def catalog(path: str | None):
     entries = {p["pair_id"]: pending(p) for p in PAIRS}
     if not path:
@@ -96,6 +98,7 @@ def catalog(path: str | None):
     return list(entries.values())
 
 
+@timed("rendering")
 def study_answer(study, metrics=None):
     selected = set(metrics or STUDY_METRICS)
     if not selected <= set(STUDY_METRICS):

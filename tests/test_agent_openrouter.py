@@ -85,7 +85,7 @@ def test_schema_provider_routing_and_usage():
     assert result.usage.input_tokens == 100
     assert result.usage.output_tokens == 20
     client.with_options(timeout=9)
-    sdk.with_options.assert_called_once_with(timeout=9)
+    sdk.with_options.assert_called_once_with(timeout=9, max_retries=0)
 
 
 def test_multiple_tool_calls_and_reasoning_survive_roundtrip():

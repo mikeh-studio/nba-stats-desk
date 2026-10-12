@@ -10,6 +10,7 @@ from time import monotonic
 from typing import Any
 
 from app.agent.availability_ask import METRICS, _identities
+from app.agent.execution import timed
 from app.agent.payload import answer_payload
 from app.agent.performance_overview import identity_profile
 from app.agent.semantic_serving import requested_seasons, source_players
@@ -64,6 +65,7 @@ def reference_followup(question: str, context: dict[str, Any]) -> str | None:
     return None
 
 
+@timed("identity")
 def parse_reference(question, players, season, kind):
     if re.search(r"\bplayer\d+\b", question, re.I):
         raise SemanticError("clarification_required", "Use a player's full name.")
@@ -214,6 +216,7 @@ def parse_reference(question, players, season, kind):
     return player, seasons[0], query
 
 
+@timed("calculation")
 def build_baseline(evidence, player, query):
     """Appearance-weighted league baseline across the player's calendar window.
 
@@ -303,6 +306,7 @@ def build_baseline(evidence, player, query):
     }
 
 
+@timed("calculation")
 def build_similarity(repo, player, season, limit):
     detail = repo.get_player_detail(player["player_id"])
     identity = (detail or {}).get("player", {})
@@ -369,6 +373,7 @@ def build_similarity(repo, player, season, limit):
     }
 
 
+@timed("rendering")
 def render_reference(evidence, player):
     payload = answer_payload(
         "",

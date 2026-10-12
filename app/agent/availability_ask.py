@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import re
 
+from app.agent.execution import timed
 from app.agent.followup import analysis_context
 from app.agent.metric_presentation import (
     GAME_COVERAGE_NOTE,
@@ -122,6 +123,7 @@ def _identities(question, players):
     return " ".join(question.lower().split()), selected
 
 
+@timed("identity")
 def parse_request(question, players, season, previous=None, teams=()):
     if re.search(r"\bplayer\d+\b", question, re.I):
         raise SemanticError(
@@ -298,6 +300,7 @@ def parse_request(question, players, season, previous=None, teams=()):
     return request
 
 
+@timed("rendering")
 def render_answer(result, players):
     request = result["request"]
     by_id = {p["player_id"]: p for p in players}

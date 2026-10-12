@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import re
 from datetime import date, timedelta
-from time import monotonic, sleep
+from time import monotonic
 from typing import Any, Callable
 
 from pydantic import ValidationError
 
 from app.agent.conversation import ConversationStore, PendingClarification
+from app.agent.execution import create_response, governed_request
 from app.agent.observability import AgentTrace, summarize_tool_result
 from app.agent.planner import (
     QueryPlan,
@@ -277,17 +278,6 @@ def normalize_agent_answer(payload: Any) -> dict[str, Any]:
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
-
-
-def _is_transient_api_error(exc: Exception) -> bool:
-    status_code = getattr(exc, "status_code", None)
-    if isinstance(status_code, int) and (
-        status_code in {408, 409, 429} or status_code >= 500
-    ):
-        return True
-    exc_name = type(exc).__name__.casefold()
-    text = str(exc).casefold()
-    return "timeout" in exc_name or "timeout" in text or "timed out" in text
 
 
 def _tool_schemas_for_plan(required_tools: list[str]) -> list[dict[str, Any]]:
@@ -779,7 +769,7 @@ class StatsAgent:
             raise AgentDisabledError(
                 "The openai package is not installed. Run pip install -r requirements.txt."
             ) from exc
-        self.client = OpenAI(api_key=self.settings.openai_api_key)
+        self.client = OpenAI(api_key=self.settings.openai_api_key, max_retries=0)
         return self.client
 
     def _get_openrouter_client(self) -> Any:
@@ -853,41 +843,20 @@ class StatsAgent:
         provider: str = "openai",
         on_output_text_delta: Callable[[str], None] | None = None,
     ) -> Any:
-        request_client = client
-        create_extra: dict[str, Any] = {}
-        if hasattr(client, "with_options"):
-            request_client = client.with_options(timeout=timeout_seconds)
-        else:
-            create_extra["timeout"] = timeout_seconds
-        if on_output_text_delta is not None and provider == "claude":
-            # Only the Claude adapter understands this kwarg; the OpenAI SDK
-            # would reject it.
-            create_extra["on_output_text_delta"] = on_output_text_delta
-        attempts = max(0, self.settings.openai_agent_max_retries) + 1
-        delay = max(0.0, self.settings.openai_agent_retry_base_delay_seconds)
-        last_exc: Exception | None = None
-        for attempt in range(attempts):
-            try:
-                kwargs: dict[str, Any] = {
-                    "model": model,
-                    "instructions": instructions,
-                    "input": input_messages,
-                    "text": text,
-                    **create_extra,
-                }
-                if tools is not None:
-                    kwargs["tools"] = tools
-                return request_client.responses.create(**kwargs)
-            except Exception as exc:  # noqa: PERF203 - retry clarity matters here.
-                last_exc = exc
-                if attempt >= attempts - 1 or not _is_transient_api_error(exc):
-                    break
-                sleep(delay * (2**attempt))
-        # Name the provider and underlying error (Anthropic/OpenAI messages
-        # carry their request IDs) so failures are diagnosable from logs.
-        raise AgentExecutionError(
-            f"{provider} agent request failed: {type(last_exc).__name__}: {last_exc}"
-        ) from last_exc
+        kwargs: dict[str, Any] = dict(
+            model=model, instructions=instructions, input=input_messages, text=text
+        )
+        if tools is not None:
+            kwargs["tools"] = tools
+        if on_output_text_delta is not None:
+            kwargs["on_output_text_delta"] = on_output_text_delta
+        return create_response(
+            client,
+            settings=self.settings,
+            provider=provider,
+            timeout_seconds=timeout_seconds,
+            **kwargs,
+        )
 
     def _record_tool_call(
         self,
@@ -1444,6 +1413,7 @@ class StatsAgent:
             trace.outcome = "answered"
         return payload
 
+    @governed_request
     def answer(
         self,
         question: str,

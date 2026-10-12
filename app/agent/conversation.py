@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Protocol
 
+from app.agent.execution import checkpoint, defer_until_success
+
 
 @dataclass(frozen=True)
 class ConversationTurn:
@@ -99,7 +101,18 @@ class InMemoryConversationStore:
     ) -> None:
         if not conversation_id or max_turns <= 0:
             return
+        if defer_until_success(
+            lambda: self.append_turn(
+                conversation_id,
+                question=question,
+                answer=answer,
+                max_turns=max_turns,
+                context=context,
+            )
+        ):
+            return
         with self._lock:
+            checkpoint()
             state = self._touch_locked(conversation_id)
             state.turns.append(
                 ConversationTurn(

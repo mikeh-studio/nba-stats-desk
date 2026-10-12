@@ -16,6 +16,7 @@ from typing import Any, Callable
 from app.agent.appearance_ask import wants_appearances
 from app.agent.availability_ask import availability_followup, wants_availability
 from app.agent.award_lookup import wants_award
+from app.agent.execution import timed
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
 from app.agent.question_intent import round_scope_message, split_kind
@@ -220,6 +221,7 @@ ROUTES = (
 )
 
 
+@timed("routing")
 def select_route(context: RouteContext) -> Route:
     return next(route for route in ROUTES if route.matches(context))
 

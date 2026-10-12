@@ -7,11 +7,13 @@ import json
 import math
 from collections import defaultdict
 
+from app.agent.execution import timed
 from app.agent.semantics import SemanticError
 
 LABELS = {"pts": "PTS", "reb": "REB", "ast": "AST"}
 
 
+@timed("calculation")
 def build_recent_similarity(source, player, season, spec):
     source.validate()
     phase, n, metrics = spec["season_type"], spec["n"], spec["metrics"]
@@ -125,6 +127,7 @@ def build_recent_similarity(source, player, season, spec):
     }
 
 
+@timed("rendering")
 def render_recent_similarity(evidence, player):
     from app.agent.payload import answer_payload
 

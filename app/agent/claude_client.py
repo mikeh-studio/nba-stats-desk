@@ -195,7 +195,9 @@ class ClaudeResponsesClient:
         self._timeout = timeout
         self.responses = _AdapterResponses(self)
 
-    def with_options(self, *, timeout: float | None = None) -> ClaudeResponsesClient:
+    def with_options(
+        self, *, timeout: float | None = None, max_retries: int = 0
+    ) -> ClaudeResponsesClient:
         return ClaudeResponsesClient(
             client=self._client,
             model=self._model,
@@ -241,7 +243,7 @@ class ClaudeResponsesClient:
             request["output_config"] = output_config
         client = self._client
         if self._timeout is not None and hasattr(client, "with_options"):
-            client = client.with_options(timeout=self._timeout)
+            client = client.with_options(timeout=self._timeout, max_retries=0)
         # Stream and accumulate instead of a plain create(): structured
         # answers at this max_tokens routinely outlast a non-streaming read
         # timeout, while a live stream keeps the connection alive.

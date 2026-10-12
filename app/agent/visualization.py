@@ -6,6 +6,8 @@ import json
 import logging
 import math
 
+from app.agent.execution import timed
+
 
 def finite(value):
     return (
@@ -148,6 +150,7 @@ def candidates(payload):
 class VisualizationAgent:
     """The model chooses an allowlisted candidate ID; Python owns every chart value."""
 
+    @timed("rendering")
     def enrich(self, agent, payload, question, provider, model, trace=None):
         evidence = payload.get("semantic_evidence") or {}
         if payload.get("visualization") is not None:

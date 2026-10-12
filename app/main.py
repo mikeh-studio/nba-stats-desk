@@ -502,8 +502,15 @@ AGENT_FAILED_DETAIL = (
 
 
 def _fail_trace(trace: AgentTrace, exc: Exception) -> None:
-    trace.outcome = "error"
-    trace.error_type = type(exc).__name__
+    if trace.outcome not in {
+        "request_timeout",
+        "provider_timeout",
+        "provider_failure",
+        "invalid_plan",
+        "invalid_response",
+    }:
+        trace.outcome = "error"
+        trace.error_type = type(exc).__name__
 
 
 @lru_cache(maxsize=3)
