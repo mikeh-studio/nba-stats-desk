@@ -799,12 +799,12 @@ class BigQueryWarehouseRepository:
         if same_archetype:
             summary = (
                 f"Shared archetype: {player_a_label}. "
-                f"Current stat-profile similarity is {score}."
+                f"Statistical Profile Similarity score is {score}."
             )
         else:
             summary = (
                 f"Archetypes diverge: {player_a_label} vs "
-                f"{player_b_label}. Current stat-profile similarity is {score}."
+                f"{player_b_label}. Statistical Profile Similarity score is {score}."
             )
         return {
             "state": STATE_FRESH,

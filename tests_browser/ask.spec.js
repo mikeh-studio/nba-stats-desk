@@ -60,3 +60,32 @@ test('similarity renders publication values at a narrow viewport', async ({page}
   await expect(page.locator('[data-agent-tables]')).toContainText('0.8000');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
+
+test('recent statistical comparison shows assumptions and actual last-five values', async ({page}) => {
+  const c = await prepare(page,'recent_similarity_default');
+  await submit(page,c.turns[0].question);
+  await expect(page.locator('[data-agent-answer]')).toContainText('Since you did not specify metrics');
+  await expect(page.locator('[data-agent-answer]')).toContainText('last 5 recorded');
+  await expect(page.locator('[data-agent-tables]')).toContainText('Statistical Profile Similarity');
+  await expect(page.locator('[data-agent-tables]')).toContainText('Blair Sample');
+  await expect(page.locator('[data-agent-tables]')).toContainText('6.0');
+});
+
+test('methodology page explains the feature set, scoring and model selection', async ({page}) => {
+  await page.goto('/similarity-methodology');
+  await expect(page.getByRole('heading',{name:'Statistical Profile Similarity',exact:true})).toBeVisible();
+  await expect(page.getByText('Inspect all 48 configured input fields')).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Why these grouping models?'})).toBeVisible();
+  await expect(page.getByText('55% normalized silhouette score, 25% group balance and 20% assigned-player coverage')).toBeVisible();
+  await page.getByRole('link',{name:'Explore statistical profiles'}).click();
+  await expect(page.getByRole('heading',{name:'Statistical Profile Similarity',exact:true})).toBeVisible();
+  await expect(page.getByRole('link',{name:'Features, scoring and model selection explained'})).toBeVisible();
+});
+
+test('known nonparticipation is explained without fabricated Finals statistics', async ({page}) => {
+  const c = await prepare(page,'finals_known_nonparticipant');
+  await submit(page,c.turns[0].question);
+  await expect(page.locator('[data-agent-answer]')).toContainText('did not participate');
+  await expect(page.locator('[data-agent-answer] a')).toHaveAttribute('href','https://www.nba.com/game/gsw-vs-phx-0052500211');
+  await expect(page.locator('[data-agent-tables] table')).toHaveCount(0);
+});

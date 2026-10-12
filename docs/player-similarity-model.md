@@ -1,4 +1,4 @@
-# Player similarity baseline
+# Statistical Profile Similarity
 
 The public implementation provides reproducible similarity and archetype
 comparisons through `nba_gold.player_similarity_features` and
@@ -19,8 +19,9 @@ Outputs include normalized vectors, descriptive archetypes, comparison diagnosti
 and a deterministic three-dimensional PCA projection.
 
 The application uses equal-weight serving-time similarity. PCA coordinates are
-an approximate visualization; nearest-neighbor relationships use cosine similarity
-from the feature vectors. A visually distant point can therefore be a close
+an approximate visualization; nearest-neighbor relationships use Euclidean distance between unit-normalized
+feature vectors and display `1 / (1 + distance)`. For nonzero vectors this ranks
+neighbors in the same order as cosine similarity; the score is not raw cosine. A visually distant point can therefore be a close
 feature-space neighbor. Axis metadata describes the projection's feature drivers.
 Archetypes are descriptive categories, not authoritative scouting grades or
 measures of player value.
@@ -58,3 +59,14 @@ dbt build --project-dir . --profiles-dir dbt/profiles --target dev \
 
 Local test success does not establish live feature coverage or successful
 warehouse publication. Keep detailed model runs and diagnostics in local reports.
+
+## User-facing methodology and recent comparisons
+
+The public `/similarity-methodology` page documents all 48 configured fields,
+standardization, per-feature equal weights, imputation limitations, and the
+selection score (55% normalized silhouette, 25% balance, 20% coverage). These are
+internal clustering diagnostics, not validated basketball roles or player value.
+
+Ask also supports a separate recent-appearance comparison using PTS/REB/AST by
+default; it does not retrain the published model. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references)
+for its window, qualification and score contract.

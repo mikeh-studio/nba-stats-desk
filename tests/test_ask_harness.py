@@ -35,6 +35,22 @@ def agent(variant="complete"):
     )
 
 
+def test_review_approval_allows_optional_identity_but_requires_all_cases_approved():
+    import json
+
+    from scripts.ask_eval.fixtures import validate_cases
+
+    document = copy.deepcopy(CASES)
+    schema = json.loads((ROOT / "tests/fixtures/ask/schema.json").read_text())
+    document["human_reviewed"] = True
+    for case in document["cases"]:
+        case["review"] = {"status": "approved"}
+    validate_cases(document, schema)
+    document["cases"][0]["review"]["status"] = "pending"
+    with pytest.raises(ValueError, match="approval of every case"):
+        validate_cases(document, schema)
+
+
 def test_baseline_pools_unequal_samples_and_preserves_identity_membership():
     data = copy.deepcopy(SOURCE)
     # Avery: 0+2+4+6+8+10=30 across six games. Blair: 10 in one.

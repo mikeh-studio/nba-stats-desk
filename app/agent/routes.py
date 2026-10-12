@@ -165,8 +165,8 @@ ROUTES = (
         "similarity",
         "reference",
         lambda c: c.reference == "similarity",
-        "similarity_reference/1",
-        "Published season neighbors only",
+        "similarity_reference/1 or recent_statistical_similarity/1",
+        "Published season profiles or complete recent statistical comparisons",
     ),
     Route(
         "league_baseline",

@@ -1585,6 +1585,16 @@ class StatsAgent:
         if trace:
             trace.set_plan(route=route.key, confidence=1.0)
         if route.handler == "scope_refusal":
+            from app.agent.participation import answer_known_nonparticipation
+
+            participation = answer_known_nonparticipation(
+                cleaned_question, self.settings.season, conversation_id
+            )
+            if participation is not None:
+                if trace:
+                    trace.set_plan(route="event_participation", confidence=1.0)
+                    trace.outcome = "not_applicable"
+                return participation
             if trace:
                 trace.outcome = "unsupported_scope"
                 trace.error_type = "unsupported_scope"

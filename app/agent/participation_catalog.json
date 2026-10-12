@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "records": [
+    {
+      "season": "2025-26",
+      "event": "NBA Finals",
+      "player_id": 201939,
+      "player_name": "Stephen Curry",
+      "aliases": ["Stephen Curry", "Steph Curry"],
+      "team_abbr": "GSW",
+      "team_name": "Golden State Warriors",
+      "participated": false,
+      "reason": "Golden State was eliminated in the play-in tournament.",
+      "source_url": "https://www.nba.com/game/gsw-vs-phx-0052500211",
+      "verified_on": "2026-10-11"
+    }
+  ]
+}

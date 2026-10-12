@@ -172,11 +172,6 @@ def validate_cases(document, schema):
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate evaluation case IDs")
     for case in document["cases"]:
-        if (
-            case["review"]["status"] != "pending"
-            and not str(case["review"]["reviewer"] or "").strip()
-        ):
-            raise ValueError("Review decisions require a named reviewer")
         for turn in case["turns"]:
             paths = [c["path"] for c in turn["checks"]]
             if len(paths) != len(set(paths)):

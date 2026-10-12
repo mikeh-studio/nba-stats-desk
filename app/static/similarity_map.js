@@ -334,7 +334,7 @@ import { seasonFetch } from "./season.js";
       nHover.push(
         "<b>" +
           (neighbor.player_name || "Unknown") +
-          "</b><br>Similarity " +
+          "</b><br>Profile similarity score " +
           formatScore(neighbor.similarity_score),
       );
     });

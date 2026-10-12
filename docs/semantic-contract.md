@@ -162,3 +162,16 @@ and season. Self/duplicate neighbors and missing, nonfinite or out-of-range scor
 invalidate the answer. No model-authored similarity numbers or filter substitutes
 are accepted. Publication hashes identify returned evidence, not an independently
 verified training run or model build version.
+
+### Recent statistical similarity and verified nonparticipation
+
+`recent_statistical_similarity/1` compares complete last-N appearances using
+PTS/REB/AST by default, equal standardized metric distances, explicit cohort
+membership and per-player date bounds. It is separate from published season
+profiles and does not imply playing-style similarity. Its returned score is not
+interchangeable with the season-profile score.
+
+`event_participation/1` carries explicit sourced reference records. Verified
+nonparticipation yields `not_applicable`, not an observed zero and not generic
+missing data. Catalog absence means unknown; round-specific statistics remain
+unsupported. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references).

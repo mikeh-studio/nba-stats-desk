@@ -45,7 +45,15 @@ def reference_followup(question: str, context: dict[str, Any]) -> str | None:
     if not match:
         return None
     metric = match[1]
-    if reference_kind(previous) == "league_baseline" and any(
+    eligible = reference_kind(previous) == "league_baseline" or (
+        reference_kind(previous) == "similarity"
+        and re.search(
+            r"\b(?:last|past)\s+(?:five|\d+)\s+(?:(?:regular[ -]season|playoff)\s+)?games?\b",
+            previous,
+            re.I,
+        )
+    )
+    if eligible and any(
         re.fullmatch(pattern, metric, re.I) for pattern in METRICS.values()
     ):
         for pattern in METRICS.values():
@@ -72,27 +80,72 @@ def parse_reference(question, players, season, kind):
     text = re.sub(r"player\d+|(?:20\d{2})[-–/](?:20)?\d{2}(?![-/]\d)", " ", text)
     text = re.sub(r"[’']s\b", " ", text)
     if kind == "similarity":
+        games = re.search(
+            r"\b(?:last|past)\s+(five|\d+)\s+(?:(?:regular[ -]season|playoff)\s+)?games?\b",
+            text,
+        )
+        recent = None
+        if games:
+            n = 5 if games[1] == "five" else int(games[1])
+            if not 2 <= n <= 20:
+                raise SemanticError(
+                    "unsupported_scope",
+                    "Recent statistical comparisons support 2 to 20 recorded appearances.",
+                )
+            text = text[: games.start()] + " " + text[games.end() :]
+            metrics = []
+            for key, pattern in METRICS.items():
+                text, found = re.subn(
+                    r"(?<!\w)(?:" + pattern + r")(?!\w)", " ", text, flags=re.I
+                )
+                if found:
+                    metrics.append(key)
+            if any(m not in {"pts", "reb", "ast"} for m in metrics):
+                raise SemanticError(
+                    "clarification_required",
+                    "Recent statistical similarity currently supports points, rebounds and assists. Which of those metrics should I compare?",
+                )
+            phase = (
+                "Playoffs"
+                if re.search(r"\b(?:playoffs?|postseason)\b", question, re.I)
+                else "Regular Season"
+            )
+            if phase == "Playoffs" and re.search(r"regular[ -]season", question, re.I):
+                raise SemanticError(
+                    "unsupported_scope", "Choose one phase for the comparison."
+                )
+            text = re.sub(
+                r"regular[ -]season|\b(?:playoffs?|postseason|over|per game|and|using|based on|stats|statistical|profile)\b",
+                " ",
+                text,
+            )
+            recent = {
+                "n": n,
+                "metrics": metrics or ["pts", "reb", "ast"],
+                "metrics_defaulted": not metrics,
+                "season_type": phase,
+            }
         count = re.search(r"\b(?:top|show|find)\s+(\d+)\b", text)
         limit = int(count[1]) if count else 5
         if not 1 <= limit <= 6:
             raise SemanticError(
                 "unsupported_scope",
-                "Published similarity supports one to six neighbors.",
+                "Statistical Profile Similarity supports one to six neighbors.",
             )
         if count:
             text = text[: count.start()] + " " + text[count.end() :]
         text = re.sub(SIMILARITY, " ", text)
         text = re.sub(
-            r"\b(?:who|which|are|is|the|most|players?|comps?|to|show|find|me|for|in|season|this)\b",
+            r"\b(?:who|which|are|is|the|most|players?|comps?|to|show|find|me|for|in|season|this|statistical|profile)\b",
             " ",
             text,
         )
         if text.strip(" ?.!,"):
             raise SemanticError(
                 "unsupported_scope",
-                "Similarity uses the published season profile; custom periods, metrics and filters are not supported.",
+                "Statistical Profile Similarity supports a published season profile or a last-N appearance comparison using points, rebounds and assists. Other metrics, periods and filters require clarification.",
             )
-        return player, seasons[0], limit
+        return player, seasons[0], dict(recent, limit=limit) if recent else limit
 
     text = re.sub(BASELINE, " ", text)
     metrics = []
@@ -325,14 +378,14 @@ def render_reference(evidence, player):
     )
     if evidence["kind"] == "similarity":
         payload["answer"] = (
-            f"{evidence['rows'][0]['player_name']} is the closest published match to {player['player_name']} in {evidence['scope']['season']} (similarity score {evidence['rows'][0]['similarity_score']:.4f}). This describes the season feature profile, not a probability or a prediction."
+            f"Statistical Profile Similarity: {evidence['rows'][0]['player_name']} is the closest published match to {player['player_name']} in {evidence['scope']['season']} (profile similarity score {evidence['rows'][0]['similarity_score']:.4f}). This compares measured statistical and available physical features, not equivalent playing style, player quality, or a probability. See [how the comparison works](/similarity-methodology)."
         )
         payload["tables"] = [
             {
-                "title": "Published similarity neighbors",
+                "title": "Statistical Profile Similarity — published season profile",
                 "columns": [
                     {"key": "player", "label": "Player"},
-                    {"key": "score", "label": "Similarity score (0–1)"},
+                    {"key": "score", "label": "Profile similarity score (0–1)"},
                 ],
                 "rows": [
                     [r["player_name"], f"{r['similarity_score']:.4f}"]
@@ -418,7 +471,15 @@ def answer_reference(
                 "unsupported_coverage",
                 "A governed statistics source is required for this comparison.",
             )
-        if kind == "similarity" and seasons != [agent.settings.season]:
+        if (
+            kind == "similarity"
+            and not re.search(
+                r"\b(?:last|past)\s+(?:five|\d+)\s+(?:(?:regular[ -]season|playoff)\s+)?games?\b",
+                question,
+                re.I,
+            )
+            and seasons != [agent.settings.season]
+        ):
             raise SemanticError(
                 "unsupported_coverage",
                 "The similarity publication must match the selected season.",
@@ -462,12 +523,21 @@ def answer_reference(
                 "invalid_context",
                 "Saved reference identity does not match this source. Restate the full name and scope.",
             )
-        evidence = (
-            build_similarity(agent.repo, player, season, spec)
-            if kind == "similarity"
-            else build_baseline(source, player, spec)
-        )
-        payload = render_reference(evidence, player)
+        if kind == "similarity" and isinstance(spec, dict):
+            from app.agent.recent_similarity import (
+                build_recent_similarity,
+                render_recent_similarity,
+            )
+
+            evidence = build_recent_similarity(source, player, season, spec)
+            payload = render_recent_similarity(evidence, player)
+        else:
+            evidence = (
+                build_similarity(agent.repo, player, season, spec)
+                if kind == "similarity"
+                else build_baseline(source, player, spec)
+            )
+            payload = render_reference(evidence, player)
         if kind == "league_baseline" and evidence["difference"] is not None:
             metric = evidence["metric"]
             unit = "%" if metric["unit"] == "ratio" else "per game"
@@ -501,7 +571,9 @@ def answer_reference(
             "reference_question": question,
             "players": [{k: player[k] for k in ("player_id", "player_name")}],
             "scope": evidence["scope"],
-            "metrics": [evidence["metric"]["key"]] if kind == "league_baseline" else [],
+            "metrics": [evidence["metric"]["key"]]
+            if kind == "league_baseline"
+            else evidence.get("metrics", []),
         }
     except SemanticError as exc:
         payload = answer_payload(str(exc), status=exc.code)

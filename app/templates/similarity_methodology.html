@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="hero">
+  <div class="eyebrow">How the comparison works</div>
+  <h1>Statistical Profile Similarity</h1>
+  <p class="subhead">Find players with comparable measured profiles. A close match does not establish the same playing style, skill level, defensive impact or future performance.</p>
+  <a class="button secondary" href="/similarity-map?season={{ season }}">Explore statistical profiles</a>
+</section>
+<div class="stack">
+  <section class="card"><h2>Two comparisons, two different questions</h2>
+    <p><strong>Published season profile:</strong> which players are close across {{ similarity_features|length }} season, recent-performance, shooting, contribution and available physical features?</p>
+    <p><strong>Recent appearances in Ask:</strong> who has similar per-game production over their own last five appearances? When no metrics are specified, Ask uses points, rebounds and assists. You can request a subset of these metrics and windows of 2–20 appearances.</p>
+    <p class="meta">These comparisons use different inputs and score definitions. Their scores cannot be compared with each other.</p>
+  </section>
+  <section class="card"><h2>What goes into the published profile?</h2>
+    <p>The hand-specified feature set summarizes production, shot choices, team involvement, recent changes and available physical context. Feature weights are not learned from scouting labels or a playing-style ground truth.</p>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Feature group</th><th>Measured inputs</th></tr></thead><tbody>
+      <tr><td>Season production</td><td>Points, shot attempts, rebounds, assists, steals, blocks, made threes, turnovers and minutes per game.</td></tr>
+      <tr><td>Shooting and ball handling</td><td>Field-goal percentage, true shooting, three-point and free-throw attempt rates, assist-to-turnover ratio.</td></tr>
+      <tr><td>Shot locations</td><td>Attempt shares at the rim, paint, midrange, corner three and above-the-break three; rim and corner-three field-goal percentages.</td></tr>
+      <tr><td>Team contribution</td><td>Shares of team points, attempts, assists, turnovers, rebounds, steals and blocks, plus combined offense and defensive-event contribution measures.</td></tr>
+      <tr><td>Recent form and changes</td><td>Recent box-score averages and scoring shares, minutes change, and first-half versus second-half scoring, minutes and true-shooting changes. Recent inputs prefer ten appearances with documented fallbacks.</td></tr>
+      <tr><td>Physical and career attributes</td><td>Height, weight, wingspan and experience where available.</td></tr>
+    </tbody></table></div>
+    <details><summary>Inspect all {{ similarity_features|length }} configured input fields</summary><ul>{% for feature in similarity_features %}<li>{{ feature }}</li>{% endfor %}</ul></details>
+    <p>These are measured proxies. Free-throw attempt rate does not directly measure rim pressure; blocks do not measure total defensive ability; weight does not measure strength. Movement, dribble patterns, screening and defensive assignments are not directly measured.</p>
+  </section>
+  <section class="card"><h2>How published matches are ranked</h2>
+    <ol><li>Build one profile per player and season. Profiles with fewer than five appearances are excluded; five to nine are marked as a limited sample.</li><li>Standardize each feature and use equal weights per feature. Correlated inputs and larger feature families can still have more combined influence.</li><li>Normalize the vectors to unit length, then rank same-season players by Euclidean distance. The displayed score is <strong>1 / (1 + distance)</strong>; higher means closer.</li></ol>
+    <p>For nonzero unit vectors, this gives the same neighbor order as cosine similarity, but the displayed score is not raw cosine similarity or a probability.</p>
+    <p>Missing values reaching the trainer are median-imputed; entirely missing columns become zero. Some upstream inputs are already zero-filled. Configured features therefore do not guarantee complete observations. This can affect match quality.</p>
+  </section>
+  <section class="card"><h2>Why these grouping models?</h2>
+    <p>Grouping supplies the descriptive archetype labels and map colors. It is separate from ranking nearest statistical profiles.</p>
+    <div class="table-scroll"><table class="data-table"><thead><tr><th>Candidate</th><th>Purpose and tradeoff</th></tr></thead><tbody>
+      <tr><td>KMeans</td><td>A reproducible baseline that assigns every qualified player to a group; unusual profiles are still forced into a group.</td></tr>
+      <tr><td>Gaussian mixture</td><td>Soft cluster assignments for overlapping profiles; these are statistical memberships, not verified basketball roles.</td></tr>
+      <tr><td>Hierarchical clustering</td><td>An alternative grouping structure for comparing how stable the profile families are.</td></tr>
+      <tr><td>HDBSCAN</td><td>Density-based groups that can leave unusual profiles unclassified.</td></tr>
+    </tbody></table></div>
+    <p>The current selection rule maximizes a composite of <strong>55% normalized silhouette score, 25% group balance and 20% assigned-player coverage</strong>, with a fixed tie order. These are internal grouping diagnostics, not human scouting validation or predictive accuracy. Model selection can change with the published data.</p>
+    <p>The 3D view uses PCA for a reproducible projection. Map distance is approximate; changing the grouping model changes labels and colors, not the underlying player coordinates or nearest-neighbor features.</p>
+  </section>
+  <section class="card"><h2>How recent-appearance comparisons work</h2>
+    <p>Ask averages the selected metrics over each player's own last N recorded appearances in the requested season and phase, defaulting to regular season. The displayed sample dates may differ between players.</p>
+    <p>Only players with N appearances and complete selected metrics qualify. Each metric is standardized using the eligible cohort's population standard deviation, including the reference player. The distance is the root mean square of the standardized differences, and the score is 1 / (1 + distance). A metric with no variation contributes zero distance. Ties use player ID for stable ordering.</p>
+    <p>No missing values are filled, and a short sample is not silently expanded. The answer states its assumptions, shows averages and dates, and invites you to specify different metrics or a window. This is a descriptive comparison of recorded results, not a trained playing-style model.</p>
+  </section>
+</div>
+{% endblock %}

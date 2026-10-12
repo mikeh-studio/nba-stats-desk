@@ -1516,7 +1516,7 @@ def test_ask_page_smoke() -> None:
     assert ">PLAYERS</a>" in response.text
     assert ">TRENDING</a>" in response.text
     assert ">PERFORMANCE</a>" in response.text
-    assert ">ARCHETYPES</a>" in response.text
+    assert ">PROFILES</a>" in response.text
     assert ">COMPARE</a>" not in response.text
     assert ">RESEARCH</a>" not in response.text
     assert ">Dashboard</a>" not in response.text
@@ -2118,7 +2118,7 @@ def test_player_page_smoke() -> None:
     assert response.status_code == 200
     assert "Why This Player Matters" in response.text
     assert "Archetype" in response.text
-    assert "<h2>Similar</h2>" in response.text
+    assert "<h2>Statistical Profile Similarity</h2>" in response.text
     assert "Gaussian mixture" in response.text
     assert "Compare player" in response.text
     assert "Find qualified player" in response.text
@@ -2177,7 +2177,7 @@ def test_compare_page_full_surface() -> None:
     assert "Focus Scoring" in response.text
     assert "Mikal Bridges" in response.text
     assert "Limited comparison data." in response.text
-    assert "Stat-profile similarity." in response.text
+    assert "Statistical Profile Similarity." in response.text
     assert "Box Score Index" in response.text
     assert "Last 7" in response.text
     assert "https://cdn.nba.com/headshots/nba/latest/1040x760/7.png" in response.text
@@ -2753,7 +2753,7 @@ def test_similarity_map_page_smoke() -> None:
     response = client.get("/similarity-map")
 
     assert response.status_code == 200
-    assert "Archetypes" in response.text
+    assert "Statistical Profile Similarity" in response.text
     assert f"/static/similarity_map.js?v={STATIC_VERSION}" in response.text
     assert "data-health-status" in response.text
     assert "plotly-gl3d" in response.text

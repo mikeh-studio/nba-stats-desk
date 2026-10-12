@@ -480,13 +480,36 @@ part of the governed metric plan.
 
 ## Governed similarity and league references
 
-Similarity and league-baseline questions use deterministic evidence handlers;
+Statistical Profile Similarity and league-baseline questions use deterministic evidence handlers;
 models do not write their numbers, tables or factual summaries. Similarity uses
 one selected-season publication, validates identities and finite 0–1 scores, and
 returns at most six neighbors. The score is `1 / (1 + Euclidean distance)` over
 normalized features, not a probability or forecast. Its evidence retains a hash
 of the returned publication; the serving response does not provide a model build
-version. Custom dates, phases, metrics and other neighbor filters are withheld.
+version. Published-profile custom dates, phases, metrics and other neighbor filters are withheld.
+
+Explicit last-N questions use a separate `recent_statistical_similarity/1` contract.
+They default to PTS/REB/AST per-game averages for each player's own last N recorded
+appearances in one season and phase (regular season by default; 2–20 games).
+Explicit subsets of these metrics are supported; other constraints are not dropped.
+Only complete N-game windows qualify. Population standard deviations across the
+eligible cohort, including the reference player, scale each metric equally. Rank
+by RMS standardized distance; display `1 / (1 + distance)`. Constant metrics
+contribute zero distance and ties use player ID. Responses disclose the default,
+individual sample dates, cohort and source cutoff, and invite clarification.
+Metric follow-ups retain identity and window. This is a descriptive comparison,
+not the published 48-feature model or a playing-style claim.
+
+The `/similarity-methodology` page explains inputs, missingness, scoring, grouping
+model selection and PCA limitations. Scores across the two methods are not
+interchangeable.
+
+NBA Finals requests first check the narrow, sourced `participation_catalog.json`.
+A matching verified nonparticipant returns `not_applicable` with reference evidence
+and no fabricated zero statistics. The initial record covers Stephen Curry in
+2025–26, sourced to the NBA elimination report. Unknown players/seasons and other
+rounds retain an explicit coverage limitation. Missing box scores or a current
+team are never sufficient evidence of nonparticipation.
 
 League references support one metric, one season, one phase (regular season by
 default), and an optional last-N appearance window or explicit ISO date range.
