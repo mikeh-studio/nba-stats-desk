@@ -64,6 +64,8 @@ def settings(request: Request = None):
             anthropic_api_key=live.anthropic_api_key,
             openrouter_api_key=live.openrouter_api_key,
             openai_agent_max_retries=0,
+            anthropic_agent_max_retries=0,
+            openrouter_agent_max_retries=0,
         )
     attachments = case_for(request).get("attachments", []) if request else []
     try:

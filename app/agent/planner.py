@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from app.agent.catalog import load_semantic_catalog
+from app.agent.execution import ExecutionFailure, create_response, timed
 from app.agent.player_resolver import load_player_aliases, normalize_player_text
 from app.agent.router import (
     ROUTE_TOOLS,
@@ -468,6 +469,7 @@ def _has_explicit_time_window(window: TimeWindow) -> bool:
     )
 
 
+@timed("planning")
 def build_query_plan(
     question: str,
     *,
@@ -482,22 +484,24 @@ def build_query_plan(
         or not settings.openai_agent_enabled
     ):
         return fallback
-    request_client = client
-    create_extra: dict[str, Any] = {}
-    if hasattr(client, "with_options"):
-        request_client = client.with_options(
-            timeout=settings.agent_planner_timeout_seconds
-        )
-    else:
-        create_extra["timeout"] = settings.agent_planner_timeout_seconds
     try:
-        response = request_client.responses.create(
+        response = create_response(
+            client,
+            settings=settings,
+            timeout_seconds=settings.agent_planner_timeout_seconds,
             model=settings.agent_planner_model or model or settings.openai_agent_model,
             instructions=PLANNER_PROMPT,
             input=[{"role": "user", "content": question}],
             text=QUERY_PLAN_TEXT_FORMAT,
-            **create_extra,
         )
+    except ExecutionFailure as exc:
+        if exc.code == "request_timeout":
+            raise
+        logger.warning(
+            "LLM planner failed; using deterministic plan: %s",
+            type(exc.__cause__).__name__,
+        )
+        return fallback
     except Exception as exc:
         # The deterministic fallback keeps the request alive, but a planner
         # that fails every call (e.g. a schema rejection) must show in logs.

@@ -9,6 +9,7 @@ from time import monotonic
 from typing import Any
 
 from app.agent.award_lookup import award_intro, resolve_award_question, wants_award
+from app.agent.execution import timed
 from app.agent.followup import analysis_context, resolve_followup
 from app.agent.history import saved_context_question
 from app.agent.metric_presentation import (
@@ -190,6 +191,7 @@ def _payload(message: str, status: str) -> dict[str, Any]:
     return answer_payload(message, status=status)
 
 
+@timed("rendering")
 def render_answer(
     result: dict[str, Any], players: list[dict[str, Any]]
 ) -> dict[str, Any]:

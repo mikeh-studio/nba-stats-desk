@@ -101,7 +101,9 @@ def wants_research(question):
 def refusal(message, *, code=None, trace=None, followups=()):
     if trace:
         trace.route = "research"
-        trace.outcome = "unsupported"
+        trace.outcome = (
+            "invalid_plan" if code == "invalid_research_plan" else "unsupported"
+        )
         trace.error_type = code
     payload = {
         "answer": message,

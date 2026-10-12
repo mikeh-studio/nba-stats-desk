@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.agent.execution import timed
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.semantic_serving import source_players, warehouse_for_repository
 from app.agent.semantic_source import load_snapshot
@@ -73,6 +74,7 @@ class ResearchQuery(BaseModel):
         return self
 
 
+@timed("evidence")
 def load_research_evidence(settings: Any, repo: Any, season: str) -> Evidence:
     if settings.research_snapshot_path:
         return load_snapshot(Path(settings.research_snapshot_path))[1]
@@ -87,6 +89,7 @@ def load_context(path: str | None) -> list[dict[str, Any]]:
     return read_snapshot(Path(path))["rows"]
 
 
+@timed("calculation")
 def breakdown(
     evidence: Evidence,
     query: ResearchQuery,
@@ -260,6 +263,7 @@ def breakdown(
     }
 
 
+@timed("rendering")
 def answer_payload(result: dict[str, Any]) -> dict[str, Any]:
     rows = []
     for p in result["players"]:

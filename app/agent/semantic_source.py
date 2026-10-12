@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from app.agent.execution import bounded_timeout
 from app.agent.semantics import COMPONENTS, PHASES, Evidence, SemanticError
 from app.seasons import dataset_for_season, validate_season
 
@@ -134,8 +135,8 @@ class BigQuerySemanticSource:
         )
         started = datetime.now(timezone.utc)
         try:
-            job = self.client.query(sql, job_config=config, timeout=30)
-            result = job.result(timeout=120)
+            job = self.client.query(sql, job_config=config, timeout=bounded_timeout(30))
+            result = job.result(timeout=bounded_timeout(120))
             rows = [dict(row) for row in result]
         except Forbidden as exc:
             raise SemanticError(

@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from app.agent.execution import timed
 from app.repository import WarehouseRepository
 
 try:  # pragma: no cover - exercised when dependency is installed in prod.
@@ -143,6 +144,7 @@ class PlayerResolver:
         self.min_confidence = min_confidence
         self.alias_map = alias_map or load_player_aliases()
 
+    @timed("identity")
     def resolve(self, raw_name: str, *, limit: int = 5) -> PlayerResolution:
         query = str(raw_name or "").strip()
         if not query:

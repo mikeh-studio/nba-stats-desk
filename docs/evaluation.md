@@ -458,3 +458,31 @@ The runner retains this JSON error for both JSON and SSE requests, records the
 HTTP failure, and continues evaluating unaffected cases. Runtime metadata lists
 these capability failures separately from ordinary contract mismatches. A missing
 frozen attachment also fails closed; it never enables live warehouse fallback.
+
+## Offline execution-policy QA
+
+Run the real OpenAI Responses interface and Claude/OpenRouter adapters over
+synthetic SDK transports (no provider keys, network, or warehouse required):
+
+```bash
+ASK_EXECUTION_REPORT=reports/ask-execution/unique-run/qa.html \
+  python -m pytest tests/test_agent_execution.py -q
+```
+
+The matrix exercises valid and malformed planning, 429/503 recovery, exhausted
+provider timeouts, non-retryable errors, the request deadline, and Claude partial
+stream failure. It asserts physical attempt counts, SDK retry suppression,
+timeout propagation and stage timings. Additional tests exercise real JSON/SSE
+endpoints, one terminal event, safe traces, and no successful conversation/history
+save on deadline failure. Deterministic routes assert zero model calls.
+
+The optional local HTML/JSON report contains synthetic outcomes and **virtual
+clock** timings; it is not a paid model-quality evaluation or a measurement of
+production/provider latency. Choose a fresh output path for each attempt so
+failed QA artifacts remain available. Compare real latency only in a separately
+authorized, controlled run. The endpoint coverage harness remains complementary:
+its controlled planner cases do not establish resilience to provider faults.
+
+The live question smoke runner records execution-policy failures (including
+provider and request timeouts) per case and continues to later cases. Reports
+retain the safe failure code without provider exception bodies.

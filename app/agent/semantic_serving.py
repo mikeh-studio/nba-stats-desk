@@ -8,6 +8,7 @@ from threading import Lock
 from time import monotonic
 from typing import Any
 
+from app.agent.execution import timed
 from app.agent.player_resolver import load_player_aliases, normalize_player_text
 from app.agent.semantic_source import BigQuerySemanticSource, snapshot_evidence
 from app.agent.semantics import Evidence, SemanticError
@@ -95,6 +96,7 @@ class SemanticWarehouse:
     def players(self, evidence: Evidence) -> list[dict[str, Any]]:
         return source_players(evidence)
 
+    @timed("evidence")
     def load(self, seasons: list[str]) -> tuple[dict[str, Any], Evidence]:
         key = tuple(sorted(seasons))
         with self._lock:
@@ -112,6 +114,7 @@ class SemanticWarehouse:
         return snapshot, snapshot_evidence(snapshot)
 
 
+@timed("identity")
 def source_players(evidence: Evidence) -> list[dict[str, Any]]:
     players: dict[int, dict[str, Any]] = {}
     for row in evidence.rows:

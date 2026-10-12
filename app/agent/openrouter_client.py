@@ -16,8 +16,12 @@ class OpenRouterResponsesClient:
         self.client = client
         self.responses = self
 
-    def with_options(self, *, timeout: float) -> OpenRouterResponsesClient:
-        return OpenRouterResponsesClient(self.client.with_options(timeout=timeout))
+    def with_options(
+        self, *, timeout: float, max_retries: int = 0
+    ) -> OpenRouterResponsesClient:
+        return OpenRouterResponsesClient(
+            self.client.with_options(timeout=timeout, max_retries=max_retries)
+        )
 
     def create(
         self,

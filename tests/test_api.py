@@ -2874,7 +2874,13 @@ def test_remote_client_cannot_read_clear_or_append_server_history(tmp_path):
     assert history_path.read_text() == '{"synthetic":"private"}\n'
 
 
-def test_untrusted_client_cannot_bypass_limit_by_rotating_forwarded_header():
+def test_untrusted_client_cannot_bypass_limit_by_rotating_forwarded_header(monkeypatch):
+    # Keep both calls in one explicit minute; wall-clock boundary crossings
+    # must not turn a valid limiter into a flaky regression result.
+    from app.rate_limit import InMemoryRateLimitStore
+
+    monkeypatch.setattr("app.rate_limit.time", lambda: 1_800_000_000.0)
+    monkeypatch.setattr("app.rate_limit._memory_store", InMemoryRateLimitStore())
     build_client(
         settings=_test_settings(
             openai_api_key="test-key", agent_rate_limit_per_minute=1

@@ -13,6 +13,7 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any, Callable, Mapping, Sequence
 
+from app.agent.execution import create_response, timed
 from app.agent.semantics import (
     Evidence,
     Query,
@@ -178,6 +179,7 @@ def explicit_scope(question: str) -> dict[str, Any]:
     return hints
 
 
+@timed("planning")
 def plan_question(
     client: Any,
     *,
@@ -296,7 +298,8 @@ def plan_question(
                 None,
             ]
     contract = load_contract()
-    response = client.responses.create(
+    response = create_response(
+        client,
         model=model,
         instructions=PROMPT,
         input=[
@@ -328,7 +331,6 @@ def plan_question(
             }
         },
         max_output_tokens=3000,
-        timeout=45,
         store=False,
     )
     if usage_callback:
@@ -443,6 +445,7 @@ def plan_question(
     return plan
 
 
+@timed("calculation")
 def execute_plan(
     plan: Mapping[str, Any], evidence: Evidence, players: Sequence[Mapping[str, Any]]
 ) -> dict[str, Any]:

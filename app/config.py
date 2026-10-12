@@ -86,6 +86,9 @@ class Settings:
     # than the OpenAI path.
     anthropic_agent_timeout_seconds: float = 90.0
     openai_agent_max_retries: int = 2
+    anthropic_agent_max_retries: int = 2
+    openrouter_agent_max_retries: int = 2
+    agent_request_deadline_seconds: float = 120.0
     openai_agent_retry_base_delay_seconds: float = 0.5
     agent_planner_enabled: bool = True
     agent_planner_model: str | None = None
@@ -151,6 +154,13 @@ def get_settings() -> Settings:
             os.getenv("ANTHROPIC_AGENT_TIMEOUT_SECONDS", "90")
         ),
         openai_agent_max_retries=int(os.getenv("OPENAI_AGENT_MAX_RETRIES", "2")),
+        anthropic_agent_max_retries=int(os.getenv("ANTHROPIC_AGENT_MAX_RETRIES", "2")),
+        openrouter_agent_max_retries=int(
+            os.getenv("OPENROUTER_AGENT_MAX_RETRIES", "2")
+        ),
+        agent_request_deadline_seconds=float(
+            os.getenv("AGENT_REQUEST_DEADLINE_SECONDS", "120")
+        ),
         openai_agent_retry_base_delay_seconds=float(
             os.getenv("OPENAI_AGENT_RETRY_BASE_DELAY_SECONDS", "0.5")
         ),

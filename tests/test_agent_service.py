@@ -482,7 +482,8 @@ def test_transient_openai_errors_retry() -> None:
     payload = agent.answer("Who are the top 5 players by points?")
 
     assert payload["answer"] == "Answered from mocked tools."
-    assert client.responses.calls == 2
+    # The planner retries its first failed call, then the answer makes one call.
+    assert client.responses.calls == 3
 
 
 def test_percentile_evidence_respects_min_games_filter() -> None:

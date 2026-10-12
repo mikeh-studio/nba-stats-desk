@@ -17,6 +17,7 @@ from typing import Any, Mapping, Sequence
 
 import yaml
 
+from app.agent.execution import timed
 from app.agent.formulas import evaluate_formula, extract_formula_variables
 from app.seasons import validate_season
 
@@ -625,6 +626,7 @@ def run_query(
     }
 
 
+@timed("identity")
 def resolve_entity(name: str, players: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Exact normalized aliases resolve identity independently of qualification."""
 
