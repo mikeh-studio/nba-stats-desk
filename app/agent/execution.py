@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import wraps
 from math import isfinite
 from time import monotonic, sleep
@@ -25,6 +25,7 @@ class RequestPolicy:
     deadline: float = 0.0
     on_success: list[Callable[[], None]] = field(default_factory=list)
     committing: bool = False
+    retry_limit: int | None = None
 
     def remaining(self) -> float:
         remaining = self.deadline - monotonic()
@@ -45,6 +46,8 @@ class RequestPolicy:
 
     @property
     def retries(self) -> int:
+        if self.retry_limit is not None:
+            return self.retry_limit
         prefix = "anthropic" if self.provider == "claude" else self.provider
         return max(0, getattr(self.settings, f"{prefix}_agent_max_retries"))
 
@@ -68,6 +71,26 @@ def request_policy(settings, provider, trace=None):
     try:
         policy.remaining()
         yield policy
+    finally:
+        CURRENT.reset(token)
+
+
+@contextmanager
+def optional_model_budget(seconds: float, reserve_seconds: float = 1.0):
+    """Spend a bounded slice on enrichment, preserving time to deliver the answer."""
+    policy = CURRENT.get()
+    if policy is None:
+        yield
+        return
+    allowance = min(seconds, policy.remaining() - reserve_seconds)
+    if allowance <= 0:
+        raise ExecutionFailure("optional_timeout")
+    token = CURRENT.set(
+        replace(policy, deadline=monotonic() + allowance, retry_limit=0)
+    )
+    try:
+        yield
+        checkpoint()
     finally:
         CURRENT.reset(token)
 

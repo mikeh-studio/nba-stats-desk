@@ -482,3 +482,7 @@ production/provider latency. Choose a fresh output path for each attempt so
 failed QA artifacts remain available. Compare real latency only in a separately
 authorized, controlled run. The endpoint coverage harness remains complementary:
 its controlled planner cases do not establish resilience to provider faults.
+
+The live question smoke runner records execution-policy failures (including
+provider and request timeouts) per case and continues to later cases. Reports
+retain the safe failure code without provider exception bodies.

@@ -507,3 +507,133 @@ def test_multiple_model_stages_share_one_request_budget(clock):
             create_response(client, model=model)
     assert [option["timeout"] for option in sdk.options] == pytest.approx([0.6, 0.8])
     assert sdk.calls == 2
+
+
+@pytest.mark.parametrize("elapsed", [0, 115, 119.5])
+@pytest.mark.parametrize("failure", ["timeout", "transient"])
+def test_optional_chart_failure_preserves_completed_answer(
+    elapsed, failure, clock, monkeypatch
+):
+    from app.agent.visualization import VisualizationAgent, study_charts
+    from tests.test_ask_harness import agent
+    from tests.test_research_insights import presentation_study
+
+    a = agent()
+    a.settings = replace(a.settings, agent_request_deadline_seconds=120)
+    sdk = SDK("openai", "success", clock)
+
+    def fail(**kwargs):
+        sdk.calls += 1
+        if failure == "timeout":
+            clock.now += sdk.options[-1]["timeout"]
+            raise TimeoutError("private provider body")
+        raise StatusError(503)
+
+    monkeypatch.setattr(sdk, "create", fail)
+    monkeypatch.setattr(a, "_get_client", lambda provider: sdk)
+    trace = AgentTrace("optional", "openai", "test")
+
+    @execution.governed_request
+    def completed_answer(self, *, trace):
+        clock.now += elapsed
+        self.conversation_store.append_turn(
+            "optional", question="synthetic", answer="Completed answer", max_turns=10
+        )
+        return VisualizationAgent().enrich(
+            self,
+            {
+                "answer": "Completed answer",
+                "_chart_candidates": study_charts(
+                    presentation_study(), {"pts", "ast"}, []
+                ),
+            },
+            "synthetic",
+            "openai",
+            "test",
+            trace,
+        )
+
+    result = completed_answer(a, trace=trace)
+    assert result["answer"] == "Completed answer"
+    assert result["visualization"]["selection"] == "fallback"
+    assert result["visualization"]["chart_id"] == "pts"
+    assert len(a.conversation_store.get_turns("optional", max_turns=10)) == 1
+    assert sdk.calls == trace.model_calls == (0 if elapsed == 119.5 else 1)
+    if sdk.options:
+        assert sdk.options[0]["timeout"] == min(10, 119 - elapsed)
+        assert sdk.options[0]["max_retries"] == 0
+    assert clock.now < 120
+    assert trace.outcome == "answered"
+    assert execution.CURRENT.get() is None
+
+
+def test_optional_budget_does_not_extend_overall_deadline(clock):
+    with request_policy(
+        _settings(agent_request_deadline_seconds=2), "openai"
+    ) as parent:
+        with pytest.raises(ExecutionFailure, match="request_timeout"):
+            with execution.optional_model_budget(10):
+                # A synchronous transport may ignore its timeout; do not deliver late.
+                clock.now = 3
+        assert execution.CURRENT.get() is parent
+        with pytest.raises(ExecutionFailure, match="request_timeout"):
+            execution.checkpoint()
+
+
+@pytest.mark.parametrize(
+    "code",
+    ["provider_timeout", "provider_failure", "request_timeout", "invalid_response"],
+)
+def test_question_evaluator_records_execution_failure_and_continues(
+    code, monkeypatch, tmp_path
+):
+    import sys
+
+    from scripts import evaluate_agent_questions as evaluator
+
+    calls = []
+
+    class EvaluationAgent:
+        def __init__(self, *args):
+            pass
+
+        def answer(self, question, **kwargs):
+            calls.append(question)
+            if len(calls) == 1:
+                raise ExecutionFailure(code) from RuntimeError("private provider body")
+            return {
+                "answer": "Synthetic answer",
+                **{
+                    key: []
+                    for key in (
+                        "assumptions",
+                        "tables",
+                        "charts",
+                        "metric_definitions",
+                        "followups",
+                    )
+                },
+            }
+
+    monkeypatch.setattr(evaluator, "get_settings", _settings)
+    monkeypatch.setattr(evaluator, "BigQueryWarehouseRepository", lambda settings: None)
+    monkeypatch.setattr(evaluator, "StatsAgent", EvaluationAgent)
+    monkeypatch.setattr(
+        evaluator,
+        "_load_cases",
+        lambda path: [
+            {"id": "first", "question": "First"},
+            {"id": "second", "question": "Second"},
+        ],
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["evaluate_agent_questions.py", "--report-dir", str(tmp_path)]
+    )
+    assert evaluator.main() == 1
+    assert calls == ["First", "Second"]
+    report_text = next(tmp_path.glob("*.json")).read_text()
+    report = json.loads(report_text)
+    assert report["status"] == "failed"
+    assert report["cases"][0]["errors"] == [code]
+    assert report["cases"][1]["errors"] == []
+    assert "private provider body" not in report_text

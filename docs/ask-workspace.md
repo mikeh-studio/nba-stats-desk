@@ -610,6 +610,11 @@ Terminal traces distinguish `request_timeout`, `provider_timeout`,
 `provider_failure`, `invalid_plan`, and scope refusals. Legacy planner failures
 can still recover through its deterministic fallback; failed attempts remain
 counted and the final outcome describes the resulting answer. Optional chart
-selection can likewise fall back without failing an otherwise supported answer.
+selection gets one attempt within a separate budget of at most 10 seconds,
+reserving one second of the request budget for finalization. If that reserve is
+already reached, model selection is skipped. A timeout or provider failure falls
+back to a deterministic chart while the overall request deadline still applies.
+As with other stages, a blocking transport that ignores its timeout can still
+exhaust the overall deadline.
 HTTP/SSE provider failures keep the existing safe generic error response, while
 the server-generated request ID links to the private operational summary.
