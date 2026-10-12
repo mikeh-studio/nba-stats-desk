@@ -241,7 +241,7 @@ The concurrency guarantee relies on BigQuery's
 
 ## Ask endpoint regression and human review
 
-The Ask harness has 68 draft scenarios in `tests/fixtures/ask/cases.json` and
+The Ask harness has 100 draft scenarios in `tests/fixtures/ask/cases.json` and
 fictional statistics in `tests/fixtures/ask/source.json`. The schema validates
 case shape, IDs, structured assertions and review provenance. Expectations cover
 identity, phase/date scope, numeric tolerances, missingness, rendered values,
@@ -391,3 +391,53 @@ scenarios and a revised recent-period expectation. New numerical expectations
 remain pending review. Prior production captures, scored runs and exported human
 decisions are retained unchanged; a new offline replay can apply revised
 expectations to the same frozen facts without paid calls or warehouse access.
+
+
+### Expanded offline Ask coverage
+
+The default corpus contains **100 distinct scenarios and 24 linked paraphrases**.
+Reports show both denominators separately, plus per-family scores. Paraphrases
+inherit the parent oracle and do not increase the distinct-scenario count.
+The expanded cases include 10 conversation transitions/recovery scenarios,
+8 successful availability comparisons, 6 research/study answers, and 8
+statistical boundaries. Existing refusal scenarios remain in the corpus.
+
+Synthetic availability attachments distinguish positive participation, pregame
+Out plus no appearance, verified zero-minute nonparticipation, and unknown
+absence. Research cases verify filtered means, pooled percentages, totals,
+missing components, exact phase/dates, and a fictional frozen published estimate.
+The study estimates are predeclared contract fixtures, not a fitted or validated
+statistical study. Expected arithmetic and membership are documented beside each
+case and independently checked in `tests/test_ask_coverage.py`.
+
+The fixture server materializes attachments in a process-owned temporary folder
+and activates them only for cases that request them. No credentials, warehouse
+queries or paid calls are required. Controlled research/semantic plans establish
+adapter and evidence contracts; even paraphrase passes do **not** establish real
+model interpretation accuracy. New expectations remain pending human review.
+
+`evaluate_ask.py` permits up to 400 HTTP requests by default offline; live runs
+retain the 160-request default and require explicit model and call budgets.
+An explicit nonpositive `--max-requests` is rejected. Every turn is run through
+both actual JSON and SSE endpoints, with separate conversation IDs. Recovery
+cases explicitly evict server state and resend bounded browser context.
+
+Use the same new fixture adapter, corpus, source and grader when comparing a
+baseline application checkout with candidate code:
+
+```bash
+python scripts/evaluate_ask.py --code-root /path/to/baseline --label baseline \
+  --output reports/ask-harness/unique-baseline
+python scripts/evaluate_ask.py --label candidate \
+  --output reports/ask-harness/unique-candidate
+python -m scripts.ask_eval.review \
+  --baseline reports/ask-harness/unique-baseline/results.json \
+  --candidate reports/ask-harness/unique-candidate/results.json \
+  --output reports/ask-harness/unique-comparison.html
+```
+
+The populated browser suite covers availability group values and metric changes,
+research identity overrides, published-study uncertainty, and restored baseline
+context. Mutation tests reject wrong identity, scope, values, membership counts,
+and replacing unavailable values with zero or missing fields. These are offline
+endpoint/browser results; CI and deployment remain separate validation gates.

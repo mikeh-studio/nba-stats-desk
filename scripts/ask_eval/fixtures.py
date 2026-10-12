@@ -143,6 +143,10 @@ class ControlledModel:
             if plan is None:
                 raise ValueError("No controlled plan was declared for this turn")
             value = {"plan": plan}
+        elif name == "research_scope":
+            value = {"request": self.turn["research_response"]}
+        elif name == "teammate_study_answer":
+            value = self.turn["study_response"]
         elif name == "visualization_choice":
             values = kwargs["text"]["format"]["schema"]["properties"]["chart_id"][
                 "enum"
@@ -171,7 +175,11 @@ def validate_cases(document, schema):
     ids = [c["id"] for c in document["cases"]]
     if len(ids) != len(set(ids)):
         raise ValueError("Duplicate evaluation case IDs")
+    by_id = {c["id"]: c for c in document["cases"]}
     for case in document["cases"]:
+        parent = case.get("variant_of")
+        if parent and (parent not in by_id or by_id[parent].get("variant_of")):
+            raise ValueError("Paraphrase must reference a distinct scenario")
         for turn in case["turns"]:
             paths = [c["path"] for c in turn["checks"]]
             if len(paths) != len(set(paths)):
@@ -194,3 +202,26 @@ def load_inputs(root: Path, input_dir: Path | None = None):
 
         validate_production_source(source)
     return source, document
+
+
+def fixture_artifacts(source, directory):
+    """Materialize synthetic attachments in an evaluation-owned temporary directory.
+
+    Hashes are calculated over frozen inputs, not application-computed answers.
+    Production captures never use this adapter.
+    """
+    from app.agent.semantic_source import snapshot_digest
+    from app.research_snapshots import digest
+
+    paths = {}
+    for key in ("availability", "study"):
+        if key not in source:
+            continue
+        value = copy.deepcopy(source[key])
+        if key == "availability":
+            value["stats"]["sha256"] = snapshot_digest(value["stats"])
+            value["sha256"] = digest(value)
+        path = Path(directory) / (key + ".json")
+        path.write_text(json.dumps(value))
+        paths[key] = str(path)
+    return paths

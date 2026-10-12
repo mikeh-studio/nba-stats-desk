@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from app.main import app, get_agent_client, get_repository, get_settings  # noqa
 from fastapi import Request  # noqa: E402
 from scripts.ask_eval.fixtures import (  # noqa: E402
     ControlledModel,
+    fixture_artifacts,
     frozen_repository,
     load_inputs,
 )
@@ -33,9 +35,11 @@ source, document = load_inputs(
 )
 lookup = {c["id"]: c for c in document["cases"]}
 repositories = {}
+_artifact_directory = tempfile.TemporaryDirectory(prefix="ask-eval-fixtures-")
+_artifacts = fixture_artifacts(source, _artifact_directory.name)
 
 
-def settings():
+def settings(request: Request = None):
     # Settings() itself does not read the user's .env. No live source is used.
     base = Settings(
         project_id="fixture-project",
@@ -52,14 +56,23 @@ def settings():
     )
     if os.environ.get("ASK_EVAL_LIVE") == "1":
         live = get_settings()
-        return replace(
+        base = replace(
             base,
             openai_api_key=live.openai_api_key,
             anthropic_api_key=live.anthropic_api_key,
             openrouter_api_key=live.openrouter_api_key,
             openai_agent_max_retries=0,
         )
-    return base
+    attachments = case_for(request).get("attachments", []) if request else []
+    return replace(
+        base,
+        research_availability_path=_artifacts.get("availability")
+        if "availability" in attachments
+        else None,
+        agent_teammate_study_path=_artifacts.get("study")
+        if "study" in attachments
+        else None,
+    )
 
 
 # A global budget bounds attempted model calls across both endpoint transports.

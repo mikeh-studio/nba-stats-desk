@@ -552,3 +552,7 @@ Reference handlers own visualization selection and call no chart-selection model
 Unexpected source errors use the normal agent error response. Non-warehouse
 compatibility repositories retain other legacy workflows, but similarity and
 league references deliberately require a governed source and refuse when absent.
+
+Availability questions accept “how many points … average”; award lookups accept
+“Name the MVP winner” and “Who received MVP”. These wording variants preserve
+the same bounded scope checks; unsupported additional constraints still refuse.

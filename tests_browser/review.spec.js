@@ -106,3 +106,13 @@ for (const [checks, expected] of [
     await expect(page.locator('[data-review-guide]')).toContainText(expected);
   });
 }
+
+test('coverage separates distinct scenarios from paraphrase variants and exposes families', async ({ page }) => {
+  const expanded = { ...run, coverage: { distinct: {total: 100, passed: 100}, paraphrases: {total: 24, passed: 24} }, families: {'Availability success': {total: 8, passed: 8}} };
+  const body = fs.readFileSync('scripts/ask_eval/review.html','utf8').replace('/*__DATA__*/',JSON.stringify({baseline:expanded,candidate:expanded,source:{description:'Synthetic coverage fixture'}}));
+  await page.route('**/__coverage-review',route=>route.fulfill({contentType:'text/html',body}));
+  await page.goto('/__coverage-review');
+  await expect(page.locator('#coverage-summary')).toContainText('100/100 distinct scenarios passed; 24/24 paraphrase variants passed separately');
+  await expect(page.locator('#coverage-summary')).toContainText('Availability success');
+  await expect(page.locator('#stats .stat').first()).toContainText('100');
+});

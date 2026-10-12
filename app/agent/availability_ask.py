@@ -284,6 +284,8 @@ def parse_request(question, players, season, previous=None, teams=()):
         request["aggregation"] = "total"
     elif re.search(r"\b(?:averag\w*|per game)\b", text):
         request["aggregation"] = "average"
+    # "How many points" asks for a metric, not an additional sample filter.
+    text = re.sub(r"\bhow many\b", "how", text)
     # No leftover constraint may disappear into an ordinary season summary.
     allowed = r"\b(?:tell|me|how|did|does|do|was|is|were|has|been|play|played|perform|performed|performance|stats|statistics|when|while|with|without|out|absent|sidelined|unavailable|absence|being|missing|missed|sat|in|the|a|an|and|or|of|for|during|only|what|about|show|compare|compared|versus|vs|to|both|together|games|game|same|scope|now|instead|use|please|including|can|you|average|averages|averaged|per|total|totals)\b"
     leftover = re.sub(allowed, " ", text)

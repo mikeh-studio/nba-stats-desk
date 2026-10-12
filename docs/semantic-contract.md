@@ -175,3 +175,7 @@ interchangeable with the season-profile score.
 nonparticipation yields `not_applicable`, not an observed zero and not generic
 missing data. Catalog absence means unknown; round-specific statistics remain
 unsupported. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references).
+
+Availability questions accept “how many points … average”; award lookups accept
+“Name the MVP winner” and “Who received MVP”. These wording variants preserve
+the same bounded scope checks; unsupported additional constraints still refuse.

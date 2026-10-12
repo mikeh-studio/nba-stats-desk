@@ -3253,6 +3253,3802 @@
           ]
         }
       ]
+    },
+    {
+      "id": "availability_points",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Avery g0/g2 both: (0+4)/2=2; g1/g3/g5 nonparticipation: (2+6+10)/3=6; g4 unknown excluded.",
+      "turns": [
+        {
+          "question": "Avery Example points without Blair Sample in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "availability_assists",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Both assists (0+2)/2=1; absent (1+3+5)/3=3.",
+      "turns": [
+        {
+          "question": "Avery Example assists without Blair Sample in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "ast"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "availability_ratio",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Pooled FG: both 0/18=0; absent3/3=1; never mean per-game percentages.",
+      "turns": [
+        {
+          "question": "Avery Example FG% without Blair Sample in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "fg_pct"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 0
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "availability_dates",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Inclusive dates: both g2=4; absent g1/g3=(2+6)/2=4.",
+      "turns": [
+        {
+          "question": "Avery Example points without Blair Sample in 2024-25 from 2025-04-11 through 2025-04-13",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 4
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 4
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 2
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "availability_home",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "No both-played home games: value null, not zero. Absent g1/g3/g5 mean6.",
+      "turns": [
+        {
+          "question": "Avery Example points without Blair Sample in 2024-25 at home",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": null
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 0
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "availability_away",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "No verified absent away games; g4 unknown must not enter absent denominator.",
+      "turns": [
+        {
+          "question": "Avery Example points without Blair Sample in 2024-25 on the road",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": null
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 0
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "availability_total",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Totals: both 0+4=4; absent2+6+10=18.",
+      "turns": [
+        {
+          "question": "Avery Example total points without Blair Sample in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 4
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 18
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "availability_followup",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Metric followup preserves both identity roles and participation groups.",
+      "turns": [
+        {
+          "question": "Avery Example points without Blair Sample in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        },
+        {
+          "question": "What about assists?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "ast"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "research_home",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Home g1/g3/g5: (2+6+10)/3=6.",
+      "turns": [
+        {
+          "question": "Research Avery Example points at home in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "home"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 6
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "home",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "research_away_ratio",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Away makes0 attempts27 ->0%, sample3.",
+      "turns": [
+        {
+          "question": "Research Avery Example FG% on the road in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "fg_pct"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "away"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 0
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "fg_pct"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "away",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "research_dates",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Inclusive assists1+2+3 /3=2.",
+      "turns": [
+        {
+          "question": "Research Avery Example assists from 2025-04-11 to 2025-04-13 in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "ast"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": null
+            },
+            {
+              "path": "research_scope.start",
+              "equals": "2025-04-11"
+            },
+            {
+              "path": "research_scope.end",
+              "equals": "2025-04-13"
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 2
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "ast"
+              ],
+              "aggregation": "average",
+              "start": "2025-04-11",
+              "end": "2025-04-13",
+              "opponent": null,
+              "home_away": null,
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "research_playoffs",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Synthetic playoff points12+14 /2=13; never regular-season mean5.",
+      "turns": [
+        {
+          "question": "Research Avery Example points in 2024-25 playoffs",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Playoffs"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": null
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 13
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 2
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Playoffs",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": null,
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "research_total",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Home three appearances each4reb=12.",
+      "turns": [
+        {
+          "question": "Research Avery Example total rebounds at home in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "reb"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "home"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 12
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "reb"
+              ],
+              "aggregation": "total",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "home",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "research_published_study",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Frozen synthetic published estimate +1.50 Out minus played, interval[-2,5]; no model-fitted ground truth.",
+      "turns": [
+        {
+          "question": "Review the teammate study in 2024-25 from 2025-04-10 to 2025-04-15",
+          "checks": [
+            {
+              "path": "study_status",
+              "equals": "answered"
+            },
+            {
+              "path": "study_id",
+              "equals": "synthetic-assists-v1"
+            },
+            {
+              "path": "evidence_scope.focal_player_id",
+              "equals": 101
+            },
+            {
+              "path": "evidence_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "evidence_scope.metric",
+              "equals": "ast"
+            },
+            {
+              "path": "evidence_scope.start",
+              "equals": "2025-04-10"
+            },
+            {
+              "path": "evidence_scope.end",
+              "equals": "2025-04-15"
+            },
+            {
+              "path": "tables.0.rows.2.1",
+              "equals": "+1.50"
+            },
+            {
+              "path": "tables.0.rows.3.1",
+              "equals": "-2.00 to +5.00"
+            }
+          ],
+          "study_response": {
+            "focal_player_id": 101,
+            "teammate_id": 202,
+            "season": "2024-25",
+            "start": "2025-04-10",
+            "end": "2025-04-15",
+            "metric": "ast",
+            "scope_matches": true,
+            "answer": "The synthetic adjusted association is uncertain; it does not establish a causal effect."
+          }
+        }
+      ],
+      "attachments": [
+        "study"
+      ]
+    },
+    {
+      "id": "context_recent_to_baseline",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "New full baseline request replaces recent comparison.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in the last 5 games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 6
+            },
+            {
+              "path": "semantic_evidence.player.values.reb",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.player.values.ast",
+              "equals": 3
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.metrics_defaulted",
+              "equals": true
+            }
+          ]
+        },
+        {
+          "question": "Compare Avery Example points against league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "context_baseline_to_recent",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Full Blair request overrides prior Avery and league baseline.",
+      "turns": [
+        {
+          "question": "Compare Avery Example points against league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        },
+        {
+          "question": "Who is similar to Blair Sample in the last five games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 303
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 13
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "context_clarification_recovery",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Clarification supplies identity while preserving similarity intent.",
+      "turns": [
+        {
+          "question": "Who is similar in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        },
+        {
+          "question": "Avery Example",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 0.8
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "tables.0.rows.0.1",
+              "equals": "0.8000"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "context_clarification_replace",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "New full request replaces pending similarity clarification.",
+      "turns": [
+        {
+          "question": "Who is similar in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        },
+        {
+          "question": "Compare Avery Example points against league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "context_refusal_recovery",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Unsupported round does not erase last successful baseline scope.",
+      "turns": [
+        {
+          "question": "Compare Avery Example points against league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        },
+        {
+          "question": "How did Avery Example perform in the Finals in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "unsupported_scope"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        },
+        {
+          "question": "What about assists?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 2.5
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 3.8333333333333335,
+              "absolute_tolerance": 1e-09
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "ast",
+                "season": "2024-25",
+                "aggregation": "average",
+                "player_name": "resolved_player_101"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "context_phase_override",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Explicit Avery playoff baseline overrides conflicting client hint for Blair similarity; existing server context wins over recovered client state.",
+      "turns": [
+        {
+          "question": "Compare Avery Example points against league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        },
+        {
+          "question": "Compare Avery Example points against league average in 2024-25 playoffs",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Playoffs"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 13,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 14.333333333333334,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -1.333333333333334,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            }
+          ],
+          "client_context": {
+            "question": "Who is similar to Blair Sample in 2024-25?",
+            "players": [
+              {
+                "player_id": 202,
+                "player_name": "Blair Sample"
+              }
+            ],
+            "scope": {
+              "season": "2024-25",
+              "phases": [
+                "Regular Season"
+              ]
+            },
+            "reference_question": "Who is similar to Blair Sample in 2024-25?",
+            "metrics": [
+              "reb"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "context_season_override",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Unavailable explicit historical season must not inherit2024-25.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in the last 5 games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 6
+            },
+            {
+              "path": "semantic_evidence.player.values.reb",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.player.values.ast",
+              "equals": 3
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.metrics_defaulted",
+              "equals": true
+            }
+          ]
+        },
+        {
+          "question": "Who is similar to Avery Example in the last 5 games in 2023-24?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "unsupported_coverage"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "context_availability_to_reference",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Full profile query replaces availability predicate.",
+      "turns": [
+        {
+          "question": "Avery Example points without Blair Sample in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        },
+        {
+          "question": "Who is similar to Avery Example in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 0.8
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "tables.0.rows.0.1",
+              "equals": "0.8000"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ]
+    },
+    {
+      "id": "context_research_player_override",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Explicit Blair identity replaces Avery; Blair home11+13+15 /3=13.",
+      "turns": [
+        {
+          "question": "Research Avery Example points at home in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "home"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 6
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "home",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        },
+        {
+          "question": "Research Blair Sample points at home in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                202
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "home"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 13
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                202
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "home",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "context_restored_baseline",
+      "family": "Conversation coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "After server eviction, validated browser context must retain Avery league baseline.",
+      "turns": [
+        {
+          "question": "Compare Avery Example points against league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        },
+        {
+          "question": "What about assists?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 2.5
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 3.8333333333333335,
+              "absolute_tolerance": 1e-09
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "ast",
+                "season": "2024-25",
+                "aggregation": "average",
+                "player_name": "resolved_player_101"
+              }
+            ]
+          },
+          "reset_context": true,
+          "client_context": {
+            "question": "Compare Avery Example points against league average in 2024-25",
+            "players": [
+              {
+                "player_id": 101,
+                "player_name": "Avery Example"
+              }
+            ],
+            "scope": {
+              "season": "2024-25",
+              "phases": [
+                "Regular Season"
+              ]
+            },
+            "reference_question": "Compare Avery Example points against league average in 2024-25",
+            "metrics": [
+              "pts"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "boundary_recent_missing",
+      "family": "Statistical boundaries",
+      "source_variant": "missing_points",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Missing g0 points prevents complete6game anchor; no imputation.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in the last 6 games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "insufficient_sample"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boundary_recent_constant",
+      "family": "Statistical boundaries",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "All players rebounds4; zero variance contributes0distance, ties sort byID.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in rebounds over the last 2 games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "reb"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.reb",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boundary_recent_conflict",
+      "family": "Statistical boundaries",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Conflicting phases must not choose silently.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in last 5 regular season playoff games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "unsupported_scope"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boundary_recent_historical",
+      "family": "Statistical boundaries",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Unavailable historical source never replaced by selected season.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in last 5 games in 2022-23?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "unsupported_coverage"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boundary_baseline_zero_ratio",
+      "family": "Statistical boundaries",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "All FT attempts0 so both percentages and difference unavailable, not0.",
+      "turns": [
+        {
+          "question": "Compare Avery Example FT% against league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": null
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": null
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boundary_baseline_one_date",
+      "family": "Statistical boundaries",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Single inclusive day: players0,10,20 gives league10; observed zero retained.",
+      "turns": [
+        {
+          "question": "Compare Avery Example points against league average from 2025-04-10 through 2025-04-10 in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 0
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 10
+            },
+            {
+              "path": "semantic_evidence.scope.start_date",
+              "equals": "2025-04-10"
+            },
+            {
+              "path": "semantic_evidence.scope.window_end",
+              "equals": "2025-04-10"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "boundary_research_missing",
+      "family": "Statistical boundaries",
+      "source_variant": "missing_points",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Missing g0 points: remaining4+8 /2=6; observed3 valid2.",
+      "turns": [
+        {
+          "question": "Research Avery Example points on the road in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "away"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 6
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 2
+            },
+            {
+              "path": "research.players.0.metrics.0.result.observed_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "away",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ]
+    },
+    {
+      "id": "boundary_study_wrong_dates",
+      "family": "Statistical boundaries",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Frozen study date mismatch rejects estimates before planner.",
+      "turns": [
+        {
+          "question": "Review teammate study from 2025-04-11 to 2025-04-15 in 2024-25",
+          "checks": [
+            {
+              "path": "study_status",
+              "equals": "unavailable"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "study"
+      ]
+    },
+    {
+      "id": "paraphrase_similarity_1",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of similarity; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Show statistical profile similarity for Avery Example in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 0.8
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "tables.0.rows.0.1",
+              "equals": "0.8000"
+            }
+          ]
+        }
+      ],
+      "variant_of": "similarity"
+    },
+    {
+      "id": "paraphrase_similarity_2",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of similarity; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Which players are similar to Avery Example in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 0.8
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "tables.0.rows.0.1",
+              "equals": "0.8000"
+            }
+          ]
+        }
+      ],
+      "variant_of": "similarity"
+    },
+    {
+      "id": "paraphrase_similarity_3",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of similarity; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Find players similar to Avery Example in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 0.8
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "tables.0.rows.0.1",
+              "equals": "0.8000"
+            }
+          ]
+        }
+      ],
+      "variant_of": "similarity"
+    },
+    {
+      "id": "paraphrase_recent_similarity_default_1",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of recent_similarity_default; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example over the past five games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 6
+            },
+            {
+              "path": "semantic_evidence.player.values.reb",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.player.values.ast",
+              "equals": 3
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.metrics_defaulted",
+              "equals": true
+            }
+          ]
+        }
+      ],
+      "variant_of": "recent_similarity_default"
+    },
+    {
+      "id": "paraphrase_recent_similarity_default_2",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of recent_similarity_default; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Show players similar to Avery Example in last 5 games in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 6
+            },
+            {
+              "path": "semantic_evidence.player.values.reb",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.player.values.ast",
+              "equals": 3
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.metrics_defaulted",
+              "equals": true
+            }
+          ]
+        }
+      ],
+      "variant_of": "recent_similarity_default"
+    },
+    {
+      "id": "paraphrase_recent_similarity_default_3",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of recent_similarity_default; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "In 2024-25, who is similar to Avery Example over the last 5 games?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 6
+            },
+            {
+              "path": "semantic_evidence.player.values.reb",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.player.values.ast",
+              "equals": 3
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.metrics_defaulted",
+              "equals": true
+            }
+          ]
+        }
+      ],
+      "variant_of": "recent_similarity_default"
+    },
+    {
+      "id": "paraphrase_baseline_points_1",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of baseline_points; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Avery Example points versus league average in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        }
+      ],
+      "variant_of": "baseline_points"
+    },
+    {
+      "id": "paraphrase_baseline_points_2",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of baseline_points; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Compare points for Avery Example to the league baseline in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        }
+      ],
+      "variant_of": "baseline_points"
+    },
+    {
+      "id": "paraphrase_baseline_points_3",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of baseline_points; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "In 2024-25 compare Avery Example points against league average",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.player.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.baseline.value",
+              "equals": 11.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.difference",
+              "equals": -6.666666666666666,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "league_baseline"
+            },
+            {
+              "path": "semantic_evidence.baseline.observed_games",
+              "equals": 18
+            },
+            {
+              "path": "tables.0.rows.1.1",
+              "equals": "11.7 per game"
+            },
+            {
+              "path": "charts.0.series.0.points.1.y",
+              "equals": 11.7
+            }
+          ]
+        }
+      ],
+      "variant_of": "baseline_points"
+    },
+    {
+      "id": "paraphrase_availability_points_1",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of availability_points; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "When Blair Sample was out, how many points did Avery Example average in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ],
+      "variant_of": "availability_points"
+    },
+    {
+      "id": "paraphrase_availability_points_2",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of availability_points; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Show Avery Example points when Blair Sample was absent in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ],
+      "variant_of": "availability_points"
+    },
+    {
+      "id": "paraphrase_availability_points_3",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of availability_points; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Avery Example points while Blair Sample was out in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "pts"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ],
+      "variant_of": "availability_points"
+    },
+    {
+      "id": "paraphrase_research_home_1",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of research_home; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Research points for Avery Example at home during 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "home"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 6
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "home",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ],
+      "variant_of": "research_home"
+    },
+    {
+      "id": "paraphrase_research_home_2",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of research_home; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "In 2024-25 research Avery Example points at home",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "home"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 6
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "home",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ],
+      "variant_of": "research_home"
+    },
+    {
+      "id": "paraphrase_research_home_3",
+      "family": "Research success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of research_home; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Show a research breakdown of Avery Example points at home in 2024-25",
+          "checks": [
+            {
+              "path": "research_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "research_scope.phase",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "research_scope.player_ids",
+              "equals": [
+                101
+              ]
+            },
+            {
+              "path": "research_scope.metrics",
+              "equals": [
+                "pts"
+              ]
+            },
+            {
+              "path": "research_scope.home_away",
+              "equals": "home"
+            },
+            {
+              "path": "research_scope.start",
+              "equals": null
+            },
+            {
+              "path": "research_scope.end",
+              "equals": null
+            },
+            {
+              "path": "research.players.0.metrics.0.result.value",
+              "equals": 6
+            },
+            {
+              "path": "research.players.0.metrics.0.result.valid_games",
+              "equals": 3
+            }
+          ],
+          "research_response": {
+            "kind": "breakdown",
+            "query": {
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "player_ids": [
+                101
+              ],
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "start": null,
+              "end": null,
+              "opponent": null,
+              "home_away": "home",
+              "rest": null,
+              "teammate_id": null,
+              "teammate_status": null
+            },
+            "pair_id": null,
+            "message": ""
+          }
+        }
+      ],
+      "variant_of": "research_home"
+    },
+    {
+      "id": "paraphrase_finals_nickname_1",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Reviewed Steph Curry alias resolves to Stephen Curry in the public participation catalog; same no-participation evidence, no inferred zero.",
+      "turns": [
+        {
+          "question": "Steph Curry points in the 2025-26 Finals",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "not_applicable"
+            },
+            {
+              "path": "participation_evidence.player_id",
+              "equals": 201939
+            },
+            {
+              "path": "participation_evidence.participated",
+              "equals": false
+            },
+            {
+              "path": "participation_evidence.season",
+              "equals": "2025-26"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ],
+      "variant_of": "finals_known_nonparticipant"
+    },
+    {
+      "id": "paraphrase_points_mean_2",
+      "family": "Metrics",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of points_mean; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "In 2024-25 what was Avery Example average points?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts"
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "governed_metrics"
+            },
+            {
+              "path": "tables.0.rows.0.1",
+              "equals": "5.0"
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "pts",
+                "season": "2024-25",
+                "aggregation": "average",
+                "player_name": "resolved_player_101"
+              }
+            ]
+          }
+        }
+      ],
+      "variant_of": "points_mean"
+    },
+    {
+      "id": "paraphrase_points_mean_3",
+      "family": "Metrics",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of points_mean; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Tell me Avery Example points per game for 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts"
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "agent_plan.route",
+              "equals": "governed_metrics"
+            },
+            {
+              "path": "tables.0.rows.0.1",
+              "equals": "5.0"
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "pts",
+                "season": "2024-25",
+                "aggregation": "average",
+                "player_name": "resolved_player_101"
+              }
+            ]
+          }
+        }
+      ],
+      "variant_of": "points_mean"
+    },
+    {
+      "id": "paraphrase_award_mvp_1",
+      "family": "Awards and coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of award_mvp; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Who was the 2023-24 MVP?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "award_evidence.player_id",
+              "equals": 203999
+            },
+            {
+              "path": "award_evidence.season",
+              "equals": "2023-24"
+            }
+          ]
+        }
+      ],
+      "variant_of": "award_mvp"
+    },
+    {
+      "id": "paraphrase_award_mvp_2",
+      "family": "Awards and coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of award_mvp; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Name the MVP winner in 2023-24",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "award_evidence.player_id",
+              "equals": 203999
+            },
+            {
+              "path": "award_evidence.season",
+              "equals": "2023-24"
+            }
+          ]
+        }
+      ],
+      "variant_of": "award_mvp"
+    },
+    {
+      "id": "paraphrase_award_mvp_3",
+      "family": "Awards and coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Paraphrase of award_mvp; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Who received MVP for 2023-24?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "award_evidence.player_id",
+              "equals": 203999
+            },
+            {
+              "path": "award_evidence.season",
+              "equals": "2023-24"
+            }
+          ]
+        }
+      ],
+      "variant_of": "award_mvp"
+    },
+    {
+      "id": "paraphrase_availability_assists_1",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of availability_assists; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "Avery Example AST when Blair Sample was out in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "ast"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ],
+      "variant_of": "availability_assists"
+    },
+    {
+      "id": "paraphrase_availability_assists_2",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of availability_assists; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "What were Avery Example assists without Blair Sample in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "ast"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ],
+      "variant_of": "availability_assists"
+    },
+    {
+      "id": "paraphrase_availability_assists_3",
+      "family": "Availability success",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending"
+      },
+      "oracle_note": "Paraphrase of availability_assists; same independently specified expected evidence. Controlled plans do not measure real model language accuracy.",
+      "turns": [
+        {
+          "question": "When Blair Sample was absent, show Avery Example assists in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 202
+            },
+            {
+              "path": "availability_scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "availability_evidence.metrics.0.metric",
+              "equals": "ast"
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 3
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.groups.both_played.0.game_id",
+              "equals": "g0"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.2.game_id",
+              "equals": "g5"
+            }
+          ]
+        }
+      ],
+      "attachments": [
+        "availability"
+      ],
+      "variant_of": "availability_assists"
     }
   ]
 }
