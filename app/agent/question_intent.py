@@ -63,8 +63,8 @@ def round_scope_message(question: str) -> str | None:
         re.I,
     ):
         return (
-            "Finals and individual playoff rounds cannot be isolated with the connected data. "
-            "I cannot compare that series with earlier rounds or the regular season reliably. "
+            "Finals and individual playoff rounds cannot be isolated with the connected data, and I do not have a verified participation record for this request. "
+            "This is a coverage limitation, not a claim that the player did not participate. "
             "I can summarize the full playoff run or regular season if you request that scope."
         )
     return None

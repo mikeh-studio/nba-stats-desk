@@ -241,7 +241,7 @@ The concurrency guarantee relies on BigQuery's
 
 ## Ask endpoint regression and human review
 
-The Ask harness has 61 draft scenarios in `tests/fixtures/ask/cases.json` and
+The Ask harness has 68 draft scenarios in `tests/fixtures/ask/cases.json` and
 fictional statistics in `tests/fixtures/ask/source.json`. The schema validates
 case shape, IDs, structured assertions and review provenance. Expectations cover
 identity, phase/date scope, numeric tolerances, missingness, rendered values,
@@ -291,9 +291,18 @@ require identical prose. These runs have not been implied by offline CI success.
 
 The self-contained HTML shows questions, expected/baseline/candidate values,
 answers, tables, complete responses, source inputs, hashes and limitations. It
-supports filtering, named review decisions and a JSON export. Decisions are stored
+supports filtering, review decisions and a JSON export. Decisions are stored
 in browser storage under the source/case/candidate hashes. Serve locally for stable
-storage, and retain the exported file privately. Reviewer decisions do not change
+storage, and retain the exported file privately. Saving requires an explicit
+approval/revision decision; reviewer name and notes are optional. Each case lists
+what needs human judgment: question/identity/scope alignment, the expected
+calculation or justified refusal, and evidence-grounded wording. Follow-ups,
+league populations, and published similarity scores have specific guidance.
+Approval covers both the expectation and candidate answer; the old baseline is
+comparison context, not an additional answer to approve. Feedback beside the Save decision
+button confirms local persistence or warns that browser storage failed; in that
+case, export before closing to preserve the in-memory decisions. Pending review
+is not a completed decision. Reviewer decisions do not change
 automated scores. Cases remain pending until a human approves them; passing the
 suite does not make it a human-reviewed benchmark.
 
@@ -306,7 +315,8 @@ npm run test:ask-browser
 ```
 
 They check populated baseline values/charts, follow-up scope after reload,
-clarification, and narrow-screen similarity tables. The test server uses the local
+clarification, narrow-screen similarity tables, recent comparisons, verified
+nonparticipation, methodology navigation, and human-review save/export behavior. The test server uses the local
 `.venv-app` when present, otherwise `python`. Generated artifacts stay in ignored
 `reports/`. Test infrastructure is separate from the public application; never
 serve the fixture server remotely or deploy it as the app entry point.
@@ -374,3 +384,10 @@ reference error wrapping, and zero SDK retries in both Claude/OpenRouter adapter
 The production snapshot run above used the earlier `league_baseline/1` contract;
 its saved artifacts are immutable and are not relabeled as a live test of version 2.
 No new paid run is implied by these offline fixes.
+
+
+The next revision incorporates human feedback with seven additional synthetic
+scenarios and a revised recent-period expectation. New numerical expectations
+remain pending review. Prior production captures, scored runs and exported human
+decisions are retained unchanged; a new offline replay can apply revised
+expectations to the same frozen facts without paid calls or warehouse access.

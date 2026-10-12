@@ -260,9 +260,10 @@
       <article class="card">
         <div class="card-header">
           <div>
-            <h2>Similar</h2>
+            <h2>Statistical Profile Similarity</h2>
+            <p class="meta">Measured profile matches, not equivalent playing style. <a href="/similarity-methodology?season={{ season }}">How features and models are chosen</a></p>
             {% if player_detail.similarity_model_evaluation.recommended_model_key %}
-              <p class="meta">Selected model: {{ player_detail.similarity_model_evaluation.recommended_model_key }}</p>
+              <p class="meta">Selected grouping model: {{ player_detail.similarity_model_evaluation.recommended_model_key }}</p>
             {% endif %}
           </div>
         </div>
@@ -308,7 +309,7 @@
                       <p class="meta">{{ item.team_abbr }} · {{ item.archetype_label }}</p>
                     </div>
                   </div>
-                  <span class="status">Similarity {{ item.similarity_score }}</span>
+                  <span class="status">Profile similarity score {{ item.similarity_score }}</span>
                 </div>
                 <div class="chip-row">
                   {% for trait in item.shared_traits %}
@@ -325,7 +326,7 @@
         {% else %}
           <div class="empty-state">
             <strong>Similar-player matches are unavailable.</strong>
-            <p class="meta">{{ player_detail.similarity_reason or "The similarity model does not have a stable profile for this player yet." }}</p>
+            <p class="meta">{{ player_detail.similarity_reason or "Statistical Profile Similarity does not have a published profile for this player yet." }}</p>
           </div>
         {% endif %}
       </article>

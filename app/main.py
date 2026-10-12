@@ -71,7 +71,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261009-ask-harness-v1"
+STATIC_VERSION = "20261011-statistical-profile-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -1289,13 +1289,29 @@ def api_similarity_map_neighbors(
     return repo.get_similarity_neighbors(player_id, limit=limit)
 
 
+@app.get("/similarity-methodology", response_class=HTMLResponse)
+def similarity_methodology_page(request: Request) -> HTMLResponse:
+    from app.repository import SIMILARITY_FEATURE_COLUMNS
+
+    return templates.TemplateResponse(
+        request,
+        "similarity_methodology.html",
+        {
+            "request": request,
+            "season": current_season(),
+            "page_title": "Statistical Profile Similarity — Methodology",
+            "similarity_features": SIMILARITY_FEATURE_COLUMNS,
+        },
+    )
+
+
 @app.get("/similarity-map", response_class=HTMLResponse)
 def similarity_map_page(
     request: Request,
 ) -> HTMLResponse:
     context = {
         "request": request,
-        "page_title": "Archetypes",
+        "page_title": "Statistical Profile Similarity",
         "season": current_season(),
     }
     return templates.TemplateResponse(request, "similarity_map.html", context)

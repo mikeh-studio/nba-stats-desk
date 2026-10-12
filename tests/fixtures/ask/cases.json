@@ -1757,25 +1757,52 @@
         "status": "pending",
         "reviewer": null
       },
-      "oracle_note": "A season publication cannot answer a last-two-game similarity query.",
+      "oracle_note": "Recent comparisons now use complete last-N appearance averages, separate from published season profiles. Avery last two points: (8 + 10) / 2 = 9. Human review pending.",
       "turns": [
         {
           "question": "Who is similar to Avery Example in the last 2 games in 2024-25?",
           "checks": [
             {
               "path": "status",
-              "equals": "unsupported_scope"
+              "equals": "ok"
             },
             {
-              "path": "tables",
-              "equals": []
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 2
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 2
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 9
             }
-          ],
-          "planner_response": {
-            "status": "unsupported",
-            "message": "Custom similarity periods are unavailable.",
-            "queries": []
-          }
+          ]
         }
       ]
     },
@@ -2874,6 +2901,350 @@
             {
               "path": "status",
               "equals": "clarification_required"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recent_similarity_default",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Avery last five: PTS 30/5=6, REB 20/5=4, AST 15/5=3. Equal standardized PTS/REB/AST distance ranks Blair closest. Draft expectation.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in the last 5 games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 6
+            },
+            {
+              "path": "semantic_evidence.player.values.reb",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.player.values.ast",
+              "equals": 3
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.metrics_defaulted",
+              "equals": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recent_similarity_other_player",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "The same default applies to every player. Blair last-five PTS=13; Casey is closest. Draft expectation.",
+      "turns": [
+        {
+          "question": "Who is similar to Blair Sample in the last five games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 303
+            },
+            {
+              "path": "semantic_evidence.player.values.pts",
+              "equals": 13
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recent_similarity_metric",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "All fixture players average four rebounds; zero-variance distances are zero and ties order by player ID.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in rebounds over the last 5 games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "reb"
+              ]
+            },
+            {
+              "path": "semantic_evidence.metrics_defaulted",
+              "equals": false
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recent_similarity_followup",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "An explicit metric follow-up changes metrics while preserving player/season/window.",
+      "turns": [
+        {
+          "question": "Who is similar to Blair Sample in the last 5 games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.kind",
+              "equals": "recent_statistical_similarity"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2024-25"
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.player.games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "pts",
+                "reb",
+                "ast"
+              ]
+            }
+          ]
+        },
+        {
+          "question": "What about assists?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.scope.n",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.metrics",
+              "equals": [
+                "ast"
+              ]
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 303
+            },
+            {
+              "path": "semantic_evidence.rows.0.similarity_score",
+              "equals": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recent_similarity_filter",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Unsupported home restriction must not be dropped.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in the last 5 games at home in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "unsupported_scope"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "recent_similarity_short",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Only two playoff appearances exist per player; do not rank a partial five-game sample.",
+      "turns": [
+        {
+          "question": "Who is similar to Avery Example in the last 5 playoff games in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "insufficient_sample"
+            },
+            {
+              "path": "tables",
+              "equals": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "finals_known_nonparticipant",
+      "family": "References",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Verified NBA elimination report in participation catalog. This case uses public reference evidence, not fictional statistics; do not manufacture zero Finals points.",
+      "turns": [
+        {
+          "question": "Stephen Curry points in the 2025-26 Finals",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "not_applicable"
+            },
+            {
+              "path": "participation_evidence.player_id",
+              "equals": 201939
+            },
+            {
+              "path": "participation_evidence.participated",
+              "equals": false
+            },
+            {
+              "path": "participation_evidence.season",
+              "equals": "2025-26"
             },
             {
               "path": "tables",
