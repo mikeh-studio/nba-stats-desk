@@ -69,7 +69,9 @@ def evaluate(
                             endpoint + "?season=" + season, json=body, headers=headers
                         )
                         status = response.status_code
-                        if mode == "json":
+                        # Dependency failures are JSON even for the SSE endpoint.
+                        # Preserve the explicit capability error in both raw results.
+                        if mode == "json" or status != 200:
                             payload = response.json()
                         else:
                             for block in response.text.replace("\r\n", "\n").split(

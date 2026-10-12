@@ -19,10 +19,11 @@ if os.environ.get("ASK_EVAL_LIVE") == "1":
 
 from app.config import Settings  # noqa: E402
 from app.main import app, get_agent_client, get_repository, get_settings  # noqa: E402
-from fastapi import Request  # noqa: E402
+from fastapi import HTTPException, Request  # noqa: E402
 from scripts.ask_eval.fixtures import (  # noqa: E402
     ControlledModel,
-    fixture_artifacts,
+    FixtureAttachments,
+    FixtureCapabilityError,
     frozen_repository,
     load_inputs,
 )
@@ -36,7 +37,8 @@ source, document = load_inputs(
 lookup = {c["id"]: c for c in document["cases"]}
 repositories = {}
 _artifact_directory = tempfile.TemporaryDirectory(prefix="ask-eval-fixtures-")
-_artifacts = fixture_artifacts(source, _artifact_directory.name)
+_attachments = FixtureAttachments(source, _artifact_directory.name)
+_capability_failures = {}
 
 
 def settings(request: Request = None):
@@ -64,15 +66,13 @@ def settings(request: Request = None):
             openai_agent_max_retries=0,
         )
     attachments = case_for(request).get("attachments", []) if request else []
-    return replace(
-        base,
-        research_availability_path=_artifacts.get("availability")
-        if "availability" in attachments
-        else None,
-        agent_teammate_study_path=_artifacts.get("study")
-        if "study" in attachments
-        else None,
-    )
+    try:
+        return _attachments.configure(base, attachments)
+    except FixtureCapabilityError as exc:
+        _capability_failures[case_for(request)["id"]] = exc.detail
+        # This is a harness capability failure, not an application answer or pass.
+        # Stop before executing Ask or falling back to live sources.
+        raise HTTPException(status_code=501, detail=exc.detail) from exc
 
 
 # A global budget bounds attempted model calls across both endpoint transports.
@@ -101,6 +101,7 @@ if os.environ.get("ASK_EVAL_LIVE") == "1":
 @app.get("/__eval/metadata")
 def evaluation_metadata():
     return {
+        "fixture_capability_failures": dict(_capability_failures),
         "model_calls": budget.calls,
         "source_kind": source.get("source_kind", "synthetic"),
         "model_usage": budget.records,

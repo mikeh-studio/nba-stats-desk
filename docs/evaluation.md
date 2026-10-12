@@ -441,3 +441,20 @@ research identity overrides, published-study uncertainty, and restored baseline
 context. Mutation tests reject wrong identity, scope, values, membership counts,
 and replacing unavailable values with zero or missing fields. These are offline
 endpoint/browser results; CI and deployment remain separate validation gates.
+
+### Baseline attachment capabilities
+
+Frozen attachments are configured lazily per case. An older application's
+settings need no availability/study fields or attachment digest modules to run
+attachment-free cases. Only the explicitly requested attachment is materialized;
+study-only cases do not import availability dependencies, and attachment paths do
+not carry into later cases.
+
+When a case requests an attachment unsupported by the selected application
+revision, the evaluation server returns HTTP 501 with
+`evaluation_fixture_capability_unavailable` and an explicit attachment/reason.
+That case fails rather than passing, being skipped, or using another data source.
+The runner retains this JSON error for both JSON and SSE requests, records the
+HTTP failure, and continues evaluating unaffected cases. Runtime metadata lists
+these capability failures separately from ordinary contract mismatches. A missing
+frozen attachment also fails closed; it never enables live warehouse fallback.
