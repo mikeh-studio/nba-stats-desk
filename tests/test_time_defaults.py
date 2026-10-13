@@ -112,3 +112,58 @@ def test_metric_calendar_scope_respects_explicit_asof(phrase, start, end):
     hints = explicit_scope(f"Klay points {phrase} as of 2025-01-15")
     assert hints["start_date"] == start
     assert hints["as_of"] == end
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        ("Klay performance in May in the 2025 playoffs", "May 2025"),
+        ("Klay performance in November of the 2024-25 season", "November 2024"),
+    ],
+)
+def test_month_year_uses_explicit_season_before_conversation(question, expected):
+    resolved, _, _ = resolve_time_defaults(
+        question, date(2026, 10, 12), {"scope": {"season": "2025-26"}}
+    )
+    assert expected in resolved
+    scoped = overview_scope(resolved, "2025-26", date(2026, 10, 12))
+    assert str(scoped["start"]).startswith(
+        "2025-05" if "May" in expected else "2024-11"
+    )
+
+
+def test_month_after_multiseason_context_uses_latest_occurrence():
+    resolved, _, _ = resolve_time_defaults(
+        "What about January?",
+        date(2026, 10, 12),
+        {
+            "scope": {
+                "season": "2025-26",
+                "seasons": ["2024-25", "2025-26"],
+                "end": "2026-10-12",
+            }
+        },
+    )
+    assert resolved == "What about January 2026?"
+
+
+@pytest.mark.parametrize("phrase", ["this year", "2024-25", "recently"])
+def test_overview_asof_within_season_caps_the_period(phrase):
+    scoped = overview_scope(
+        f"Klay performance {phrase} as of 2025-03-01", "2025-26", date(2026, 10, 12)
+    )
+    assert scoped["start"] == date(2024, 7, 1)
+    assert scoped["end"] == date(2025, 3, 1)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Compare Klay points in November 2025 vs December 2025",
+        "Klay points since March 2025",
+    ],
+)
+def test_complex_calendar_metric_requests_are_left_to_planner(question):
+    from app.agent.semantic_planner import explicit_scope
+
+    assert "window" not in explicit_scope(question)

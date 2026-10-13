@@ -86,14 +86,25 @@ def resolve_time_defaults(question, today=None, context=None):
         m = months[0]
         if not re.match(r"\.?\s+20\d{2}\b", question[m.end() :]):
             month = MONTHS[m[1].lower()]
-            season = (context.get("scope") or {}).get("season")
-            seasons = (context.get("scope") or {}).get("seasons") or []
-            if not season and len(seasons) == 1:
-                season = seasons[0]
-            if not season and (context.get("scope") or {}).get("end"):
-                end = date.fromisoformat(context["scope"]["end"])
-                start_year = end.year - (end.month < 7)
-                season = f"{start_year}-{(start_year + 1) % 100:02}"
+            explicit_seasons = {
+                f"{m[1]}-{m[2][-2:]}"
+                for m in re.finditer(
+                    r"\b(20\d{2})[-–/](20\d{2}|\d{2})\b(?![-/–]\d)", question
+                )
+            }
+            explicit_seasons.update(
+                f"{int(m[1]) - 1}-{m[1][-2:]}"
+                for m in re.finditer(
+                    r"\b(20\d{2})\s+(?:playoffs?|postseason)\b", question, re.I
+                )
+            )
+            if len(explicit_seasons) > 1:
+                return question, notes, alternatives
+            scope = context.get("scope") or {}
+            seasons = scope.get("seasons") or []
+            season = next(iter(explicit_seasons), None)
+            if not season and len(seasons) <= 1:
+                season = seasons[0] if seasons else scope.get("season")
             year = (
                 int(season[:4]) + (month < 7)
                 if season

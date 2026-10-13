@@ -945,3 +945,16 @@ def test_recent_playoffs_compare_previous_playoff_appearances(evidence):
     assert points["previous"]["value"] == 5.5
     assert points["previous"]["valid_games"] == 10
     assert points["display_change"] == 10
+
+
+@pytest.mark.parametrize(
+    "profile,word,abbreviation",
+    [("scoring", "three-pointers made", "3pm"), ("playmaking", "turnovers", "tov")],
+)
+def test_focused_prose_uses_statistic_names(evidence, profile, word, abbreviation):
+    payload = build_overview(
+        f"Player 1 {profile} performance", evidence, source_players(evidence), scope()
+    )
+    first = payload["semantic_evidence"]["summary_paragraphs"][0]
+    assert word in first
+    assert abbreviation not in first

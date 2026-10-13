@@ -19,8 +19,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-distributions-v2";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261012-ask-distributions-v2";
+} from "./ask_presentation.js?v=20261012-ask-distributions-v3";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261012-ask-distributions-v3";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")

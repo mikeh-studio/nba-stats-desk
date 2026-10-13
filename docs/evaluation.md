@@ -570,3 +570,13 @@ zero attempts, partial samples, short samples, and absence of best-percentile
 headline selection. Browser tests verify primary row counts, sample notes,
 expandable details, saved-state recovery and narrow scoring results. These checks
 use frozen observations and controlled models, not live-model accuracy tests.
+
+
+`tests/test_ask_review_scope.py` verifies inferred scalar metric dates at both
+actual JSON and SSE endpoints using independently expected synthetic values.
+Calendar-year/rolling-year cases combine two season archives; historical months
+use the proper archive; missing archives and conflicting named seasons withhold
+results. Controlled planner cases preserve month comparisons and since-month
+ranges. Time-default tests cover explicit-season month inference, multi-season
+follow-ups and within-season as-of anchors. Browser/JavaScript checks retain
+compact table dimensions while verifying announced distribution ranks/statuses.

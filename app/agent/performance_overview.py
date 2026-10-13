@@ -127,8 +127,21 @@ def overview_scope(question, selected_season, today=None):
                 "clarification_required",
                 "For a combined overview, please specify the start and end dates.",
             )
-        start, end = season_bounds(named[0] if named else selected_season)
-        end = min(end, today)
+        season = named[0] if named else selected_season
+        if recent and as_of and not named:
+            candidates = [
+                s
+                for s in SEASONS
+                if season_bounds(s)[0] <= date.fromisoformat(as_of[1])
+            ]
+            if not candidates:
+                raise SemanticError(
+                    "unsupported_coverage",
+                    "The as-of date precedes available archives.",
+                )
+            season = candidates[0]
+        start, end = season_bounds(season)
+        end = min(end, today, date.fromisoformat(as_of[1]) if as_of else today)
     named_seasons = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
     if calendar_scope and any(
         start < season_bounds(season)[0] or end > season_bounds(season)[1]

@@ -60,8 +60,9 @@ def summary_paragraphs(
         "contribution": ("ast", "reb", "tov"),
         "scoring": ("pts", "fg3m"),
     }.get(profile, ("pts", "ast"))
+    prose_names = {"fg3m": "three-pointers made", "tov": "turnovers"}
     production = [
-        f"{m['value']:.1f} {m['label'].lower()}"
+        f"{m['value']:.1f} {prose_names.get(m['key'], m['label'].lower())}"
         for m in (by_key.get(k, {}) for k in lead_keys)
         if complete(m)
     ]

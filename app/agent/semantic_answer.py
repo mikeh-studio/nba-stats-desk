@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import replace
+from datetime import date, timedelta
 from time import monotonic
 from typing import Any
 
@@ -38,6 +39,7 @@ from app.agent.semantic_serving import (
     load_available_season,
     requested_seasons,
     season_candidates,
+    seasons_in_dates,
     source_players,
 )
 from app.agent.semantics import Query, SemanticError, run_query
@@ -605,6 +607,56 @@ class SemanticAsk:
                 seasons = split_seasons(question, self.settings.season)
             if inherited.get("seasons") and not overview:
                 seasons = [s for s in inherited["seasons"] if s]
+            metric_window = {}
+            named_seasons = bool(
+                re.search(r"\b20\d{2}[-–/](?:20\d{2}|\d{2})\b(?![-/–]\d)", question)
+            )
+
+            def window_seasons(start, end):
+                covered = seasons_in_dates(start, end)
+                inherited_order = [
+                    s for s in inherited.get("seasons", []) if s in covered
+                ]
+                covered = inherited_order + [
+                    s for s in covered if s not in inherited_order
+                ]
+                if named_seasons and not set(covered).issubset(
+                    requested_seasons(question, self.settings.season)
+                ):
+                    raise SemanticError(
+                        "clarification_required",
+                        "The dates conflict with the named season. Please choose one scope.",
+                    )
+                return covered
+
+            if not overview and not split:
+                metric_window = explicit_scope(question)
+                if metric_window.get("window") == "last_n_months" and any(
+                    "rolling" in note for note in time_assumptions
+                ):
+                    from app.agent.overview_calendar import shift_months
+
+                    anchor_match = re.search(
+                        r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I
+                    )
+                    anchor = (
+                        date.fromisoformat(anchor_match[1])
+                        if anchor_match
+                        else date.today()
+                    )
+                    metric_window = {
+                        **metric_window,
+                        "window": "date_range",
+                        "start_date": (
+                            shift_months(anchor, metric_window["n"]) + timedelta(days=1)
+                        ).isoformat(),
+                        "as_of": anchor.isoformat(),
+                        "n": None,
+                    }
+                if metric_window.get("window") == "date_range":
+                    seasons = window_seasons(
+                        metric_window["start_date"], metric_window["as_of"]
+                    )
             allow_fallback = (
                 not has_time_scope(question) and not inherited and not pending
             )
@@ -766,8 +818,28 @@ class SemanticAsk:
                     plan, inherited.get("excluded_player_ids", []), players
                 )
                 for query in plan.get("queries", []):
-                    if inherited.get("seasons") and query.get("window") == "date_range":
-                        query["seasons"] = seasons
+                    if metric_window.get("window") == "date_range":
+                        query.update(metric_window)
+                    if query.get("window") == "date_range":
+                        # Fresh metric requests need the same full-window coverage as
+                        # inherited ones. Missing required archives must fail closed.
+                        end = query.get("as_of") or max(
+                            (
+                                str(r["game_date"])
+                                for r in evidence.rows
+                                if r["season"] == query["season"]
+                                and (
+                                    query.get("season_type", "Regular Season") == "Both"
+                                    or r["season_type"]
+                                    == query.get("season_type", "Regular Season")
+                                )
+                            ),
+                            default=date.today().isoformat(),
+                        )
+                        query["seasons"] = window_seasons(query.get("start_date"), end)
+                        query["as_of"] = end
+                        if query.get("season") not in query["seasons"]:
+                            query["season"] = query["seasons"][0]
                     if inherited.get("excluded_player_ids"):
                         if query.get("operation") != "rank":
                             raise SemanticError(
@@ -776,6 +848,31 @@ class SemanticAsk:
                             )
                         query["player_name"] = None
                         query["excluded_player_ids"] = inherited["excluded_player_ids"]
+                required_seasons = sorted(
+                    set(seasons).union(
+                        s
+                        for q in plan.get("queries", [])
+                        if q.get("window") == "date_range"
+                        for s in q["seasons"]
+                    ),
+                    reverse=True,
+                )
+                if required_seasons and not set(required_seasons).issubset(seasons):
+                    snapshot, evidence = self.warehouse.load(required_seasons)
+                    seasons = required_seasons
+                    players = (
+                        self.warehouse.players(evidence)
+                        if hasattr(self.warehouse, "players")
+                        else source_players(evidence)
+                    )
+                    if selected_player:
+                        players = [
+                            p
+                            for p in players
+                            if p["player_id"] == selected_player["player_id"]
+                            or p["player_name"].casefold()
+                            != selected_player["player_name"].casefold()
+                        ]
                 result = execute_plan(plan, evidence, players)
                 # Reuse the validated scope plan; only the default season changes.
                 # No additional model calls, threshold relaxation, or date changes.

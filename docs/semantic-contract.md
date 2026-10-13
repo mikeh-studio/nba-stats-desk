@@ -233,3 +233,16 @@ on phones. The initial view is Among players; Across games is a second toggle.
 Escape/close return focus to the originating metric. The TS% calculation tooltip
 remains separate. Saved responses without distribution evidence retain their
 existing controls and values; the browser never reconstructs distributions.
+
+
+## Calendar metric archive binding
+
+A fresh resolved metric date range binds all overlapping supported seasons to
+`Query.seasons`, with the same explicit dates in the evidence and renderer.
+Required archives are loaded before calculation; an unavailable archive cannot
+be replaced by a partial-period value. Explicit named seasons constrain dates,
+and inherited season ordering/identity remain intact. Resolved rolling-year
+phrases use request/as-of anchored dates; existing source-anchored numeric-month
+queries keep their established window rules. Month comparisons retain separate
+validated per-query periods and load their required archive union. Source loads
+remain bounded to the supported archive allowlist.

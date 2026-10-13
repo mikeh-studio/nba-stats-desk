@@ -20,7 +20,7 @@ test('empty and identical distributions render without invalid coordinates',()=>
 });
 test('distribution controls do not add table rows or alter saved answers without evidence',()=>{
  const m=metric();const p={player_profile:{player:{player_name:'Klay'}},semantic_evidence:{scope:{start:'2025-01-01',end:'2025-01-31',previous_start:'2024-12-01',previous_end:'2024-12-31',phases:['Regular Season']},metrics:[m],presentation:{primary_keys:['ft_pct']}}};
- const html=overviewMetricsTable(overviewPresentation(p));assert.match(html,/aria-label="FT% distribution"/);
+ const html=overviewMetricsTable(overviewPresentation(p));assert.match(html,/aria-label="FT% distribution: Low attempts"/);
  delete m.distribution;assert.doesNotMatch(overviewMetricsTable(overviewPresentation(p)),/data-metric-distribution/);
 });
 

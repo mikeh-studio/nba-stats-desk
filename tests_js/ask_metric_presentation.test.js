@@ -87,3 +87,15 @@ test('new general policy renders eleven rows with percentages last, saved policy
  assert.match(html,/50 FTA for FT%/);
  assert.match(overviewMetricsTable(overviewPresentation(payload())),/Saved ranking policy/);
 });
+
+
+test('distribution buttons announce percentile or qualification and descriptive policy',()=>{
+ const p=payload();const m=p.semantic_evidence.metrics[0];
+ Object.assign(m,{percentile:75,percentile_status:'ranked',percentile_note:'Complete appearances, descriptive rank',distribution:{}});
+ let html=overviewMetricsTable(overviewPresentation(p));
+ assert.match(html,/aria-label="PTS distribution: 75th percentile"/);
+ assert.match(html,/aria-description="Complete appearances, descriptive rank"/);
+ Object.assign(m,{percentile:null,percentile_label:'Low attempts'});
+ html=overviewMetricsTable(overviewPresentation(p));
+ assert.match(html,/aria-label="PTS distribution: Low attempts"/);
+});

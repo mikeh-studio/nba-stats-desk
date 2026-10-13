@@ -117,7 +117,8 @@ export function overviewMetricsTable(overview) {
     const delta = number(change);
     const limited = m.sample?.status === 'limited';
     const rankMarkup = rank(m);
-    const rankControl = m.distribution ? `<button type="button" class="metric-distribution" data-metric-distribution="${escape(m.key)}" aria-label="${escape(metricAbbreviation(m))} distribution">${rankMarkup}</button>` : rankMarkup;
+    const rankName = finite(m.percentile) && !limited ? `${ordinal(m.percentile)} percentile` : m.percentile_label || 'Not ranked';
+    const rankControl = m.distribution ? `<button type="button" class="metric-distribution" data-metric-distribution="${escape(m.key)}" aria-label="${escape(metricAbbreviation(m))} distribution: ${escape(rankName)}" aria-description="${escape(m.percentile_note || '')}">${rankMarkup}</button>` : rankMarkup;
     return `<tr data-metric-key="${escape(m.key)}"><th scope="row">${metricLabel(m, `metric-help-${instance}-${group}-${index}`)}</th><td aria-label="${escape(value === null ? 'Unavailable' : `${value} ${unit}`)}">${value === null ? unavailable() : value + suffix}${limited ? ' <span class="metric-status">Limited</span>' : ''}</td><td>${rankControl}</td><td class="${changeClass(m, change)}" aria-label="${escape(delta === null ? 'Comparison unavailable' : `${delta} ${changeUnit}`)}">${delta === null ? unavailable('Comparison unavailable') : `${change >= 0.05 ? '+' : ''}${delta}${changeSuffix}`}</td></tr>`;
   };
   const table = (metrics, label) => `<div class="table-scroll"><table class="overview-table compact-metrics"><caption class="sr-only">${escape(label)}</caption><thead><tr><th scope="col">Stat</th><th scope="col">Average</th><th scope="col">Percentile</th><th scope="col">Change</th></tr></thead><tbody>${metrics.map((m,index)=>row(m,index,label.replaceAll(' ','-'))).join('')}</tbody></table></div>`;

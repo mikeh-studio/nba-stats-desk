@@ -338,7 +338,8 @@ for (const width of [1280,390]) {
     await submit(page,'How did Avery Example perform in April 2025?');
     let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
     const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
-    const trigger=page.getByRole('button',{name:'PTS distribution',exact:true}).first();
+    const trigger=page.getByRole('button',{name:/^PTS distribution:/}).first();
+    await expect(trigger).toHaveAccessibleName(/PTS distribution: \d+(?:st|nd|rd|th) percentile/);
     await trigger.click();
     const drawer=page.getByRole('dialog');
     await expect(drawer).toBeVisible();await expect(drawer).toContainText('Among players');await expect(drawer).toContainText('League median');
@@ -356,11 +357,11 @@ for (const width of [1280,390]) {
     await page.screenshot({path:`reports/ask-harness/browser-artifacts/drawer-${width}-games.png`});
     await page.keyboard.press('Escape');await expect(drawer).not.toBeVisible();await expect(trigger).toBeFocused();
     expect((await table.boundingBox()).height).toBeCloseTo(height,1);expect(requests).toBe(0);
-    await page.getByRole('button',{name:'FT% distribution',exact:true}).first().click();
+    await page.getByRole('button',{name:/^FT% distribution:/}).first().click();
     await expect(drawer).toContainText(/Not included in the qualified cohort|no marker comparison is shown/);
     await drawer.getByRole('button',{name:'Close metric details',exact:true}).click();await expect(drawer).not.toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
-    await page.reload();await page.getByRole('button',{name:'PTS distribution',exact:true}).first().click();await expect(drawer).toBeVisible();
+    await page.reload();await page.getByRole('button',{name:/^PTS distribution:/}).first().click();await expect(drawer).toBeVisible();
     await drawer.getByRole('button',{name:'Close metric details',exact:true}).click();
   });
 }
