@@ -767,3 +767,80 @@ test("award recovery sends a bounded reference without trusting saved source fac
   assert.equal(context.award_evidence, undefined);
   assert.equal(context.award_reference.source_url, undefined);
 });
+
+for (const failure of ["network-before-events", "missing-body", "empty-stream", "partial-stream", "terminal-error", "busy"]) {
+  test(`Ask ${failure} never automatically replays and keeps explicit retry usable`, async () => {
+    const submit = new FakeElement("button");
+    const status = new FakeElement();
+    const elements = {
+      "[data-agent-answer]": new FakeElement(),
+      "[data-agent-empty]": new FakeElement(),
+      "[data-agent-submit]": submit,
+      "[data-agent-status]": status,
+    };
+    const agent = await loadAgentModule({elements});
+    agent.startNewChat();
+    const id = agent.getNavigation().activeConversationId;
+    agent.persistHistoryTurn("Earlier question", {conversation_id:id, status:"ok", answer:"Earlier verified answer"});
+    const posts = [];
+    globalThis.fetch = async (url, options) => {
+      posts.push({url, body:JSON.parse(options.body)});
+      if (failure === "network-before-events") throw new TypeError("Network failed");
+      if (failure === "busy") return {ok:false, json:async()=>({detail:"Ask is busy. Try again shortly."})};
+      if (failure === "missing-body") return {ok:true, body:null};
+      const event = failure === "partial-stream" ? "event: answer_delta\ndata: {\"delta\":\"Incomplete answer\"}\n\n"
+        : failure === "terminal-error" ? "event: error\ndata: {\"detail\":\"Generation failed\"}\n\n" : "";
+      return {ok:true, body:new ReadableStream({start(controller) {
+        if (event) controller.enqueue(new TextEncoder().encode(event));
+        controller.close();
+      }})};
+    };
+    await agent.askQuestion("Question that fails");
+    assert.equal(posts.length, 1);
+    assert.match(posts[0].url, /\/api\/agent\/ask\/stream/);
+    assert.equal(submit.disabled, false);
+    assert.equal(agent.runtimeFor(id).inFlight, false);
+    const saved = agent.loadHistoryState().conversations.find(c=>c.id===id);
+    assert.equal(saved.turns.length, 1);
+    assert.equal(saved.turns[0].payload.answer, "Earlier verified answer");
+    assert.equal(status.textContent, failure === "busy" || failure === "terminal-error" ? "Unavailable" : "Failed");
+    globalThis.fetch = async (url, options) => {
+      posts.push({url, body:JSON.parse(options.body)});
+      return {ok:true, body:new ReadableStream({start(controller) {
+        controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{conversation_id:id, status:"ok", answer:"Explicit retry succeeded"}})}\n\n`));
+        controller.close();
+      }})};
+    };
+    await agent.askQuestion("Question that fails");
+    assert.equal(posts.length, 2);
+    assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===id).turns.length, 2);
+    assert.equal(submit.disabled, false);
+    assert.equal(status.textContent, "Answered");
+  });
+}
+
+test("a delivered final answer survives a failing stream teardown", async () => {
+  const status = new FakeElement();
+  const agent = await loadAgentModule({elements:{
+    "[data-agent-answer]":new FakeElement(),
+    "[data-agent-empty]":new FakeElement(),
+    "[data-agent-status]":status,
+  }});
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  let reads = 0;
+  let cancelled = false;
+  globalThis.fetch = async () => ({ok:true, body:{getReader:()=>({
+    read:async()=>{
+      if (reads++) throw new TypeError("Connection ended after final");
+      return {done:false, value:new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{conversation_id:id, status:"ok", answer:"Completed answer"}})}\n\n`)};
+    },
+    cancel:async()=>{cancelled = true; throw new TypeError("Teardown failed");},
+  })}});
+  await agent.askQuestion("Successful question");
+  assert.equal(reads, 1);
+  assert.equal(cancelled, true);
+  assert.equal(status.textContent, "Answered");
+  assert.equal(agent.runtimeFor(id).error, null);
+  assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===id).turns[0].payload.answer, "Completed answer");
+});

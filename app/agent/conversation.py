@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from threading import Lock
 from typing import Any, Protocol
 
-from app.agent.execution import checkpoint, defer_until_success
+from app.agent.execution import CURRENT, checkpoint, defer_until_success
 
 
 @dataclass(frozen=True)
@@ -126,6 +126,10 @@ class InMemoryConversationStore:
     ) -> PendingClarification | None:
         if not conversation_id:
             return None
+        policy = CURRENT.get()
+        key = (id(self), conversation_id)
+        if policy and key in policy.pending_clarifications:
+            return policy.pending_clarifications[key]
         with self._lock:
             state = self._conversations.get(conversation_id)
             return state.pending if state is not None else None
@@ -139,7 +143,19 @@ class InMemoryConversationStore:
     ) -> None:
         if not conversation_id:
             return
+        if defer_until_success(
+            lambda: self.set_pending_clarification(
+                conversation_id, question=question, query_plan=query_plan
+            )
+        ):
+            policy = CURRENT.get()
+            assert policy is not None
+            policy.pending_clarifications[(id(self), conversation_id)] = (
+                PendingClarification(question=question, query_plan=query_plan)
+            )
+            return
         with self._lock:
+            checkpoint()
             state = self._touch_locked(conversation_id)
             state.pending = PendingClarification(
                 question=question, query_plan=query_plan
@@ -148,7 +164,15 @@ class InMemoryConversationStore:
     def clear_pending_clarification(self, conversation_id: str) -> None:
         if not conversation_id:
             return
+        if defer_until_success(
+            lambda: self.clear_pending_clarification(conversation_id)
+        ):
+            policy = CURRENT.get()
+            assert policy is not None
+            policy.pending_clarifications[(id(self), conversation_id)] = None
+            return
         with self._lock:
+            checkpoint()
             state = self._conversations.get(conversation_id)
             if state is not None:
                 state.pending = None

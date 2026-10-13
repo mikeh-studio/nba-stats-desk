@@ -486,3 +486,64 @@ its controlled planner cases do not establish resilience to provider faults.
 The live question smoke runner records execution-policy failures (including
 provider and request timeouts) per case and continues to later cases. Reports
 retain the safe failure code without provider exception bodies.
+
+## Offline delivery measurements
+
+Measure actual loopback SSE frames from the public frozen source and controlled
+model, without provider or warehouse calls:
+
+```bash
+python scripts/measure_ask_delivery.py \
+  --output reports/ask-capacity/unique-delivery-measurement
+```
+
+The command refuses an existing output directory, fixes the public input paths,
+disables live execution, and records only case IDs and frame-size metadata in
+`captures.json` and `summary.json`. The server log remains a local run artifact.
+Run the ordinary endpoint evaluation separately for factual contract assertions.
+
+The pre-hardening capture on October 12, 2026 measured 124 cases / 145 SSE turns:
+
+| Delivery measurement | Observed value |
+| --- | ---: |
+| Maximum complete incremental output | 1,650 UTF-8 wire bytes |
+| Maximum incremental event count | 9 |
+| Largest incremental frame | 200 bytes |
+| Median / 90th / 95th / 99th percentile incremental bytes | 368 / 1,592 / 1,650 / 1,650 |
+| Maximum final frame | 21,007 bytes |
+| Maximum interim Python string storage | 2,091 bytes |
+| Equivalent interim Python bytes storage | 1,947 bytes |
+| Deque container at 9 entries, in that interpreter | 760 bytes |
+
+The default 1,650-byte / 9-event mailbox uses those observed regression maxima.
+It omits further interim updates when full, with a separate terminal slot for
+the full final/error event. The final frame is excluded from both quotas. The
+implementation retains bytes frames. Heap measurements are interpreter-specific
+string/bytes/container sizes; they exclude the worker, evidence, terminal payload,
+lock, and current serialization/send buffer.
+These measurements establish neither total memory bounds nor production load,
+provider output lengths, provider latency, or optimal concurrency.
+
+Admission retains a slot until both worker completion and JSON/SSE response-send
+closure, counting workers and unsent complete terminal payloads together. A
+stalled body send can retain capacity past the computational deadline; there is
+no separately measured or configured transport timeout in this change. Global
+capacity rejection is HTTP 503; a competing same-season/conversation request is
+HTTP 409. Test the worker-first and delivery-first completion orders, stalled
+sends, and send failures rather than treating worker completion alone as release.
+Delivery trace metrics are captured at worker finalization, so later detachment
+is not included. Raw JSON socket disconnect detection may be unavailable.
+
+The command counts emitted frames rather than sampling peak retained backlog.
+Once overflow suppression is active, rerunning against the bounded application
+may capture fewer interim frames; use the pre-hardening capture to assess the
+original default rationale. Exercise quota boundaries, oversized frames, final
+delivery, detach/completion, JSON/SSE overload, and successful-only persistence
+with endpoint tests and populated browser QA. Paid evaluation and deployment
+remain separately authorized work.
+
+Persistence checks must cover staged pending-clarification set/clear operations,
+same-request reads of that overlay, retention of prior state on failure, and the
+last budget checkpoint before committing staged in-memory updates. The local
+history append remains a separate write; passing these checks does not establish
+atomicity between conversation state and history file I/O.

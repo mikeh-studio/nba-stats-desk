@@ -10,11 +10,11 @@ from copy import deepcopy
 from datetime import UTC, date, datetime
 from functools import lru_cache
 from pathlib import Path
-from queue import Queue
 from threading import Event, Lock, Thread
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
+from anyio.to_thread import current_default_thread_limiter
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import (
     HTMLResponse,
@@ -26,7 +26,9 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
+from app.agent.capacity import CapacityExceeded, Delivery, admission
 from app.agent.conversation import get_conversation_store
 from app.agent.followup import (
     analysis_context,
@@ -71,7 +73,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261011-statistical-profile-v1"
+STATIC_VERSION = "20261012-ask-capacity-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -250,25 +252,43 @@ app.mount(
 agent_logger = logging.getLogger(LOGGER_NAME)
 
 
-@app.middleware("http")
-async def select_season(request: Request, call_next):
-    # Historical scope belongs to Ask questions or explicit API reads, not tabs.
-    if (
-        request.method == "GET"
-        and not request.url.path.startswith(("/api/", "/static/"))
-        and "season" in request.query_params
-    ):
-        url = request.url.remove_query_params("season")
-        return RedirectResponse(url.path + ("?" + url.query if url.query else ""))
-    try:
-        season = validate_season(request.query_params.get("season", DEFAULT_SEASON))
-    except ValueError as exc:
-        return JSONResponse(status_code=422, content={"detail": str(exc)})
-    token = _selected_season.set(season)
-    try:
-        return await call_next(request)
-    finally:
-        _selected_season.reset(token)
+class SeasonMiddleware:
+    """Keep season context through actual delivery without buffering responses."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        request = Request(scope)
+        # Historical scope belongs to Ask questions or explicit API reads, not tabs.
+        if (
+            request.method == "GET"
+            and not request.url.path.startswith(("/api/", "/static/"))
+            and "season" in request.query_params
+        ):
+            url = request.url.remove_query_params("season")
+            response = RedirectResponse(
+                url.path + ("?" + url.query if url.query else "")
+            )
+            await response(scope, receive, send)
+            return
+        try:
+            season = validate_season(request.query_params.get("season", DEFAULT_SEASON))
+        except ValueError as exc:
+            response = JSONResponse(status_code=422, content={"detail": str(exc)})
+            await response(scope, receive, send)
+            return
+        token = _selected_season.set(season)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _selected_season.reset(token)
+
+
+app.add_middleware(SeasonMiddleware)
 
 
 def _dependency_override_value(callable_: Any) -> Any | None:
@@ -559,6 +579,12 @@ def _prepare_agent_request(
         exc.headers = {**(exc.headers or {}), "X-Request-ID": request_id}
         trace.emit()
         raise
+    return request_id, conversation_id, question, trace
+
+
+def _restore_agent_context(
+    payload: AgentAskRequest, settings: Settings, conversation_id: str
+) -> None:
     # The local history file survives server restarts; recover conversational
     # context without rerunning saved analyses or exposing history remotely.
     store = _season_conversation_store(current_season())
@@ -675,7 +701,6 @@ def _prepare_agent_request(
             context=context,
             max_turns=settings.agent_conversation_max_turns,
         )
-    return request_id, conversation_id, question, trace
 
 
 def _record_agent_history(
@@ -1005,102 +1030,108 @@ def api_performance_player_detail(
     return {"season": current_season(), "item": item}
 
 
-@app.post("/api/agent/ask")
-def api_agent_ask(
+class _AgentStreamingResponse(StreamingResponse):
+    """Detach even when ASGI send fails while the generator is suspended."""
+
+    def __init__(self, content, delivery: Delivery, **kwargs):
+        super().__init__(content, **kwargs)
+        self.delivery = delivery
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.delivery.detach()
+            await self.body_iterator.aclose()
+
+
+class _AgentJSONResponse(JSONResponse):
+    def __init__(self, content, delivery: Delivery, **kwargs):
+        super().__init__(content, **kwargs)
+        self.delivery = delivery
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.delivery.detach()
+
+
+async def _start_agent_execution(
     request: Request,
-    response: Response,
     payload: AgentAskRequest,
-    repo: Annotated[WarehouseRepository, Depends(get_repository)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    agent_client: Annotated[Any | None, Depends(get_agent_client)],
-) -> dict:
-    request_id, conversation_id, question, trace = _prepare_agent_request(
-        request, payload, settings
+    repo: WarehouseRepository,
+    settings: Settings,
+    agent_client: Any | None,
+    *,
+    streaming: bool,
+) -> tuple[str, str, Delivery]:
+    # The configured rate limiter can perform synchronous Redis I/O. Preserve
+    # the season context while keeping that I/O off the event loop.
+    request_id, conversation_id, question, trace = await run_in_threadpool(
+        _prepare_agent_request, request, payload, settings
     )
+    limit = settings.agent_max_concurrent_requests
+    if limit is None:
+        limit = int(current_default_thread_limiter().total_tokens)
+    trace.capacity["concurrency_limit"] = limit
     try:
-        agent = _build_stats_agent(settings, repo, agent_client)
-        answer = agent.answer(
-            question,
-            conversation_id=conversation_id,
-            trace=trace,
-            selected_player=_selected_player(payload),
-            provider=payload.provider,
-            model=payload.model,
-        )
-    except AgentDisabledError as exc:
-        _fail_trace(trace, exc)
-        agent_logger.warning("agent disabled: %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=503,
-            detail=_agent_unavailable_detail(payload, settings),
-            headers={"X-Request-ID": request_id},
-        ) from exc
-    except Exception as exc:
-        _fail_trace(trace, exc)
-        agent_logger.error("agent execution failed: %s", type(exc).__name__)
-        raise HTTPException(
-            status_code=502,
-            detail=AGENT_FAILED_DETAIL,
-            headers={"X-Request-ID": request_id},
-        ) from exc
-    finally:
+        lease = admission.acquire(current_season(), conversation_id, limit)
+    except CapacityExceeded as exc:
+        trace.outcome = trace.error_type = exc.code
         trace.emit()
-    answer.pop("answer_streamed", None)
-    response.headers["X-Request-ID"] = request_id
-    final_payload = {"season": current_season(), "request_id": request_id, **answer}
-    _record_agent_history(
-        settings,
-        request_id=request_id,
-        conversation_id=conversation_id,
-        question=question,
-        payload=final_payload,
-        provider=_selected_agent_provider(payload),
-        model=trace.model,
-    )
-    return final_payload
-
-
-@app.post("/api/agent/ask/stream")
-def api_agent_ask_stream(
-    request: Request,
-    payload: AgentAskRequest,
-    repo: Annotated[WarehouseRepository, Depends(get_repository)],
-    settings: Annotated[Settings, Depends(get_settings)],
-    agent_client: Annotated[Any | None, Depends(get_agent_client)],
-) -> StreamingResponse:
-    request_id, conversation_id, question, trace = _prepare_agent_request(
-        request, payload, settings
-    )
-
-    request_context = copy_context()
-
-    def event_stream():
-        queue: Queue[dict[str, Any] | None] = Queue()
+        detail = (
+            "This conversation already has a request in progress. Wait for it to finish."
+            if exc.code == "conversation_busy"
+            else "Ask NBA Stats is busy. Try again after an active request finishes."
+        )
+        raise HTTPException(
+            status_code=409 if exc.code == "conversation_busy" else 503,
+            detail=detail,
+            headers={"X-Request-ID": request_id},
+        ) from exc
+    trace.capacity["active_at_admission"] = lease.active
+    try:
+        delivery = Delivery(
+            max_bytes=settings.agent_stream_buffer_bytes,
+            max_events=settings.agent_stream_buffer_events,
+            on_detach=lambda: lease.complete(delivery=True),
+        )
+        request_context = copy_context()
 
         def progress(event: dict[str, Any]) -> None:
-            queue.put(event)
+            delivery.put(_sse(str(event.get("type") or "progress"), event).encode())
 
         def worker() -> None:
+            status = 200
+            terminal = {
+                "type": "error",
+                "detail": AGENT_FAILED_DETAIL,
+                "request_id": request_id,
+            }
+            wire = b""
             try:
+                # Restore only after admission; rejected work cannot alter state.
+                _restore_agent_context(payload, settings, conversation_id)
                 agent = _build_stats_agent(settings, repo, agent_client)
                 answer = agent.answer(
                     question,
                     conversation_id=conversation_id,
                     trace=trace,
-                    progress_callback=progress,
+                    progress_callback=progress if streaming else None,
                     selected_player=_selected_player(payload),
                     provider=payload.provider,
                     model=payload.model,
                 )
                 answer["request_id"] = request_id
                 answer["season"] = current_season()
-                if not answer.pop("answer_streamed", False):
-                    # Fallback for paths that did not stream real deltas
-                    # (OpenAI provider, tool-loop answers). Preserve Markdown
-                    # whitespace so headings/lists survive interim rendering.
+                answer_streamed = answer.pop("answer_streamed", False)
+                if streaming and not answer_streamed:
                     for chunk in _answer_delta_chunks(str(answer.get("answer") or "")):
                         if chunk:
-                            queue.put({"type": "answer_delta", "delta": chunk})
+                            progress({"type": "answer_delta", "delta": chunk})
+                terminal = {"type": "final", "payload": answer}
+                wire = _sse("final", terminal).encode()
                 _record_agent_history(
                     settings,
                     request_id=request_id,
@@ -1110,50 +1141,121 @@ def api_agent_ask_stream(
                     provider=_selected_agent_provider(payload),
                     model=trace.model,
                 )
-                queue.put({"type": "final", "payload": answer})
+                terminal = {"type": "final", "payload": answer}
             except AgentDisabledError as exc:
                 _fail_trace(trace, exc)
-                agent_logger.warning("agent stream disabled: %s", type(exc).__name__)
-                queue.put(
-                    {
-                        "type": "error",
-                        "detail": _agent_unavailable_detail(payload, settings),
-                        "request_id": request_id,
-                    }
-                )
-            except Exception as exc:
-                # The stream must always end with a terminal event; otherwise
-                # the client re-submits via the JSON fallback and the question
-                # is charged against the rate limit (and OpenAI) twice.
+                agent_logger.warning("agent disabled: %s", type(exc).__name__)
+                status = 503
+                terminal = {
+                    "type": "error",
+                    "detail": _agent_unavailable_detail(payload, settings),
+                    "request_id": request_id,
+                }
+            except HTTPException as exc:
                 _fail_trace(trace, exc)
-                agent_logger.error(
-                    "agent stream execution failed: %s", type(exc).__name__
-                )
-                queue.put(
-                    {
-                        "type": "error",
-                        "detail": AGENT_FAILED_DETAIL,
-                        "request_id": request_id,
-                    }
-                )
+                status = exc.status_code
+                terminal = {
+                    "type": "error",
+                    "detail": exc.detail,
+                    "request_id": request_id,
+                }
+            except Exception as exc:
+                _fail_trace(trace, exc)
+                agent_logger.error("agent execution failed: %s", type(exc).__name__)
+                status = 502
+                terminal = {
+                    "type": "error",
+                    "detail": AGENT_FAILED_DETAIL,
+                    "request_id": request_id,
+                }
             finally:
-                trace.emit()
-                queue.put(None)
+                try:
+                    trace.capacity.update(delivery.metrics())
+                    # Error envelopes are authored locally and always serializable.
+                    if status != 200 or not wire:
+                        wire = _sse(terminal["type"], terminal).encode()
+                    # A reserved single terminal result bypasses interim quotas.
+                    delivery.finish(wire, status)
+                    # Operational logging must not strand the response or lease.
+                    try:
+                        trace.emit()
+                    except Exception:
+                        pass
+                finally:
+                    lease.complete(worker=True)
 
         Thread(target=request_context.run, args=(worker,), daemon=True).start()
-        yield _sse(
-            "meta",
-            {"request_id": request_id, "conversation_id": conversation_id},
-        )
-        while True:
-            event = queue.get()
-            if event is None:
-                break
-            event_name = str(event.get("type") or "progress")
-            yield _sse(event_name, event)
+    except BaseException:
+        lease.release()
+        trace.outcome = trace.error_type = "worker_start_failure"
+        trace.emit()
+        raise HTTPException(
+            status_code=503,
+            detail=AGENT_UNAVAILABLE_DETAIL,
+            headers={"X-Request-ID": request_id},
+        ) from None
+    return request_id, conversation_id, delivery
 
-    return StreamingResponse(
+
+@app.post("/api/agent/ask")
+async def api_agent_ask(
+    request: Request,
+    response: Response,
+    payload: AgentAskRequest,
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    agent_client: Annotated[Any | None, Depends(get_agent_client)],
+) -> Response:
+    request_id, _, delivery = await _start_agent_execution(
+        request, payload, repo, settings, agent_client, streaming=False
+    )
+    response_owns_delivery = False
+    try:
+        result = await delivery.next()
+        assert result is not None
+        wire, status = result
+        terminal = json.loads(wire.split(b"\ndata: ", 1)[1])
+        if status != 200:
+            raise HTTPException(
+                status_code=status,
+                detail=terminal["detail"],
+                headers={"X-Request-ID": request_id},
+            )
+        result_response = _AgentJSONResponse(
+            terminal["payload"], delivery, headers={"X-Request-ID": request_id}
+        )
+        response_owns_delivery = True
+        return result_response
+    finally:
+        if not response_owns_delivery:
+            delivery.detach()
+
+
+@app.post("/api/agent/ask/stream")
+async def api_agent_ask_stream(
+    request: Request,
+    payload: AgentAskRequest,
+    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    agent_client: Annotated[Any | None, Depends(get_agent_client)],
+) -> StreamingResponse:
+    request_id, conversation_id, delivery = await _start_agent_execution(
+        request, payload, repo, settings, agent_client, streaming=True
+    )
+
+    async def event_stream():
+        try:
+            yield _sse(
+                "meta", {"request_id": request_id, "conversation_id": conversation_id}
+            )
+            while (result := await delivery.next()) is not None:
+                yield result[0]
+        finally:
+            delivery.detach()
+
+    return _AgentStreamingResponse(
         event_stream(),
+        delivery,
         media_type="text/event-stream",
         headers={"X-Request-ID": request_id},
     )
