@@ -593,11 +593,16 @@ clarification updates are staged during execution. Reads within that request
 see its pending clarification overlay; other requests see only committed state.
 The full answer, including optional chart enrichment, must pass the final budget
 checkpoint before the staged in-memory changes are committed together. A failure
-before that success boundary retains the prior conversation/clarification state.
+before that success boundary retains the conversation/clarification state as it
+was when governed agent execution began. Restoration from saved history or
+bounded browser hints runs after admission, before this execution boundary. It
+can clear an old pending clarification or append recovered context; those
+restoration changes are not rolled back if the subsequent agent execution fails.
+They do not constitute saving an answer to the failed question.
 Failed agent executions do not write local answer history. In-memory finalization
-and the separate local
-history file write do not form an atomic storage transaction. The deadline does
-not forcibly terminate blocking work or bound response-body delivery time.
+and the separate local history file write do not form an atomic storage
+transaction. The deadline does not forcibly terminate blocking work or bound
+response-body delivery time.
 
 JSON and SSE share a per-process admission limit. With
 `AGENT_MAX_CONCURRENT_REQUESTS` unset, the limit follows the running AnyIO
@@ -607,6 +612,9 @@ This preserves the framework's existing worker ceiling and does not claim that
 At capacity, requests receive a safe HTTP 503 response before Ask execution.
 An active season/conversation also permits only one request at a time, preventing
 competing context updates; overlapping requests receive a safe HTTP 409.
+Request-rate checks precede admission: 409/503 capacity rejections still count
+against the minute/day request quota. This preserves the anti-abuse limit on
+attempts; a busy response does not waive it. The browser never retries silently.
 A capacity slot remains occupied until both the actual worker finishes and the
 JSON/SSE response send closes, including when a disconnected client stops
 waiting. This keeps unsent complete terminal payloads within the active-request
@@ -663,5 +671,11 @@ already reached, model selection is skipped. A timeout or provider failure falls
 back to a deterministic chart while the overall request deadline still applies.
 As with other stages, a blocking transport that ignores its timeout can still
 exhaust the overall deadline.
+Context restoration validation failures return HTTP 400 on JSON. Once admitted
+to SSE, the response starts with HTTP 200 and ends with one safe `error` event
+instead of a `final` event; clients must inspect that terminal event. Both paths
+retain `X-Request-ID`, release capacity after delivery closes, and record an
+`HTTP_400` error type in the operational summary.
+
 HTTP/SSE provider failures keep the existing safe generic error response, while
 the server-generated request ID links to the private operational summary.

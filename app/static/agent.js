@@ -15,7 +15,7 @@ import {
 import {
   overviewPresentation,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-capacity-v1";
+} from "./ask_presentation.js?v=20261012-ask-capacity-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -2023,7 +2023,7 @@ async function askQuestion(question, selection = null) {
     // A failed connection can hide an accepted request even before the first
     // event arrives. Automatic replay could duplicate work and provider cost.
     renderAskFailure(
-      "Ask NBA Stats lost the connection before finishing. Check this chat's history before retrying.",
+      "Ask NBA Stats lost the connection. The request may still be finishing on the server. A manual retry can run the question again.",
       "Failed", request,
     );
   } finally {

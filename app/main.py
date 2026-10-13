@@ -16,6 +16,7 @@ from uuid import uuid4
 
 from anyio.to_thread import current_default_thread_limiter
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -73,7 +74,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261012-ask-capacity-v1"
+STATIC_VERSION = "20261012-ask-capacity-v2"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -493,8 +494,30 @@ def _validate_agent_question(question: str, settings: Settings) -> str:
     return cleaned
 
 
-def _sse(event: str, data: dict[str, Any]) -> str:
-    return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
+def _sse(event: str, data: dict[str, Any], *, allow_nan: bool = True) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, default=str, allow_nan=allow_nan)}\n\n"
+
+
+def _agent_terminal_bytes(terminal: dict[str, Any], *, streaming: bool) -> bytes:
+    # Validate/encode on the worker before history is saved. JSON retains the
+    # framework's encoder semantics; neither transport permits non-finite values.
+    encoded = jsonable_encoder(terminal)
+    if streaming:
+        return _sse(encoded["type"], encoded, allow_nan=False).encode()
+    content = (
+        encoded["payload"]
+        if encoded["type"] == "final"
+        else {"detail": encoded["detail"]}
+    )
+    return bytes(JSONResponse(content).body)
+
+
+def _emit_agent_trace(trace: AgentTrace) -> None:
+    # A logging sink failure must not change the response or strand a lease.
+    try:
+        trace.emit()
+    except Exception:
+        pass
 
 
 def _answer_delta_chunks(answer: str, *, chunk_size: int = 120):
@@ -577,7 +600,7 @@ def _prepare_agent_request(
         trace.outcome = "error"
         trace.error_type = f"HTTP_{exc.status_code}"
         exc.headers = {**(exc.headers or {}), "X-Request-ID": request_id}
-        trace.emit()
+        _emit_agent_trace(trace)
         raise
     return request_id, conversation_id, question, trace
 
@@ -1045,9 +1068,9 @@ class _AgentStreamingResponse(StreamingResponse):
             await self.body_iterator.aclose()
 
 
-class _AgentJSONResponse(JSONResponse):
-    def __init__(self, content, delivery: Delivery, **kwargs):
-        super().__init__(content, **kwargs)
+class _AgentJSONResponse(Response):
+    def __init__(self, content: bytes, delivery: Delivery, **kwargs):
+        super().__init__(content, media_type="application/json", **kwargs)
         self.delivery = delivery
 
     async def __call__(self, scope, receive, send):
@@ -1079,7 +1102,7 @@ async def _start_agent_execution(
         lease = admission.acquire(current_season(), conversation_id, limit)
     except CapacityExceeded as exc:
         trace.outcome = trace.error_type = exc.code
-        trace.emit()
+        await run_in_threadpool(_emit_agent_trace, trace)
         detail = (
             "This conversation already has a request in progress. Wait for it to finish."
             if exc.code == "conversation_busy"
@@ -1103,7 +1126,7 @@ async def _start_agent_execution(
             delivery.put(_sse(str(event.get("type") or "progress"), event).encode())
 
         def worker() -> None:
-            status = 200
+            status = 502
             terminal = {
                 "type": "error",
                 "detail": AGENT_FAILED_DETAIL,
@@ -1131,7 +1154,7 @@ async def _start_agent_execution(
                         if chunk:
                             progress({"type": "answer_delta", "delta": chunk})
                 terminal = {"type": "final", "payload": answer}
-                wire = _sse("final", terminal).encode()
+                wire = _agent_terminal_bytes(terminal, streaming=streaming)
                 _record_agent_history(
                     settings,
                     request_id=request_id,
@@ -1141,7 +1164,7 @@ async def _start_agent_execution(
                     provider=_selected_agent_provider(payload),
                     model=trace.model,
                 )
-                terminal = {"type": "final", "payload": answer}
+                status = 200
             except AgentDisabledError as exc:
                 _fail_trace(trace, exc)
                 agent_logger.warning("agent disabled: %s", type(exc).__name__)
@@ -1152,7 +1175,8 @@ async def _start_agent_execution(
                     "request_id": request_id,
                 }
             except HTTPException as exc:
-                _fail_trace(trace, exc)
+                trace.outcome = "error"
+                trace.error_type = f"HTTP_{exc.status_code}"
                 status = exc.status_code
                 terminal = {
                     "type": "error",
@@ -1173,22 +1197,21 @@ async def _start_agent_execution(
                     trace.capacity.update(delivery.metrics())
                     # Error envelopes are authored locally and always serializable.
                     if status != 200 or not wire:
-                        wire = _sse(terminal["type"], terminal).encode()
+                        wire = _agent_terminal_bytes(terminal, streaming=streaming)
                     # A reserved single terminal result bypasses interim quotas.
                     delivery.finish(wire, status)
                     # Operational logging must not strand the response or lease.
-                    try:
-                        trace.emit()
-                    except Exception:
-                        pass
+                    _emit_agent_trace(trace)
                 finally:
                     lease.complete(worker=True)
 
         Thread(target=request_context.run, args=(worker,), daemon=True).start()
-    except BaseException:
+    except BaseException as exc:
         lease.release()
+        if not isinstance(exc, Exception):
+            raise
         trace.outcome = trace.error_type = "worker_start_failure"
-        trace.emit()
+        await run_in_threadpool(_emit_agent_trace, trace)
         raise HTTPException(
             status_code=503,
             detail=AGENT_UNAVAILABLE_DETAIL,
@@ -1200,7 +1223,6 @@ async def _start_agent_execution(
 @app.post("/api/agent/ask")
 async def api_agent_ask(
     request: Request,
-    response: Response,
     payload: AgentAskRequest,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
     settings: Annotated[Settings, Depends(get_settings)],
@@ -1214,15 +1236,8 @@ async def api_agent_ask(
         result = await delivery.next()
         assert result is not None
         wire, status = result
-        terminal = json.loads(wire.split(b"\ndata: ", 1)[1])
-        if status != 200:
-            raise HTTPException(
-                status_code=status,
-                detail=terminal["detail"],
-                headers={"X-Request-ID": request_id},
-            )
         result_response = _AgentJSONResponse(
-            terminal["payload"], delivery, headers={"X-Request-ID": request_id}
+            wire, delivery, status_code=status, headers={"X-Request-ID": request_id}
         )
         response_owns_delivery = True
         return result_response

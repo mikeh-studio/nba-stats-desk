@@ -125,7 +125,7 @@ test('published study shows estimates and uncertainty without claiming significa
 // UI fault injection follows a populated answer from the real offline endpoint.
 // It verifies client recovery/replay behavior; server saturation and disconnect
 // lifetimes are covered separately by controlled transport/API tests.
-for (const fault of ['busy', 'partial-error', 'network-before-events']) {
+for (const fault of ['busy', 'conversation-busy', 'partial-error', 'network-before-events']) {
   test(`populated chat survives ${fault} without replay and allows explicit retry`, async ({page}, testInfo) => {
     const c = await prepare(page, 'baseline_points');
     await submit(page, c.turns[0].question);
@@ -144,6 +144,7 @@ for (const fault of ['busy', 'partial-error', 'network-before-events']) {
       if (!inject) return route.fallback();
       inject = false;
       if (fault === 'network-before-events') return route.abort('connectionfailed');
+      if (fault === 'conversation-busy') return route.fulfill({status:409, contentType:'application/json', body:JSON.stringify({detail:'This conversation already has a request in progress. Wait for it to finish.'})});
       if (fault === 'busy') return route.fulfill({status:503, contentType:'application/json', body:JSON.stringify({detail:'Ask NBA Stats is busy. Try again shortly.'})});
       return route.fulfill({status:200, contentType:'text/event-stream', body:
         'event: answer_delta\ndata: {"delta":"Incomplete injected answer"}\n\n' +
@@ -151,7 +152,7 @@ for (const fault of ['busy', 'partial-error', 'network-before-events']) {
     });
     await page.locator('[data-followup-question]').fill(c.turns[0].question);
     await page.locator('[data-followup-submit]').click();
-    const detail = fault === 'busy' ? 'Ask NBA Stats is busy.' : fault === 'partial-error' ? 'Injected generation failure' : 'Check this chat\'s history before retrying.';
+    const detail = fault === 'busy' ? 'Ask NBA Stats is busy.' : fault === 'conversation-busy' ? 'This conversation already has a request in progress.' : fault === 'partial-error' ? 'Injected generation failure' : 'The request may still be finishing on the server.';
     await expect(page.locator('[data-agent-answer]')).toContainText(detail);
     await expect(page.locator('[data-followup-submit]')).toBeEnabled();
     await expect(page.locator('[data-agent-submit]')).toBeEnabled();

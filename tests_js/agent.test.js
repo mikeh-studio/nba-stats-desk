@@ -768,7 +768,7 @@ test("award recovery sends a bounded reference without trusting saved source fac
   assert.equal(context.award_reference.source_url, undefined);
 });
 
-for (const failure of ["network-before-events", "missing-body", "empty-stream", "partial-stream", "terminal-error", "busy"]) {
+for (const failure of ["network-before-events", "missing-body", "empty-stream", "partial-stream", "terminal-error", "busy", "conversation-busy"]) {
   test(`Ask ${failure} never automatically replays and keeps explicit retry usable`, async () => {
     const submit = new FakeElement("button");
     const status = new FakeElement();
@@ -786,6 +786,7 @@ for (const failure of ["network-before-events", "missing-body", "empty-stream", 
     globalThis.fetch = async (url, options) => {
       posts.push({url, body:JSON.parse(options.body)});
       if (failure === "network-before-events") throw new TypeError("Network failed");
+      if (failure === "conversation-busy") return {ok:false, json:async()=>({detail:"This conversation already has a request in progress."})};
       if (failure === "busy") return {ok:false, json:async()=>({detail:"Ask is busy. Try again shortly."})};
       if (failure === "missing-body") return {ok:true, body:null};
       const event = failure === "partial-stream" ? "event: answer_delta\ndata: {\"delta\":\"Incomplete answer\"}\n\n"
@@ -803,7 +804,7 @@ for (const failure of ["network-before-events", "missing-body", "empty-stream", 
     const saved = agent.loadHistoryState().conversations.find(c=>c.id===id);
     assert.equal(saved.turns.length, 1);
     assert.equal(saved.turns[0].payload.answer, "Earlier verified answer");
-    assert.equal(status.textContent, failure === "busy" || failure === "terminal-error" ? "Unavailable" : "Failed");
+    assert.equal(status.textContent, failure === "busy" || failure === "conversation-busy" || failure === "terminal-error" ? "Unavailable" : "Failed");
     globalThis.fetch = async (url, options) => {
       posts.push({url, body:JSON.parse(options.body)});
       return {ok:true, body:new ReadableStream({start(controller) {

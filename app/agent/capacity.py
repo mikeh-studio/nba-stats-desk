@@ -88,6 +88,12 @@ class Delivery:
         self._on_detach = on_detach
 
     def _notify_locked(self) -> None:
+        if self._loop.is_closed():
+            self.detached = True
+            self._events.clear()
+            self._bytes = 0
+            self._terminal = None
+            return
         # At most one pending event-loop notification, even for a fast producer.
         if not self._notified:
             self._notified = True

@@ -547,3 +547,17 @@ same-request reads of that overlay, retention of prior state on failure, and the
 last budget checkpoint before committing staged in-memory updates. The local
 history append remains a separate write; passing these checks does not establish
 atomicity between conversation state and history file I/O.
+
+Capacity regressions include blocked JSON error-body sends, ASGI 2.3 disconnects
+while a send is blocked, bursty synthetic Claude-shaped deltas with
+`answer_streamed=True`, trace capacity snapshots and start failures, and the
+409/503 request-rate quota policy. Synthetic streaming faults make no provider
+calls and do not establish live Claude throughput or latency. The populated
+browser suite verifies 409 conversation-busy recovery with explicit retry.
+
+Restore-time validation errors are checked at the actual endpoints: JSON HTTP
+400, SSE HTTP 200 with one terminal `error` event, safe `HTTP_400` trace codes,
+request IDs, and capacity release. Recovery from already-saved context precedes
+governed execution; tests distinguish those retained recovery side effects from
+new failed-answer persistence. Successful staged agent mutations and separate
+history I/O are still not a cross-storage transaction.

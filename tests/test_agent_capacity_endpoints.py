@@ -31,10 +31,12 @@ class ASGIRequest:
         self.fail_send = False
         self.hold_send = None
         self.spec_version = "2.3"
+        self.payload = None
 
     async def run(self):
         body = json.dumps(
-            {
+            self.payload
+            or {
                 "question": "private synthetic request",
                 "conversation_id": self.conversation,
             }
@@ -321,7 +323,7 @@ def test_asgi24_failed_send_detaches_and_does_not_cancel_worker(controlled):
 
 
 def test_thread_start_failure_releases_admission_with_safe_failure(
-    controlled, monkeypatch
+    controlled, monkeypatch, caplog
 ):
     def fail(*args):
         raise RuntimeError("private thread-start failure")
@@ -339,7 +341,18 @@ def test_thread_start_failure_releases_admission_with_safe_failure(
         assert "private" not in request.wire
         assert not controlled["main"].admission._active
 
-    asyncio.run(scenario())
+    with caplog.at_level("INFO", logger="app.agent"):
+        asyncio.run(scenario())
+    summaries = summaries_from(caplog)
+    assert len(summaries) == 1
+    assert (
+        summaries[0]["outcome"] == summaries[0]["error_type"] == "worker_start_failure"
+    )
+    assert summaries[0]["capacity"] == {
+        "concurrency_limit": 1,
+        "active_at_admission": 1,
+    }
+    assert "private thread-start failure" not in caplog.text
 
 
 def test_terminal_serialization_failure_does_not_strand_consumer_or_capacity(
@@ -440,3 +453,413 @@ def test_same_conversation_in_other_season_is_independently_admitted(controlled)
             assert len(controlled["stores"][season].get_turns("capacity-chat", 6)) == 1
 
     asyncio.run(scenario())
+
+
+def summaries_from(caplog):
+    return [
+        json.loads(r.message)
+        for r in caplog.records
+        if "agent_request_summary" in r.message
+    ]
+
+
+@pytest.mark.parametrize("status", [400, 502, 503])
+def test_json_error_keeps_capacity_until_blocked_error_send_finishes(
+    status, controlled, monkeypatch
+):
+    from fastapi import HTTPException
+
+    def reject(*args):
+        raise HTTPException(status, "Safe synthetic error")
+
+    monkeypatch.setattr(controlled["main"], "_restore_agent_context", reject)
+
+    async def scenario():
+        request = ASGIRequest("/api/agent/ask")
+        request.hold_send = asyncio.Event()
+        task = asyncio.create_task(request.run())
+        await asyncio.wait_for(request.body_sent.wait(), 5)
+        assert request.status == status
+        assert json.loads(request.wire) == {"detail": "Safe synthetic error"}
+        assert len(controlled["main"].admission._active) == 1
+        rejected = ASGIRequest("/api/agent/ask/stream", "other")
+        await rejected.run()
+        assert rejected.status == 503
+        request.hold_send.set()
+        await asyncio.wait_for(task, 5)
+        assert not controlled["main"].admission._active
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])
+def test_nonfinite_terminal_becomes_safe_leased_error(
+    endpoint, controlled, monkeypatch
+):
+    class NonfiniteAnswer:
+        def answer(self, *args, **kwargs):
+            return {"answer": "bad synthetic response", "value": float("nan")}
+
+    monkeypatch.setattr(
+        controlled["main"], "_build_stats_agent", lambda *args: NonfiniteAnswer()
+    )
+
+    async def scenario():
+        request = ASGIRequest(endpoint)
+        await asyncio.wait_for(request.run(), 5)
+        assert request.status == (200 if endpoint.endswith("stream") else 502)
+        assert "failed while generating" in request.wire
+        assert "NaN" not in request.wire
+        assert not controlled["main"].admission._active
+
+    asyncio.run(scenario())
+    assert not list(
+        Path(controlled["settings"].agent_history_path).parent.glob("*.jsonl")
+    )
+
+
+@pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])
+@pytest.mark.parametrize("invalid_context", ["award", "availability"])
+def test_actual_restore_validation_failure_preserves_error_contract(
+    endpoint, invalid_context, controlled, caplog
+):
+    previous = {
+        "question": "Earlier summary",
+        "players": [{"player_id": 7, "player_name": "Synthetic Player"}],
+    }
+    if invalid_context == "award":
+        previous["award_reference"] = {
+            "award_key": "unknown-synthetic-award",
+            "season": "2024-25",
+            "performance_phase": "Regular Season",
+        }
+    else:
+        previous["availability_scope"] = {
+            "player_id": 7,
+            "teammate_id": 8,
+            "season": "2024-25",
+            "phase": "Regular Season",
+            "metrics": ["pts"],
+        }
+
+    async def scenario():
+        request = ASGIRequest(endpoint)
+        request.payload = {
+            "question": "Synthetic follow-up",
+            "conversation_id": request.conversation,
+            "previous_context": previous,
+        }
+        await asyncio.wait_for(request.run(), 5)
+        assert request.status == (200 if endpoint.endswith("stream") else 400)
+        assert b"x-request-id" in request.headers
+        assert "could not be validated" in request.wire
+        if endpoint.endswith("stream"):
+            assert request.wire.count("event: error") == 1
+            assert "event: final" not in request.wire
+            error = json.loads(request.wire.split("event: error\ndata: ")[1].strip())
+            assert error["request_id"] == request.headers[b"x-request-id"].decode()
+        assert not controlled["main"].admission._active
+
+    with caplog.at_level("INFO", logger="app.agent"):
+        asyncio.run(scenario())
+    (summary,) = summaries_from(caplog)
+    assert summary["error_type"] == "HTTP_400"
+    assert summary["outcome"] == "error"
+    assert summary["model_calls"] == 0
+    assert summary["capacity"] == {
+        "concurrency_limit": 1,
+        "active_at_admission": 1,
+        "stream_peak_bytes": 0,
+        "stream_peak_events": 0,
+        "stream_suppressed_events": 0,
+        "stream_overflowed": False,
+        "delivery_detached": False,
+    }
+    assert not controlled["started"].is_set()
+    assert not list(
+        Path(controlled["settings"].agent_history_path).parent.glob("*.jsonl")
+    )
+    assert "Synthetic Player" not in caplog.text
+
+
+@pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])
+def test_restored_context_is_retained_but_failed_answer_is_not_saved(
+    endpoint, controlled
+):
+    from app.seasons import settings_for_season
+
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "capacity-chat", question="Old clarification", query_plan=None
+    )
+    controlled["stores"]["2024-25"] = store
+    controlled["fail"] = True
+    controlled["gate"].set()
+
+    async def scenario():
+        request = ASGIRequest(endpoint)
+        request.payload = {
+            "question": "Synthetic failed follow-up",
+            "conversation_id": request.conversation,
+            "previous_context": {
+                "question": "Previous successful summary",
+                "players": [{"player_id": 7, "player_name": "Synthetic Player"}],
+                "scope": {"season": "2024-25"},
+                "metrics": ["pts"],
+            },
+        }
+        await asyncio.wait_for(request.run(), 5)
+        assert "failed while generating" in request.wire
+        turns = store.get_turns("capacity-chat", 6)
+        assert len(turns) == 1
+        assert turns[0].question == "Previous successful summary"
+        assert turns[0].answer == ""
+        assert turns[0].context["browser_recovered"] is True
+        assert store.get_pending_clarification("capacity-chat") is None
+        history = Path(
+            settings_for_season(controlled["settings"], "2024-25").agent_history_path
+        )
+        assert not history.exists()
+
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("scope", ["minute", "day"])
+@pytest.mark.parametrize("rejection", ["capacity", "conversation"])
+def test_rejected_attempts_intentionally_consume_rate_quota(
+    scope, rejection, controlled, monkeypatch, caplog
+):
+    from dataclasses import replace
+
+    from app import rate_limit
+    from app.config import get_settings
+
+    limiter = rate_limit.AgentRateLimiter(rate_limit.InMemoryRateLimitStore())
+    monkeypatch.setattr(controlled["main"], "get_agent_rate_limiter", lambda _: limiter)
+    monkeypatch.setattr(rate_limit, "time", lambda: 0)
+    app.dependency_overrides[get_settings] = lambda: replace(
+        controlled["settings"],
+        agent_rate_limit_per_minute=2 if scope == "minute" else 0,
+        agent_rate_limit_daily=2 if scope == "day" else 0,
+    )
+    conv = "capacity-chat" if rejection == "conversation" else "other-active-chat"
+    lease = controlled["main"].admission.acquire("2024-25", conv, 1)
+
+    async def scenario():
+        for endpoint in ["/api/agent/ask", "/api/agent/ask/stream"]:
+            request = ASGIRequest(endpoint)
+            await asyncio.wait_for(request.run(), 5)
+            assert request.status == (409 if rejection == "conversation" else 503)
+        exhausted = ASGIRequest("/api/agent/ask/stream")
+        await exhausted.run()
+        assert exhausted.status == 429
+        assert ("daily" if scope == "day" else "rate limit") in exhausted.wire
+        assert controlled["deliveries"] == []
+        assert controlled["stores"] == {}
+
+    try:
+        with caplog.at_level("INFO", logger="app.agent"):
+            asyncio.run(scenario())
+    finally:
+        lease.release()
+    summaries = summaries_from(caplog)
+    assert len(summaries) == 3
+    assert [s["model_calls"] for s in summaries] == [0, 0, 0]
+    assert summaries[-1]["error_type"] == "HTTP_429"
+
+
+def test_asgi23_disconnect_during_blocked_send_closes_suspended_generator(controlled):
+    async def scenario():
+        request = ASGIRequest("/api/agent/ask/stream")
+        request.hold_send = asyncio.Event()
+        task = asyncio.create_task(request.run())
+        await asyncio.wait_for(request.meta_sent.wait(), 5)
+        await wait_started(controlled)
+        assert not request.hold_send.is_set()
+        await request.disconnect()
+        await asyncio.wait_for(task, 5)
+        assert controlled["deliveries"][0].detached
+        assert controlled["main"].admission._active
+        controlled["gate"].set()
+        assert await asyncio.to_thread(controlled["finished"].wait, 5)
+        while controlled["main"].admission._active:
+            await asyncio.sleep(0)
+        assert len(controlled["stores"]["2024-25"].get_turns("capacity-chat", 6)) == 1
+
+    asyncio.run(asyncio.wait_for(scenario(), 10))
+
+
+@pytest.mark.parametrize("fail_stream", [False, True])
+def test_bursty_claude_adapter_stream_preserves_terminal_evidence_and_no_replay(
+    fail_stream, controlled, monkeypatch, caplog
+):
+    from dataclasses import replace
+    from types import SimpleNamespace as NS
+
+    from app.agent.claude_client import ClaudeResponsesClient
+    from app.agent.execution import create_response
+    from app.agent.observability import AgentTrace
+    from app.config import get_settings
+    from app.seasons import settings_for_season
+
+    main = controlled["main"]
+    chunks = ["First ", "second ", "x" * 1000, *[" later " for _ in range(20)]]
+    budget = sum(
+        len(
+            main._sse("answer_delta", {"type": "answer_delta", "delta": chunk}).encode()
+        )
+        for chunk in chunks[:2]
+    )
+    cfg = replace(
+        controlled["settings"],
+        agent_stream_buffer_bytes=budget,
+        agent_stream_buffer_events=2,
+    )
+    app.dependency_overrides[get_settings] = lambda: cfg
+    emitted = Event()
+    original_emit = AgentTrace.emit
+
+    def emit(trace):
+        original_emit(trace)
+        emitted.set()
+
+    monkeypatch.setattr(AgentTrace, "emit", emit)
+
+    class Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        @property
+        def text_stream(self):
+            controlled["started"].set()
+            assert controlled["gate"].wait(5)
+            yield from chunks
+            if fail_stream:
+                raise ConnectionError("private streaming transport body")
+
+        def get_final_message(self):
+            return NS(content=[NS(type="text", text="".join(chunks))], usage=None)
+
+    class SDK:
+        calls = 0
+        options = []
+
+        def __init__(self):
+            self.messages = NS(stream=self.stream)
+
+        def with_options(self, **options):
+            self.options.append(options)
+            return self
+
+        def stream(self, **kwargs):
+            self.calls += 1
+            return Stream()
+
+    sdk = SDK()
+    client = ClaudeResponsesClient(client=sdk, model="claude-synthetic")
+    evidence = {
+        "source_kind": "synthetic",
+        "player_id": 7,
+        "scope": {"season": "2024-25"},
+        "value": 5,
+    }
+
+    class StreamedAgent:
+        settings = cfg
+
+        @governed_request
+        def answer(
+            self, question, *, conversation_id, trace, progress_callback, **kwargs
+        ):
+            def delta(text):
+                progress_callback({"type": "answer_delta", "delta": text})
+
+            response = create_response(
+                client,
+                model="claude-synthetic",
+                input=[{"role": "user", "content": "Synthetic request"}],
+                on_output_text_delta=delta,
+            )
+            main._season_conversation_store(current_season()).append_turn(
+                conversation_id,
+                question=question,
+                answer=response.output_text,
+                max_turns=6,
+            )
+            trace.outcome = "answered"
+            return {
+                "answer": response.output_text,
+                "answer_streamed": True,
+                "status": "ok",
+                "conversation_id": conversation_id,
+                "semantic_evidence": evidence,
+            }
+
+    monkeypatch.setattr(main, "_build_stats_agent", lambda *args: StreamedAgent())
+
+    async def scenario():
+        request = ASGIRequest("/api/agent/ask/stream")
+        request.payload = {
+            "question": "Synthetic Claude stream",
+            "conversation_id": request.conversation,
+            "provider": "claude",
+        }
+        request.hold_send = asyncio.Event()
+        task = asyncio.create_task(request.run())
+        await asyncio.wait_for(request.meta_sent.wait(), 5)
+        await wait_started(controlled)
+        controlled["gate"].set()
+        assert await asyncio.to_thread(emitted.wait, 5)
+        assert len(main.admission._active) == 1
+        metrics = controlled["deliveries"][0].metrics()
+        assert metrics == {
+            "stream_peak_bytes": budget,
+            "stream_peak_events": 2,
+            "stream_suppressed_events": len(chunks) - 2,
+            "stream_overflowed": True,
+            "delivery_detached": False,
+        }
+        request.hold_send.set()
+        await asyncio.wait_for(task, 5)
+        events = [
+            json.loads(block.split("\ndata: ")[1])
+            for block in request.wire.strip().split("\n\n")
+        ]
+        deltas = [e["delta"] for e in events if e.get("type") == "answer_delta"]
+        assert deltas == chunks[:2]
+        assert (
+            request.wire.count("event: error") + request.wire.count("event: final") == 1
+        )
+        turns = controlled["stores"]["2024-25"].get_turns(request.conversation, 6)
+        history = Path(settings_for_season(cfg, "2024-25").agent_history_path)
+        if fail_stream:
+            assert events[-1]["type"] == "error"
+            assert turns == [] and not history.exists()
+        else:
+            assert events[-1]["payload"]["answer"] == "".join(chunks)
+            assert events[-1]["payload"]["semantic_evidence"] == evidence
+            assert len(turns) == 1 and turns[0].answer == "".join(chunks)
+            assert (
+                json.loads(history.read_text())["payload"]["semantic_evidence"]
+                == evidence
+            )
+        assert not main.admission._active
+
+    with caplog.at_level("INFO", logger="app.agent"):
+        asyncio.run(scenario())
+    (summary,) = summaries_from(caplog)
+    assert summary["capacity"]["stream_peak_bytes"] == budget
+    assert summary["capacity"]["stream_peak_events"] == 2
+    assert summary["capacity"]["stream_suppressed_events"] == len(chunks) - 2
+    assert summary["capacity"]["stream_overflowed"] is True
+    assert summary["capacity"]["delivery_detached"] is False
+    assert summary["capacity"]["concurrency_limit"] == 1
+    assert summary["capacity"]["active_at_admission"] == 1
+    assert summary["outcome"] == ("provider_failure" if fail_stream else "answered")
+    assert summary["model_calls"] == sdk.calls == 1
+    assert all(option["max_retries"] == 0 for option in sdk.options)
+    assert "private streaming transport body" not in caplog.text
+    assert "Synthetic Claude stream" not in caplog.text

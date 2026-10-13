@@ -289,3 +289,26 @@ def test_closed_event_loop_drops_terminal_and_completes_delivery_ownership():
     assert lease.released
     retry = admission.acquire("2024-25", "original", 1)
     retry.release()
+
+
+def test_loop_closing_with_pending_notification_drops_terminal_and_releases_delivery():
+    loop = asyncio.new_event_loop()
+    admission = Admission()
+    lease = admission.acquire("2024-25", "shutdown", 1)
+
+    async def build():
+        value = Delivery(
+            max_bytes=100, max_events=2, on_detach=lambda: lease.complete(delivery=True)
+        )
+        loop.stop()
+        value.put(b"pending wakeup")
+        return value
+
+    delivery = loop.run_until_complete(build())
+    assert delivery._notified is True
+    loop.close()
+    delivery.finish(b"terminal after loop closed")
+    assert delivery.detached and delivery._terminal is None
+    assert not lease.released
+    lease.complete(worker=True)
+    assert lease.released
