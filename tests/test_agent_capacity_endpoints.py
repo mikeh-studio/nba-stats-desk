@@ -110,8 +110,31 @@ def controlled(monkeypatch, tmp_path):
         deliveries.append(value)
         return value
 
+    worker_done = []
+
+    class TrackedAdmission(Admission):
+        def acquire(self, *args, **kwargs):
+            lease = super().acquire(*args, **kwargs)
+            done = Event()
+            worker_done.append(done)
+            complete = lease.complete
+            release = lease.release
+
+            def mark_complete(*, worker=False, delivery=False):
+                complete(worker=worker, delivery=delivery)
+                if worker:
+                    done.set()
+
+            def mark_release():
+                release()
+                done.set()
+
+            lease.complete = mark_complete
+            lease.release = mark_release
+            return lease
+
     monkeypatch.setattr(main, "Delivery", delivery)
-    monkeypatch.setattr(main, "admission", Admission())
+    monkeypatch.setattr(main, "admission", TrackedAdmission())
     monkeypatch.setattr(
         main,
         "_season_conversation_store",
@@ -165,14 +188,24 @@ def controlled(monkeypatch, tmp_path):
         "deliveries": deliveries,
         "settings": settings,
         "main": main,
+        "worker_done": worker_done,
     }
     yield state
     gate.set()
+    for done in worker_done:
+        assert done.wait(5), "worker did not finish before fixture teardown"
     app.dependency_overrides.clear()
 
 
 async def wait_started(state):
     assert await asyncio.to_thread(state["started"].wait, 5)
+
+
+async def wait_workers(state):
+    # Response delivery and worker finalization have independent lifetimes.
+    # Wait on actual completion, never assume a scheduler ordering or sleep.
+    for done in state["worker_done"]:
+        assert await asyncio.to_thread(done.wait, 5)
 
 
 @pytest.mark.parametrize(
@@ -237,11 +270,8 @@ def test_sse_disconnect_clears_delivery_but_retains_capacity_until_success(contr
         assert busy.status == 503
         controlled["gate"].set()
         assert await asyncio.to_thread(controlled["finished"].wait, 5)
-        # Completion notification need not reach the disconnected event loop.
-        for _ in range(100):
-            await asyncio.sleep(0)
-            if not controlled["main"].admission._active:
-                break
+        # Completion does not require the disconnected event loop.
+        await wait_workers(controlled)
         assert not controlled["main"].admission._active
         turns = controlled["stores"]["2024-25"].get_turns("capacity-chat", 6)
         assert len(turns) == 1 and turns[0].answer == "successful"
@@ -302,6 +332,7 @@ def test_completed_worker_keeps_slot_while_full_answer_delivery_is_blocked(
         assert busy.status == 503
         request.hold_send.set()
         await asyncio.wait_for(task, 5)
+        await wait_workers(controlled)
         assert not controlled["main"].admission._active
 
     asyncio.run(scenario())
@@ -339,6 +370,7 @@ def test_thread_start_failure_releases_admission_with_safe_failure(
         await request.run()
         assert request.status == 503
         assert "private" not in request.wire
+        await wait_workers(controlled)
         assert not controlled["main"].admission._active
 
     with caplog.at_level("INFO", logger="app.agent"):
@@ -375,6 +407,7 @@ def test_terminal_serialization_failure_does_not_strand_consumer_or_capacity(
             assert request.status == (502 if endpoint.endswith("ask") else 200)
             assert "failed while generating" in request.wire
             assert "invalid" not in request.wire
+            await wait_workers(controlled)
             assert not controlled["main"].admission._active
 
     asyncio.run(scenario())
@@ -396,6 +429,7 @@ def test_logging_sink_failure_cannot_prevent_successful_terminal_or_release(
         await asyncio.wait_for(request.run(), 5)
         assert request.wire.count("event: final") == 1
         assert "private logging" not in request.wire
+        await wait_workers(controlled)
         assert not controlled["main"].admission._active
 
     asyncio.run(scenario())
@@ -487,6 +521,7 @@ def test_json_error_keeps_capacity_until_blocked_error_send_finishes(
         assert rejected.status == 503
         request.hold_send.set()
         await asyncio.wait_for(task, 5)
+        await wait_workers(controlled)
         assert not controlled["main"].admission._active
 
     asyncio.run(scenario())
@@ -510,6 +545,7 @@ def test_nonfinite_terminal_becomes_safe_leased_error(
         assert request.status == (200 if endpoint.endswith("stream") else 502)
         assert "failed while generating" in request.wire
         assert "NaN" not in request.wire
+        await wait_workers(controlled)
         assert not controlled["main"].admission._active
 
     asyncio.run(scenario())
@@ -558,6 +594,7 @@ def test_actual_restore_validation_failure_preserves_error_contract(
             assert "event: final" not in request.wire
             error = json.loads(request.wire.split("event: error\ndata: ")[1].strip())
             assert error["request_id"] == request.headers[b"x-request-id"].decode()
+        await wait_workers(controlled)
         assert not controlled["main"].admission._active
 
     with caplog.at_level("INFO", logger="app.agent"):
@@ -637,6 +674,14 @@ def test_rejected_attempts_intentionally_consume_rate_quota(
     limiter = rate_limit.AgentRateLimiter(rate_limit.InMemoryRateLimitStore())
     monkeypatch.setattr(controlled["main"], "get_agent_rate_limiter", lambda _: limiter)
     monkeypatch.setattr(rate_limit, "time", lambda: 0)
+    from datetime import UTC, datetime
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 12, tzinfo=UTC)
+
+    monkeypatch.setattr(rate_limit, "datetime", FixedDateTime)
     app.dependency_overrides[get_settings] = lambda: replace(
         controlled["settings"],
         agent_rate_limit_per_minute=2 if scope == "minute" else 0,
@@ -682,8 +727,7 @@ def test_asgi23_disconnect_during_blocked_send_closes_suspended_generator(contro
         assert controlled["main"].admission._active
         controlled["gate"].set()
         assert await asyncio.to_thread(controlled["finished"].wait, 5)
-        while controlled["main"].admission._active:
-            await asyncio.sleep(0)
+        await wait_workers(controlled)
         assert len(controlled["stores"]["2024-25"].get_turns("capacity-chat", 6)) == 1
 
     asyncio.run(asyncio.wait_for(scenario(), 10))
@@ -846,6 +890,7 @@ def test_bursty_claude_adapter_stream_preserves_terminal_evidence_and_no_replay(
                 json.loads(history.read_text())["payload"]["semantic_evidence"]
                 == evidence
             )
+        await wait_workers(controlled)
         assert not main.admission._active
 
     with caplog.at_level("INFO", logger="app.agent"):
@@ -863,3 +908,86 @@ def test_bursty_claude_adapter_stream_preserves_terminal_evidence_and_no_replay(
     assert all(option["max_retries"] == 0 for option in sdk.options)
     assert "private streaming transport body" not in caplog.text
     assert "Synthetic Claude stream" not in caplog.text
+
+
+@pytest.mark.parametrize("failure", ["start", "capacity"])
+def test_logging_thread_exhaustion_cannot_mask_safe_capacity_failure(
+    failure, controlled, monkeypatch
+):
+    main = controlled["main"]
+    run = main.run_in_threadpool
+    scheduled = []
+
+    async def schedule(fn, *args, **kwargs):
+        scheduled.append(fn.__name__)
+        if fn is main._emit_agent_trace:
+            raise RuntimeError("private logging thread exhaustion")
+        return await run(fn, *args, **kwargs)
+
+    monkeypatch.setattr(main, "run_in_threadpool", schedule)
+    held = None
+    if failure == "start":
+
+        def fail(*args):
+            raise RuntimeError("private worker thread exhaustion")
+
+        monkeypatch.setattr(
+            main, "Thread", lambda **kwargs: type("BrokenThread", (), {"start": fail})()
+        )
+    else:
+        held = main.admission.acquire("2024-25", "held", 1)
+
+    async def scenario():
+        request = ASGIRequest("/api/agent/ask/stream")
+        await asyncio.wait_for(request.run(), 5)
+        assert request.status == 503
+        assert b"x-request-id" in request.headers
+        assert "private" not in request.wire
+        assert scheduled == ["_prepare_agent_request", "_emit_agent_trace"]
+        if failure == "start":
+            await wait_workers(controlled)
+            assert not main.admission._active
+        else:
+            assert main.admission._active == {("2024-25", "held")}
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        if held:
+            held.release()
+
+
+def test_response_may_finish_before_worker_logging_and_release_is_synchronized(
+    controlled, monkeypatch
+):
+    from app.agent.observability import AgentTrace
+
+    log_started, finish_log = Event(), Event()
+    emit = AgentTrace.emit
+
+    def delayed_emit(trace):
+        log_started.set()
+        assert finish_log.wait(5), "test logging gate was not released"
+        emit(trace)
+
+    monkeypatch.setattr(AgentTrace, "emit", delayed_emit)
+    controlled["fail"] = True
+    controlled["gate"].set()
+
+    async def scenario():
+        request = ASGIRequest("/api/agent/ask")
+        await asyncio.wait_for(request.run(), 5)
+        assert request.status == 502
+        assert await asyncio.to_thread(log_started.wait, 5)
+        assert controlled["main"].admission._active
+        waiting = asyncio.create_task(wait_workers(controlled))
+        await asyncio.sleep(0)
+        assert not waiting.done()
+        finish_log.set()
+        await asyncio.wait_for(waiting, 5)
+        assert not controlled["main"].admission._active
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        finish_log.set()

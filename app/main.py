@@ -520,6 +520,15 @@ def _emit_agent_trace(trace: AgentTrace) -> None:
         pass
 
 
+async def _emit_agent_trace_off_loop(trace: AgentTrace) -> None:
+    try:
+        await run_in_threadpool(_emit_agent_trace, trace)
+    except Exception:
+        # Thread exhaustion can prevent even best-effort logging after startup
+        # failed. Keep the authored failure envelope and released lease intact.
+        pass
+
+
 def _answer_delta_chunks(answer: str, *, chunk_size: int = 120):
     text = str(answer or "")
     for index in range(0, len(text), chunk_size):
@@ -1102,7 +1111,7 @@ async def _start_agent_execution(
         lease = admission.acquire(current_season(), conversation_id, limit)
     except CapacityExceeded as exc:
         trace.outcome = trace.error_type = exc.code
-        await run_in_threadpool(_emit_agent_trace, trace)
+        await _emit_agent_trace_off_loop(trace)
         detail = (
             "This conversation already has a request in progress. Wait for it to finish."
             if exc.code == "conversation_busy"
@@ -1211,7 +1220,7 @@ async def _start_agent_execution(
         if not isinstance(exc, Exception):
             raise
         trace.outcome = trace.error_type = "worker_start_failure"
-        await run_in_threadpool(_emit_agent_trace, trace)
+        await _emit_agent_trace_off_loop(trace)
         raise HTTPException(
             status_code=503,
             detail=AGENT_UNAVAILABLE_DETAIL,

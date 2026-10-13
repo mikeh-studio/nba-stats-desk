@@ -596,8 +596,9 @@ checkpoint before the staged in-memory changes are committed together. A failure
 before that success boundary retains the conversation/clarification state as it
 was when governed agent execution began. Restoration from saved history or
 bounded browser hints runs after admission, before this execution boundary. It
-can clear an old pending clarification or append recovered context; those
-restoration changes are not rolled back if the subsequent agent execution fails.
+can set or clear a pending clarification or append recovered context; those
+restoration changes are not rolled back if restoration validation or the
+subsequent agent execution fails.
 They do not constitute saving an answer to the failed question.
 Failed agent executions do not write local answer history. In-memory finalization
 and the separate local history file write do not form an atomic storage
