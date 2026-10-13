@@ -79,7 +79,7 @@ export function overviewPresentation(payload) {
   const keys=policy?.primary_keys;
   const visible=Array.isArray(keys) ? keys.map(k=>metrics.find(m=>m.key===k)).filter(Boolean) : metrics;
   const insights=Array.isArray(policy?.takeaways) ? policy.takeaways : [{area:'Sample',icon:'chart-bar',title:'Recorded observations',text:`${payload.player_profile?.player?.games_sampled || 0} recorded appearances. See each metric's evidence; box scores do not establish overall defensive impact.`}];
-  return {paragraphs, insights, metrics:visible, allMetrics:metrics,
+  return {paragraphs, insights, playerName:name, metrics:visible, allMetrics:metrics,
     additionalMetrics:Array.isArray(keys) ? metrics.filter(m=>!keys.includes(m.key)) : [],
     range:`${dateLabel(scope.start)} – ${dateLabel(scope.end)}`,
     comparison:`${(scope.previous_phases || scope.phases).join(' + ')} · ${dateLabel(scope.previous_start)} – ${dateLabel(scope.previous_end)}`,
@@ -104,7 +104,7 @@ export function overviewMetricsTable(overview) {
       const note = m.percentile_note || `${m.label} league percentile`;
       return `<div class="percentile-cell${m.key === 'min' ? ' percentile-neutral' : ''}" title="${escape(note)}"><meter min="0" max="100" value="${Math.round(Math.max(0, Math.min(100, m.percentile)))}" aria-label="${escape(note)}">${ordinal(m.percentile)}</meter><span>${ordinal(m.percentile)}</span></div>`;
     }
-    if (m.percentile_status) return `<span class="rank-status" tabindex="0" title="${escape((m.percentile_label || 'Not ranked') + '. ' + (m.percentile_note || ''))}" aria-label="${escape((m.percentile_label || 'Not ranked') + '. ' + (m.percentile_note || ''))}">${escape(m.percentile_label || 'Not ranked')}</span>`;
+    if (m.percentile_status) return `<span class="rank-status"${m.distribution ? '' : ' tabindex="0"'} title="${escape((m.percentile_label || 'Not ranked') + '. ' + (m.percentile_note || ''))}" aria-label="${escape((m.percentile_label || 'Not ranked') + '. ' + (m.percentile_note || ''))}">${escape(m.percentile_label || 'Not ranked')}</span>`;
     return unavailable(finite(m.value) ? 'Not ranked' : 'Unavailable');
   };
   const row = (m, index, group) => {
@@ -116,7 +116,9 @@ export function overviewMetricsTable(overview) {
     const changeSuffix = changeUnit === 'percentage points' ? ' pp' : changeUnit === 'minutes per game' ? ' min' : changeUnit === 'per 36 minutes' ? ' /36' : '';
     const delta = number(change);
     const limited = m.sample?.status === 'limited';
-    return `<tr data-metric-key="${escape(m.key)}"><th scope="row">${metricLabel(m, `metric-help-${instance}-${group}-${index}`)}</th><td aria-label="${escape(value === null ? 'Unavailable' : `${value} ${unit}`)}">${value === null ? unavailable() : value + suffix}${limited ? ' <span class="metric-status">Limited</span>' : ''}</td><td>${rank(m)}</td><td class="${changeClass(m, change)}" aria-label="${escape(delta === null ? 'Comparison unavailable' : `${delta} ${changeUnit}`)}">${delta === null ? unavailable('Comparison unavailable') : `${change >= 0.05 ? '+' : ''}${delta}${changeSuffix}`}</td></tr>`;
+    const rankMarkup = rank(m);
+    const rankControl = m.distribution ? `<button type="button" class="metric-distribution" data-metric-distribution="${escape(m.key)}" aria-label="${escape(metricAbbreviation(m))} distribution">${rankMarkup}</button>` : rankMarkup;
+    return `<tr data-metric-key="${escape(m.key)}"><th scope="row">${metricLabel(m, `metric-help-${instance}-${group}-${index}`)}</th><td aria-label="${escape(value === null ? 'Unavailable' : `${value} ${unit}`)}">${value === null ? unavailable() : value + suffix}${limited ? ' <span class="metric-status">Limited</span>' : ''}</td><td>${rankControl}</td><td class="${changeClass(m, change)}" aria-label="${escape(delta === null ? 'Comparison unavailable' : `${delta} ${changeUnit}`)}">${delta === null ? unavailable('Comparison unavailable') : `${change >= 0.05 ? '+' : ''}${delta}${changeSuffix}`}</td></tr>`;
   };
   const table = (metrics, label) => `<div class="table-scroll"><table class="overview-table compact-metrics"><caption class="sr-only">${escape(label)}</caption><thead><tr><th scope="col">Stat</th><th scope="col">Average</th><th scope="col">Percentile</th><th scope="col">Change</th></tr></thead><tbody>${metrics.map((m,index)=>row(m,index,label.replaceAll(' ','-'))).join('')}</tbody></table></div>`;
   const rankMethodology = overview.allMetrics.some(m=>m.percentile_policy)

@@ -142,3 +142,33 @@ Suggested questions still fill the composer without submitting; Enter submits,
 Shift+Enter inserts a newline, and scope changes/restored chats retain the existing
 server/browser context behavior. The textarea starts at two rows/60px, with manual
 vertical resizing available. This styling also applies to comparison follow-ups.
+
+
+## Metric distributions
+
+Overview ranked metrics carry `ask_metric_distribution/1` evidence. Among players
+uses exactly the same qualified cohort as the percentile, with pooled percentages
+or per-game averages. Peer histogram counts must sum to cohort size. A finite
+unqualified focal value is shown as a dashed marker outside the cohort, without
+assigning a percentile. Median, quartiles and extrema use linear interpolation at
+`(n - 1) * p`; quartiles describe observed spread, not confidence intervals.
+
+Across games uses individual valid recorded appearances in the same scope.
+Missing components and zero denominators are omitted and counted separately;
+recorded zero-event counts remain observations. Shooting game medians are distinct
+from pooled period percentages; per-game attempts accompany the observations.
+TS% observations expose both FGA and FTA. A compact game selector supports touch
+and keyboard inspection alongside the chart dots.
+Dots are bounded to the latest 300 valid appearances, with truncation disclosed;
+summary statistics and histograms always retain all valid observations. Integer
+count distributions retain discrete bins when the range has at most 41 values;
+otherwise histograms use 12 equal-width bins. Membership follows the emitted
+left-inclusive boundaries; the final bin includes its maximum.
+Constant samples use one bin and empty distributions remain empty.
+
+The percentile cell opens a native modal metric drawer without expanding table
+rows. It is a 440px side panel on desktop and a bottom sheet capped at 78dvh/640px
+on phones. The initial view is Among players; Across games is a second toggle.
+Escape/close return focus to the originating metric. The TS% calculation tooltip
+remains separate. Saved responses without distribution evidence retain their
+existing controls and values; the browser never reconstructs distributions.

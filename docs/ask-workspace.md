@@ -686,6 +686,14 @@ the server-generated request ID links to the private operational summary.
 
 ## Compact metrics and balanced contributions
 
+The percentile cell opens a compact metric drawer: **Among players** uses the
+exact qualified comparison cohort, and **Across games** shows individual recorded
+appearances, median and spread. Shooting observations include attempts; the game
+selector supports touch and keyboard use. The drawer overlays the page without
+expanding metric rows or making additional Ask requests. See the
+[distribution contract](ask-metric-presentation.md#metric-distributions) for
+qualification, missingness, quantiles and bounded observations.
+
 Broad overviews use eleven primary metrics; focused profiles use six or nine with
 expandable additional metrics. Per-metric sample/opportunity notes and balanced,
 server-authored takeaways replace browser-selected strongest-percentile claims.

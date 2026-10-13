@@ -1,5 +1,6 @@
 """Descriptive percentiles with explicit, versioned overview qualification rules."""
 
+from app.agent.metric_distributions import distribution
 from app.agent.semantics import aggregate, load_contract
 
 ATTEMPT_MINIMUMS = {
@@ -87,6 +88,10 @@ def add_percentiles(metrics, grouped, player_id, minimum):
         )
         if not ranked:
             text = "This overview does not rank this context metric. See its raw value and sample."
+        if ranked:
+            record["distribution"] = distribution(
+                metric, cohort, grouped.get(player_id, []), player_id
+            )
         record.update(
             percentile=pct,
             cohort_size=len(cohort),

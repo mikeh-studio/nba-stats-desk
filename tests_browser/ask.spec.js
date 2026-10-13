@@ -329,3 +329,38 @@ for (const width of [1280,390]) {
     await expect(page.locator('.scope-assumption').first()).toContainText('2024-25');
   });
 }
+
+
+for (const width of [1280,390]) {
+  test(`metric drawer has peer/game views, keyboard dismissal and compact layout at ${width}px`, async ({page})=>{
+    await page.setViewportSize({width,height:900});
+    await prepare(page,'baseline_points');
+    await submit(page,'How did Avery Example perform in April 2025?');
+    let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
+    const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
+    const trigger=page.getByRole('button',{name:'PTS distribution',exact:true}).first();
+    await trigger.click();
+    const drawer=page.getByRole('dialog');
+    await expect(drawer).toBeVisible();await expect(drawer).toContainText('Among players');await expect(drawer).toContainText('League median');
+    const activeBackground=await drawer.getByRole('button',{name:'Among players',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor);
+    expect(activeBackground).not.toBe(await drawer.getByRole('button',{name:'Across games',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor));
+    await page.screenshot({path:`reports/ask-harness/browser-artifacts/drawer-${width}-among.png`});
+    await page.keyboard.press('Shift+Tab');expect(await drawer.evaluate(d=>d.contains(document.activeElement))).toBe(true);
+    const rect=await drawer.boundingBox();expect(rect.width).toBeLessThanOrEqual(width);expect(rect.height).toBeLessThanOrEqual(900);
+    await drawer.getByRole('button',{name:'Across games',exact:true}).click();
+    await expect(drawer).toContainText('Game median');await expect(drawer.locator('circle')).not.toHaveCount(0);
+    await drawer.locator('circle').first().focus();await expect(drawer.locator('circle').first()).toBeFocused();
+    await expect(drawer.locator('[data-game-point-info]')).not.toHaveText('Hover, tap or focus a dot for game details.');
+    await drawer.getByRole('combobox',{name:'Review a game'}).selectOption('0');await expect(drawer.locator('circle').first()).toBeFocused();
+    expect(await drawer.getByRole('button',{name:'Across games',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor)).toBe(activeBackground);
+    await page.screenshot({path:`reports/ask-harness/browser-artifacts/drawer-${width}-games.png`});
+    await page.keyboard.press('Escape');await expect(drawer).not.toBeVisible();await expect(trigger).toBeFocused();
+    expect((await table.boundingBox()).height).toBeCloseTo(height,1);expect(requests).toBe(0);
+    await page.getByRole('button',{name:'FT% distribution',exact:true}).first().click();
+    await expect(drawer).toContainText(/Not included in the qualified cohort|no marker comparison is shown/);
+    await drawer.getByRole('button',{name:'Close metric details',exact:true}).click();await expect(drawer).not.toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    await page.reload();await page.getByRole('button',{name:'PTS distribution',exact:true}).first().click();await expect(drawer).toBeVisible();
+    await drawer.getByRole('button',{name:'Close metric details',exact:true}).click();
+  });
+}

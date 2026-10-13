@@ -19,7 +19,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-percentiles-v1";
+} from "./ask_presentation.js?v=20261012-ask-distributions-v2";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261012-ask-distributions-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1108,7 +1109,7 @@ function renderAuxiliaryPayload(
 
   const charts = asArray(payload.charts);
   chartCard.hidden = charts.length === 0;
-  if (overview) bindMetricHelp(tableEl);
+  if (overview) { bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }
   if (overview && charts.length)
     renderOverviewCharts(payload, overview.preferredMetric, root);
   else chartEl.innerHTML = charts.map(renderChart).join("") + renderComparisonExplorer(payload);
