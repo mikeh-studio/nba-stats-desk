@@ -324,6 +324,7 @@ def build_overview(question, evidence, players, scope, selected=None):
     player = candidates[0]
     if scope.get("recent_appearances"):
         scope = dict(scope)
+        scope["previous_phases"] = list(scope["phases"])
         games = sorted(
             (
                 r

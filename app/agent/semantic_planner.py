@@ -171,12 +171,24 @@ def explicit_scope(question: str) -> dict[str, Any]:
             question,
             re.I,
         )
-        calendar_scope = (
-            calendar_window(question, date.today()) if has_calendar else None
-        )
+        anchor = date.today()
+        as_of = re.search(r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I)
+        if has_calendar and as_of:
+            try:
+                anchor = date.fromisoformat(as_of[1])
+            except ValueError as exc:
+                raise SemanticError(
+                    "clarification_required", "Please provide a valid as-of date."
+                ) from exc
+            if anchor > date.today():
+                raise SemanticError(
+                    "clarification_required",
+                    "Please choose an as-of date no later than today.",
+                )
+        calendar_scope = calendar_window(question, anchor) if has_calendar else None
         if calendar_scope:
             start, end, _ = calendar_scope
-            if start > date.today():
+            if start > anchor:
                 raise SemanticError(
                     "clarification_required",
                     "Please choose a period starting no later than today.",
@@ -184,7 +196,7 @@ def explicit_scope(question: str) -> dict[str, Any]:
             hints.update(
                 window="date_range",
                 start_date=start.isoformat(),
-                as_of=min(end, date.today()).isoformat(),
+                as_of=min(end, anchor).isoformat(),
                 n=None,
             )
     if (

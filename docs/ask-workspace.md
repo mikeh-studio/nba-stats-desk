@@ -713,7 +713,9 @@ explicit season selection and established “this season” behavior remain supp
 calendar 2025; current calendar years end at the request date. Month names without
 years inherit a single conversation season when available, otherwise use their
 latest occurrence. Recently/lately overviews use up to ten recorded appearances
-in the selected season/phases, with the preceding appearances as their baseline.
+in the selected season/phases, with the preceding appearances in those same
+phases as their baseline. Metric calendar windows also honor an explicit as-of
+date when resolving relative periods and clipping the requested month.
 
 Successful inferred scopes show a compact assumption above the analysis. Last-year
 answers offer calendar-year and rolling-12-month correction buttons that submit

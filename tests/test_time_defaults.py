@@ -96,3 +96,19 @@ def test_metric_planner_receives_resolved_calendar_dates():
     )
     assert explicit_scope(normalized)["start_date"] == "2026-01-01"
     assert explicit_scope(normalized)["as_of"] == "2026-01-31"
+
+
+@pytest.mark.parametrize(
+    "phrase,start,end",
+    [
+        ("this month", "2025-01-01", "2025-01-15"),
+        ("last week", "2025-01-06", "2025-01-12"),
+        ("in January 2025", "2025-01-01", "2025-01-15"),
+    ],
+)
+def test_metric_calendar_scope_respects_explicit_asof(phrase, start, end):
+    from app.agent.semantic_planner import explicit_scope
+
+    hints = explicit_scope(f"Klay points {phrase} as of 2025-01-15")
+    assert hints["start_date"] == start
+    assert hints["as_of"] == end

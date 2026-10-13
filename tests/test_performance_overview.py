@@ -911,3 +911,37 @@ def test_missing_baseline_does_not_replace_requested_scope(evidence, failure):
     else:
         assert payload["status"] == failure
         assert len(calls) == 1
+
+
+def test_recent_playoffs_compare_previous_playoff_appearances(evidence):
+    rows = [
+        {
+            **evidence.rows[0],
+            "season": "2025-26",
+            "season_type": "Playoffs",
+            "game_id": f"recent-{day}",
+            "game_date": f"2026-05-{day:02}",
+            "pts": day,
+        }
+        for day in range(1, 21)
+    ]
+    recent_evidence = Evidence(
+        rows,
+        evidence.covered_scopes,
+        "fixture",
+        "recent-playoffs",
+        evidence.data_through,
+        complete=True,
+    )
+    question = "Player 1 performance last 10 games in 2025-26 playoffs"
+    period = overview_scope(question, "2025-26", date(2026, 10, 12))
+    payload = build_overview(
+        question, recent_evidence, source_players(recent_evidence), period
+    )
+    result = payload["semantic_evidence"]
+    assert result["scope"]["previous_phases"] == ["Playoffs"]
+    points = next(m for m in result["metrics"] if m["key"] == "pts")
+    assert points["value"] == 15.5
+    assert points["previous"]["value"] == 5.5
+    assert points["previous"]["valid_games"] == 10
+    assert points["display_change"] == 10
