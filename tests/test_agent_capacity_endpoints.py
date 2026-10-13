@@ -2,9 +2,14 @@
 
 import asyncio
 import json
+import sys
+from pathlib import Path
 from threading import Event
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.agent.capacity import Admission
 from app.agent.conversation import InMemoryConversationStore
 from app.agent.execution import ExecutionFailure, governed_request

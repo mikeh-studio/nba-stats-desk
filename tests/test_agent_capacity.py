@@ -1,11 +1,16 @@
 """Offline checks of shared admission and delivery behavior under contention."""
 
 import asyncio
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
+from pathlib import Path
 from threading import Barrier, Thread
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from app.agent.capacity import Admission, CapacityExceeded, Delivery
 
 
