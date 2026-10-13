@@ -179,3 +179,70 @@ unsupported. See [Ask workspace](ask-workspace.md#governed-similarity-and-league
 Availability questions accept “how many points … average”; award lookups accept
 “Name the MVP winner” and “Who received MVP”. These wording variants preserve
 the same bounded scope checks; unsupported additional constraints still refuse.
+
+Overview presentation retains full aggregates but withholds displayed changes
+when either comparison sample has fewer than five valid appearances or partial
+components. Ratio sample notes disclose pooled attempts; the games floor does
+not establish shooting ranking eligibility or statistical precision. See
+[Ask overview sample policy](ask-metric-presentation.md).
+
+
+Broad overview windows up to 31 inclusive days use game-date chart buckets; longer
+windows use monthly averages. Grain is explicit in scope, charts and metric trend
+evidence. Named month/year and dated week scopes resolve deterministically; a
+partial or conflicting calendar phrase requires clarification. A month without a
+year uses the documented conversational default, disclosed in the answer. Calendar-month
+comparisons use the preceding full calendar month. Table abbreviations and change
+colors do not alter canonical metric values, sample rules or full-name evidence.
+See [Ask overview presentation](ask-metric-presentation.md#performance-over-time).
+
+Overview presentation has a separate, versioned percentile qualification policy:
+five complete appearances, at least two qualified players including the focal player,
+and provisional attempt floors of 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, and
+50 3PA for 3P%. TOV ranks lower values favorably; MIN ranks exposure. The general
+overview shows eleven metrics with FG%/FT%/TS% last. Direct governed ranking
+queries retain their explicit attempt-threshold contract. See
+[overview policy](ask-metric-presentation.md#samples-and-comparisons).
+
+
+## Metric distributions
+
+Overview ranked metrics carry `ask_metric_distribution/1` evidence. Among players
+uses exactly the same qualified cohort as the percentile, with pooled percentages
+or per-game averages. Peer histogram counts must sum to cohort size. A finite
+unqualified focal value is shown as a dashed marker outside the cohort, without
+assigning a percentile. Median, quartiles and extrema use linear interpolation at
+`(n - 1) * p`; quartiles describe observed spread, not confidence intervals.
+
+Across games uses individual valid recorded appearances in the same scope.
+Missing components and zero denominators are omitted and counted separately;
+recorded zero-event counts remain observations. Shooting game medians are distinct
+from pooled period percentages; per-game attempts accompany the observations.
+TS% observations expose both FGA and FTA. A compact game selector supports touch
+and keyboard inspection alongside the chart dots.
+Dots are bounded to the latest 300 valid appearances, with truncation disclosed;
+summary statistics and histograms always retain all valid observations. Integer
+count distributions retain discrete bins when the range has at most 41 values;
+otherwise histograms use 12 equal-width bins. Membership follows the emitted
+left-inclusive boundaries; the final bin includes its maximum.
+Constant samples use one bin and empty distributions remain empty.
+
+The percentile cell opens a native modal metric drawer without expanding table
+rows. It is a 440px side panel on desktop and a bottom sheet capped at 78dvh/640px
+on phones. The initial view is Among players; Across games is a second toggle.
+Escape/close return focus to the originating metric. The TS% calculation tooltip
+remains separate. Saved responses without distribution evidence retain their
+existing controls and values; the browser never reconstructs distributions.
+
+
+## Calendar metric archive binding
+
+A fresh resolved metric date range binds all overlapping supported seasons to
+`Query.seasons`, with the same explicit dates in the evidence and renderer.
+Required archives are loaded before calculation; an unavailable archive cannot
+be replaced by a partial-period value. Explicit named seasons constrain dates,
+and inherited season ordering/identity remain intact. Resolved rolling-year
+phrases use request/as-of anchored dates; existing source-anchored numeric-month
+queries keep their established window rules. Month comparisons retain separate
+validated per-query periods and load their required archive union. Source loads
+remain bounded to the supported archive allowlist.

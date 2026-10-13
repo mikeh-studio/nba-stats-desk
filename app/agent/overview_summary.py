@@ -2,6 +2,8 @@
 
 from statistics import median
 
+from app.agent.overview_policy import LIMITS
+
 
 def game_insights(rows):
     """Scoring distribution from this player's scoped appearances only."""
@@ -23,7 +25,9 @@ def game_insights(rows):
     return result
 
 
-def summary_paragraphs(name, metrics, scope, appearances, insights=None):
+def summary_paragraphs(
+    name, metrics, scope, appearances, insights=None, profile="general"
+):
     def complete(m):
         return m.get("value") is not None and not m.get("missing_component_games")
 
@@ -49,21 +53,29 @@ def summary_paragraphs(name, metrics, scope, appearances, insights=None):
         ]
     pts, ast, ts = (by_key.get(k, {}) for k in ("pts", "ast", "ts_pct"))
     first = f"Across {appearances} {phase} appearances, {name}"
+    lead_keys = {
+        "rebounding": ("reb",),
+        "defense": ("stl", "blk"),
+        "playmaking": ("ast", "tov"),
+        "contribution": ("ast", "reb", "tov"),
+        "scoring": ("pts", "fg3m"),
+    }.get(profile, ("pts", "ast"))
+    prose_names = {"fg3m": "three-pointers made", "tov": "turnovers"}
     production = [
-        f"{m['value']:.1f} {m['label'].lower()}" for m in (pts, ast) if complete(m)
+        f"{m['value']:.1f} {prose_names.get(m['key'], m['label'].lower())}"
+        for m in (by_key.get(k, {}) for k in lead_keys)
+        if complete(m)
     ]
     if production:
         first += " averaged " + " and ".join(production) + " per game."
     else:
         first += (
             " has incomplete scoring and assist data, limiting the overall assessment."
+            if profile == "general"
+            else " has incomplete data for the requested focus, limiting the assessment."
         )
-    if complete(ts):
+    if profile in ("general", "scoring") and complete(ts):
         first += f" True shooting was {ts['value']:.1f}%, combining field-goal and free-throw scoring efficiency."
-    ranked = [m for m in (pts, ast) if complete(m) and m.get("percentile") is not None]
-    standout = max(ranked, key=lambda m: m["percentile"], default=None)
-    if standout and standout["percentile"] >= 90:
-        first += f" {standout['label']} stood out at the {standout['percentile']:.0f}th percentile among qualified players in the same scope."
 
     baseline = scope.get("comparison_label") or (
         f"{' + '.join(scope.get('previous_phases', phases))} from {scope['previous_start']} through {scope['previous_end']}"
@@ -71,11 +83,15 @@ def summary_paragraphs(name, metrics, scope, appearances, insights=None):
         else "the previous period"
     )
     clauses = []
-    for key, label in (
-        ("pts", "scoring"),
-        ("ast", "assists"),
-        ("ts_pct", "true shooting"),
-    ):
+    comparison_keys = {
+        "rebounding": (("reb", "rebounds"),),
+        "defense": (("stl", "steals"), ("blk", "blocks")),
+        "playmaking": (("ast", "assists"), ("tov", "turnovers")),
+        "contribution": (("ast", "assists"), ("reb", "rebounds"), ("tov", "turnovers")),
+    }.get(
+        profile, (("pts", "scoring"), ("ast", "assists"), ("ts_pct", "true shooting"))
+    )
+    for key, label in comparison_keys:
         m = by_key.get(key, {})
         if not complete(m) or m.get("change") is None:
             continue
@@ -98,7 +114,9 @@ def summary_paragraphs(name, metrics, scope, appearances, insights=None):
         second += " These differences describe performance, not what caused it."
 
     facts = insights or {}
-    if facts.get("median_points") is not None:
+    if profile not in ("general", "scoring"):
+        third = "Interpret this focus alongside playing time and the full metric samples below."
+    elif facts.get("median_points") is not None:
         third = (
             f"Game-level scoring ranged from {facts['min_points']:.0f} to {facts['max_points']:.0f} points, "
             f"with a median of {facts['median_points']:.1f}. "
@@ -118,4 +136,5 @@ def summary_paragraphs(name, metrics, scope, appearances, insights=None):
         third += f" Partial data for {', '.join(missing)}: missing values are not zero."
     if appearances < 5:
         third += " This small sample should be interpreted cautiously."
+    third += " " + LIMITS[profile]
     return [first, second, third]

@@ -561,3 +561,28 @@ request IDs, and capacity release. Recovery from already-saved context precedes
 governed execution; tests distinguish those retained recovery side effects from
 new failed-answer persistence. Successful staged agent mutations and separate
 history I/O are still not a cross-storage transaction.
+
+## Overview presentation regressions
+
+Overview presentation regressions in `tests/test_performance_overview.py` cover
+explicit general/focused metric selection, preserved scope guards, pooled ratios,
+zero attempts, partial samples, short samples, and absence of best-percentile
+headline selection. Browser tests verify primary row counts, sample notes,
+expandable details, saved-state recovery and narrow scoring results. These checks
+use frozen observations and controlled models, not live-model accuracy tests.
+
+
+`tests/test_ask_review_scope.py` verifies inferred scalar metric dates at both
+actual JSON and SSE endpoints using independently expected synthetic values.
+Calendar-year/rolling-year cases combine two season archives; historical months
+use the proper archive; missing archives and conflicting named seasons withhold
+results. Controlled planner cases preserve month comparisons and since-month
+ranges. Time-default tests cover explicit-season month inference, multi-season
+follow-ups and within-season as-of anchors. Browser/JavaScript checks retain
+compact table dimensions while verifying announced distribution ranks/statuses.
+
+Follow-up regressions preserve a historical primary season even when comparison
+archives appear in saved context, resolve off-season recent-game requests from
+preceding available appearances, and clip a planner's current-month end to the
+request date. The current-month fixture includes a later 100-point game to prove
+that clipping excludes future appearances from the mean.

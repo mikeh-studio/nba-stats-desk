@@ -3,6 +3,7 @@
 from app.agent.semantics import aggregate, load_contract
 
 CONTEXT_METRICS = (
+    "fg3m",
     "min",
     "fga",
     "fg3a",

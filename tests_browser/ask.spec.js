@@ -169,3 +169,199 @@ for (const fault of ['busy', 'conversation-busy', 'partial-error', 'network-befo
     await expect(page.locator('[data-agent-tables]').last()).toContainText('11.7 per game');
   });
 }
+
+test('overview shows eleven metrics, sample evidence, balanced takeaways and expandable details', async ({page}) => {
+  await prepare(page,'baseline_points');
+  await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
+  const table = page.locator('[data-agent-tables] > .table-scroll table');
+  await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
+  await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true})).toBeVisible();
+  await expect(table).toContainText('3PM');
+  const samples=page.locator('[data-sample-details]');
+  await samples.locator('summary').click();
+  await expect(samples).toContainText('attempts');
+  await expect(samples).toContainText('valid appearances');
+  await samples.locator('summary').click();
+  const details=page.locator('[data-additional-metrics]');
+  await expect(details).not.toHaveAttribute('open','');
+  await details.locator('summary').click();
+  await expect(details.locator('table')).toBeVisible();
+  await expect(details).toContainText('PTS/36');
+  await expect(details.locator('td[aria-label*="per 36 minutes"]').first()).toBeVisible();
+  await page.reload();
+  await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
+});
+
+test('focused scoring retains 3PM and nine metrics at a narrow viewport', async ({page}) => {
+  await page.setViewportSize({width:390,height:844});
+  await prepare(page,'baseline_points');
+  await submit(page,'How did Avery Example perform in scoring in the 2024-25 regular season?');
+  const table=page.locator('[data-agent-tables] > .table-scroll table');
+  await expect(table.locator('tbody tr')).toHaveCount(9);
+  await expect(table).toContainText('3PM');
+  const samples=page.locator('[data-sample-details]');
+  await samples.locator('summary').click();
+  await expect(samples).toContainText('Shooting ranks use provisional minimums');
+  await samples.locator('summary').click();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+});
+
+
+test('compact overview has visible Key Takeaways and a short eleven-row table', async ({page}) => {
+  await prepare(page,'baseline_points');
+  await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
+  const table=page.locator('table.compact-metrics').first();
+  await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
+  expect((await table.boundingBox()).height).toBeLessThan(500);
+  await expect(table.locator('thead th')).toHaveCount(4);
+  await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true})).toBeVisible();
+  const items=page.locator('.compact-takeaways .takeaway');
+  expect(await items.count()).toBeGreaterThan(0);expect(await items.count()).toBeLessThanOrEqual(3);
+  await expect(items.first().locator('p')).toBeVisible();
+  await expect(page.locator('.compact-takeaways details')).toHaveCount(0);
+});
+
+
+for (const width of [1280,390]) {
+  test(`calendar overview stays compact and TS help works at ${width}px`, async ({page}) => {
+    await page.setViewportSize({width,height:900});
+    await prepare(page,'baseline_points');
+    await submit(page,'How did Avery Example perform in April 2025?');
+    const table=page.locator('table.compact-metrics').first();
+    await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
+    expect((await table.boundingBox()).height).toBeLessThan(500);
+    await expect(table.locator('tbody th abbr').first()).toHaveText('PTS');
+    await expect(page.getByRole('heading',{name:'Performance over time',exact:true})).toBeVisible();
+    await expect(page.locator('.chart-header')).toContainText('Game-by-game');
+    await expect(page.locator('[data-chart-key]')).toHaveCount(5);
+    await page.locator('[data-chart-key="reb"]').click();
+    await expect(page.locator('.chart-header')).toContainText('REB · Game-by-game');
+    const svg=page.locator('.overview-chart svg');
+    expect((await svg.boundingBox()).width).toBeLessThanOrEqual((await page.locator('.overview-chart').boundingBox()).width + 1);
+    expect(await svg.locator('.agent-date-label').evaluateAll(nodes => nodes.every((node,index) => index === 0 || node.getBoundingClientRect().left >= nodes[index-1].getBoundingClientRect().right + 2))).toBe(true);
+    const points=page.locator('[data-agent-charts] .agent-point');
+    await expect(points.first()).toHaveAttribute('aria-label',/^2025-04-/);
+    const help=table.getByRole('button',{name:'TS%: True shooting percentage calculation'});
+    await help.focus();
+    const tooltip=table.getByRole('tooltip');
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText('100 × SUM(PTS)');
+    await expect(tooltip).toContainText('valid games');
+    const rect=await tooltip.boundingBox();
+    expect(rect.x).toBeGreaterThanOrEqual(0);expect(rect.x+rect.width).toBeLessThanOrEqual(width);
+    expect((await table.boundingBox()).height).toBeLessThan(500);
+    await help.press('Escape');
+    await expect(tooltip).not.toBeVisible();
+    await help.click();await expect(tooltip).toBeVisible();
+    await help.click();await expect(tooltip).not.toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await page.reload();
+    await expect(page.locator('.chart-header')).toContainText('Game-by-game');
+  });
+}
+
+test('dated week remains daily while a season remains monthly',async ({page})=>{
+  await prepare(page,'baseline_points');
+  await submit(page,'How did Avery Example perform week of 2025-04-14?');
+  await expect(page.locator('.chart-header')).toContainText('Game-by-game');
+  await expect(page.locator('[data-agent-charts] .agent-point').first()).toHaveAttribute('aria-label',/^2025-04-14/);
+  await page.reload();
+  await page.getByRole('button',{name:'New chat',exact:true}).click();
+  await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
+  await expect(page.locator('.chart-header')).toContainText('Monthly average');
+});
+
+
+for (const width of [1280,390]) {
+  test(`conversation panel matches selected design and preserves scope at ${width}px`, async ({page}) => {
+    await page.setViewportSize({width,height:900});
+    await prepare(page,'baseline_points');
+    await submit(page,'How did Avery Example perform in April 2025?');
+    const panel=page.locator('[data-followup-section]');
+    await expect(panel.getByRole('heading',{name:'Ask your next question',exact:true})).toBeVisible();
+    await expect(panel.locator('.followup-eyebrow')).toHaveText('Continue the conversation');
+    await expect(panel.locator('[data-followup-context]')).toContainText('Avery Example');
+    await expect(panel.locator('[data-followup-context]')).toContainText('Apr 1, 2025');
+    const styles=await panel.locator('h2').evaluate(el=>({font:getComputedStyle(el).fontFamily,color:getComputedStyle(el.parentElement).backgroundColor}));
+    expect(styles.font).toMatch(/^Barlow,/);expect(styles.font).not.toContain('Condensed');
+    expect(styles.color).toBe('rgb(26, 29, 34)');
+    expect((await panel.boundingBox()).height).toBeLessThan(width===390 ? 400 : 310);
+    expect((await panel.locator('textarea').boundingBox()).height).toBeLessThanOrEqual(61);
+    await panel.getByRole('button',{name:'Review scoring in these dates',exact:true}).click();
+    await expect(panel.locator('textarea')).toHaveValue(/2025-04-01 through 2025-04-30/);
+    await expect(panel.locator('textarea')).toBeFocused();
+    await panel.locator('textarea').press('Shift+Enter');
+    expect(await panel.locator('textarea').inputValue()).toContain('\n');
+    await panel.locator('textarea').fill('How did Avery Example perform week of 2025-04-14?');
+    await panel.locator('textarea').press('Enter');
+    await expect(panel.locator('[data-followup-submit]')).toBeEnabled();
+    await expect(page.locator('[data-agent-answer]').last()).toContainText('Avery Example');
+    await expect(panel.locator('[data-followup-context]')).toContainText('Apr 14, 2025');
+    await expect(panel.locator('[data-followup-context]')).toContainText('Apr 20, 2025');
+    await expect(page.locator('.chart-header').last()).toContainText('Game-by-game');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await page.reload();
+    await expect(panel.locator('h2')).toHaveText('Ask your next question');
+    await expect(panel.locator('[data-followup-context]')).toContainText('Apr 14, 2025');
+  });
+}
+
+
+for (const width of [1280,390]) {
+  test(`natural time defaults answer and period correction works at ${width}px`, async ({page}) => {
+    await page.setViewportSize({width,height:900});
+    await prepare(page,'baseline_points');
+    await submit(page,'How did Avery Example played last year as of 2025-10-12?');
+    await expect(page.locator('[data-agent-answer]')).toContainText('last completed NBA season (2024-25)');
+    await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true}).first()).toBeVisible();
+    await expect(page.locator('table.compact-metrics').first().locator('tbody tr')).toHaveCount(11);
+    await page.locator('.scope-assumption summary').click();
+    await page.getByRole('button',{name:'Past 12 months',exact:true}).click();
+    await expect(page.locator('[data-agent-submit]')).toBeEnabled();
+    await expect(page.locator('[data-agent-answer]')).not.toContainText('Please specify a date range');
+    await expect(page.locator('.agent-turn')).toHaveCount(2);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.reload();
+    await expect(page.locator('.scope-assumption').first()).toContainText('2024-25');
+  });
+}
+
+
+for (const width of [1280,390]) {
+  test(`metric drawer has peer/game views, keyboard dismissal and compact layout at ${width}px`, async ({page})=>{
+    await page.setViewportSize({width,height:900});
+    await prepare(page,'baseline_points');
+    await submit(page,'How did Avery Example perform in April 2025?');
+    let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
+    const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
+    const trigger=page.getByRole('button',{name:/^PTS distribution:/}).first();
+    await expect(trigger).toHaveAccessibleName(/PTS distribution: \d+(?:st|nd|rd|th) percentile/);
+    await trigger.click();
+    const drawer=page.getByRole('dialog');
+    await expect(drawer).toBeVisible();await expect(drawer).toContainText('Among players');await expect(drawer).toContainText('League median');
+    const activeBackground=await drawer.getByRole('button',{name:'Among players',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor);
+    expect(activeBackground).not.toBe(await drawer.getByRole('button',{name:'Across games',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor));
+    await page.screenshot({path:`reports/ask-harness/browser-artifacts/drawer-${width}-among.png`});
+    await page.keyboard.press('Shift+Tab');expect(await drawer.evaluate(d=>d.contains(document.activeElement))).toBe(true);
+    const rect=await drawer.boundingBox();expect(rect.width).toBeLessThanOrEqual(width);expect(rect.height).toBeLessThanOrEqual(900);
+    await drawer.getByRole('button',{name:'Across games',exact:true}).click();
+    await expect(drawer).toContainText('Game median');await expect(drawer.locator('circle')).not.toHaveCount(0);
+    await drawer.locator('circle').first().focus();await expect(drawer.locator('circle').first()).toBeFocused();
+    await expect(drawer.locator('[data-game-point-info]')).not.toHaveText('Hover, tap or focus a dot for game details.');
+    await drawer.getByRole('combobox',{name:'Review a game'}).selectOption('0');await expect(drawer.locator('circle').first()).toBeFocused();
+    expect(await drawer.getByRole('button',{name:'Across games',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor)).toBe(activeBackground);
+    await page.screenshot({path:`reports/ask-harness/browser-artifacts/drawer-${width}-games.png`});
+    await page.keyboard.press('Escape');await expect(drawer).not.toBeVisible();await expect(trigger).toBeFocused();
+    expect((await table.boundingBox()).height).toBeCloseTo(height,1);expect(requests).toBe(0);
+    await page.getByRole('button',{name:/^FT% distribution:/}).first().click();
+    await expect(drawer).toContainText(/Not included in the qualified cohort|no marker comparison is shown/);
+    await drawer.getByRole('button',{name:'Close metric details',exact:true}).click();await expect(drawer).not.toBeVisible();
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    await page.reload();await page.getByRole('button',{name:/^PTS distribution:/}).first().click();await expect(drawer).toBeVisible();
+    await drawer.getByRole('button',{name:'Close metric details',exact:true}).click();
+  });
+}

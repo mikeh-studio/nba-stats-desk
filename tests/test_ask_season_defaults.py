@@ -90,7 +90,17 @@ def test_source_errors_do_not_trigger_older_data(code):
     assert warehouse.calls == [["2025-26"]]
 
 
-def test_previous_season_is_explicit_for_governed_ask():
+def test_previous_season_is_explicit_for_governed_ask(monkeypatch):
+    from datetime import date
+
+    from app.agent import time_defaults
+
+    class Clock(date):
+        @classmethod
+        def today(cls):
+            return cls(2025, 11, 10)
+
+    monkeypatch.setattr(time_defaults, "date", Clock)
     warehouse = Warehouse()
     agent = StatsAgent(
         settings("2025-26"),

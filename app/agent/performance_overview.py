@@ -1,13 +1,14 @@
-"""Source-backed player overviews sharing one scope across all five metrics."""
+"""Source-backed player overviews sharing explicit metric samples and one scope."""
 
 from __future__ import annotations
 
-import calendar
 import re
 from collections import defaultdict
 from datetime import date, timedelta
 
-from app.agent.context_metrics import context_metrics, context_table
+from app.agent.context_metrics import context_metrics
+from app.agent.overview_calendar import MONTH_PATTERN, calendar_window, shift_months
+from app.agent.overview_policy import focus, metric_table, presentation, strip_focus
 from app.agent.overview_summary import game_insights, summary_paragraphs
 from app.agent.question_intent import has_specific_metric
 from app.agent.semantics import SemanticError, aggregate, load_contract
@@ -27,13 +28,15 @@ def wants_overview(question):
     return (
         bool(
             re.search(
-                r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics)\b"
+                r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics|profile|contribution|contribute)\b"
                 r"|\bhow\b[^?\n]*\b(?:play(?:ed|ing)?|do(?:ing)?|done|fare[ds]?)\b",
                 original,
                 re.I,
             )
         )
-        and not has_specific_metric(original)
+        and not has_specific_metric(
+            strip_focus(original) if focus(original) != "general" else original
+        )
         and not bool(
             re.search(
                 r"\b(fantasy|rank|top|compare|versus|opponent|against|home|away|road)\b",
@@ -44,26 +47,25 @@ def wants_overview(question):
     )
 
 
-def shift_months(day, n):
-    year, month = divmod(day.year * 12 + day.month - 1 - n, 12)
-    if year < 1 or year > 9999:
-        raise SemanticError("invalid_scope", "Please choose a shorter month window.")
-    month += 1
-    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
-
-
 def overview_scope(question, selected_season, today=None):
     from app.agent.question_intent import round_scope_message
 
     if message := round_scope_message(question):
         raise SemanticError("unsupported_scope", message)
-    question = re.sub(
-        r"\b(20\d{2})\s+(playoffs?|postseason)\b",
-        lambda m: f"{int(m[1]) - 1}-{m[1][-2:]} {m[2]}",
-        question,
-        flags=re.I,
-    )
+    if not re.search(MONTH_PATTERN, question, re.I):
+        question = re.sub(
+            r"\b(20\d{2})\s+(playoffs?|postseason)\b",
+            lambda m: f"{int(m[1]) - 1}-{m[1][-2:]} {m[2]}",
+            question,
+            flags=re.I,
+        )
     today = today or date.today()
+    from app.agent.time_defaults import resolve_time_defaults
+
+    question, _, _ = resolve_time_defaults(question, today)
+    recent = bool(re.search(r"\blast 10 games\b", question, re.I))
+    if recent:
+        question = re.sub(r"\blast 10 games\b", "", question, flags=re.I)
     explicit = re.search(
         r"\bfrom (\d{4}-\d{2}-\d{2}) (?:to|through) (\d{4}-\d{2}-\d{2})\b",
         question,
@@ -81,6 +83,12 @@ def overview_scope(question, selected_season, today=None):
             raise SemanticError(
                 "clarification_required", "Please provide a valid as-of date."
             ) from exc
+    calendar_scope = calendar_window(question, end)
+    if calendar_scope and (explicit or trailing):
+        raise SemanticError(
+            "clarification_required",
+            "Please specify a single calendar window or date range.",
+        )
     if trailing and re.search(r"\b20\d{2}[-/]\d{2}\b(?![-/]\d)", question):
         raise SemanticError(
             "clarification_required",
@@ -93,6 +101,8 @@ def overview_scope(question, selected_season, today=None):
             raise SemanticError(
                 "clarification_required", "Please provide valid start and end dates."
             ) from exc
+    elif calendar_scope:
+        start, end, calendar_month = calendar_scope
     elif trailing:
         n, unit = int(trailing[1]), trailing[2].lower()
         if not 1 <= n <= 1095:
@@ -106,22 +116,53 @@ def overview_scope(question, selected_season, today=None):
             else end - timedelta(days=n * (7 if unit.startswith("week") else 1) - 1)
         )
     else:
-        if re.search(
-            r"\b(last|past|prior|previous|since|as.of|yesterday)\b", question, re.I
-        ):
+        if re.search(r"\b(last|past|prior|previous|since|yesterday)\b", question, re.I):
             raise SemanticError(
                 "clarification_required",
                 "Please specify a date range (from YYYY-MM-DD through YYYY-MM-DD) or a number of days, weeks, or months.",
             )
-        named = re.findall(r"\b20\d{2}-\d{2}\b", question)
+        named = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
         if len(set(named)) > 1:
             raise SemanticError(
                 "clarification_required",
                 "For a combined overview, please specify the start and end dates.",
             )
-        start, end = season_bounds(named[0] if named else selected_season)
-        end = min(end, today)
-    if end < start or end > today:
+        season = named[0] if named else selected_season
+        if recent and as_of and not named:
+            candidates = [
+                s
+                for s in SEASONS
+                if season_bounds(s)[0] <= date.fromisoformat(as_of[1])
+            ]
+            if not candidates:
+                raise SemanticError(
+                    "unsupported_coverage",
+                    "The as-of date precedes available archives.",
+                )
+            season = candidates[0]
+        start, end = season_bounds(season)
+        if (
+            recent
+            and as_of
+            and not named
+            and date.fromisoformat(as_of[1]).year == int(season[:4])
+            and date.fromisoformat(as_of[1]).month >= 7
+        ):
+            # A recent-game request may need the preceding season during the
+            # off-season/start of season; retain its explicit upper date/phase.
+            previous = SEASONS[min(SEASONS.index(season) + 1, len(SEASONS) - 1)]
+            start = season_bounds(previous)[0]
+        end = min(end, today, date.fromisoformat(as_of[1]) if as_of else today)
+    named_seasons = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
+    if calendar_scope and any(
+        start < season_bounds(season)[0] or end > season_bounds(season)[1]
+        for season in named_seasons
+    ):
+        raise SemanticError(
+            "clarification_required",
+            "The calendar window conflicts with the named season. Please specify one date range.",
+        )
+    if end < start or end > today or (as_of and end > date.fromisoformat(as_of[1])):
         raise SemanticError(
             "clarification_required",
             "Please choose an ordered date range ending no later than today.",
@@ -153,8 +194,13 @@ def overview_scope(question, selected_season, today=None):
             "unsupported_coverage",
             "This overview covers regular-season and playoff box scores only.",
         )
+    if calendar_scope and calendar_month:
+        previous_start = shift_months(start, 1)
+        previous_end = start - timedelta(days=1)
+    elif calendar_scope and re.search(r"\bpast month\b", question, re.I):
+        previous_start = shift_months(previous_end, 1) + timedelta(days=1)
     previous_phases = list(phases)
-    if not trailing and not explicit:
+    if not trailing and not explicit and not calendar_scope:
         if phases == ["Playoffs"]:
             # A full playoff overview compares against this season's regular season.
             previous_start, previous_end = start, end
@@ -162,6 +208,10 @@ def overview_scope(question, selected_season, today=None):
         else:
             previous_start = shift_months(start, 12)
             previous_end = shift_months(end, 12)
+    if recent:
+        # Actual last-N/prior-N bounds are resolved from this bounded pool later.
+        previous_start, previous_end = start, end
+        previous_phases = list(phases)
     comparison_label = (
         f"{' + '.join(previous_phases)} from {previous_start} through {previous_end}"
     )
@@ -176,6 +226,7 @@ def overview_scope(question, selected_season, today=None):
             "The requested period starts before available 2023–24 coverage.",
         )
     return dict(
+        recent_appearances=10 if recent else None,
         start=start,
         end=end,
         previous_start=previous_start,
@@ -184,6 +235,7 @@ def overview_scope(question, selected_season, today=None):
         previous_phases=previous_phases,
         comparison_label=comparison_label,
         seasons=seasons,
+        chart_grain="daily" if (end - start).days < 31 else "monthly",
     )
 
 
@@ -298,6 +350,36 @@ def build_overview(question, evidence, players, scope, selected=None):
             ],
         }
     player = candidates[0]
+    if scope.get("recent_appearances"):
+        scope = dict(scope)
+        scope["previous_phases"] = list(scope["phases"])
+        games = sorted(
+            (
+                r
+                for r in evidence.rows
+                if r["player_id"] == player["player_id"]
+                and r["season_type"] in scope["phases"]
+                and scope["start"]
+                <= date.fromisoformat(str(r["game_date"]))
+                <= scope["end"]
+            ),
+            key=lambda r: (str(r["game_date"]), r["game_id"]),
+        )
+        if games:
+            n = scope["recent_appearances"]
+            chosen, baseline = games[-n:], games[-2 * n : -n]
+            scope["start"] = date.fromisoformat(str(chosen[0]["game_date"]))
+            scope["end"] = date.fromisoformat(str(chosen[-1]["game_date"]))
+            scope["previous_end"] = scope["start"] - timedelta(days=1)
+            scope["previous_start"] = (
+                date.fromisoformat(str(baseline[0]["game_date"]))
+                if baseline
+                else scope["previous_end"]
+            )
+            scope["comparison_label"] = (
+                "Prior recorded appearances in the same season and phases"
+            )
+            scope["chart_grain"] = "daily"
     start, end = scope["start"], scope["end"]
 
     def rows_between(lo, hi, phases):
@@ -335,7 +417,8 @@ def build_overview(question, evidence, players, scope, selected=None):
                 and (season, phase) not in evidence.covered_scopes
             ):
                 baseline_covered = False
-    metrics, table, charts = [], [], []
+    grain = scope.get("chart_grain", "daily" if (end - start).days < 31 else "monthly")
+    metrics, charts = [], []
     grouped = defaultdict(list)
     for row in current:
         grouped[row["player_id"]].append(row)
@@ -343,23 +426,6 @@ def build_overview(question, evidence, players, scope, selected=None):
         metric = contract.metric(key)
         value = aggregate(own, metric, "average")
         baseline = aggregate(prior, metric, "average")
-        cohort = []
-        for rows in grouped.values():
-            stats = aggregate(rows, metric, "average")
-            if (
-                stats["valid_games"] >= contract.min_games
-                and not stats["missing_component_games"]
-            ):
-                cohort.append(stats["value"])
-        eligible = (
-            value["valid_games"] >= contract.min_games
-            and not value["missing_component_games"]
-        )
-        pct = (
-            100 * sum(v < value["value"] for v in cohort) / (len(cohort) - 1)
-            if eligible and len(cohort) > 1
-            else None
-        )
         delta = (
             value["value"] - baseline["value"]
             if baseline_covered
@@ -369,29 +435,20 @@ def build_overview(question, evidence, players, scope, selected=None):
             and not baseline["missing_component_games"]
             else None
         )
-        avg = f"{value['value']:.1f}" if value["value"] is not None else "Unavailable"
-        table.append(
-            [
-                label,
-                avg,
-                f"{pct:.0f}" if pct is not None else "Unavailable",
-                f"{delta:+.1f}" if delta is not None else "Unavailable",
-                f"{value['valid_games']} / {len(own)}",
-                str(len(cohort)),
-            ]
-        )
         buckets = defaultdict(list)
         for row in own:
-            buckets[str(row["game_date"])[:7]].append(row)
+            buckets[
+                str(row["game_date"]) if grain == "daily" else str(row["game_date"])[:7]
+            ].append(row)
         points = []
-        for month, rows in sorted(buckets.items()):
+        for bucket, rows in sorted(buckets.items()):
             stats = aggregate(rows, metric, "average")
             if stats["value"] is not None:
                 points.append(
                     {
-                        "x": month,
+                        "x": bucket,
                         "y": stats["value"],
-                        "meta": f"{stats['valid_games']} / {len(rows)} games with {label.lower()} data",
+                        "meta": f"{bucket} · {stats['valid_games']} / {len(rows)} games with {label.lower()} data",
                     }
                 )
         # Do not draw a continuous trend across missing metric observations.
@@ -399,8 +456,11 @@ def build_overview(question, evidence, players, scope, selected=None):
             charts.append(
                 {
                     "type": "line",
-                    "title": f"{label} per game — monthly",
-                    "x_label": "Month with appearances",
+                    "title": f"{key.upper()} — {'game-by-game' if grain == 'daily' else 'monthly average'}",
+                    "grain": grain,
+                    "x_label": "Game date"
+                    if grain == "daily"
+                    else "Month with appearances",
                     "y_label": label + " per game",
                     "series": [{"key": key, "label": label, "points": points}],
                 }
@@ -410,18 +470,28 @@ def build_overview(question, evidence, players, scope, selected=None):
                 "key": key,
                 "label": label,
                 **value,
-                "percentile": pct,
-                "cohort_size": len(cohort),
                 "previous": baseline,
                 "change": delta,
-                "monthly": points,
+                "trend": {"grain": grain, "points": points},
+                **({"monthly": points} if grain == "monthly" else {}),
             }
         )
     phase = " + ".join(scope["phases"])
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
+    from app.agent.overview_percentiles import add_percentiles
+
+    add_percentiles(metrics + extra, grouped, player["player_id"], contract.min_games)
     insights = game_insights(own)
+    display_policy = presentation(
+        metrics + extra, question, len(own), contract.min_games, insights=insights
+    )
     paragraphs = summary_paragraphs(
-        player["player_name"], metrics + extra, scope, len(own), insights
+        player["player_name"],
+        [{**m, "change": m["display_change"]} for m in metrics + extra],
+        scope,
+        len(own),
+        insights,
+        display_policy["profile"],
     )
     answer = "\n\n".join(paragraphs)
     return {
@@ -431,22 +501,18 @@ def build_overview(question, evidence, players, scope, selected=None):
         "clarification_options": [],
         "player_profile": identity_profile(player, own),
         "tables": [
-            {
-                "title": "Performance overview — per-game averages",
-                "columns": [
-                    {"key": k, "label": v}
-                    for k, v in (
-                        ("metric", "Stat"),
-                        ("average", "Per game"),
-                        ("percentile", "League percentile"),
-                        ("change", "Change vs comparison dates"),
-                        ("games", "Valid / played games"),
-                        ("cohort", "Qualified players"),
-                    )
+            metric_table(
+                metrics + extra, display_policy["primary_keys"], "Key metrics"
+            ),
+            metric_table(
+                metrics + extra,
+                [
+                    m["key"]
+                    for m in metrics + extra
+                    if m["key"] not in display_policy["primary_keys"]
                 ],
-                "rows": table,
-            },
-            context_table(extra),
+                "Additional metrics",
+            ),
         ],
         "charts": charts,
         "assumptions": [
@@ -457,9 +523,15 @@ def build_overview(question, evidence, players, scope, selected=None):
                 if not baseline_covered
                 else ""
             ),
-            f"Percentiles compare per-game averages in the same period and phases, with at least {contract.min_games} games and complete data for that metric. Ties share the percentage of other eligible players strictly below them.",
+            f"Percentiles compare qualified players in the same dates and phases, with at least {contract.min_games} appearances and complete components. Shooting ranks require 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, or 50 3PA for 3P%. TOV ranks favor fewer turnovers; MIN describes exposure. Ties share the percentage of other qualified players strictly worse. These provisional project rules are not NBA official qualification.",
             f"Source: {evidence.source}; data through {max(evidence.data_through.values())}. No games or missing values are fabricated.",
-            "Charts show monthly per-game averages for months with appearances; gaps without appearances are omitted.",
+            "Charts show "
+            + (
+                "game-by-game values on recorded game dates"
+                if grain == "daily"
+                else "monthly per-game averages for months with appearances"
+            )
+            + "; gaps without appearances are omitted.",
             "Shooting percentages use aggregate makes and attempts; percentage changes are percentage points. TS% uses the 0.44 free-throw approximation. Per-36 rates are descriptive, not causal effects.",
         ],
         "metric_definitions": [
@@ -475,6 +547,7 @@ def build_overview(question, evidence, players, scope, selected=None):
         ]
         + [{k: m[k] for k in ("key", "label", "definition", "unit")} for m in extra],
         "semantic_evidence": {
+            "presentation": display_policy,
             "summary_paragraphs": paragraphs,
             "game_insights": insights,
             "scope": {

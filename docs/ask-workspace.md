@@ -152,8 +152,9 @@ assessment labels and raw study diagnostics stay in server evidence and logs.
 Saved responses retain their original text; new requests use this presentation.
 
 Governed player overviews use the same evidence for the overall assessment,
-up to three supported takeaways, five-stat percentile table and monthly chart.
-The chart initially selects the strongest eligible category; PTS/REB/AST/STL/BLK
+up to three visible Key Takeaways, eleven primary metrics (six or nine for focused
+profiles) and an adaptive performance chart. The chart starts with the requested
+focus metric, or PTS for general overviews; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and
 table/chart renderers instead of receiving invented overview insights.
 
@@ -182,7 +183,7 @@ Narrow metric requests, awards and unsupported requests remain concise. No-data
 responses do not pad out three paragraphs. All detailed metrics remain in the
 tables and evidence, with their original units.
 
-The overview describes relative category strength, monthly variation, and
+The overview describes scoped category production, game-level variation, and
 box-score activity, with additional minutes, attempt, shooting-efficiency,
 turnover, and per-36 context. These metrics do not establish causal drivers.
 Opponent and selected teammate summaries are available in the offline evaluation;
@@ -458,9 +459,11 @@ reference data, not model memory or runtime web scraping. Before adding records,
 verify the official NBA winner list and player identity, retain provenance, and
 run the catalog-wide regression matrix in `tests/test_award_lookup.py`.
 
-Monthly performance overviews retain five selectable trends (PTS, REB, AST, STL,
+Performance-over-time overviews retain five selectable trends (PTS, REB, AST, STL,
 BLK) when complete data is available. Visualization selection preserves these
 views without a model call; missing metric observations still withhold that trend.
+Windows up to 31 days show game dates; longer windows show monthly averages.
+See [metric labels, samples and calendar scope](ask-metric-presentation.md).
 
 Browser recovery carries only an award key, season and performance phase. The
 server reconstructs award evidence from the reviewed catalog and verifies the
@@ -680,3 +683,73 @@ retain `X-Request-ID`, release capacity after delivery closes, and record an
 
 HTTP/SSE provider failures keep the existing safe generic error response, while
 the server-generated request ID links to the private operational summary.
+
+## Compact metrics and balanced contributions
+
+The percentile cell opens a compact metric drawer: **Among players** uses the
+exact qualified comparison cohort, and **Across games** shows individual recorded
+appearances, median and spread. Shooting observations include attempts; the game
+selector supports touch and keyboard use. The drawer overlays the page without
+expanding metric rows or making additional Ask requests. See the
+[distribution contract](ask-metric-presentation.md#metric-distributions) for
+qualification, missingness, quantiles and bounded observations.
+
+Broad overviews use eleven primary metrics; focused profiles use six or nine with
+expandable additional metrics. Per-metric sample/opportunity notes and balanced,
+server-authored takeaways replace browser-selected strongest-percentile claims.
+See [overview metrics and sample policy](ask-metric-presentation.md) for supported
+focuses, scope guards, units, comparison eligibility and missing-data behavior.
+
+
+## Conversational time defaults
+
+Ask resolves casual time phrases deterministically before overview, metric, and
+comparison planning. “Last year”, “last season”, “previous year” and “prior season”
+mean the last completed NBA season under the repository's July–June season bounds.
+The request date (or explicit as-of date) anchors this interpretation, independently
+of source freshness. “This year” means the NBA season containing that date;
+explicit season selection and established “this season” behavior remain supported.
+“Past year” and numeric year windows mean rolling calendar months. “In 2025” means
+calendar 2025; current calendar years end at the request date. Month names without
+years inherit a single conversation season when available, otherwise use their
+latest occurrence. Recently/lately overviews use up to ten recorded appearances
+in the selected season/phases, with the preceding appearances in those same
+phases as their baseline. Metric calendar windows also honor an explicit as-of
+date when resolving relative periods and clipping the requested month.
+
+Successful inferred scopes show a compact assumption above the analysis. Last-year
+answers offer calendar-year and rolling-12-month correction buttons that submit
+explicit replacement questions. Saved answers retain these controls. Existing
+phase defaults, metric selection, ambiguity guards and missingness semantics stay
+in effect. Follow-ups retain resolved dates unless new time wording overrides them.
+Conflicting periods still require clarification; unavailable evidence is reported
+without silently replacing the inferred period or inventing values.
+
+
+### Calendar metric coverage and accessible ranks
+
+Yearless months first use an explicit season or playoff year in the question,
+then the primary conversation season (derived from its start/end when comparison
+archives are also listed), otherwise their latest occurrence at the earlier of
+the context end and request/as-of date. A rolling context spanning multiple
+seasons cannot infer a future month from its end date. Season and recent-appearance overviews cap their
+end at an explicit as-of date; recent historical requests use the applicable
+available season. Off-season/start-of-season recent requests can include the
+preceding available season while preserving their upper date and phases.
+
+Fresh metric calendar windows load every overlapping available archive and bind
+those seasons to the calculation, just as inherited windows do. Resolved rolling
+year requests become explicit dates anchored to the request/as-of date. Ordinary
+source-anchored numeric-month queries retain their established semantics. A
+missing required supported archive withholds the answer; dates conflicting with an explicit
+named season require clarification. Source coverage/freshness remains visible.
+Complex month comparisons and since/before/after ranges retain the validated
+planner path. A dated month on the right side of a comparison is a period, not a
+second player identity. Inferred planner month/range ends are clipped to today or
+the explicit request anchor and disclosed; explicit user future ranges still
+require clarification. Windows beyond the newest supported archive retain source
+coverage warnings and do not establish complete coverage of later seasons.
+
+Distribution buttons announce both the percentile or qualification status and
+the descriptive qualification note. Focused prose uses full statistic names such
+as three-pointers made and turnovers; metric tables keep their abbreviations.

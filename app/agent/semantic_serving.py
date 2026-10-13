@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import OrderedDict
+from datetime import date
 from threading import Lock
 from time import monotonic
 from typing import Any
@@ -12,7 +13,7 @@ from app.agent.execution import timed
 from app.agent.player_resolver import load_player_aliases, normalize_player_text
 from app.agent.semantic_source import BigQuerySemanticSource, snapshot_evidence
 from app.agent.semantics import Evidence, SemanticError
-from app.seasons import DEFAULT_SEASON, SEASONS, validate_season
+from app.seasons import DEFAULT_SEASON, SEASONS, season_bounds, validate_season
 
 
 def has_time_scope(question: str) -> bool:
@@ -82,6 +83,33 @@ def requested_seasons(question: str, selected: str) -> list[str]:
         except ValueError as exc:
             raise SemanticError("unsupported_coverage", str(exc)) from exc
     return seasons or [validate_season(selected)]
+
+
+def seasons_in_dates(start, end):
+    """All available archives overlapping a validated explicit metric window."""
+    try:
+        lo, hi = date.fromisoformat(start), date.fromisoformat(end)
+    except (ValueError, TypeError) as exc:
+        raise SemanticError(
+            "invalid_scope", "Please provide valid start and end dates."
+        ) from exc
+    if lo > hi or hi > date.today():
+        raise SemanticError(
+            "invalid_scope",
+            "Please choose an ordered period ending no later than today.",
+        )
+    if lo < season_bounds(SEASONS[-1])[0]:
+        raise SemanticError(
+            "unsupported_coverage", "Requested dates precede available archives."
+        )
+    seasons = [
+        s for s in SEASONS if season_bounds(s)[0] <= hi and season_bounds(s)[1] >= lo
+    ]
+    if not seasons:
+        raise SemanticError(
+            "unsupported_coverage", "Requested dates have no available archive."
+        )
+    return seasons
 
 
 class SemanticWarehouse:

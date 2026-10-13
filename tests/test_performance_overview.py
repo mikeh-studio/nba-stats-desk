@@ -77,21 +77,10 @@ def test_overview_math_table_charts_profile_agree(evidence):
         scope(),
     )
     assert result["status"] == "ok"
-    assert [r[0] for r in result["tables"][0]["rows"]] == [
-        "Points",
-        "Rebounds",
-        "Assists",
-        "Steals",
-        "Blocks",
-    ]
-    assert result["tables"][0]["rows"][0] == [
-        "Points",
-        "20.0",
-        "50",
-        "+10.0",
-        "6 / 6",
-        "3",
-    ]
+    assert len(result["tables"][0]["rows"]) == 11
+    pts = result["tables"][0]["rows"][0]
+    assert pts[:5] == ["PTS", "20.0", "per game", "50.0", "10.0"]
+    assert pts[5].startswith("6/6 valid appearances;")
     from app.agent.visualization import VisualizationAgent
 
     expected_charts = list(result["charts"])
@@ -115,8 +104,9 @@ def test_missing_values_are_not_zero_or_qualified(evidence):
     result = build_overview(
         "Player 1 performance", evidence, source_players(evidence), scope()
     )
-    row = result["tables"][0]["rows"][3]
-    assert row[1:5] == ["2.0", "Unavailable", "Unavailable", "5 / 6"]
+    row = next(r for r in result["tables"][0]["rows"] if r[0] == "STL")
+    assert row[1:5] == ["2.0", "per game", "Unavailable", "Unavailable"]
+    assert "5/6 valid appearances" in row[5]
     assert len(result["charts"]) == 4
     assert "Partial data for Steals" in result["answer"]
 
@@ -174,8 +164,10 @@ def test_specific_questions_keep_existing_route(question):
 
 
 def test_scope_does_not_substitute_last_games_or_unavailable_archives():
-    with pytest.raises(SemanticError):
-        overview_scope("performance last 10 games", "2025-26")
+    assert (
+        overview_scope("performance last 10 games", "2025-26")["recent_appearances"]
+        == 10
+    )
     with pytest.raises(SemanticError):
         overview_scope("performance past 100 months", "2025-26")
 
@@ -309,7 +301,7 @@ def test_natural_performance_phrasing_uses_full_overview(evidence, wording):
 @pytest.mark.parametrize(
     "question",
     [
-        "How did Curry perform in scoring?",
+        "How did Curry perform in scoring per 36 minutes?",
         "How did Curry do in fantasy?",
         "How did Curry play against Boston?",
         "How did Curry rank in assists?",
@@ -412,7 +404,19 @@ def test_historical_playoff_year_is_not_default_season():
     assert scoped["seasons"] == ["2024-25"]
 
 
-def test_three_paragraph_overview_json_and_stream_agree(evidence):
+@pytest.mark.parametrize(
+    "question,grain",
+    [
+        ("How well did Player 1 play in the 2025-26 playoffs?", "monthly"),
+        ("How did Player 1 perform in November 2025?", "daily"),
+        ("How did Player 1 perform week of 2025-11-01?", "daily"),
+        (
+            "How did Player 1 perform in November?\nClarification: November 2025",
+            "daily",
+        ),
+    ],
+)
+def test_three_paragraph_overview_json_and_stream_agree(evidence, question, grain):
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
@@ -433,11 +437,13 @@ def test_three_paragraph_overview_json_and_stream_agree(evidence):
     )
     try:
         with TestClient(app) as client:
-            body = {"question": "How well did Player 1 play in the 2025-26 playoffs?"}
+            body = {"question": question}
             direct = client.post("/api/agent/ask", json=body)
             assert direct.status_code == 200
             payload = direct.json()
             assert payload["status"] == "ok"
+            assert payload["charts"][0]["grain"] == grain
+            assert len(payload["charts"]) == 5
             assert len(payload["semantic_evidence"]["summary_paragraphs"]) == 3
             assert payload["answer"] == "\n\n".join(
                 payload["semantic_evidence"]["summary_paragraphs"]
@@ -462,3 +468,493 @@ def test_play_in_tournament_remains_unsupported(phrase):
         overview_scope(
             f"Player 1 performance in the {phrase}", "2025-26", date(2026, 10, 5)
         )
+
+
+@pytest.mark.parametrize(
+    "profile,phrase,count",
+    [
+        ("general", "performance", 11),
+        ("scoring", "scoring performance", 9),
+        ("playmaking", "playmaking performance", 6),
+        ("rebounding", "rebounding performance", 6),
+        ("defense", "defensive activity performance", 6),
+        ("contribution", "contribution beyond scoring performance", 6),
+    ],
+)
+def test_profile_selection_is_explicit_and_does_not_depend_on_percentiles(
+    evidence, profile, phrase, count
+):
+    from app.agent.overview_policy import PROFILES
+
+    q = f"Player 1 {phrase} in 2025-26"
+    assert wants_overview(q)
+    result = build_overview(q, evidence, source_players(evidence), scope())
+    policy = result["semantic_evidence"]["presentation"]
+    assert policy["profile"] == profile
+    assert policy["primary_keys"] == list(PROFILES[profile])
+    assert len(result["tables"][0]["rows"]) == count
+    assert len(result["tables"][0]["rows"]) + len(result["tables"][1]["rows"]) == len(
+        result["semantic_evidence"]["metrics"]
+    )
+    assert "stood out at" not in result["answer"]
+    if profile == "scoring":
+        assert "fg3m" in policy["primary_keys"]
+    if profile == "defense":
+        assert policy["takeaways"][0]["area"] == "Defensive activity"
+        assert "overall defensive grade" in policy["limitation"]
+    if profile == "rebounding":
+        assert policy["takeaways"][0]["area"] == "Rebounding"
+        assert "box-outs are unavailable" in policy["limitation"]
+
+
+def test_limited_sample_retains_values_but_not_comparisons_or_standout_claims(evidence):
+    scoped = scope()
+    scoped["start"] = scoped["end"] = date(2025, 11, 1)
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scoped
+    )
+    stats = result["semantic_evidence"]["metrics"]
+    pts = next(m for m in stats if m["key"] == "pts")
+    assert pts["value"] == 20 and pts["sample"]["status"] == "limited"
+    assert pts["display_change"] is None and pts["percentile"] is None
+    assert all(m["display_change"] is None for m in stats)
+    assert all(
+        "no standout claim" in note["text"].lower()
+        for note in result["semantic_evidence"]["presentation"]["takeaways"]
+    )
+
+
+def test_shooting_samples_pool_attempts_and_zero_attempts_are_unavailable(evidence):
+    own = [r for r in evidence.rows if r["player_id"] == 1 and r["season"] == "2025-26"]
+    for row in own:
+        row.update(fg3m=0, fg3a=0)
+    own[0].update(fg3m=1, fg3a=1)
+    own[1].update(fg3m=0, fg3a=9)
+    result = build_overview(
+        "Player 1 scoring performance", evidence, source_players(evidence), scope()
+    )
+    three = next(
+        m for m in result["semantic_evidence"]["metrics"] if m["key"] == "fg3_pct"
+    )
+    assert three["value"] == 10
+    assert "1 makes / 10 attempts" in three["sample"]["text"]
+    assert "at least 50 3PA" in three["sample"]["text"]
+    assert three.get("percentile") is None
+    for row in own:
+        row.update(fg3m=0, fg3a=0)
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    three = next(
+        m for m in result["semantic_evidence"]["metrics"] if m["key"] == "fg3_pct"
+    )
+    assert three["value"] is None and three["sample"]["status"] == "unavailable"
+    assert "0 makes / 0 attempts" in three["sample"]["text"]
+
+
+def test_partial_sample_changes_are_withheld_and_takeaways_disclose_limit(evidence):
+    own = [r for r in evidence.rows if r["player_id"] == 1 and r["season"] == "2025-26"]
+    own[0]["ast"] = None
+    result = build_overview(
+        "Player 1 playmaking performance", evidence, source_players(evidence), scope()
+    )
+    ast = next(m for m in result["semantic_evidence"]["metrics"] if m["key"] == "ast")
+    assert ast["valid_games"] == 5 and ast["observed_games"] == 6
+    assert ast["sample"]["status"] == "limited" and ast["display_change"] is None
+    assert "1 missing components" in ast["sample"]["text"]
+    assert (
+        "no standout claim"
+        in result["semantic_evidence"]["presentation"]["takeaways"][0]["text"].lower()
+    )
+
+
+@pytest.mark.parametrize(
+    "condition", ["home", "against Boston", "per 36 minutes", "in the fourth quarter"]
+)
+def test_focus_does_not_erase_unsupported_or_specific_conditions(condition):
+    q = f"Player 1 scoring performance {condition}"
+    if condition == "in the fourth quarter":
+        with pytest.raises(SemanticError):
+            overview_scope(q, "2025-26")
+    else:
+        assert not wants_overview(q)
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [
+        "offensive rebounds",
+        "box-outs",
+        "screen assists",
+        "potential assists",
+        "rim protection",
+        "defensive rating",
+        "fouls",
+        "rebound chances",
+    ],
+)
+def test_focused_profiles_cannot_substitute_box_scores_for_unconnected_measures(
+    requested,
+):
+    from app.agent.question_intent import question_intent
+
+    assert (
+        question_intent(f"How did Curry perform in {requested}?")["status"]
+        == "unsupported_scope"
+    )
+
+
+@pytest.mark.parametrize(
+    "phrase,lo,hi,grain",
+    [
+        ("in November 2025", "2025-11-01", "2025-11-30", "daily"),
+        ("in Feb. 2024", "2024-02-01", "2024-02-29", "daily"),
+        ("week of 2025-12-29", "2025-12-29", "2026-01-04", "daily"),
+        ("week starting 2025-11-01", "2025-11-01", "2025-11-07", "daily"),
+        ("past 1 month as of 2025-11-30", "2025-10-31", "2025-11-30", "daily"),
+        ("past week as of 2025-11-30", "2025-11-24", "2025-11-30", "daily"),
+        ("last week as of 2025-11-30", "2025-11-17", "2025-11-23", "daily"),
+        ("last month as of 2025-11-30", "2025-10-01", "2025-10-31", "daily"),
+        ("this month as of 2025-11-06", "2025-11-01", "2025-11-06", "daily"),
+        ("from 2025-11-01 through 2025-12-02", "2025-11-01", "2025-12-02", "monthly"),
+        ("past 3 months as of 2025-11-30", "2025-08-31", "2025-11-30", "monthly"),
+    ],
+)
+def test_overview_calendar_grain(phrase, lo, hi, grain):
+    scoped = overview_scope(
+        "Player 1 performance " + phrase, "2025-26", date(2026, 10, 12)
+    )
+    assert str(scoped["start"]) == lo
+    assert str(scoped["end"]) == hi
+    assert scoped["chart_grain"] == grain
+
+
+def test_named_month_compares_full_previous_calendar_month():
+    scoped = overview_scope(
+        "performance in February 2024", "2025-26", date(2026, 10, 12)
+    )
+    assert scoped["previous_start"] == date(2024, 1, 1)
+    assert scoped["previous_end"] == date(2024, 1, 31)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "first week of November 2025",
+        "week of 2025-02-30",
+        "in November 2025 and December 2025",
+        "since November 2025",
+        "in a specific week",
+        "week of 2025-11-01 and week of 2025-11-08",
+        "in November 2027",
+        "in November 2025 from 2025-11-01 through 2025-11-06",
+        "in November 2025 as of 2025-11-15",
+        "in November 2025 during 2024-25",
+        "this week and last week",
+        "past 1 month and past 1 week",
+        "during specific weeks",
+    ],
+)
+def test_ambiguous_calendar_does_not_broaden_to_season(phrase):
+    with pytest.raises(SemanticError) as exc:
+        overview_scope("Player 1 performance " + phrase, "2025-26", date(2026, 10, 12))
+    assert exc.value.code == "clarification_required"
+
+
+def test_daily_series_uses_exact_game_dates_without_filling_off_days(evidence):
+    scoped = overview_scope(
+        "Player 1 performance week of 2025-11-01", "2025-26", date(2026, 10, 12)
+    )
+    result = build_overview(
+        "Player 1 performance week of 2025-11-01",
+        evidence,
+        source_players(evidence),
+        scoped,
+    )
+    chart = result["charts"][0]
+    assert chart["grain"] == "daily"
+    from app.agent.visualization import VisualizationAgent
+
+    expected_charts = list(result["charts"])
+    result = VisualizationAgent().enrich(None, result, "performance", "none", "none")
+    assert result["charts"] == expected_charts
+    assert result["visualization"]["chart_ids"] == ["pts", "reb", "ast", "stl", "blk"]
+    points = chart["series"][0]["points"]
+    assert [p["x"] for p in points] == [f"2025-11-{day:02}" for day in range(1, 7)]
+    assert [p["y"] for p in points] == [20] * 6
+    metric = result["semantic_evidence"]["metrics"][0]
+    assert metric["trend"] == {"grain": "daily", "points": points}
+    assert "monthly" not in metric
+    assert result["tables"][0]["rows"][0][1] == "20.0"
+    assert "game-by-game" in " ".join(result["assumptions"])
+
+
+def test_monthly_series_retains_saved_evidence_contract(evidence):
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    chart = result["charts"][0]
+    metric = result["semantic_evidence"]["metrics"][0]
+    assert chart["grain"] == "monthly"
+    assert (
+        metric["monthly"] == metric["trend"]["points"] == chart["series"][0]["points"]
+    )
+
+
+def test_named_calendar_month_keeps_playoff_phase_and_year():
+    scoped = overview_scope(
+        "Player 1 performance in May 2025 playoffs", "2025-26", date(2026, 10, 12)
+    )
+    assert scoped["start"] == date(2025, 5, 1)
+    assert scoped["end"] == date(2025, 5, 31)
+    assert scoped["phases"] == ["Playoffs"]
+
+
+@pytest.mark.parametrize(
+    "phrase,lo,hi",
+    [
+        ("past month as of 2025-03-15", "2025-01-16", "2025-02-15"),
+        ("this month as of 2025-03-15", "2025-02-01", "2025-02-28"),
+    ],
+)
+def test_singular_month_comparison_windows(phrase, lo, hi):
+    scoped = overview_scope("performance " + phrase, "2025-26", date(2026, 10, 12))
+    assert str(scoped["previous_start"]) == lo
+    assert str(scoped["previous_end"]) == hi
+
+
+@pytest.mark.parametrize(
+    "reply", ["2025", "November 2025", "from 2025-11-01 through 2025-11-30"]
+)
+def test_calendar_clarification_resolves_without_repeating_ambiguity(reply):
+    scoped = overview_scope(
+        "Player 1 performance in November\nClarification: " + reply,
+        "2025-26",
+        date(2026, 10, 12),
+    )
+    assert scoped["start"] == date(2025, 11, 1)
+    assert scoped["end"] == date(2025, 11, 30)
+    assert scoped["chart_grain"] == "daily"
+
+
+@pytest.mark.parametrize("inverse", [False, True])
+def test_takeaways_pair_assists_turnovers_and_keep_minutes_context(evidence, inverse):
+    for row in evidence.rows:
+        if row["player_id"] == 1:
+            current = row["season"] == "2025-26"
+            row.update(
+                ast=2 if current == inverse else 5,
+                tov=4 if current == inverse else 1,
+                min=32 if current else 30,
+            )
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    policy = result["semantic_evidence"]["presentation"]
+    assert policy["version"] == "ask_metric_presentation/3"
+    assert len(policy["takeaways"]) == 3
+    change = next(n for n in policy["takeaways"] if n["role"] == "change")
+    assert change["title"] == (
+        "Fewer assists, more turnovers" if inverse else "More assists, fewer turnovers"
+    )
+    assert ("TOV +3.0 per game" if inverse else "TOV -3.0 per game") in change["text"]
+    assert "MIN +2.0 per game" in change["text"]
+    defense = next(n for n in policy["takeaways"] if n["area"] == "Defensive activity")
+    assert "overall defensive impact" in defense["text"]
+    assert all(len(n["text"]) < 260 for n in policy["takeaways"])
+
+
+def test_takeaways_do_not_reconstruct_unqualified_baseline_changes(evidence):
+    for row in evidence.rows:
+        if row["player_id"] == 1 and row["season"] == "2024-25":
+            row["ast"] = None
+    result = build_overview(
+        "Player 1 playmaking performance", evidence, source_players(evidence), scope()
+    )
+    notes = result["semantic_evidence"]["presentation"]["takeaways"]
+    assert all("AST +" not in n["text"] and "AST -" not in n["text"] for n in notes)
+    assert all("More assists" not in n["title"] for n in notes)
+
+
+def test_takeaways_use_valid_game_range_when_comparison_is_thin(evidence):
+    evidence.rows[:] = [
+        r
+        for r in evidence.rows
+        if r["season"] == "2025-26" or int(r["game_date"][-2:]) < 3
+    ]
+    own = [r for r in evidence.rows if r["player_id"] == 1 and r["season"] == "2025-26"]
+    own[0]["pts"] = 40
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    notes = result["semantic_evidence"]["presentation"]["takeaways"]
+    assert not any(n["role"] == "change" for n in notes)
+    variation = next(n for n in notes if n["role"] == "variation")
+    assert "20 to 40" in variation["text"] and "median 20.0" in variation["text"]
+
+
+def test_thin_focus_uses_one_warning_and_no_filler_takeaways(evidence):
+    scoped = scope()
+    scoped["start"] = scoped["end"] = date(2025, 11, 1)
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scoped
+    )
+    notes = result["semantic_evidence"]["presentation"]["takeaways"]
+    assert len(notes) == 1
+    assert "1/1 valid appearances" in notes[0]["text"]
+    assert "limited" in notes[0]["text"]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How did Klay Thompson played last year?",
+        "How did Klay Thompson play last season?",
+        "Tell me about Klay Thompson's performance last year",
+        "How did Klay Thompson perform in November?",
+        "How has Klay Thompson played lately?",
+        "How has Klay Thompson performed recently?",
+        "How did Klay Thompson perform in 2025?",
+        "How did Klay Thompson play over the past year?",
+    ],
+)
+def test_conversational_defaults_answer_json_and_sse(evidence, question):
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+    from tests.test_semantic_migration import settings
+
+    for row in evidence.rows:
+        if row["player_id"] == 1:
+            row["player_name"] = "Klay Thompson"
+    config = settings("2025-26")
+    repo = BigQueryWarehouseRepository(config, client=SimpleNamespace())
+    repo._governed_warehouse = SimpleNamespace(
+        load=lambda seasons: ({"capture": {}}, evidence)
+    )
+    old = dict(app.dependency_overrides)
+    app.dependency_overrides.update(
+        {
+            get_settings: lambda: config,
+            get_repository: lambda: repo,
+            get_agent_client: lambda: object(),
+        }
+    )
+    try:
+        with TestClient(app) as client:
+            for suffix in ("", "/stream"):
+                response = client.post(
+                    "/api/agent/ask" + suffix, json={"question": question}
+                )
+                assert response.status_code == 200
+                payload = (
+                    response.json()
+                    if not suffix
+                    else next(
+                        json.loads(line[6:])["payload"]
+                        for line in response.text.splitlines()
+                        if line.startswith("data: ")
+                        and json.loads(line[6:]).get("type") == "final"
+                    )
+                )
+                assert payload["status"] == "ok", payload
+                assert payload["player_profile"]["player"]["player_id"] == 1
+                assert payload["scope_assumptions"]
+                assert not payload.get("clarification_options")
+                pts = payload["semantic_evidence"]["metrics"][0]
+                assert pts["value"] in (10, 20, 15)
+                if "last year" in question or "last season" in question:
+                    assert (
+                        payload["semantic_evidence"]["scope"]["start"] == "2025-07-01"
+                    )
+                    assert pts["value"] == 20
+                    assert len(payload["period_options"]) == 2
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(old)
+
+
+@pytest.mark.parametrize(
+    "failure", ["unsupported_coverage", "access_denied", "invalid_evidence"]
+)
+def test_missing_baseline_does_not_replace_requested_scope(evidence, failure):
+    from dataclasses import replace
+
+    current = replace(
+        evidence,
+        rows=[r for r in evidence.rows if r["season"] == "2025-26"],
+        covered_scopes=frozenset(
+            s for s in evidence.covered_scopes if s[0] == "2025-26"
+        ),
+    )
+    calls = []
+
+    class Warehouse:
+        def load(self, seasons):
+            calls.append(seasons)
+            if seasons != ["2025-26"]:
+                raise SemanticError(failure, "Unavailable baseline")
+            return {}, current
+
+    agent = SemanticAsk(
+        SimpleNamespace(season="2025-26", agent_conversation_max_turns=6), Warehouse()
+    )
+    payload = agent.answer(
+        "How did Player 1 perform last year?", client=object(), model="fixture"
+    )
+    if failure == "unsupported_coverage":
+        assert payload["status"] == "ok"
+        assert payload["semantic_evidence"]["scope"]["start"] == "2025-07-01"
+        assert payload["semantic_evidence"]["metrics"][0]["value"] == 20
+        assert payload["semantic_evidence"]["metrics"][0]["display_change"] is None
+        assert calls[-1] == ["2025-26"]
+    else:
+        assert payload["status"] == failure
+        assert len(calls) == 1
+
+
+def test_recent_playoffs_compare_previous_playoff_appearances(evidence):
+    rows = [
+        {
+            **evidence.rows[0],
+            "season": "2025-26",
+            "season_type": "Playoffs",
+            "game_id": f"recent-{day}",
+            "game_date": f"2026-05-{day:02}",
+            "pts": day,
+        }
+        for day in range(1, 21)
+    ]
+    recent_evidence = Evidence(
+        rows,
+        evidence.covered_scopes,
+        "fixture",
+        "recent-playoffs",
+        evidence.data_through,
+        complete=True,
+    )
+    question = "Player 1 performance last 10 games in 2025-26 playoffs"
+    period = overview_scope(question, "2025-26", date(2026, 10, 12))
+    payload = build_overview(
+        question, recent_evidence, source_players(recent_evidence), period
+    )
+    result = payload["semantic_evidence"]
+    assert result["scope"]["previous_phases"] == ["Playoffs"]
+    points = next(m for m in result["metrics"] if m["key"] == "pts")
+    assert points["value"] == 15.5
+    assert points["previous"]["value"] == 5.5
+    assert points["previous"]["valid_games"] == 10
+    assert points["display_change"] == 10
+
+
+@pytest.mark.parametrize(
+    "profile,word,abbreviation",
+    [("scoring", "three-pointers made", "3pm"), ("playmaking", "turnovers", "tov")],
+)
+def test_focused_prose_uses_statistic_names(evidence, profile, word, abbreviation):
+    payload = build_overview(
+        f"Player 1 {profile} performance", evidence, source_players(evidence), scope()
+    )
+    first = payload["semantic_evidence"]["summary_paragraphs"][0]
+    assert word in first
+    assert abbreviation not in first

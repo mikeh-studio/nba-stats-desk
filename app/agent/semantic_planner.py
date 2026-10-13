@@ -162,6 +162,54 @@ def explicit_scope(question: str) -> dict[str, Any]:
             as_of=end.isoformat(),
             n=None,
         )
+    if "window" not in hints:
+        from app.agent.overview_calendar import MONTH_PATTERN, calendar_window
+
+        has_calendar = re.search(
+            MONTH_PATTERN
+            + r"|\b(?:this|last|previous|past) (?:month|week)\b|\bweek (?:of|starting|beginning)\b",
+            question,
+            re.I,
+        )
+        # Complex calendar comparisons/ranges retain their established planner path.
+        complex_calendar = len(re.findall(MONTH_PATTERN, question, re.I)) > 1 or bool(
+            re.search(
+                r"\b(?:since|before|after|until|through|between|versus|vs|compare)\b",
+                question,
+                re.I,
+            )
+        )
+        standalone_calendar = bool(has_calendar) and not complex_calendar
+        anchor = date.today()
+        as_of = re.search(r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I)
+        if standalone_calendar and as_of:
+            try:
+                anchor = date.fromisoformat(as_of[1])
+            except ValueError as exc:
+                raise SemanticError(
+                    "clarification_required", "Please provide a valid as-of date."
+                ) from exc
+            if anchor > date.today():
+                raise SemanticError(
+                    "clarification_required",
+                    "Please choose an as-of date no later than today.",
+                )
+        calendar_scope = (
+            calendar_window(question, anchor) if standalone_calendar else None
+        )
+        if calendar_scope:
+            start, end, _ = calendar_scope
+            if start > anchor:
+                raise SemanticError(
+                    "clarification_required",
+                    "Please choose a period starting no later than today.",
+                )
+            hints.update(
+                window="date_range",
+                start_date=start.isoformat(),
+                as_of=min(end, anchor).isoformat(),
+                n=None,
+            )
     if (
         re.search(r"\b(?:both|combine|combined|including)\b", question, re.I)
         and re.search(r"regular season", question, re.I)
