@@ -162,6 +162,31 @@ def explicit_scope(question: str) -> dict[str, Any]:
             as_of=end.isoformat(),
             n=None,
         )
+    if "window" not in hints:
+        from app.agent.overview_calendar import MONTH_PATTERN, calendar_window
+
+        has_calendar = re.search(
+            MONTH_PATTERN
+            + r"|\b(?:this|last|previous|past) (?:month|week)\b|\bweek (?:of|starting|beginning)\b",
+            question,
+            re.I,
+        )
+        calendar_scope = (
+            calendar_window(question, date.today()) if has_calendar else None
+        )
+        if calendar_scope:
+            start, end, _ = calendar_scope
+            if start > date.today():
+                raise SemanticError(
+                    "clarification_required",
+                    "Please choose a period starting no later than today.",
+                )
+            hints.update(
+                window="date_range",
+                start_date=start.isoformat(),
+                as_of=min(end, date.today()).isoformat(),
+                n=None,
+            )
     if (
         re.search(r"\b(?:both|combine|combined|including)\b", question, re.I)
         and re.search(r"regular season", question, re.I)

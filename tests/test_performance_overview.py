@@ -164,8 +164,10 @@ def test_specific_questions_keep_existing_route(question):
 
 
 def test_scope_does_not_substitute_last_games_or_unavailable_archives():
-    with pytest.raises(SemanticError):
-        overview_scope("performance last 10 games", "2025-26")
+    assert (
+        overview_scope("performance last 10 games", "2025-26")["recent_appearances"]
+        == 10
+    )
     with pytest.raises(SemanticError):
         overview_scope("performance past 100 months", "2025-26")
 
@@ -638,7 +640,6 @@ def test_named_month_compares_full_previous_calendar_month():
 @pytest.mark.parametrize(
     "phrase",
     [
-        "in November",
         "first week of November 2025",
         "week of 2025-02-30",
         "in November 2025 and December 2025",
@@ -802,3 +803,111 @@ def test_thin_focus_uses_one_warning_and_no_filler_takeaways(evidence):
     assert len(notes) == 1
     assert "1/1 valid appearances" in notes[0]["text"]
     assert "limited" in notes[0]["text"]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How did Klay Thompson played last year?",
+        "How did Klay Thompson play last season?",
+        "Tell me about Klay Thompson's performance last year",
+        "How did Klay Thompson perform in November?",
+        "How has Klay Thompson played lately?",
+        "How has Klay Thompson performed recently?",
+        "How did Klay Thompson perform in 2025?",
+        "How did Klay Thompson play over the past year?",
+    ],
+)
+def test_conversational_defaults_answer_json_and_sse(evidence, question):
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+    from tests.test_semantic_migration import settings
+
+    for row in evidence.rows:
+        if row["player_id"] == 1:
+            row["player_name"] = "Klay Thompson"
+    config = settings("2025-26")
+    repo = BigQueryWarehouseRepository(config, client=SimpleNamespace())
+    repo._governed_warehouse = SimpleNamespace(
+        load=lambda seasons: ({"capture": {}}, evidence)
+    )
+    old = dict(app.dependency_overrides)
+    app.dependency_overrides.update(
+        {
+            get_settings: lambda: config,
+            get_repository: lambda: repo,
+            get_agent_client: lambda: object(),
+        }
+    )
+    try:
+        with TestClient(app) as client:
+            for suffix in ("", "/stream"):
+                response = client.post(
+                    "/api/agent/ask" + suffix, json={"question": question}
+                )
+                assert response.status_code == 200
+                payload = (
+                    response.json()
+                    if not suffix
+                    else next(
+                        json.loads(line[6:])["payload"]
+                        for line in response.text.splitlines()
+                        if line.startswith("data: ")
+                        and json.loads(line[6:]).get("type") == "final"
+                    )
+                )
+                assert payload["status"] == "ok", payload
+                assert payload["player_profile"]["player"]["player_id"] == 1
+                assert payload["scope_assumptions"]
+                assert not payload.get("clarification_options")
+                pts = payload["semantic_evidence"]["metrics"][0]
+                assert pts["value"] in (10, 20, 15)
+                if "last year" in question or "last season" in question:
+                    assert (
+                        payload["semantic_evidence"]["scope"]["start"] == "2025-07-01"
+                    )
+                    assert pts["value"] == 20
+                    assert len(payload["period_options"]) == 2
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(old)
+
+
+@pytest.mark.parametrize(
+    "failure", ["unsupported_coverage", "access_denied", "invalid_evidence"]
+)
+def test_missing_baseline_does_not_replace_requested_scope(evidence, failure):
+    from dataclasses import replace
+
+    current = replace(
+        evidence,
+        rows=[r for r in evidence.rows if r["season"] == "2025-26"],
+        covered_scopes=frozenset(
+            s for s in evidence.covered_scopes if s[0] == "2025-26"
+        ),
+    )
+    calls = []
+
+    class Warehouse:
+        def load(self, seasons):
+            calls.append(seasons)
+            if seasons != ["2025-26"]:
+                raise SemanticError(failure, "Unavailable baseline")
+            return {}, current
+
+    agent = SemanticAsk(
+        SimpleNamespace(season="2025-26", agent_conversation_max_turns=6), Warehouse()
+    )
+    payload = agent.answer(
+        "How did Player 1 perform last year?", client=object(), model="fixture"
+    )
+    if failure == "unsupported_coverage":
+        assert payload["status"] == "ok"
+        assert payload["semantic_evidence"]["scope"]["start"] == "2025-07-01"
+        assert payload["semantic_evidence"]["metrics"][0]["value"] == 20
+        assert payload["semantic_evidence"]["metrics"][0]["display_change"] is None
+        assert calls[-1] == ["2025-26"]
+    else:
+        assert payload["status"] == failure
+        assert len(calls) == 1

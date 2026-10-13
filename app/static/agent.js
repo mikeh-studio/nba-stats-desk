@@ -19,7 +19,7 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-panels-v2";
+} from "./ask_presentation.js?v=20261012-ask-time-defaults-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1005,11 +1005,25 @@ function renderPayload(payload) {
   renderAuxiliaryPayload(payload, runtimeFor().currentAnswerEl.parentElement || document);
 }
 
+function renderScopeAssumptions(payload, targetEl) {
+  const notes = asArray(payload.scope_assumptions);
+  if (!notes.length) return;
+  const block = document.createElement("div");
+  block.className = "scope-assumption";
+  const options = asArray(payload.period_options);
+  block.innerHTML = `<span>${notes.map(escHtml).join(" ")}</span>${options.length ? `<details><summary>Change period</summary>${options.map(o => `<button type="button" class="button subtle" data-period-question="${escHtml(o.question)}">${escHtml(o.label)}</button>`).join("")}</details>` : ""}`;
+  block.querySelectorAll("[data-period-question]").forEach(button => {
+    button.addEventListener("click", () => askQuestion(button.dataset.periodQuestion));
+  });
+  targetEl.prepend(block);
+}
+
 function renderAnswerPayload(payload, targetEl) {
   if (!targetEl) return;
   const comparison = comparisonPresentation(payload);
   if (comparison) {
     targetEl.innerHTML = comparisonAnswer(comparison);
+    renderScopeAssumptions(payload, targetEl);
     return;
   }
   const overview = payload.award_evidence ? null : overviewPresentation(payload);
@@ -1019,6 +1033,7 @@ function renderAnswerPayload(payload, targetEl) {
   if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
     targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
   }
+  renderScopeAssumptions(payload, targetEl);
   bindClarifyOptions(targetEl);
 }
 

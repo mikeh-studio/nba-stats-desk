@@ -575,15 +575,11 @@ class SemanticAsk:
                 raise SemanticError(
                     intent["status"], intent["message"] or "Unsupported question"
                 )
-            # Resolve relative season language before the overview date parser.
-            if re.search(r"\b(?:last|previous|prior) season\b", question, re.I):
-                requested = requested_seasons(question, self.settings.season)[0]
-                question = re.sub(
-                    r"\b(?:last|previous|prior) season\b",
-                    requested,
-                    question,
-                    flags=re.I,
-                )
+            from app.agent.time_defaults import resolve_time_defaults
+
+            question, time_assumptions, period_options = resolve_time_defaults(
+                question, context=context
+            )
             from app.agent.routes import semantic_shape
 
             shape = semantic_shape(question)
@@ -639,7 +635,25 @@ class SemanticAsk:
                 if used != self.settings.season:
                     notice = fallback_notice(self.settings.season, used)
             else:
-                snapshot, evidence = self.warehouse.load(seasons)
+                try:
+                    snapshot, evidence = self.warehouse.load(seasons)
+                except SemanticError as exc:
+                    primary_seasons = [
+                        s
+                        for s in seasons
+                        if overview
+                        and season_bounds(s)[0] <= overview["end"]
+                        and season_bounds(s)[1] >= overview["start"]
+                    ]
+                    if (
+                        exc.code != "unsupported_coverage"
+                        or not primary_seasons
+                        or primary_seasons == seasons
+                    ):
+                        raise
+                    # The requested period stays fixed; only an unavailable baseline
+                    # is omitted. build_overview withholds its comparisons.
+                    snapshot, evidence = self.warehouse.load(primary_seasons)
             players = (
                 self.warehouse.players(evidence)
                 if hasattr(self.warehouse, "players")
@@ -848,6 +862,13 @@ class SemanticAsk:
                     + award["season_basis"]
                     + ". Performance is computed from warehouse game records."
                 )
+            if time_assumptions and payload.get("status") in (
+                "ok",
+                "unsupported_coverage",
+            ):
+                payload["scope_assumptions"] = time_assumptions
+                payload["period_options"] = period_options
+                payload["assumptions"].extend(time_assumptions)
             payload["semantic_plan"] = plan
             payload["question_intent"] = intent
             if notice:

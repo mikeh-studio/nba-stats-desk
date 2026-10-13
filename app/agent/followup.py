@@ -155,7 +155,7 @@ def resolve_followup(
     scope = context.get("scope", {})
     inherited = {}
     changes_dates = re.search(
-        r"\b(?:20\d{2}|last|past|previous|prior|this (?:season|month|week|year)|current season|today|yesterday|since|before|after|from|as.of|January|February|March|April|May|June|July|August|September|October|November|December)\b",
+        r"\b(?:20\d{2}|last|past|previous|prior|this (?:season|month|week|year)|current season|recently|lately|today|yesterday|since|before|after|from|as.of|January|February|March|April|May|June|July|August|September|October|November|December)\b",
         question,
         re.I,
     )

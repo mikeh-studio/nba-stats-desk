@@ -305,3 +305,23 @@ for (const width of [1280,390]) {
     await expect(panel.locator('[data-followup-context]')).toContainText('Apr 14, 2025');
   });
 }
+
+
+for (const width of [1280,390]) {
+  test(`natural time defaults answer and period correction works at ${width}px`, async ({page}) => {
+    await page.setViewportSize({width,height:900});
+    await prepare(page,'baseline_points');
+    await submit(page,'How did Avery Example played last year as of 2025-10-12?');
+    await expect(page.locator('[data-agent-answer]')).toContainText('last completed NBA season (2024-25)');
+    await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true}).first()).toBeVisible();
+    await expect(page.locator('table.compact-metrics').first().locator('tbody tr')).toHaveCount(10);
+    await page.locator('.scope-assumption summary').click();
+    await page.getByRole('button',{name:'Past 12 months',exact:true}).click();
+    await expect(page.locator('[data-agent-submit]')).toBeEnabled();
+    await expect(page.locator('[data-agent-answer]')).not.toContainText('Please specify a date range');
+    await expect(page.locator('.agent-turn')).toHaveCount(2);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.reload();
+    await expect(page.locator('.scope-assumption').first()).toContainText('2024-25');
+  });
+}

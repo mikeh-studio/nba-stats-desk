@@ -189,8 +189,9 @@ not establish shooting ranking eligibility or statistical precision. See
 
 Broad overview windows up to 31 inclusive days use game-date chart buckets; longer
 windows use monthly averages. Grain is explicit in scope, charts and metric trend
-evidence. Named month/year and dated week scopes resolve deterministically; an
-ambiguous or partial calendar phrase requires clarification. Calendar-month
+evidence. Named month/year and dated week scopes resolve deterministically; a
+partial or conflicting calendar phrase requires clarification. A month without a
+year uses the documented conversational default, disclosed in the answer. Calendar-month
 comparisons use the preceding full calendar month. Table abbreviations and change
 colors do not alter canonical metric values, sample rules or full-name evidence.
 See [Ask overview presentation](ask-metric-presentation.md#performance-over-time).

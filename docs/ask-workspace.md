@@ -691,3 +691,26 @@ expandable additional metrics. Per-metric sample/opportunity notes and balanced,
 server-authored takeaways replace browser-selected strongest-percentile claims.
 See [overview metrics and sample policy](ask-metric-presentation.md) for supported
 focuses, scope guards, units, comparison eligibility and missing-data behavior.
+
+
+## Conversational time defaults
+
+Ask resolves casual time phrases deterministically before overview, metric, and
+comparison planning. “Last year”, “last season”, “previous year” and “prior season”
+mean the last completed NBA season under the repository's July–June season bounds.
+The request date (or explicit as-of date) anchors this interpretation, independently
+of source freshness. “This year” means the NBA season containing that date;
+explicit season selection and established “this season” behavior remain supported.
+“Past year” and numeric year windows mean rolling calendar months. “In 2025” means
+calendar 2025; current calendar years end at the request date. Month names without
+years inherit a single conversation season when available, otherwise use their
+latest occurrence. Recently/lately overviews use up to ten recorded appearances
+in the selected season/phases, with the preceding appearances as their baseline.
+
+Successful inferred scopes show a compact assumption above the analysis. Last-year
+answers offer calendar-year and rolling-12-month correction buttons that submit
+explicit replacement questions. Saved answers retain these controls. Existing
+phase defaults, metric selection, ambiguity guards and missingness semantics stay
+in effect. Follow-ups retain resolved dates unless new time wording overrides them.
+Conflicting periods still require clarification; unavailable evidence is reported
+without silently replacing the inferred period or inventing values.

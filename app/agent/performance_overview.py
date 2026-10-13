@@ -60,6 +60,12 @@ def overview_scope(question, selected_season, today=None):
             flags=re.I,
         )
     today = today or date.today()
+    from app.agent.time_defaults import resolve_time_defaults
+
+    question, _, _ = resolve_time_defaults(question, today)
+    recent = bool(re.search(r"\blast 10 games\b", question, re.I))
+    if recent:
+        question = re.sub(r"\blast 10 games\b", "", question, flags=re.I)
     explicit = re.search(
         r"\bfrom (\d{4}-\d{2}-\d{2}) (?:to|through) (\d{4}-\d{2}-\d{2})\b",
         question,
@@ -110,14 +116,12 @@ def overview_scope(question, selected_season, today=None):
             else end - timedelta(days=n * (7 if unit.startswith("week") else 1) - 1)
         )
     else:
-        if re.search(
-            r"\b(last|past|prior|previous|since|as.of|yesterday)\b", question, re.I
-        ):
+        if re.search(r"\b(last|past|prior|previous|since|yesterday)\b", question, re.I):
             raise SemanticError(
                 "clarification_required",
                 "Please specify a date range (from YYYY-MM-DD through YYYY-MM-DD) or a number of days, weeks, or months.",
             )
-        named = re.findall(r"\b20\d{2}-\d{2}\b", question)
+        named = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
         if len(set(named)) > 1:
             raise SemanticError(
                 "clarification_required",
@@ -194,6 +198,7 @@ def overview_scope(question, selected_season, today=None):
             "The requested period starts before available 2023–24 coverage.",
         )
     return dict(
+        recent_appearances=10 if recent else None,
         start=start,
         end=end,
         previous_start=previous_start,
@@ -317,6 +322,35 @@ def build_overview(question, evidence, players, scope, selected=None):
             ],
         }
     player = candidates[0]
+    if scope.get("recent_appearances"):
+        scope = dict(scope)
+        games = sorted(
+            (
+                r
+                for r in evidence.rows
+                if r["player_id"] == player["player_id"]
+                and r["season_type"] in scope["phases"]
+                and scope["start"]
+                <= date.fromisoformat(str(r["game_date"]))
+                <= scope["end"]
+            ),
+            key=lambda r: (str(r["game_date"]), r["game_id"]),
+        )
+        if games:
+            n = scope["recent_appearances"]
+            chosen, baseline = games[-n:], games[-2 * n : -n]
+            scope["start"] = date.fromisoformat(str(chosen[0]["game_date"]))
+            scope["end"] = date.fromisoformat(str(chosen[-1]["game_date"]))
+            scope["previous_end"] = scope["start"] - timedelta(days=1)
+            scope["previous_start"] = (
+                date.fromisoformat(str(baseline[0]["game_date"]))
+                if baseline
+                else scope["previous_end"]
+            )
+            scope["comparison_label"] = (
+                "Prior recorded appearances in the same season and phases"
+            )
+            scope["chart_grain"] = "daily"
     start, end = scope["start"], scope["end"]
 
     def rows_between(lo, hi, phases):
