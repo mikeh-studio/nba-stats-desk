@@ -233,9 +233,11 @@ def test_json_and_sse_share_capacity_before_restoring_rejected_context(
         assert conflict.status == 409
         controlled["gate"].set()
         await asyncio.wait_for(task, 5)
+        await wait_workers(controlled)
         assert "successful" in active.wire
         retry = ASGIRequest(rejected, "other-chat")
         await asyncio.wait_for(retry.run(), 5)
+        await wait_workers(controlled)
         assert retry.status == 200
 
     with caplog.at_level("INFO", logger="app.agent"):
