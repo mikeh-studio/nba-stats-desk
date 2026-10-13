@@ -580,3 +580,9 @@ results. Controlled planner cases preserve month comparisons and since-month
 ranges. Time-default tests cover explicit-season month inference, multi-season
 follow-ups and within-season as-of anchors. Browser/JavaScript checks retain
 compact table dimensions while verifying announced distribution ranks/statuses.
+
+Follow-up regressions preserve a historical primary season even when comparison
+archives appear in saved context, resolve off-season recent-game requests from
+preceding available appearances, and clip a planner's current-month end to the
+request date. The current-month fixture includes a later 100-point game to prove
+that clipping excludes future appearances from the mean.

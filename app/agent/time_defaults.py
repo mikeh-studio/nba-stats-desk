@@ -6,6 +6,7 @@ from datetime import date
 
 from app.agent.overview_calendar import MONTH_PATTERN, MONTHS
 from app.agent.semantics import SemanticError
+from app.seasons import SEASONS, season_bounds
 
 
 def resolve_time_defaults(question, today=None, context=None):
@@ -105,10 +106,28 @@ def resolve_time_defaults(question, today=None, context=None):
             season = next(iter(explicit_seasons), None)
             if not season and len(seasons) <= 1:
                 season = seasons[0] if seasons else scope.get("season")
+            end = scope.get("end") or scope.get("as_of")
+            start = scope.get("start") or scope.get("start_date")
+            context_anchor = today
+            try:
+                if end:
+                    context_anchor = min(today, date.fromisoformat(end))
+                if not season and start and end:
+                    lo, hi = date.fromisoformat(start), date.fromisoformat(end)
+                    season = next(
+                        (
+                            s
+                            for s in SEASONS
+                            if season_bounds(s)[0] <= lo <= hi <= season_bounds(s)[1]
+                        ),
+                        None,
+                    )
+            except (ValueError, TypeError):
+                pass  # Invalid legacy metadata cannot override the request anchor.
             year = (
                 int(season[:4]) + (month < 7)
                 if season
-                else today.year - (month > today.month)
+                else context_anchor.year - (month > context_anchor.month)
             )
             question = question[: m.end()] + f" {year}" + question[m.end() :]
             notes.append(

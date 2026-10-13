@@ -729,21 +729,26 @@ without silently replacing the inferred period or inventing values.
 ### Calendar metric coverage and accessible ranks
 
 Yearless months first use an explicit season or playoff year in the question,
-then a single conversation season, otherwise their latest occurrence at the
-request/as-of date. A rolling context spanning multiple seasons cannot infer a
-future month from its end date. Season and recent-appearance overviews cap their
+then the primary conversation season (derived from its start/end when comparison
+archives are also listed), otherwise their latest occurrence at the earlier of
+the context end and request/as-of date. A rolling context spanning multiple
+seasons cannot infer a future month from its end date. Season and recent-appearance overviews cap their
 end at an explicit as-of date; recent historical requests use the applicable
-available season.
+available season. Off-season/start-of-season recent requests can include the
+preceding available season while preserving their upper date and phases.
 
 Fresh metric calendar windows load every overlapping available archive and bind
 those seasons to the calculation, just as inherited windows do. Resolved rolling
 year requests become explicit dates anchored to the request/as-of date. Ordinary
 source-anchored numeric-month queries retain their established semantics. A
-missing required archive withholds the answer; dates conflicting with an explicit
+missing required supported archive withholds the answer; dates conflicting with an explicit
 named season require clarification. Source coverage/freshness remains visible.
 Complex month comparisons and since/before/after ranges retain the validated
 planner path. A dated month on the right side of a comparison is a period, not a
-second player identity.
+second player identity. Inferred planner month/range ends are clipped to today or
+the explicit request anchor and disclosed; explicit user future ranges still
+require clarification. Windows beyond the newest supported archive retain source
+coverage warnings and do not establish complete coverage of later seasons.
 
 Distribution buttons announce both the percentile or qualification status and
 the descriptive qualification note. Focused prose uses full statistic names such

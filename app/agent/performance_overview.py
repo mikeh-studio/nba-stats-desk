@@ -141,6 +141,17 @@ def overview_scope(question, selected_season, today=None):
                 )
             season = candidates[0]
         start, end = season_bounds(season)
+        if (
+            recent
+            and as_of
+            and not named
+            and date.fromisoformat(as_of[1]).year == int(season[:4])
+            and date.fromisoformat(as_of[1]).month >= 7
+        ):
+            # A recent-game request may need the preceding season during the
+            # off-season/start of season; retain its explicit upper date/phase.
+            previous = SEASONS[min(SEASONS.index(season) + 1, len(SEASONS) - 1)]
+            start = season_bounds(previous)[0]
         end = min(end, today, date.fromisoformat(as_of[1]) if as_of else today)
     named_seasons = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
     if calendar_scope and any(
@@ -197,6 +208,10 @@ def overview_scope(question, selected_season, today=None):
         else:
             previous_start = shift_months(start, 12)
             previous_end = shift_months(end, 12)
+    if recent:
+        # Actual last-N/prior-N bounds are resolved from this bounded pool later.
+        previous_start, previous_end = start, end
+        previous_phases = list(phases)
     comparison_label = (
         f"{' + '.join(previous_phases)} from {previous_start} through {previous_end}"
     )

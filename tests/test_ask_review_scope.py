@@ -200,3 +200,121 @@ def test_model_date_range_without_end_retains_matching_phase_source_anchor(evide
     assert payload["status"] == "ok"
     assert payload["semantic_evidence"]["scope"]["as_of"] == "2025-11-05"
     assert payload["semantic_evidence"]["rows"][0]["value"] == 20
+
+
+def test_historical_season_followup_month_keeps_primary_season(evidence):
+    from app.agent.conversation import InMemoryConversationStore
+    from app.agent.semantic_answer import SemanticAsk
+
+    agent = SemanticAsk(
+        settings("2025-26"), BoundedWarehouse(evidence), InMemoryConversationStore()
+    )
+    first = agent.answer(
+        "How did Player 1 perform in 2024-25?",
+        client=Model(),
+        model="fixture",
+        conversation_id="historical",
+    )
+    assert first["status"] == "ok"
+    result = agent.answer(
+        "What about January?",
+        client=Model(),
+        model="fixture",
+        conversation_id="historical",
+    )
+    assert result["status"] == "ok", result
+    scope = result["semantic_evidence"]["scope"]
+    assert scope.get("start", scope.get("window_start")) == "2025-01-01"
+    assert "January 2025" in " ".join(result["scope_assumptions"])
+
+
+def test_offseason_recent_asof_uses_previous_available_appearances(evidence):
+    from app.agent.semantic_answer import SemanticAsk
+
+    result = SemanticAsk(settings("2025-26"), BoundedWarehouse(evidence)).answer(
+        "Player 1 performance recently as of 2025-08-15",
+        client=Model(),
+        model="fixture",
+    )
+    assert result["status"] == "ok", result
+    points = result["semantic_evidence"]["metrics"][0]
+    assert points["value"] == 10
+    assert points["valid_games"] == 6
+    assert result["semantic_evidence"]["scope"]["end"] == "2025-01-06"
+
+
+class CurrentMonthModel(Model):
+    def create(self, **kwargs):
+        return SimpleNamespace(
+            output_text=json.dumps(
+                {
+                    "plan": {
+                        "status": "compare",
+                        "message": "",
+                        "queries": [
+                            {
+                                "metric": "pts",
+                                "season": "2025-26",
+                                "aggregation": "average",
+                                "player_name": "resolved_player_1",
+                                "window": "date_range",
+                                "start_date": start,
+                                "as_of": end,
+                            }
+                            for start, end in [
+                                ("2026-02-01", "2026-02-28"),
+                                ("2026-03-01", "2026-03-31"),
+                            ]
+                        ],
+                    }
+                }
+            )
+        )
+
+
+def test_planner_current_month_end_clips_to_today_and_excludes_later_games(
+    evidence, monkeypatch
+):
+    from datetime import date
+
+    from app.agent.semantic_answer import SemanticAsk
+
+    class ClockDate(date):
+        @classmethod
+        def today(cls):
+            return cls(2026, 3, 15)
+
+    monkeypatch.setattr("app.agent.semantic_answer.date", ClockDate)
+    monkeypatch.setattr("app.agent.semantic_serving.date", ClockDate)
+    source = BoundedWarehouse(evidence)
+    source.rows = [
+        {
+            **evidence.rows[0],
+            "season": "2025-26",
+            "season_type": "Regular Season",
+            "game_id": f"month-{month}-{day}",
+            "game_date": f"2026-{month:02}-{day:02}",
+            "pts": value,
+        }
+        for month, value in [(2, 10), (3, 20)]
+        for day in range(1, 6)
+    ]
+    source.rows.append(
+        {
+            **source.rows[-1],
+            "game_id": "future-month",
+            "game_date": "2026-03-20",
+            "pts": 100,
+        }
+    )
+    result = SemanticAsk(settings("2025-26"), source).answer(
+        "Compare Player 1 points in February 2026 vs March 2026",
+        client=CurrentMonthModel(),
+        model="fixture",
+    )
+    assert result["status"] == "ok", result
+    baseline = result["semantic_evidence"]["baseline"]
+    assert baseline["scope"]["as_of"] == "2026-03-15"
+    assert baseline["rows"][0]["value"] == 20
+    assert baseline["rows"][0]["valid_games"] == 5
+    assert "2026-03-15" in " ".join(result["scope_assumptions"])

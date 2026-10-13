@@ -836,6 +836,20 @@ class SemanticAsk:
                             ),
                             default=date.today().isoformat(),
                         )
+                        if metric_window.get("window") != "date_range":
+                            anchor_match = re.search(
+                                r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I
+                            )
+                            upper = (
+                                min(date.today(), date.fromisoformat(anchor_match[1]))
+                                if anchor_match
+                                else date.today()
+                            )
+                            if date.fromisoformat(end) > upper:
+                                end = upper.isoformat()
+                                note = f"Using {end} as the latest allowed date for this request."
+                                if note not in time_assumptions:
+                                    time_assumptions.append(note)
                         query["seasons"] = window_seasons(query.get("start_date"), end)
                         query["as_of"] = end
                         if query.get("season") not in query["seasons"]:

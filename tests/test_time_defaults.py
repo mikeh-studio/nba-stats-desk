@@ -167,3 +167,34 @@ def test_complex_calendar_metric_requests_are_left_to_planner(question):
     from app.agent.semantic_planner import explicit_scope
 
     assert "window" not in explicit_scope(question)
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        ("What about January?", "January 2025"),
+        ("What about November?", "November 2024"),
+    ],
+)
+def test_month_uses_primary_season_even_when_context_lists_baseline(question, expected):
+    resolved, _, _ = resolve_time_defaults(
+        question,
+        date(2026, 10, 12),
+        {
+            "scope": {
+                "start": "2024-07-01",
+                "end": "2025-06-30",
+                "seasons": ["2024-25", "2023-24"],
+            }
+        },
+    )
+    assert expected in resolved
+
+
+def test_legacy_multiseason_month_inference_caps_at_historical_context_end():
+    resolved, _, _ = resolve_time_defaults(
+        "What about January?",
+        date(2026, 10, 12),
+        {"scope": {"end": "2025-06-30", "seasons": ["2024-25", "2023-24"]}},
+    )
+    assert resolved == "What about January 2025?"
