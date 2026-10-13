@@ -874,3 +874,38 @@ body:has(.ask-desk) .publication-health {
     display: none;
   }
 }
+
+.change-neutral { color: var(--muted); }
+.compact-metrics abbr { text-decoration: none; }
+.metric-help {
+  appearance: none;
+  border: 0;
+  border-bottom: 1px dotted var(--muted);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  padding: 0;
+  cursor: help;
+}
+.metric-help:focus-visible { outline: 2px solid var(--accent-hot); outline-offset: 3px; }
+.metric-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(300px, calc(100vw - 32px));
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.7rem;
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  font-weight: 400;
+  text-align: left;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.35);
+}
+
+/* Fit overview trends on phones; unrelated chart explorers retain scrolling. */
+.overview-chart svg { min-width: 0; }

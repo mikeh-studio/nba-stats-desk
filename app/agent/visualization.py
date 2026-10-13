@@ -159,7 +159,11 @@ class VisualizationAgent:
             evidence.get("player_id")
             and evidence.get("metrics")
             and any(
-                metric.get("key") == "pts" and "monthly" in metric
+                metric.get("key") == "pts"
+                and (
+                    metric.get("trend", {}).get("grain") in ("daily", "monthly")
+                    or "monthly" in metric
+                )
                 for metric in evidence["metrics"]
             )
             and payload.get("charts")
@@ -169,7 +173,7 @@ class VisualizationAgent:
             payload["visualization"] = {
                 "selection": "rule",
                 "chart_ids": [c["series"][0]["key"] for c in payload["charts"]],
-                "reason": "Keep the available monthly overview metrics for user selection.",
+                "reason": "Keep the available overview metrics for user selection.",
             }
             return payload
         options = candidates(payload)

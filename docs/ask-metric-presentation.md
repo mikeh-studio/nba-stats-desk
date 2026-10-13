@@ -63,3 +63,42 @@ causal interpretation or best-looking percentile selector is introduced.
 
 Older saved results preserve their original metrics and receive a saved-answer
 notice when presentation metadata is absent. Ask again to apply the new policy.
+
+
+## Compact labels and changes
+
+Table rows, sample rows and chart controls use metric abbreviations. Full names
+remain in evidence/prose and accessible row labels. TS% has an on-demand tooltip
+available by hover, keyboard focus or tap; Escape, a second tap or moving focus
+closes it. It shows `100 × SUM(PTS) / [2 × (SUM(FGA) + 0.44 × SUM(FTA))]`, using
+summed components from valid appearances rather than averaging game percentages.
+
+Change colors use the visible signed delta: green for increases, red for decreases,
+with TOV reversed. MIN, values rounding to zero and unavailable comparisons remain
+neutral. Signs and units remain visible without relying on color. Colors describe
+the metric direction, not an individual impact or defensive grade. Existing sample
+and baseline rules continue to withhold unsupported comparisons.
+
+## Performance over time
+
+The server emits `scope.chart_grain`, chart `grain` and each basic metric's
+`trend: {grain, points}`. Inclusive windows of at most 31 days use `daily` game-date
+buckets; longer windows use `monthly` averages. Monthly results also retain the
+legacy `monthly` points. Saved charts without grain metadata remain monthly.
+
+Named months require a year (including abbreviated names); their comparison is
+the preceding full calendar month. A `week of/starting/beginning YYYY-MM-DD` is
+seven inclusive days starting on that date. This/last week use Monday boundaries;
+this month runs through the anchor date and compares with the preceding full
+calendar month; last month is the preceding full month.
+Past week/month are rolling windows; numeric rolling windows retain their rules.
+Relative calendar windows honor a supplied as-of date. Ambiguous months, partial
+month/week phrasing and competing windows require clarification. Future ranges
+remain invalid. No date request falls back to another season.
+
+The UI title is **Performance over time**, with **Game-by-game** or **Monthly
+average** below it. Points use only recorded game dates or months with appearances;
+no off-day zeroes are inserted. Missing metric components still withhold the trend.
+Date/sample tooltips preserve full dates, while axis labels are thinned to avoid
+crowding. Phone overview charts fit their container and hide dense value labels;
+each value remains available on hover or focus. The ten-row, four-column table and collapsed context remain unchanged.

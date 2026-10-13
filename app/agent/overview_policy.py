@@ -2,6 +2,27 @@
 
 import re
 
+ABBREVIATIONS = {
+    "pts": "PTS",
+    "reb": "REB",
+    "ast": "AST",
+    "stl": "STL",
+    "blk": "BLK",
+    "fg3m": "3PM",
+    "fg3a": "3PA",
+    "fg3_pct": "3P%",
+    "min": "MIN",
+    "tov": "TOV",
+    "fga": "FGA",
+    "fta": "FTA",
+    "fg_pct": "FG%",
+    "ft_pct": "FT%",
+    "efg_pct": "eFG%",
+    "ts_pct": "TS%",
+    "pts_per36": "PTS/36",
+    "ast_per36": "AST/36",
+}
+
 GENERAL = ("pts", "ts_pct", "fg3m", "fg3_pct", "ast", "tov", "reb", "stl", "blk", "min")
 PROFILES = {
     "general": GENERAL,
@@ -88,6 +109,7 @@ def sample(metric, minimum):
 def presentation(metrics, question, appearances, minimum):
     profile = focus(question)
     for metric in metrics:
+        metric["display_label"] = ABBREVIATIONS.get(metric["key"], metric["label"])
         metric.setdefault("unit", "per game")
         metric["sample"] = sample(metric, minimum)
         metric["display_change"] = (
@@ -181,7 +203,7 @@ def metric_table(metrics, keys, title):
         ],
         "rows": [
             [
-                m["label"],
+                m.get("display_label", m["label"]),
                 display(m["value"]),
                 m["unit"],
                 display(m.get("percentile")),

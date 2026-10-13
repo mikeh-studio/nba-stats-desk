@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import calendar
 import re
 from collections import defaultdict
 from datetime import date, timedelta
 
 from app.agent.context_metrics import context_metrics
+from app.agent.overview_calendar import MONTH_PATTERN, calendar_window, shift_months
 from app.agent.overview_policy import focus, metric_table, presentation, strip_focus
 from app.agent.overview_summary import game_insights, summary_paragraphs
 from app.agent.question_intent import has_specific_metric
@@ -47,25 +47,18 @@ def wants_overview(question):
     )
 
 
-def shift_months(day, n):
-    year, month = divmod(day.year * 12 + day.month - 1 - n, 12)
-    if year < 1 or year > 9999:
-        raise SemanticError("invalid_scope", "Please choose a shorter month window.")
-    month += 1
-    return date(year, month, min(day.day, calendar.monthrange(year, month)[1]))
-
-
 def overview_scope(question, selected_season, today=None):
     from app.agent.question_intent import round_scope_message
 
     if message := round_scope_message(question):
         raise SemanticError("unsupported_scope", message)
-    question = re.sub(
-        r"\b(20\d{2})\s+(playoffs?|postseason)\b",
-        lambda m: f"{int(m[1]) - 1}-{m[1][-2:]} {m[2]}",
-        question,
-        flags=re.I,
-    )
+    if not re.search(MONTH_PATTERN, question, re.I):
+        question = re.sub(
+            r"\b(20\d{2})\s+(playoffs?|postseason)\b",
+            lambda m: f"{int(m[1]) - 1}-{m[1][-2:]} {m[2]}",
+            question,
+            flags=re.I,
+        )
     today = today or date.today()
     explicit = re.search(
         r"\bfrom (\d{4}-\d{2}-\d{2}) (?:to|through) (\d{4}-\d{2}-\d{2})\b",
@@ -84,6 +77,12 @@ def overview_scope(question, selected_season, today=None):
             raise SemanticError(
                 "clarification_required", "Please provide a valid as-of date."
             ) from exc
+    calendar_scope = calendar_window(question, end)
+    if calendar_scope and (explicit or trailing):
+        raise SemanticError(
+            "clarification_required",
+            "Please specify a single calendar window or date range.",
+        )
     if trailing and re.search(r"\b20\d{2}[-/]\d{2}\b(?![-/]\d)", question):
         raise SemanticError(
             "clarification_required",
@@ -96,6 +95,8 @@ def overview_scope(question, selected_season, today=None):
             raise SemanticError(
                 "clarification_required", "Please provide valid start and end dates."
             ) from exc
+    elif calendar_scope:
+        start, end, calendar_month = calendar_scope
     elif trailing:
         n, unit = int(trailing[1]), trailing[2].lower()
         if not 1 <= n <= 1095:
@@ -124,7 +125,16 @@ def overview_scope(question, selected_season, today=None):
             )
         start, end = season_bounds(named[0] if named else selected_season)
         end = min(end, today)
-    if end < start or end > today:
+    named_seasons = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
+    if calendar_scope and any(
+        start < season_bounds(season)[0] or end > season_bounds(season)[1]
+        for season in named_seasons
+    ):
+        raise SemanticError(
+            "clarification_required",
+            "The calendar window conflicts with the named season. Please specify one date range.",
+        )
+    if end < start or end > today or (as_of and end > date.fromisoformat(as_of[1])):
         raise SemanticError(
             "clarification_required",
             "Please choose an ordered date range ending no later than today.",
@@ -156,8 +166,13 @@ def overview_scope(question, selected_season, today=None):
             "unsupported_coverage",
             "This overview covers regular-season and playoff box scores only.",
         )
+    if calendar_scope and calendar_month:
+        previous_start = shift_months(start, 1)
+        previous_end = start - timedelta(days=1)
+    elif calendar_scope and re.search(r"\bpast month\b", question, re.I):
+        previous_start = shift_months(previous_end, 1) + timedelta(days=1)
     previous_phases = list(phases)
-    if not trailing and not explicit:
+    if not trailing and not explicit and not calendar_scope:
         if phases == ["Playoffs"]:
             # A full playoff overview compares against this season's regular season.
             previous_start, previous_end = start, end
@@ -187,6 +202,7 @@ def overview_scope(question, selected_season, today=None):
         previous_phases=previous_phases,
         comparison_label=comparison_label,
         seasons=seasons,
+        chart_grain="daily" if (end - start).days < 31 else "monthly",
     )
 
 
@@ -338,6 +354,7 @@ def build_overview(question, evidence, players, scope, selected=None):
                 and (season, phase) not in evidence.covered_scopes
             ):
                 baseline_covered = False
+    grain = scope.get("chart_grain", "daily" if (end - start).days < 31 else "monthly")
     metrics, table, charts = [], [], []
     grouped = defaultdict(list)
     for row in current:
@@ -385,16 +402,18 @@ def build_overview(question, evidence, players, scope, selected=None):
         )
         buckets = defaultdict(list)
         for row in own:
-            buckets[str(row["game_date"])[:7]].append(row)
+            buckets[
+                str(row["game_date"]) if grain == "daily" else str(row["game_date"])[:7]
+            ].append(row)
         points = []
-        for month, rows in sorted(buckets.items()):
+        for bucket, rows in sorted(buckets.items()):
             stats = aggregate(rows, metric, "average")
             if stats["value"] is not None:
                 points.append(
                     {
-                        "x": month,
+                        "x": bucket,
                         "y": stats["value"],
-                        "meta": f"{stats['valid_games']} / {len(rows)} games with {label.lower()} data",
+                        "meta": f"{bucket} · {stats['valid_games']} / {len(rows)} games with {label.lower()} data",
                     }
                 )
         # Do not draw a continuous trend across missing metric observations.
@@ -402,8 +421,11 @@ def build_overview(question, evidence, players, scope, selected=None):
             charts.append(
                 {
                     "type": "line",
-                    "title": f"{label} per game — monthly",
-                    "x_label": "Month with appearances",
+                    "title": f"{key.upper()} — {'game-by-game' if grain == 'daily' else 'monthly average'}",
+                    "grain": grain,
+                    "x_label": "Game date"
+                    if grain == "daily"
+                    else "Month with appearances",
                     "y_label": label + " per game",
                     "series": [{"key": key, "label": label, "points": points}],
                 }
@@ -417,7 +439,8 @@ def build_overview(question, evidence, players, scope, selected=None):
                 "cohort_size": len(cohort),
                 "previous": baseline,
                 "change": delta,
-                "monthly": points,
+                "trend": {"grain": grain, "points": points},
+                **({"monthly": points} if grain == "monthly" else {}),
             }
         )
     phase = " + ".join(scope["phases"])
@@ -466,7 +489,13 @@ def build_overview(question, evidence, players, scope, selected=None):
             ),
             f"Percentiles compare per-game averages in the same period and phases, with at least {contract.min_games} games and complete data for that metric. Ties share the percentage of other eligible players strictly below them.",
             f"Source: {evidence.source}; data through {max(evidence.data_through.values())}. No games or missing values are fabricated.",
-            "Charts show monthly per-game averages for months with appearances; gaps without appearances are omitted.",
+            "Charts show "
+            + (
+                "game-by-game values on recorded game dates"
+                if grain == "daily"
+                else "monthly per-game averages for months with appearances"
+            )
+            + "; gaps without appearances are omitted.",
             "Shooting percentages use aggregate makes and attempts; percentage changes are percentage points. TS% uses the 0.44 free-throw approximation. Per-36 rates are descriptive, not causal effects.",
         ],
         "metric_definitions": [

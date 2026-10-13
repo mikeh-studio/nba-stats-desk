@@ -16,8 +16,10 @@ import {
   overviewPresentation,
   overviewMetricsTable,
   overviewContributions,
+  metricAbbreviation,
+  bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-metrics-v3";
+} from "./ask_presentation.js?v=20261012-ask-metrics-v7";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -418,8 +420,9 @@ function tooltipMarkup({ x, y, label, meta }, width) {
 }
 
 function renderLineChart(chart) {
-  const width = chart.overview ? 960 : 720;
-  const height = chart.overview ? 300 : 250;
+  const compact = chart.overview && window.innerWidth <= 600;
+  const width = chart.overview ? (compact ? 480 : 960) : 720;
+  const height = chart.overview ? (compact ? 240 : 300) : 250;
   const pad = { top: 26, right: 26, bottom: 46, left: 46 };
   const series = asArray(chart.series).filter(
     (item) => asArray(item.points).length > 0,
@@ -478,11 +481,11 @@ function renderLineChart(chart) {
     .join(" ");
   const dots = points
     .map((point) => {
-      const label = `${firstSeries.label || firstSeries.key}: ${formatNumber(point.yValue)}`;
+      const label = `${chart.overview ? metricAbbreviation(firstSeries) : firstSeries.label || firstSeries.key}: ${formatNumber(point.yValue)}`;
       return `
         <g class="agent-point" tabindex="0" aria-label="${escHtml(point.xLabel)} ${escHtml(label)}">
           <circle class="agent-dot" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="5" />
-          ${chart.overview ? `<text class="agent-bar-value" text-anchor="middle" x="${point.x}" y="${point.y - 12}">${point.yValue.toFixed(1)}</text>` : ""}
+          ${chart.overview && points.length <= (compact ? 8 : 16) ? `<text class="agent-bar-value" text-anchor="middle" x="${point.x}" y="${point.y - 12}">${point.yValue.toFixed(1)}</text>` : ""}
           ${tooltipMarkup({ x: point.x, y: point.y, label, meta: point.meta || point.xLabel }, width)}
         </g>
       `;
@@ -493,11 +496,13 @@ function renderLineChart(chart) {
   const reference = Number.isFinite(chart.average)
     ? `<line class="agent-reference" x1="${pad.left}" x2="${width - pad.right}" y1="${referenceY}" y2="${referenceY}" /><text class="agent-reference-label" text-anchor="end" x="${width - pad.right}" y="16">Period average: ${chart.average.toFixed(1)}</text>`
     : "";
+  const labelStride = Math.max(1, Math.ceil(points.length / (compact ? 4 : 6)));
   const monthLabels = chart.overview
     ? points
+        .filter((p, index) => index === points.length - 1 || (index % labelStride === 0 && (index === 0 || index <= points.length - 1 - labelStride)))
         .map(
           (p, index) =>
-            `<text class="agent-axis" text-anchor="${index === 0 ? "start" : index === points.length - 1 ? "end" : "middle"}" x="${p.x}" y="${height - 16}">${escHtml(p.xLabel)}</text>`,
+            `<text class="agent-axis agent-date-label" text-anchor="${index === 0 ? "start" : p.index === points.length - 1 ? "end" : "middle"}" x="${p.x}" y="${height - 16}">${escHtml(chart.grain === "daily" ? p.xLabel.slice(5).replace("-", "/") : p.xLabel)}</text>`,
         )
         .join("")
     : `<text class="agent-axis" x="${pad.left}" y="${height - 16}">${escHtml(pointsRaw[0].xLabel)}</text><text class="agent-axis" text-anchor="end" x="${width - pad.right}" y="${height - 16}">${escHtml(pointsRaw[pointsRaw.length - 1].xLabel)}</text>`;
@@ -1088,6 +1093,7 @@ function renderAuxiliaryPayload(
 
   const charts = asArray(payload.charts);
   chartCard.hidden = charts.length === 0;
+  if (overview) bindMetricHelp(tableEl);
   if (overview && charts.length)
     renderOverviewCharts(payload, overview.preferredMetric, root);
   else chartEl.innerHTML = charts.map(renderChart).join("") + renderComparisonExplorer(payload);
@@ -1148,7 +1154,8 @@ function renderOverviewCharts(payload, key, root = document) {
   const metric = payload.semantic_evidence.metrics.find(
     (m) => m.key === chart.series[0].key,
   );
-  el.innerHTML = `<div class="chart-header"><div><h2>Monthly performance</h2><p class="meta">${escHtml(metric.label)} per game · months with appearances</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(c.series[0].key.toUpperCase())}</button>`).join("")}</div></div><div class="agent-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for sample size. Months without appearances are omitted; lines do not imply games were played between observations.</p>`;
+  const daily = chart.grain === "daily";
+  el.innerHTML = `<div class="chart-header"><div><h2>Performance over time</h2><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div></div><div class="agent-chart overview-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for date and sample size. ${daily ? "Days" : "Months"} without appearances are omitted; lines do not imply games were played between observations.</p>`;
   el.querySelectorAll("[data-chart-key]").forEach((button) =>
     button.addEventListener("click", () => {
       renderOverviewCharts(payload, button.dataset.chartKey, root);

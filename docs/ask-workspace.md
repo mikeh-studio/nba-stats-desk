@@ -152,8 +152,9 @@ assessment labels and raw study diagnostics stay in server evidence and logs.
 Saved responses retain their original text; new requests use this presentation.
 
 Governed player overviews use the same evidence for the overall assessment,
-up to three supported takeaways, five-stat percentile table and monthly chart.
-The chart initially selects the strongest eligible category; PTS/REB/AST/STL/BLK
+ordered contribution disclosures, ten primary metrics (six or seven for focused
+profiles) and an adaptive performance chart. The chart starts with the requested
+focus metric, or PTS for general overviews; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and
 table/chart renderers instead of receiving invented overview insights.
 
@@ -182,7 +183,7 @@ Narrow metric requests, awards and unsupported requests remain concise. No-data
 responses do not pad out three paragraphs. All detailed metrics remain in the
 tables and evidence, with their original units.
 
-The overview describes relative category strength, monthly variation, and
+The overview describes scoped category production, game-level variation, and
 box-score activity, with additional minutes, attempt, shooting-efficiency,
 turnover, and per-36 context. These metrics do not establish causal drivers.
 Opponent and selected teammate summaries are available in the offline evaluation;
@@ -458,9 +459,11 @@ reference data, not model memory or runtime web scraping. Before adding records,
 verify the official NBA winner list and player identity, retain provenance, and
 run the catalog-wide regression matrix in `tests/test_award_lookup.py`.
 
-Monthly performance overviews retain five selectable trends (PTS, REB, AST, STL,
+Performance-over-time overviews retain five selectable trends (PTS, REB, AST, STL,
 BLK) when complete data is available. Visualization selection preserves these
 views without a model call; missing metric observations still withhold that trend.
+Windows up to 31 days show game dates; longer windows show monthly averages.
+See [metric labels, samples and calendar scope](ask-metric-presentation.md).
 
 Browser recovery carries only an award key, season and performance phase. The
 server reconstructs award evidence from the reviewed catalog and verifies the

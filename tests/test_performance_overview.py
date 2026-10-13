@@ -79,7 +79,7 @@ def test_overview_math_table_charts_profile_agree(evidence):
     assert result["status"] == "ok"
     assert len(result["tables"][0]["rows"]) == 10
     pts = result["tables"][0]["rows"][0]
-    assert pts[:5] == ["Points", "20.0", "per game", "50.0", "10.0"]
+    assert pts[:5] == ["PTS", "20.0", "per game", "50.0", "10.0"]
     assert pts[5] == "6/6 valid appearances"
     from app.agent.visualization import VisualizationAgent
 
@@ -104,7 +104,7 @@ def test_missing_values_are_not_zero_or_qualified(evidence):
     result = build_overview(
         "Player 1 performance", evidence, source_players(evidence), scope()
     )
-    row = next(r for r in result["tables"][0]["rows"] if r[0] == "Steals")
+    row = next(r for r in result["tables"][0]["rows"] if r[0] == "STL")
     assert row[1:5] == ["2.0", "per game", "Unavailable", "Unavailable"]
     assert "5/6 valid appearances" in row[5]
     assert len(result["charts"]) == 4
@@ -402,7 +402,19 @@ def test_historical_playoff_year_is_not_default_season():
     assert scoped["seasons"] == ["2024-25"]
 
 
-def test_three_paragraph_overview_json_and_stream_agree(evidence):
+@pytest.mark.parametrize(
+    "question,grain",
+    [
+        ("How well did Player 1 play in the 2025-26 playoffs?", "monthly"),
+        ("How did Player 1 perform in November 2025?", "daily"),
+        ("How did Player 1 perform week of 2025-11-01?", "daily"),
+        (
+            "How did Player 1 perform in November?\nClarification: November 2025",
+            "daily",
+        ),
+    ],
+)
+def test_three_paragraph_overview_json_and_stream_agree(evidence, question, grain):
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
@@ -423,11 +435,13 @@ def test_three_paragraph_overview_json_and_stream_agree(evidence):
     )
     try:
         with TestClient(app) as client:
-            body = {"question": "How well did Player 1 play in the 2025-26 playoffs?"}
+            body = {"question": question}
             direct = client.post("/api/agent/ask", json=body)
             assert direct.status_code == 200
             payload = direct.json()
             assert payload["status"] == "ok"
+            assert payload["charts"][0]["grain"] == grain
+            assert len(payload["charts"]) == 5
             assert len(payload["semantic_evidence"]["summary_paragraphs"]) == 3
             assert payload["answer"] == "\n\n".join(
                 payload["semantic_evidence"]["summary_paragraphs"]
@@ -586,3 +600,137 @@ def test_focused_profiles_cannot_substitute_box_scores_for_unconnected_measures(
         question_intent(f"How did Curry perform in {requested}?")["status"]
         == "unsupported_scope"
     )
+
+
+@pytest.mark.parametrize(
+    "phrase,lo,hi,grain",
+    [
+        ("in November 2025", "2025-11-01", "2025-11-30", "daily"),
+        ("in Feb. 2024", "2024-02-01", "2024-02-29", "daily"),
+        ("week of 2025-12-29", "2025-12-29", "2026-01-04", "daily"),
+        ("week starting 2025-11-01", "2025-11-01", "2025-11-07", "daily"),
+        ("past 1 month as of 2025-11-30", "2025-10-31", "2025-11-30", "daily"),
+        ("past week as of 2025-11-30", "2025-11-24", "2025-11-30", "daily"),
+        ("last week as of 2025-11-30", "2025-11-17", "2025-11-23", "daily"),
+        ("last month as of 2025-11-30", "2025-10-01", "2025-10-31", "daily"),
+        ("this month as of 2025-11-06", "2025-11-01", "2025-11-06", "daily"),
+        ("from 2025-11-01 through 2025-12-02", "2025-11-01", "2025-12-02", "monthly"),
+        ("past 3 months as of 2025-11-30", "2025-08-31", "2025-11-30", "monthly"),
+    ],
+)
+def test_overview_calendar_grain(phrase, lo, hi, grain):
+    scoped = overview_scope(
+        "Player 1 performance " + phrase, "2025-26", date(2026, 10, 12)
+    )
+    assert str(scoped["start"]) == lo
+    assert str(scoped["end"]) == hi
+    assert scoped["chart_grain"] == grain
+
+
+def test_named_month_compares_full_previous_calendar_month():
+    scoped = overview_scope(
+        "performance in February 2024", "2025-26", date(2026, 10, 12)
+    )
+    assert scoped["previous_start"] == date(2024, 1, 1)
+    assert scoped["previous_end"] == date(2024, 1, 31)
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    [
+        "in November",
+        "first week of November 2025",
+        "week of 2025-02-30",
+        "in November 2025 and December 2025",
+        "since November 2025",
+        "in a specific week",
+        "week of 2025-11-01 and week of 2025-11-08",
+        "in November 2027",
+        "in November 2025 from 2025-11-01 through 2025-11-06",
+        "in November 2025 as of 2025-11-15",
+        "in November 2025 during 2024-25",
+        "this week and last week",
+        "past 1 month and past 1 week",
+        "during specific weeks",
+    ],
+)
+def test_ambiguous_calendar_does_not_broaden_to_season(phrase):
+    with pytest.raises(SemanticError) as exc:
+        overview_scope("Player 1 performance " + phrase, "2025-26", date(2026, 10, 12))
+    assert exc.value.code == "clarification_required"
+
+
+def test_daily_series_uses_exact_game_dates_without_filling_off_days(evidence):
+    scoped = overview_scope(
+        "Player 1 performance week of 2025-11-01", "2025-26", date(2026, 10, 12)
+    )
+    result = build_overview(
+        "Player 1 performance week of 2025-11-01",
+        evidence,
+        source_players(evidence),
+        scoped,
+    )
+    chart = result["charts"][0]
+    assert chart["grain"] == "daily"
+    from app.agent.visualization import VisualizationAgent
+
+    expected_charts = list(result["charts"])
+    result = VisualizationAgent().enrich(None, result, "performance", "none", "none")
+    assert result["charts"] == expected_charts
+    assert result["visualization"]["chart_ids"] == ["pts", "reb", "ast", "stl", "blk"]
+    points = chart["series"][0]["points"]
+    assert [p["x"] for p in points] == [f"2025-11-{day:02}" for day in range(1, 7)]
+    assert [p["y"] for p in points] == [20] * 6
+    metric = result["semantic_evidence"]["metrics"][0]
+    assert metric["trend"] == {"grain": "daily", "points": points}
+    assert "monthly" not in metric
+    assert result["tables"][0]["rows"][0][1] == "20.0"
+    assert "game-by-game" in " ".join(result["assumptions"])
+
+
+def test_monthly_series_retains_saved_evidence_contract(evidence):
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    chart = result["charts"][0]
+    metric = result["semantic_evidence"]["metrics"][0]
+    assert chart["grain"] == "monthly"
+    assert (
+        metric["monthly"] == metric["trend"]["points"] == chart["series"][0]["points"]
+    )
+
+
+def test_named_calendar_month_keeps_playoff_phase_and_year():
+    scoped = overview_scope(
+        "Player 1 performance in May 2025 playoffs", "2025-26", date(2026, 10, 12)
+    )
+    assert scoped["start"] == date(2025, 5, 1)
+    assert scoped["end"] == date(2025, 5, 31)
+    assert scoped["phases"] == ["Playoffs"]
+
+
+@pytest.mark.parametrize(
+    "phrase,lo,hi",
+    [
+        ("past month as of 2025-03-15", "2025-01-16", "2025-02-15"),
+        ("this month as of 2025-03-15", "2025-02-01", "2025-02-28"),
+    ],
+)
+def test_singular_month_comparison_windows(phrase, lo, hi):
+    scoped = overview_scope("performance " + phrase, "2025-26", date(2026, 10, 12))
+    assert str(scoped["previous_start"]) == lo
+    assert str(scoped["previous_end"]) == hi
+
+
+@pytest.mark.parametrize(
+    "reply", ["2025", "November 2025", "from 2025-11-01 through 2025-11-30"]
+)
+def test_calendar_clarification_resolves_without_repeating_ambiguity(reply):
+    scoped = overview_scope(
+        "Player 1 performance in November\nClarification: " + reply,
+        "2025-26",
+        date(2026, 10, 12),
+    )
+    assert scoped["start"] == date(2025, 11, 1)
+    assert scoped["end"] == date(2025, 11, 30)
+    assert scoped["chart_grain"] == "daily"

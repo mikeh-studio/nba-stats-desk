@@ -185,3 +185,12 @@ when either comparison sample has fewer than five valid appearances or partial
 components. Ratio sample notes disclose pooled attempts; the games floor does
 not establish shooting ranking eligibility or statistical precision. See
 [Ask overview sample policy](ask-metric-presentation.md).
+
+
+Broad overview windows up to 31 inclusive days use game-date chart buckets; longer
+windows use monthly averages. Grain is explicit in scope, charts and metric trend
+evidence. Named month/year and dated week scopes resolve deterministically; an
+ambiguous or partial calendar phrase requires clarification. Calendar-month
+comparisons use the preceding full calendar month. Table abbreviations and change
+colors do not alter canonical metric values, sample rules or full-name evidence.
+See [Ask overview presentation](ask-metric-presentation.md#performance-over-time).
