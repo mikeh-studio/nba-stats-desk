@@ -32,20 +32,26 @@ export function overviewPresentation(payload) {
     followups:[`Show ${name}'s points from ${scope.start} through ${scope.end} (${scope.phases.join(' + ')}).`, `Show ${name}'s performance from ${scope.start} through ${scope.end}, regular season.`],
   };
 }
+export function overviewContributions(overview) {
+  if (!overview.insights.length) return '';
+  return `<aside class="takeaways compact-takeaways" aria-label="Notable contributions and limitations"><h2>Contributions</h2>${overview.insights.map(i => `<details class="compact-contribution"><summary>${escape(i.title)}</summary><p>${escape(i.text)}</p></details>`).join('')}</aside>`;
+}
+
 export function overviewMetricsTable(overview) {
-  const number=n=>finite(n)?n.toFixed(1):'Unavailable';
-  const sampleLabel = (m) => {
-    const counts = `${m.valid_games ?? 'Unknown'}/${m.observed_games ?? 'Unknown'} games`;
-    if (!m.sample) return counts;
-    const parts = [counts];
-    if (['fg_pct','fg3_pct','ft_pct'].includes(m.key) && finite(m.numerator) && finite(m.denominator))
-      parts.push(`${m.numerator}/${m.denominator} makes/attempts`);
-    if (m.key === 'ts_pct' && m.components)
-      parts.push(`${m.components.fga ?? 'Unknown'} FGA · ${m.components.fta ?? 'Unknown'} FTA`);
-    if (m.sample.status === 'limited') parts.push(`Limited${m.missing_component_games ? ` · ${m.missing_component_games} missing` : ''}`);
-    if (m.sample.status === 'unavailable') parts.push('Unavailable');
-    return parts.join(' · ');
+  const unavailable = (label = 'Unavailable') => `<span aria-label="${escape(label)}" title="${escape(label)}">—</span>`;
+  const number = n => finite(n) ? (Math.abs(n) < 0.05 ? '0.0' : n.toFixed(1)) : null;
+  const row = m => {
+    const unit = m.unit || 'per game';
+    const value = number(m.value);
+    const suffix = unit === 'percent' ? '%' : unit === 'minutes per game' ? ' min' : unit === 'per 36 minutes' ? ' /36' : '';
+    const change = m.sample ? m.display_change : m.change;
+    const changeUnit = m.change_unit || unit;
+    const changeSuffix = changeUnit === 'percentage points' ? ' pp' : changeUnit === 'minutes per game' ? ' min' : changeUnit === 'per 36 minutes' ? ' /36' : '';
+    const delta = number(change);
+    const limited = m.sample?.status === 'limited';
+    return `<tr data-metric-key="${escape(m.key)}"><th scope="row">${escape(m.label)}</th><td aria-label="${escape(value === null ? 'Unavailable' : `${value} ${unit}`)}">${value === null ? unavailable() : value + suffix}${limited ? ' <span class="metric-status">Limited</span>' : ''}</td><td>${finite(m.percentile) && !limited ? `<div class="percentile-cell"><meter min="0" max="100" value="${Math.round(Math.max(0, Math.min(100, m.percentile)))}" aria-label="${escape(m.label)} league percentile">${ordinal(m.percentile)}</meter><span>${ordinal(m.percentile)}</span></div>` : unavailable(finite(m.value) ? 'Not ranked' : 'Unavailable')}</td><td aria-label="${escape(delta === null ? 'Comparison unavailable' : `${delta} ${changeUnit}`)}">${delta === null ? unavailable('Comparison unavailable') : `${change >= 0.05 ? '+' : ''}${delta}${changeSuffix}`}</td></tr>`;
   };
-  const table=(metrics,label)=>`<div class="table-scroll"><table class="overview-table"><caption class="sr-only">${escape(label)}</caption><thead><tr><th scope="col">Stat</th><th scope="col">Value / unit</th><th scope="col">League percentile</th><th scope="col">Change</th><th scope="col">Sample / opportunity</th></tr></thead><tbody>${metrics.map(m=>`<tr data-metric-key="${escape(m.key)}"><th scope="row">${escape(m.label)}</th><td>${number(m.value)}<br><small>${escape(m.unit || 'per game')}</small></td><td>${finite(m.percentile) && m.sample?.status !== 'limited' ? `<div class="percentile-cell"><meter min="0" max="100" value="${Math.round(Math.max(0,Math.min(100,m.percentile)))}" aria-label="${escape(m.label)} league percentile">${ordinal(m.percentile)}</meter><span>${ordinal(m.percentile)}</span></div>` : 'Unavailable'}</td><td>${finite(m.sample ? m.display_change : m.change) ? `${(m.sample ? m.display_change : m.change)>0?'+':''}${number(m.sample ? m.display_change : m.change)} ${escape(m.change_unit || m.unit || 'per game')}` : 'Unavailable'}</td><td title="${escape(m.sample?.text || '')}"><small>${escape(sampleLabel(m))}</small></td></tr>`).join('')}</tbody></table></div>`;
-  return `<p class="metric-comparison">Versus ${escape(overview.comparison)}</p>${overview.policy ? `<p class="metric-footnote">${escape(overview.policy.scope_note)}</p><p class="meta">${escape(overview.policy.limitation)}</p>` : ''}${table(overview.metrics,'Key metrics')}${overview.additionalMetrics.length ? `<details data-additional-metrics><summary>View all metrics (${overview.additionalMetrics.length} additional)</summary>${table(overview.additionalMetrics,'Additional metrics')}</details>` : ''}<p class="metric-footnote">Percentiles use complete eligible observations in the same dates and phases. Shooting ratios have no inferred ranking threshold. Rare-event counts describe observed events, not a defensive grade.</p>`;
+  const table = (metrics, label) => `<div class="table-scroll"><table class="overview-table compact-metrics"><caption class="sr-only">${escape(label)}</caption><thead><tr><th scope="col">Stat</th><th scope="col">Average</th><th scope="col">Percentile</th><th scope="col">Change</th></tr></thead><tbody>${metrics.map(row).join('')}</tbody></table></div>`;
+  const sampleRows = overview.allMetrics.map(m => `<tr><th scope="row">${escape(m.label)}</th><td>${escape(m.sample?.text || `${m.valid_games ?? 'Unknown'}/${m.observed_games ?? 'Unknown'} valid appearances`)}</td></tr>`).join('');
+  return `<p class="metric-comparison">Versus ${escape(overview.comparison)}</p>${table(overview.metrics, 'Key metrics')}<p class="metric-footnote compact-legend">Per-game averages · percentages shown as % · pp = percentage points.</p><div class="metric-details"><details data-sample-details><summary>Samples &amp; methodology</summary>${overview.policy ? `<p class="meta">${escape(overview.policy.scope_note)}</p><p class="meta">${escape(overview.policy.limitation)}</p>` : ''}<div class="table-scroll"><table class="overview-table sample-table"><caption class="sr-only">Sample / opportunity</caption><thead><tr><th scope="col">Stat</th><th scope="col">Sample / opportunity</th></tr></thead><tbody>${sampleRows}</tbody></table></div><p class="meta">Percentiles use complete eligible observations in the same dates and phases. Shooting ratios have no inferred ranking threshold. Rare-event counts describe observed events, not a defensive grade.</p></details>${overview.additionalMetrics.length ? `<details data-additional-metrics><summary>View all metrics (${overview.additionalMetrics.length} additional)</summary>${table(overview.additionalMetrics, 'Additional metrics')}</details>` : ''}</div>`;
 }

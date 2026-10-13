@@ -780,3 +780,97 @@ body:has(.ask-desk) .publication-health {
 .comparison-game-dot.both { fill: #83b5db; }
 [data-explore-point]:focus .comparison-game-dot, [data-explore-point]:hover .comparison-game-dot { stroke: var(--ink); stroke-width: 3; }
 .comparison-game-detail { min-height: 3rem; border: 1px solid var(--line); padding: 0.75rem; font-size: 0.85rem; }
+
+/* Compact Ask overviews: detail is available without filling every row. */
+.analysis-overview {
+  gap: 1.5rem;
+}
+.overall-copy {
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.overall-copy p {
+  margin-bottom: 0.7rem;
+}
+.compact-takeaways {
+  padding-left: 1.25rem;
+}
+.compact-contribution {
+  border-bottom: 1px solid var(--line);
+  padding: 0.6rem 0;
+}
+.compact-contribution summary {
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.compact-contribution p {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  margin: 0.5rem 0 0;
+}
+.compact-metrics {
+  table-layout: fixed;
+}
+.compact-metrics :where(td, th) {
+  padding: 0.5rem 0.6rem;
+  line-height: 1.25;
+  vertical-align: middle;
+}
+.compact-metrics td,
+.compact-metrics tbody th {
+  font-size: 1rem;
+}
+.compact-metrics :where(td, th):first-child {
+  width: 22%;
+}
+.compact-metrics .percentile-cell {
+  gap: 0.5rem;
+}
+.compact-metrics .percentile-cell meter {
+  width: 60px;
+  max-width: 45%;
+  height: 5px;
+}
+.metric-status {
+  display: inline-block;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.metric-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  font-size: 0.85rem;
+}
+.metric-details details[open] {
+  flex-basis: 100%;
+}
+.metric-details summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.sample-table :where(td, th) {
+  font-size: 0.85rem;
+  padding-block: 0.45rem;
+}
+.compact-legend {
+  margin-block: 0.5rem;
+}
+@media (max-width: 1000px) {
+  .compact-takeaways {
+    padding: 0.5rem 0 0;
+  }
+}
+@media (max-width: 600px) {
+  .compact-metrics {
+    min-width: 320px;
+  }
+  .compact-metrics :where(td, th) {
+    padding: 0.5rem 0.3rem;
+    font-size: 0.88rem;
+  }
+  .compact-metrics .percentile-cell meter {
+    display: none;
+  }
+}

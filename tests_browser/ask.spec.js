@@ -175,10 +175,13 @@ test('overview shows ten metrics, sample evidence, balanced takeaways and expand
   await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
   const table = page.locator('[data-agent-tables] > .table-scroll table');
   await expect(table.locator('tbody tr')).toHaveCount(10);
-  await expect(page.getByRole('heading',{name:'Notable contributions and limitations'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Contributions',exact:true})).toBeVisible();
   await expect(table).toContainText('3PM');
-  await expect(table).toContainText('attempts');
-  await expect(table).toContainText('games');
+  const samples=page.locator('[data-sample-details]');
+  await samples.locator('summary').click();
+  await expect(samples).toContainText('attempts');
+  await expect(samples).toContainText('valid appearances');
+  await samples.locator('summary').click();
   const details=page.locator('[data-additional-metrics]');
   await expect(details).not.toHaveAttribute('open','');
   await details.locator('summary').click();
@@ -195,6 +198,24 @@ test('focused scoring retains 3PM and seven metrics at a narrow viewport', async
   const table=page.locator('[data-agent-tables] > .table-scroll table');
   await expect(table.locator('tbody tr')).toHaveCount(7);
   await expect(table).toContainText('3PM');
-  await expect(page.locator('[data-agent-tables]')).toContainText('no inferred ranking threshold');
+  const samples=page.locator('[data-sample-details]');
+  await samples.locator('summary').click();
+  await expect(samples).toContainText('no inferred ranking threshold');
+  await samples.locator('summary').click();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+});
+
+
+test('compact overview keeps ten rows within a short table and expands contribution context', async ({page}) => {
+  await prepare(page,'baseline_points');
+  await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
+  const table=page.locator('table.compact-metrics').first();
+  await expect(table.locator('tbody tr')).toHaveCount(10);
+  expect((await table.boundingBox()).height).toBeLessThan(500);
+  await expect(table.locator('thead th')).toHaveCount(4);
+  const creation=page.locator('.compact-contribution').filter({has:page.getByText('Creation',{exact:true})});
+  await expect(creation).not.toHaveAttribute('open','');
+  await creation.locator('summary').click();
+  await expect(creation.locator('p')).toContainText('turnovers');
+  await creation.locator('summary').click();
 });

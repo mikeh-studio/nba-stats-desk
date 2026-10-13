@@ -17,7 +17,10 @@ facts without selecting the largest percentile as the headline.
 | Contribution beyond scoring | AST, TOV, REB, STL, BLK, MIN |
 
 General overviews show ten metrics. Focused broad performance/profile questions
-show six or seven; remaining calculated metrics are expandable. Explicit metric,
+show six or seven; remaining calculated metrics are expandable. The main table uses four compact
+columns with inline %/minutes and percentage-point changes. Sample details and
+contribution explanations use keyboard-accessible disclosures; limited-data
+labels remain visible beside affected values. Explicit metric,
 venue, opponent, ranking and unsupported grain requests retain their existing
 routes and scope guards. A focused overview is a presentation of whole-game
 observations, not permission to substitute them for unavailable tracking data.
