@@ -57,6 +57,7 @@ class AgentTrace:
     model_calls: int = 0
     provider_failures: int = 0
     stage_latency_ms: dict[str, float] = field(default_factory=dict)
+    capacity: dict[str, int | bool] = field(default_factory=dict)
     outcome: str = "unknown"
     error_type: str | None = None
     start_time: float = field(default_factory=monotonic)
@@ -116,6 +117,7 @@ class AgentTrace:
             "stage_latency_ms": {
                 key: round(value, 3) for key, value in self.stage_latency_ms.items()
             },
+            "capacity": dict(self.capacity),
             "tool_latency_ms": sum(tool["duration_ms"] for tool in self.tools),
             "latency_ms": int((monotonic() - self.start_time) * 1000),
             "tokens": {

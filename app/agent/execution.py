@@ -26,6 +26,7 @@ class RequestPolicy:
     on_success: list[Callable[[], None]] = field(default_factory=list)
     committing: bool = False
     retry_limit: int | None = None
+    pending_clarifications: dict[tuple[int, str], Any] = field(default_factory=dict)
 
     def remaining(self) -> float:
         remaining = self.deadline - monotonic()
@@ -105,7 +106,9 @@ def defer_until_success(callback):
 
 def checkpoint():
     policy = CURRENT.get()
-    if policy:
+    # The final checkpoint establishes success. Finish staged memory writes
+    # after it, rather than allowing a deadline to interrupt half-way through.
+    if policy and not policy.committing:
         policy.remaining()
 
 
@@ -158,7 +161,6 @@ def governed_request(fn):
                 checkpoint()
                 policy.committing = True
                 for callback in policy.on_success:
-                    checkpoint()
                     callback()
                 if trace and trace.outcome == "unknown":
                     trace.outcome = result.get("status", "answered")

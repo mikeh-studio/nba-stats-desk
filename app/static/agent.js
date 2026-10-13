@@ -15,7 +15,7 @@ import {
 import {
   overviewPresentation,
   ordinal,
-} from "./ask_presentation.js?v=20261011-statistical-profile-v1";
+} from "./ask_presentation.js?v=20261012-ask-capacity-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1916,27 +1916,6 @@ function buildAskBody(question, selection, conversationId = activeConversationId
   return body;
 }
 
-async function askQuestionJson(request) {
-  const statusEl = document.querySelector("[data-agent-status]");
-  const response = await seasonFetch("/api/agent/ask", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(request.body),
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    renderAskFailure(payload.detail || "Ask NBA Stats is unavailable.", "Unavailable", request);
-    return;
-  }
-  validateResponseOwner(payload, request);
-  persistHistoryTurn(request.question, payload, request.conversationId, request.body);
-  request.finished = true;
-  if (requestIsVisible(request)) {
-    renderPayload(payload);
-    if (statusEl) statusEl.textContent = "Answered";
-  }
-}
-
 function parseSseChunk(buffer, onEvent) {
   const parts = buffer.split("\n\n");
   const remaining = parts.pop() || "";
@@ -1977,8 +1956,7 @@ async function askQuestionStream(request) {
   });
   if (!response.ok) {
     // The server answered (rate limit, validation, ...): surface its detail
-    // instead of re-submitting via the JSON fallback, which would charge the
-    // rate limit twice for the same question.
+    // without automatically submitting a second request.
     let detail = "Ask NBA Stats is unavailable.";
     try {
       const payload = await response.json();
@@ -1996,24 +1974,23 @@ async function askQuestionStream(request) {
   const decoder = new TextDecoder();
   const state = request;
   let buffer = "";
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      buffer = parseSseChunk(buffer, (eventName, payload) => {
-        state.eventCount += 1;
-        handleStreamEvent(eventName, payload, state);
-      });
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = parseSseChunk(buffer, (eventName, payload) => {
+      state.eventCount += 1;
+      handleStreamEvent(eventName, payload, state);
+    });
+    if (state.finished) {
+      // A terminal event owns the outcome; a later transport failure must not
+      // replace an already completed answer with a connection error.
+      await reader.cancel().catch(() => {});
+      break;
     }
-    if (!state.finished) {
-      throw new Error("stream ended without final event");
-    }
-  } catch (error) {
-    // Once any event has arrived the server is already running the agent;
-    // mark the error so the caller does not re-submit the question.
-    if (error instanceof Error) error.receivedEvents = state.eventCount > 0;
-    throw error;
+  }
+  if (!state.finished) {
+    throw new Error("stream ended without final event");
   }
 }
 
@@ -2042,19 +2019,13 @@ async function askQuestion(question, selection = null) {
   }
   try {
     await askQuestionStream(request);
-  } catch (streamError) {
-    if (streamError instanceof Error && streamError.receivedEvents) {
-      renderAskFailure(
-        "Ask NBA Stats lost the connection before finishing. Try again shortly.",
-        "Failed", request,
-      );
-    } else {
-      try {
-        await askQuestionJson(request);
-      } catch {
-        renderAskFailure("Ask NBA Stats failed to reach the API.", "Failed", request);
-      }
-    }
+  } catch {
+    // A failed connection can hide an accepted request even before the first
+    // event arrives. Automatic replay could duplicate work and provider cost.
+    renderAskFailure(
+      "Ask NBA Stats lost the connection. The request may still be finishing on the server. A manual retry can run the question again.",
+      "Failed", request,
+    );
   } finally {
     owner.inFlight = false;
     owner.pending = null;

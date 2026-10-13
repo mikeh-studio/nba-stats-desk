@@ -588,12 +588,62 @@ between Claude stream chunks, before provider attempts and after returns.
 BigQuery query submission/result waits are capped by the remaining budget.
 Blocking Python work, a warehouse lock wait, an SDK read, or result-page iteration
 cannot be forcibly interrupted here; a late return is rejected before downstream
-work or a successful response. In-memory successful conversation turns are
-staged until the full answer, including optional chart enrichment, passes its
-final budget check. Failed executions do not write local answer history. This is
-not client-disconnect cancellation or a
-strict wall-clock termination guarantee. Disconnects, queue bounds and capacity
-controls are separate work.
+work or a successful response. Successful conversation turns and pending
+clarification updates are staged during execution. Reads within that request
+see its pending clarification overlay; other requests see only committed state.
+The full answer, including optional chart enrichment, must pass the final budget
+checkpoint before the staged in-memory changes are committed together. A failure
+before that success boundary retains the conversation/clarification state as it
+was when governed agent execution began. Restoration from saved history or
+bounded browser hints runs after admission, before this execution boundary. It
+can set or clear a pending clarification or append recovered context; those
+restoration changes are not rolled back if restoration validation or the
+subsequent agent execution fails.
+They do not constitute saving an answer to the failed question.
+Failed agent executions do not write local answer history. In-memory finalization
+and the separate local history file write do not form an atomic storage
+transaction. The deadline does not forcibly terminate blocking work or bound
+response-body delivery time.
+
+JSON and SSE share a per-process admission limit. With
+`AGENT_MAX_CONCURRENT_REQUESTS` unset, the limit follows the running AnyIO
+worker capacity (normally 40); a positive override selects an explicit limit.
+This preserves the framework's existing worker ceiling and does not claim that
+40 concurrent model/warehouse requests is an optimal production setting.
+At capacity, requests receive a safe HTTP 503 response before Ask execution.
+An active season/conversation also permits only one request at a time, preventing
+competing context updates; overlapping requests receive a safe HTTP 409.
+Request-rate checks precede admission: 409/503 capacity rejections still count
+against the minute/day request quota. This preserves the anti-abuse limit on
+attempts; a busy response does not waive it. The browser never retries silently.
+A capacity slot remains occupied until both the actual worker finishes and the
+JSON/SSE response send closes, including when a disconnected client stops
+waiting. This keeps unsent complete terminal payloads within the active-request
+count. A stalled response-body send can hold a slot beyond the computational
+deadline: no additional transport timeout is assumed or introduced here.
+
+SSE stores serialized interim frames in a nonblocking mailbox, bounded by
+`AGENT_STREAM_BUFFER_BYTES` (**1,650 bytes**) and
+`AGENT_STREAM_BUFFER_EVENTS` (**9 events**). These defaults are the measured
+maximum complete interim output from the 124 public offline cases (145 SSE
+turns), with no assumed production headroom. They are regression-derived
+delivery budgets, not tuned provider or user-network limits. When either quota
+would be exceeded, the stream stops adding interim progress and answer deltas
+for that request; the complete governed final answer still arrives. Existing
+queued frames retain their order. The final/error event has a separate single
+terminal slot, so it cannot deadlock behind a full interim mailbox and its
+evidence is never truncated to fit the interim quota.
+
+This bounds retained interim delivery data, not total request memory. One full
+terminal payload, the agent's evidence/model buffers, and a frame currently
+being serialized or sent remain outside that quota. A disconnected SSE consumer
+clears the mailbox and suppresses future delivery events. JSON/SSE workers can
+finish within the existing cooperative deadline and retain a successfully
+completed answer under the existing conversation/history rules. There is no
+disconnect grace timer, automatic resubmission, or new reconnect protocol.
+Retrieval after leaving the page still depends on existing persistence settings.
+Raw JSON sockets may not report detachment to the application; a failed send or
+closed response releases the delivery side of its capacity slot when observed.
 
 Service summaries include attempted `model_calls` (including failures),
 `provider_failures`, and `stage_latency_ms` for executed routing, identity,
@@ -606,6 +656,12 @@ paths and model calls; legacy repository tool durations also remain in existing
 tool records. No question, tool arguments, evidence, or provider exception body
 is added to the log.
 
+The safe summary also records the admission limit/count, interim backlog peaks,
+suppressed-event count, overflow, and observed delivery detachment. These values
+are a snapshot at worker finalization. A disconnect or stalled send occurring
+afterward is not reflected in that already-emitted summary; they do not measure
+the full transport lifetime or reliably classify every raw JSON disconnect.
+
 Terminal traces distinguish `request_timeout`, `provider_timeout`,
 `provider_failure`, `invalid_plan`, and scope refusals. Legacy planner failures
 can still recover through its deterministic fallback; failed attempts remain
@@ -616,5 +672,11 @@ already reached, model selection is skipped. A timeout or provider failure falls
 back to a deterministic chart while the overall request deadline still applies.
 As with other stages, a blocking transport that ignores its timeout can still
 exhaust the overall deadline.
+Context restoration validation failures return HTTP 400 on JSON. Once admitted
+to SSE, the response starts with HTTP 200 and ends with one safe `error` event
+instead of a `final` event; clients must inspect that terminal event. Both paths
+retain `X-Request-ID`, release capacity after delivery closes, and record an
+`HTTP_400` error type in the operational summary.
+
 HTTP/SSE provider failures keep the existing safe generic error response, while
 the server-generated request ID links to the private operational summary.

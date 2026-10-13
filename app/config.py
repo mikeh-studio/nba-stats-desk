@@ -89,6 +89,13 @@ class Settings:
     anthropic_agent_max_retries: int = 2
     openrouter_agent_max_retries: int = 2
     agent_request_deadline_seconds: float = 120.0
+    # None inherits the framework's existing sync-worker ceiling. This is a
+    # compatibility bound, not a production throughput recommendation.
+    agent_max_concurrent_requests: int | None = None
+    # Largest complete incremental backlog in the public offline SSE corpus.
+    # Overflow suppresses interim updates; the final evidence stays complete.
+    agent_stream_buffer_bytes: int = 1650
+    agent_stream_buffer_events: int = 9
     openai_agent_retry_base_delay_seconds: float = 0.5
     agent_planner_enabled: bool = True
     agent_planner_model: str | None = None
@@ -115,6 +122,16 @@ class Settings:
     next_regular_season_start: date = date(2026, 10, 20)
 
     def __post_init__(self) -> None:
+        for name in (
+            "agent_max_concurrent_requests",
+            "agent_stream_buffer_bytes",
+            "agent_stream_buffer_events",
+        ):
+            value = getattr(self, name)
+            if value is None and name == "agent_max_concurrent_requests":
+                continue
+            if type(value) is not int or value <= 0:
+                raise ValueError(f"{name} must be a positive integer")
         for value in self.agent_trusted_proxy_cidrs:
             network = ip_network(value)
             if network.prefixlen == 0:
@@ -161,6 +178,13 @@ def get_settings() -> Settings:
         agent_request_deadline_seconds=float(
             os.getenv("AGENT_REQUEST_DEADLINE_SECONDS", "120")
         ),
+        agent_max_concurrent_requests=(
+            int(os.environ["AGENT_MAX_CONCURRENT_REQUESTS"])
+            if os.getenv("AGENT_MAX_CONCURRENT_REQUESTS")
+            else None
+        ),
+        agent_stream_buffer_bytes=int(os.getenv("AGENT_STREAM_BUFFER_BYTES", "1650")),
+        agent_stream_buffer_events=int(os.getenv("AGENT_STREAM_BUFFER_EVENTS", "9")),
         openai_agent_retry_base_delay_seconds=float(
             os.getenv("OPENAI_AGENT_RETRY_BASE_DELAY_SECONDS", "0.5")
         ),

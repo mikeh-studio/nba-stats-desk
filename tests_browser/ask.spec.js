@@ -121,3 +121,51 @@ test('published study shows estimates and uncertainty without claiming significa
   await expect(page.locator('[data-agent-tables]')).toContainText('-2.00 to +5.00');
   await expect(page.locator('[data-agent-answer]')).toContainText('no validated statistical-significance or causal claim');
 });
+
+// UI fault injection follows a populated answer from the real offline endpoint.
+// It verifies client recovery/replay behavior; server saturation and disconnect
+// lifetimes are covered separately by controlled transport/API tests.
+for (const fault of ['busy', 'conversation-busy', 'partial-error', 'network-before-events']) {
+  test(`populated chat survives ${fault} without replay and allows explicit retry`, async ({page}, testInfo) => {
+    const c = await prepare(page, 'baseline_points');
+    await submit(page, c.turns[0].question);
+    await expect(page.locator('[data-agent-tables]').first()).toContainText('11.7 per game');
+    const storedTurns = () => page.evaluate(() => {
+      const history = JSON.parse(localStorage.getItem('askChatHistory:v1') || '{}');
+      return (history.conversations || []).flatMap(chat => chat.turns || []).length;
+    });
+    const before = await storedTurns();
+    const posts = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && /\/api\/agent\/ask(?:\/stream)?(?:\?|$)/.test(request.url())) posts.push(request.url());
+    });
+    let inject = true;
+    await page.route('**/api/agent/ask**', async route => {
+      if (!inject) return route.fallback();
+      inject = false;
+      if (fault === 'network-before-events') return route.abort('connectionfailed');
+      if (fault === 'conversation-busy') return route.fulfill({status:409, contentType:'application/json', body:JSON.stringify({detail:'This conversation already has a request in progress. Wait for it to finish.'})});
+      if (fault === 'busy') return route.fulfill({status:503, contentType:'application/json', body:JSON.stringify({detail:'Ask NBA Stats is busy. Try again shortly.'})});
+      return route.fulfill({status:200, contentType:'text/event-stream', body:
+        'event: answer_delta\ndata: {"delta":"Incomplete injected answer"}\n\n' +
+        'event: error\ndata: {"detail":"Injected generation failure"}\n\n'});
+    });
+    await page.locator('[data-followup-question]').fill(c.turns[0].question);
+    await page.locator('[data-followup-submit]').click();
+    const detail = fault === 'busy' ? 'Ask NBA Stats is busy.' : fault === 'conversation-busy' ? 'This conversation already has a request in progress.' : fault === 'partial-error' ? 'Injected generation failure' : 'The request may still be finishing on the server.';
+    await expect(page.locator('[data-agent-answer]')).toContainText(detail);
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    await expect(page.locator('[data-agent-submit]')).toBeEnabled();
+    await expect(page.locator('[data-agent-tables]').first()).toContainText('11.7 per game');
+    expect(await storedTurns()).toBe(before);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toContain('/api/agent/ask/stream');
+    await page.screenshot({path:testInfo.outputPath(`${fault}-populated.png`), fullPage:true});
+    await page.locator('[data-followup-submit]').click();
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    await expect.poll(storedTurns).toBe(before + 1);
+    expect(posts).toHaveLength(2);
+    expect(posts.every(url => url.includes('/api/agent/ask/stream'))).toBe(true);
+    await expect(page.locator('[data-agent-tables]').last()).toContainText('11.7 per game');
+  });
+}

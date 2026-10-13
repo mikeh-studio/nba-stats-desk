@@ -637,3 +637,112 @@ def test_question_evaluator_records_execution_failure_and_continues(
     assert report["cases"][0]["errors"] == [code]
     assert report["cases"][1]["errors"] == []
     assert "private provider body" not in report_text
+
+
+@pytest.mark.parametrize("mutation", ["clear", "set"])
+def test_pending_clarification_reads_staged_changes_and_rolls_back_failed_request(
+    mutation,
+):
+    from app.agent.conversation import InMemoryConversationStore
+
+    store = InMemoryConversationStore()
+    other_store = InMemoryConversationStore()
+    store.set_pending_clarification("same", question="Original", query_plan=None)
+    store.set_pending_clarification("other", question="Other chat", query_plan=None)
+    other_store.set_pending_clarification(
+        "same", question="Other season", query_plan=None
+    )
+    settings = _settings()
+    with pytest.raises(ExecutionFailure, match="provider_failure"):
+        with request_policy(settings, "openai"):
+            if mutation == "clear":
+                store.clear_pending_clarification("same")
+                assert store.get_pending_clarification("same") is None
+            else:
+                store.set_pending_clarification(
+                    "same", question="Replacement", query_plan={"metric": "ast"}
+                )
+                staged = store.get_pending_clarification("same")
+                assert staged.question == "Replacement"
+                assert staged.query_plan == {"metric": "ast"}
+            assert store.get_pending_clarification("other").question == "Other chat"
+            assert (
+                other_store.get_pending_clarification("same").question == "Other season"
+            )
+            # A separate request must see persisted state, not this request's
+            # staged clear/set. Returning restores the original request overlay.
+            with request_policy(settings, "openai"):
+                assert store.get_pending_clarification("same").question == "Original"
+                store.set_pending_clarification(
+                    "same", question="Another request", query_plan=None
+                )
+                assert (
+                    store.get_pending_clarification("same").question
+                    == "Another request"
+                )
+            restored = store.get_pending_clarification("same")
+            assert (
+                restored is None
+                if mutation == "clear"
+                else restored.question == "Replacement"
+            )
+            raise ExecutionFailure("provider_failure")
+    assert store.get_pending_clarification("same").question == "Original"
+    assert store.get_pending_clarification("other").question == "Other chat"
+    assert other_store.get_pending_clarification("same").question == "Other season"
+    assert store.get_turns("same", max_turns=10) == []
+
+
+@pytest.mark.parametrize("mutation", ["clear", "set"])
+@pytest.mark.parametrize("expires_before_finalization", [False, True])
+def test_finalization_deadline_cannot_half_commit_pending_and_answer(
+    mutation, expires_before_finalization, clock
+):
+    from app.agent.conversation import InMemoryConversationStore
+    from app.agent.execution import defer_until_success, governed_request
+
+    store = InMemoryConversationStore()
+    store.set_pending_clarification("commit", question="Original", query_plan=None)
+
+    class GovernedAnswer:
+        settings = _settings(agent_request_deadline_seconds=1)
+
+        @governed_request
+        def answer(self):
+            if mutation == "clear":
+                store.clear_pending_clarification("commit")
+                assert store.get_pending_clarification("commit") is None
+            else:
+                store.set_pending_clarification(
+                    "commit", question="Replacement", query_plan={"metric": "ast"}
+                )
+                assert (
+                    store.get_pending_clarification("commit").question == "Replacement"
+                )
+            # Expire between the pending mutation and turn commit. The request
+            # crossed its final success checkpoint before callbacks began.
+            assert defer_until_success(lambda: setattr(clock, "now", 2))
+            store.append_turn(
+                "commit", question="Answered", answer="Verified answer", max_turns=10
+            )
+            clock.now = 2 if expires_before_finalization else 0.9
+            return {"status": "ok"}
+
+    if expires_before_finalization:
+        with pytest.raises(ExecutionFailure, match="request_timeout"):
+            GovernedAnswer().answer()
+        assert store.get_pending_clarification("commit").question == "Original"
+        assert store.get_turns("commit", max_turns=10) == []
+    else:
+        assert GovernedAnswer().answer() == {"status": "ok"}
+        assert clock.now == 2
+        pending = store.get_pending_clarification("commit")
+        assert (
+            pending is None
+            if mutation == "clear"
+            else pending.question == "Replacement"
+        )
+        turns = store.get_turns("commit", max_turns=10)
+        assert [(turn.question, turn.answer) for turn in turns] == [
+            ("Answered", "Verified answer")
+        ]
