@@ -389,7 +389,7 @@ def build_overview(question, evidence, players, scope, selected=None):
             ):
                 baseline_covered = False
     grain = scope.get("chart_grain", "daily" if (end - start).days < 31 else "monthly")
-    metrics, table, charts = [], [], []
+    metrics, charts = [], []
     grouped = defaultdict(list)
     for row in current:
         grouped[row["player_id"]].append(row)
@@ -397,23 +397,6 @@ def build_overview(question, evidence, players, scope, selected=None):
         metric = contract.metric(key)
         value = aggregate(own, metric, "average")
         baseline = aggregate(prior, metric, "average")
-        cohort = []
-        for rows in grouped.values():
-            stats = aggregate(rows, metric, "average")
-            if (
-                stats["valid_games"] >= contract.min_games
-                and not stats["missing_component_games"]
-            ):
-                cohort.append(stats["value"])
-        eligible = (
-            value["valid_games"] >= contract.min_games
-            and not value["missing_component_games"]
-        )
-        pct = (
-            100 * sum(v < value["value"] for v in cohort) / (len(cohort) - 1)
-            if eligible and len(cohort) > 1
-            else None
-        )
         delta = (
             value["value"] - baseline["value"]
             if baseline_covered
@@ -422,17 +405,6 @@ def build_overview(question, evidence, players, scope, selected=None):
             and not value["missing_component_games"]
             and not baseline["missing_component_games"]
             else None
-        )
-        avg = f"{value['value']:.1f}" if value["value"] is not None else "Unavailable"
-        table.append(
-            [
-                label,
-                avg,
-                f"{pct:.0f}" if pct is not None else "Unavailable",
-                f"{delta:+.1f}" if delta is not None else "Unavailable",
-                f"{value['valid_games']} / {len(own)}",
-                str(len(cohort)),
-            ]
         )
         buckets = defaultdict(list)
         for row in own:
@@ -469,8 +441,6 @@ def build_overview(question, evidence, players, scope, selected=None):
                 "key": key,
                 "label": label,
                 **value,
-                "percentile": pct,
-                "cohort_size": len(cohort),
                 "previous": baseline,
                 "change": delta,
                 "trend": {"grain": grain, "points": points},
@@ -479,6 +449,9 @@ def build_overview(question, evidence, players, scope, selected=None):
         )
     phase = " + ".join(scope["phases"])
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
+    from app.agent.overview_percentiles import add_percentiles
+
+    add_percentiles(metrics + extra, grouped, player["player_id"], contract.min_games)
     insights = game_insights(own)
     display_policy = presentation(
         metrics + extra, question, len(own), contract.min_games, insights=insights
@@ -521,7 +494,7 @@ def build_overview(question, evidence, players, scope, selected=None):
                 if not baseline_covered
                 else ""
             ),
-            f"Percentiles compare per-game averages in the same period and phases, with at least {contract.min_games} games and complete data for that metric. Ties share the percentage of other eligible players strictly below them.",
+            f"Percentiles compare qualified players in the same dates and phases, with at least {contract.min_games} appearances and complete components. Shooting ranks require 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, or 50 3PA for 3P%. TOV ranks favor fewer turnovers; MIN describes exposure. Ties share the percentage of other qualified players strictly worse. These provisional project rules are not NBA official qualification.",
             f"Source: {evidence.source}; data through {max(evidence.data_through.values())}. No games or missing values are fabricated.",
             "Charts show "
             + (

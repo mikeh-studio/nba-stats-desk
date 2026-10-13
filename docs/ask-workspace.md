@@ -152,7 +152,7 @@ assessment labels and raw study diagnostics stay in server evidence and logs.
 Saved responses retain their original text; new requests use this presentation.
 
 Governed player overviews use the same evidence for the overall assessment,
-up to three visible Key Takeaways, ten primary metrics (six or seven for focused
+up to three visible Key Takeaways, eleven primary metrics (six or nine for focused
 profiles) and an adaptive performance chart. The chart starts with the requested
 focus metric, or PTS for general overviews; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and
@@ -686,7 +686,7 @@ the server-generated request ID links to the private operational summary.
 
 ## Compact metrics and balanced contributions
 
-Broad overviews use ten primary metrics; focused profiles use six or seven with
+Broad overviews use eleven primary metrics; focused profiles use six or nine with
 expandable additional metrics. Per-metric sample/opportunity notes and balanced,
 server-authored takeaways replace browser-selected strongest-percentile claims.
 See [overview metrics and sample policy](ask-metric-presentation.md) for supported

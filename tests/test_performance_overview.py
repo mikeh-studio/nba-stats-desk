@@ -77,10 +77,10 @@ def test_overview_math_table_charts_profile_agree(evidence):
         scope(),
     )
     assert result["status"] == "ok"
-    assert len(result["tables"][0]["rows"]) == 10
+    assert len(result["tables"][0]["rows"]) == 11
     pts = result["tables"][0]["rows"][0]
     assert pts[:5] == ["PTS", "20.0", "per game", "50.0", "10.0"]
-    assert pts[5] == "6/6 valid appearances"
+    assert pts[5].startswith("6/6 valid appearances;")
     from app.agent.visualization import VisualizationAgent
 
     expected_charts = list(result["charts"])
@@ -473,8 +473,8 @@ def test_play_in_tournament_remains_unsupported(phrase):
 @pytest.mark.parametrize(
     "profile,phrase,count",
     [
-        ("general", "performance", 10),
-        ("scoring", "scoring performance", 7),
+        ("general", "performance", 11),
+        ("scoring", "scoring performance", 9),
         ("playmaking", "playmaking performance", 6),
         ("rebounding", "rebounding performance", 6),
         ("defense", "defensive activity performance", 6),
@@ -538,7 +538,7 @@ def test_shooting_samples_pool_attempts_and_zero_attempts_are_unavailable(eviden
     )
     assert three["value"] == 10
     assert "1 makes / 10 attempts" in three["sample"]["text"]
-    assert "no ranking threshold" in three["sample"]["text"]
+    assert "at least 50 3PA" in three["sample"]["text"]
     assert three.get("percentile") is None
     for row in own:
         row.update(fg3m=0, fg3a=0)
@@ -751,7 +751,7 @@ def test_takeaways_pair_assists_turnovers_and_keep_minutes_context(evidence, inv
         "Player 1 performance", evidence, source_players(evidence), scope()
     )
     policy = result["semantic_evidence"]["presentation"]
-    assert policy["version"] == "ask_metric_presentation/2"
+    assert policy["version"] == "ask_metric_presentation/3"
     assert len(policy["takeaways"]) == 3
     change = next(n for n in policy["takeaways"] if n["role"] == "change")
     assert change["title"] == (

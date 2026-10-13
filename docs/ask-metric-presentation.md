@@ -1,7 +1,7 @@
 # Ask overview metrics and samples
 
 The server owns `semantic_evidence.presentation`, version
-`ask_metric_presentation/2`, including selected metric keys, sample notes,
+`ask_metric_presentation/3`, including selected metric keys, sample notes,
 question focus, limitations and ordered takeaways. The browser renders those
 facts without selecting the largest percentile as the headline.
 
@@ -9,23 +9,24 @@ facts without selecting the largest percentile as the headline.
 
 | Focus | Primary metrics |
 | --- | --- |
-| General | PTS, TS%, 3PM, 3P%, AST, TOV, REB, STL, BLK, MIN |
-| Scoring | PTS, TS%, 3PM, 3P%, FGA, 3PA, MIN |
-| Playmaking | AST, TOV, PTS, TS%, REB, MIN |
+| General | PTS, REB, AST, 3PM, STL, BLK, TOV, MIN, FG%, FT%, TS% |
+| Scoring | PTS, 3PM, FGA, 3PA, MIN, FG%, 3P%, FT%, TS% |
+| Playmaking | AST, TOV, PTS, REB, MIN, TS% |
 | Rebounding | REB, MIN, AST, TOV, STL, BLK |
 | Defensive activity | STL, BLK, MIN, REB, AST, TOV |
 | Contribution beyond scoring | AST, TOV, REB, STL, BLK, MIN |
 
-General overviews show ten metrics. Focused broad performance/profile questions
-show six or seven; remaining calculated metrics are expandable. The main table uses four compact
+General overviews show eleven metrics, with shooting percentages last. Focused broad performance/profile questions
+show six or nine; remaining calculated metrics are expandable. The main table uses four compact
 columns with inline %/minutes and percentage-point changes. Sample details remain expandable.
 Key Takeaways use up to three visible icon/headline/explanation rows; limited-data
 labels remain visible beside affected values. Explicit metric,
 venue, opponent, ranking and unsupported grain requests retain their existing
 routes and scope guards. A focused overview is a presentation of whole-game
 observations, not permission to substitute them for unavailable tracking data.
-Current overview scopes support season and calendar windows; last-N overview
-requests remain unsupported and never become a calendar window silently.
+Current overview scopes support season and calendar windows, plus the documented
+last-ten-appearance default for recent performance. Other unsupported appearance
+windows never become a calendar window silently.
 
 Rebounding and defensive activity have separate takeaways and explicit coverage
 limits. Supporting metrics are labeled as context, not measures of the focus.
@@ -46,10 +47,27 @@ an assertion of statistical precision. The five-appearance floor reuses the
 project count-comparison policy. Changes are withheld if either period falls
 below the floor or has partial components; original aggregate components remain
 inspectable. Baseline coverage and zero-denominator guards still apply.
-Shooting percentiles are never inferred from a games-only floor. Ratio samples
-remain explicitly descriptive because no reviewed attempt threshold or precision
-rule has been established. Rich defended-shot/chance rules must be defined and
-validated with those sources before they can be implemented.
+Overview percentile policy `ask_overview_percentiles/1` ranks PTS/REB/AST/STL/BLK,
+3PM, TOV and MIN with the existing five-valid-appearance floor, complete metric
+components and at least two qualified players. TOV reverses the direction: higher
+percentiles mean fewer turnovers, with role/minutes context. MIN describes exposure
+and uses a neutral bar. Other context rates remain unranked in this overview.
+
+Shooting ranks pool unrounded aggregate components and use provisional project
+minimums in the exact requested window: 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%,
+and 50 3PA for 3P%. These are not NBA official leader qualification, significance
+or precision guarantees. Eligible peer cohorts are metric-specific, in the same
+dates and phases, and exclude incomplete or insufficient samples. Ties share the
+percentage of other qualified players strictly worse, divided by cohort size
+minus one. Zero denominators never become zero-percent ranks.
+
+Evidence retains `percentile_status`, label, cohort size, explanation and the
+versioned qualification policy. Missing ranks show No data, Incomplete data,
+Low sample, Low attempts, Few peers or Not ranked. Details disclose thresholds and
+cohort sizes. Attempt eligibility does not change raw averages or existing
+comparison suppression. Short windows may show percentages without percentile
+ranks. Threshold coverage is inspected against frozen snapshots; no claim of
+population-wide live-source validation is implied.
 
 ## Takeaways
 
@@ -66,7 +84,7 @@ the existing sample rules and the overview's 0.1/2%-of-current-value descriptive
 change threshold. Complete scoring samples can show a game range when its spread
 is at least five points or 30% of the period average (whichever is greater); this
 is a display rule, not a significance or consistency test. Minutes accompany
-production changes when comparable. Ratio percentiles are not inferred, and no
+production changes when comparable. Qualified ratio ranks do not select takeaways, and no
 highest-percentile or composite-impact selector is introduced.
 
 Saved results retain their own server-authored takeaways, with at most three
@@ -97,13 +115,13 @@ The server emits `scope.chart_grain`, chart `grain` and each basic metric's
 buckets; longer windows use `monthly` averages. Monthly results also retain the
 legacy `monthly` points. Saved charts without grain metadata remain monthly.
 
-Named months require a year (including abbreviated names); their comparison is
+Named months use an explicit or disclosed inferred year; their comparison is
 the preceding full calendar month. A `week of/starting/beginning YYYY-MM-DD` is
 seven inclusive days starting on that date. This/last week use Monday boundaries;
 this month runs through the anchor date and compares with the preceding full
 calendar month; last month is the preceding full month.
 Past week/month are rolling windows; numeric rolling windows retain their rules.
-Relative calendar windows honor a supplied as-of date. Ambiguous months, partial
+Relative calendar windows honor a supplied as-of date. Partial
 month/week phrasing and competing windows require clarification. Future ranges
 remain invalid. No date request falls back to another season.
 
@@ -112,7 +130,7 @@ average** below it. Points use only recorded game dates or months with appearanc
 no off-day zeroes are inserted. Missing metric components still withhold the trend.
 Date/sample tooltips preserve full dates, while axis labels are thinned to avoid
 crowding. Phone overview charts fit their container and hide dense value labels;
-each value remains available on hover or focus. The ten-row, four-column table and collapsed context remain unchanged.
+each value remains available on hover or focus. The eleven-row, four-column table and collapsed context remain unchanged.
 
 
 ## Follow-up panel

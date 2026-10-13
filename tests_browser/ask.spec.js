@@ -170,11 +170,12 @@ for (const fault of ['busy', 'conversation-busy', 'partial-error', 'network-befo
   });
 }
 
-test('overview shows ten metrics, sample evidence, balanced takeaways and expandable details', async ({page}) => {
+test('overview shows eleven metrics, sample evidence, balanced takeaways and expandable details', async ({page}) => {
   await prepare(page,'baseline_points');
   await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
   const table = page.locator('[data-agent-tables] > .table-scroll table');
-  await expect(table.locator('tbody tr')).toHaveCount(10);
+  await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true})).toBeVisible();
   await expect(table).toContainText('3PM');
   const samples=page.locator('[data-sample-details]');
@@ -189,29 +190,31 @@ test('overview shows ten metrics, sample evidence, balanced takeaways and expand
   await expect(details).toContainText('PTS/36');
   await expect(details.locator('td[aria-label*="per 36 minutes"]').first()).toBeVisible();
   await page.reload();
-  await expect(table.locator('tbody tr')).toHaveCount(10);
+  await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
 });
 
-test('focused scoring retains 3PM and seven metrics at a narrow viewport', async ({page}) => {
+test('focused scoring retains 3PM and nine metrics at a narrow viewport', async ({page}) => {
   await page.setViewportSize({width:390,height:844});
   await prepare(page,'baseline_points');
   await submit(page,'How did Avery Example perform in scoring in the 2024-25 regular season?');
   const table=page.locator('[data-agent-tables] > .table-scroll table');
-  await expect(table.locator('tbody tr')).toHaveCount(7);
+  await expect(table.locator('tbody tr')).toHaveCount(9);
   await expect(table).toContainText('3PM');
   const samples=page.locator('[data-sample-details]');
   await samples.locator('summary').click();
-  await expect(samples).toContainText('no inferred ranking threshold');
+  await expect(samples).toContainText('Shooting ranks use provisional minimums');
   await samples.locator('summary').click();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
 
 
-test('compact overview has visible Key Takeaways and a short ten-row table', async ({page}) => {
+test('compact overview has visible Key Takeaways and a short eleven-row table', async ({page}) => {
   await prepare(page,'baseline_points');
   await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
   const table=page.locator('table.compact-metrics').first();
-  await expect(table.locator('tbody tr')).toHaveCount(10);
+  await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   expect((await table.boundingBox()).height).toBeLessThan(500);
   await expect(table.locator('thead th')).toHaveCount(4);
   await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true})).toBeVisible();
@@ -228,7 +231,8 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example perform in April 2025?');
     const table=page.locator('table.compact-metrics').first();
-    await expect(table.locator('tbody tr')).toHaveCount(10);
+    await expect(table.locator('tbody tr')).toHaveCount(11);
+    expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
     expect((await table.boundingBox()).height).toBeLessThan(500);
     await expect(table.locator('tbody th abbr').first()).toHaveText('PTS');
     await expect(page.getByRole('heading',{name:'Performance over time',exact:true})).toBeVisible();
@@ -314,7 +318,7 @@ for (const width of [1280,390]) {
     await submit(page,'How did Avery Example played last year as of 2025-10-12?');
     await expect(page.locator('[data-agent-answer]')).toContainText('last completed NBA season (2024-25)');
     await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true}).first()).toBeVisible();
-    await expect(page.locator('table.compact-metrics').first().locator('tbody tr')).toHaveCount(10);
+    await expect(page.locator('table.compact-metrics').first().locator('tbody tr')).toHaveCount(11);
     await page.locator('.scope-assumption summary').click();
     await page.getByRole('button',{name:'Past 12 months',exact:true}).click();
     await expect(page.locator('[data-agent-submit]')).toBeEnabled();

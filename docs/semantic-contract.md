@@ -195,3 +195,11 @@ year uses the documented conversational default, disclosed in the answer. Calend
 comparisons use the preceding full calendar month. Table abbreviations and change
 colors do not alter canonical metric values, sample rules or full-name evidence.
 See [Ask overview presentation](ask-metric-presentation.md#performance-over-time).
+
+Overview presentation has a separate, versioned percentile qualification policy:
+five complete appearances, at least two qualified players including the focal player,
+and provisional attempt floors of 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, and
+50 3PA for 3P%. TOV ranks lower values favorably; MIN ranks exposure. The general
+overview shows eleven metrics with FG%/FT%/TS% last. Direct governed ranking
+queries retain their explicit attempt-threshold contract. See
+[overview policy](ask-metric-presentation.md#samples-and-comparisons).

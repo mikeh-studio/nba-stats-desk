@@ -25,11 +25,33 @@ ABBREVIATIONS = {
     "ast_per36": "AST/36",
 }
 
-GENERAL = ("pts", "ts_pct", "fg3m", "fg3_pct", "ast", "tov", "reb", "stl", "blk", "min")
+GENERAL = (
+    "pts",
+    "reb",
+    "ast",
+    "fg3m",
+    "stl",
+    "blk",
+    "tov",
+    "min",
+    "fg_pct",
+    "ft_pct",
+    "ts_pct",
+)
 PROFILES = {
     "general": GENERAL,
-    "scoring": ("pts", "ts_pct", "fg3m", "fg3_pct", "fga", "fg3a", "min"),
-    "playmaking": ("ast", "tov", "pts", "ts_pct", "reb", "min"),
+    "scoring": (
+        "pts",
+        "fg3m",
+        "fga",
+        "fg3a",
+        "min",
+        "fg_pct",
+        "fg3_pct",
+        "ft_pct",
+        "ts_pct",
+    ),
+    "playmaking": ("ast", "tov", "pts", "reb", "min", "ts_pct"),
     "rebounding": ("reb", "min", "ast", "tov", "stl", "blk"),
     "defense": ("stl", "blk", "min", "reb", "ast", "tov"),
     "contribution": ("ast", "tov", "reb", "stl", "blk", "min"),
@@ -43,7 +65,7 @@ FOCUS_WORDS = {
 }
 LIMITS = {
     "general": "Box scores describe recorded production. Screening, defensive positioning and individual defensive impact are not measured here.",
-    "scoring": "Shooting accuracy is descriptive; attempts and valid games accompany percentages. No shooting percentile is inferred.",
+    "scoring": "Shooting accuracy is descriptive; attempts and valid games accompany percentages. Shooting percentiles require qualified attempt samples; they are not a shooting-skill grade.",
     "playmaking": "Assists and turnovers describe recorded creation and ball security; they do not measure passing quality or creation load completely.",
     "rebounding": "Only total rebounds are connected. Offensive/defensive splits, rebound opportunities and box-outs are unavailable; supporting stats do not measure rebounding skill.",
     "defense": "Steals and blocks describe recorded defensive activity. Contests, assignments, fouls and rim protection are unavailable; this is not an overall defensive grade.",
@@ -96,7 +118,9 @@ def sample(metric, minimum):
     elif status == "limited":
         text += "; limited sample — comparison withheld"
     elif metric["unit"] == "percent":
-        text += "; descriptive ratio — no ranking threshold established"
+        text += "; descriptive ratio"
+    if metric.get("percentile_note"):
+        text += "; " + metric["percentile_note"]
     return {
         "status": status,
         "text": text,
@@ -121,7 +145,7 @@ def presentation(metrics, question, appearances, minimum, *, insights=None):
     selected = [lookup[key] for key in PROFILES[profile]]
     notes = takeaways(metrics, profile, appearances, minimum, insights)
     return {
-        "version": "ask_metric_presentation/2",
+        "version": "ask_metric_presentation/3",
         "profile": profile,
         "primary_keys": [m["key"] for m in selected],
         "scope_note": f"{appearances} recorded appearances. Samples vary by metric; missing values are not zero. The {minimum}-game comparison floor is a project policy, not a guarantee of statistical precision.",

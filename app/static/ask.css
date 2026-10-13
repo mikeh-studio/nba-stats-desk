@@ -919,3 +919,7 @@ body:has(.ask-desk) .publication-health {
 .scope-assumption { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1rem; color: var(--muted); font-size: 0.82rem; margin-bottom: 0.9rem; }
 .scope-assumption summary { cursor: pointer; color: var(--accent-hot); }
 .scope-assumption .button { margin: 0.4rem 0.4rem 0 0; padding: 0.35rem 0.6rem; font-size: 0.8rem; }
+
+.rank-status { color: var(--muted); font-size: 0.7rem; line-height: 1.2; }
+.percentile-neutral meter::-webkit-meter-optimum-value { background: #90969f; }
+.percentile-neutral meter::-moz-meter-bar { background: #90969f; }

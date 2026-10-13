@@ -64,3 +64,26 @@ test('takeaways are visible, capped at three and escape saved source content',()
  assert.match(html,/icons\/chart-bar.svg/);
  o.insights=[];assert.equal(overviewTakeaways(o),'');
 });
+
+test('qualified ranks and compact reasons are accessible and escaped',()=>{
+ const p=payload();
+ Object.assign(p.semantic_evidence.metrics[0],{percentile:null,percentile_status:'low_attempts',percentile_label:'Low attempts',percentile_note:'Requires 100 FGA <script>',percentile_policy:{version:'ask_overview_percentiles/1'}});
+ Object.assign(p.semantic_evidence.metrics[9],{percentile:75,percentile_status:'ranked',percentile_note:'Playing-time volume'});
+ const html=overviewMetricsTable(overviewPresentation(p));
+ assert.match(html,/Low attempts/);assert.match(html,/tabindex="0"/);
+ assert.match(html,/Requires 100 FGA &lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
+ assert.match(html,/percentile-neutral/);assert.match(html,/75th/);
+ assert.match(html,/50 FTA for FT%/);
+});
+
+
+test('new general policy renders eleven rows with percentages last, saved policy stays intact',()=>{
+ const p=payload(), keys=['pts','reb','ast','fg3m','stl','blk','tov','min','fg_pct','ft_pct','ts_pct'];
+ p.semantic_evidence.presentation.primary_keys=keys;
+ for (const key of ['fg_pct','ft_pct']) p.semantic_evidence.metrics.push({key,label:key,value:70,unit:'percent',percentile:50,valid_games:8,sample:{status:'descriptive',text:'Qualified'},percentile_policy:{version:'ask_overview_percentiles/1'}});
+ const o=overviewPresentation(p), html=overviewMetricsTable(o);
+ assert.equal(o.metrics.length,11);
+ assert.deepEqual(o.metrics.slice(-3).map(metricAbbreviation),['FG%','FT%','TS%']);
+ assert.match(html,/50 FTA for FT%/);
+ assert.match(overviewMetricsTable(overviewPresentation(payload())),/Saved ranking policy/);
+});
