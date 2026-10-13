@@ -1,7 +1,7 @@
 # Ask overview metrics and samples
 
 The server owns `semantic_evidence.presentation`, version
-`ask_metric_presentation/1`, including selected metric keys, sample notes,
+`ask_metric_presentation/2`, including selected metric keys, sample notes,
 question focus, limitations and ordered takeaways. The browser renders those
 facts without selecting the largest percentile as the headline.
 
@@ -18,8 +18,8 @@ facts without selecting the largest percentile as the headline.
 
 General overviews show ten metrics. Focused broad performance/profile questions
 show six or seven; remaining calculated metrics are expandable. The main table uses four compact
-columns with inline %/minutes and percentage-point changes. Sample details and
-contribution explanations use keyboard-accessible disclosures; limited-data
+columns with inline %/minutes and percentage-point changes. Sample details remain expandable.
+Key Takeaways use up to three visible icon/headline/explanation rows; limited-data
 labels remain visible beside affected values. Explicit metric,
 venue, opponent, ranking and unsupported grain requests retain their existing
 routes and scope guards. A focused overview is a presentation of whole-game
@@ -53,13 +53,24 @@ validated with those sources before they can be implemented.
 
 ## Takeaways
 
-General contributions use fixed scoring, creation, rebounding and defensive-
-activity order. Focused questions lead with their requested area. Assists appear
-with turnover and playing-time context; total rebounds disclose missing splits;
-steals/blocks disclose the limit on overall defensive interpretation. Limited
-metrics cannot create a standout claim. The server's answer paragraphs and
-ordered takeaways use unrounded validated evidence. No composite impact score,
-causal interpretation or best-looking percentile selector is introduced.
+Key Takeaways retain the original visible icon, headline and short explanation
+structure alongside Overall. They show at most three server-authored observations:
+the requested focus (scoring for general overviews), a supported comparison or
+game-level variation when available, and relevant production beyond scoring or
+playing-time context. General change notes read assists with turnovers when
+those changes are supported. Defense and rebounding remain separate observations.
+
+Incomplete or thin core focus samples produce one sample warning, without filler
+or a standout claim. Comparison notes use only `display_change` values that pass
+the existing sample rules and the overview's 0.1/2%-of-current-value descriptive
+change threshold. Complete scoring samples can show a game range when its spread
+is at least five points or 30% of the period average (whichever is greater); this
+is a display rule, not a significance or consistency test. Minutes accompany
+production changes when comparable. Ratio percentiles are not inferred, and no
+highest-percentile or composite-impact selector is introduced.
+
+Saved results retain their own server-authored takeaways, with at most three
+visible rows. Missing canonical metadata receives the saved-answer notice.
 
 Older saved results preserve their original metrics and receive a saved-answer
 notice when presentation metadata is absent. Ask again to apply the new policy.
@@ -102,3 +113,14 @@ no off-day zeroes are inserted. Missing metric components still withhold the tre
 Date/sample tooltips preserve full dates, while axis labels are thinned to avoid
 crowding. Phone overview charts fit their container and hide dense value labels;
 each value remains available on hover or focus. The ten-row, four-column table and collapsed context remain unchanged.
+
+
+## Follow-up panel
+
+The continuation composer uses a subtly tinted surface, orange left edge,
+regular Barlow heading **Ask your next question**, and **Continue the conversation**
+eyebrow. Player names and governed date/phase scope remain in the context line.
+Suggested questions still fill the composer without submitting; Enter submits,
+Shift+Enter inserts a newline, and scope changes/restored chats retain the existing
+server/browser context behavior. The textarea starts at two rows/60px, with manual
+vertical resizing available. This styling also applies to comparison follow-ups.

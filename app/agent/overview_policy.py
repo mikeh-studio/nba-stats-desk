@@ -2,6 +2,8 @@
 
 import re
 
+from app.agent.overview_takeaways import takeaways
+
 ABBREVIATIONS = {
     "pts": "PTS",
     "reb": "REB",
@@ -106,7 +108,7 @@ def sample(metric, minimum):
     }
 
 
-def presentation(metrics, question, appearances, minimum):
+def presentation(metrics, question, appearances, minimum, *, insights=None):
     profile = focus(question)
     for metric in metrics:
         metric["display_label"] = ABBREVIATIONS.get(metric["key"], metric["label"])
@@ -117,55 +119,9 @@ def presentation(metrics, question, appearances, minimum):
         )
     lookup = {m["key"]: m for m in metrics}
     selected = [lookup[key] for key in PROFILES[profile]]
-    groups = [
-        ("Scoring", ("pts", "ts_pct", "fg3m", "fg3_pct")),
-        ("Creation", ("ast", "tov")),
-        ("Rebounding", ("reb",)),
-        ("Defensive activity", ("stl", "blk")),
-    ]
-    first = {
-        "scoring": "Scoring",
-        "playmaking": "Creation",
-        "rebounding": "Rebounding",
-        "defense": "Defensive activity",
-        "contribution": "Creation",
-    }.get(profile)
-    if first:
-        groups.sort(key=lambda g: g[0] != first)
-    notes = []
-    for title, keys in groups:
-        usable = [
-            lookup[k] for k in keys if lookup[k]["sample"]["status"] == "descriptive"
-        ]
-        partial = [
-            lookup[k]["label"]
-            for k in keys
-            if lookup[k]["sample"]["status"] != "descriptive"
-        ]
-        text = "; ".join(f"{m['label']}: {m['value']:.1f} {m['unit']}" for m in usable)
-        if partial:
-            text += (
-                (". " if text else "")
-                + f"Limited or unavailable evidence for {', '.join(partial)}; no standout claim."
-            )
-        if text and not text.endswith("."):
-            text += "."
-        if title == "Creation":
-            text += " Read assists with turnovers and playing time; creation load is not measured."
-        elif title == "Rebounding":
-            text += " Offensive/defensive rebound splits and box-outs are unavailable."
-        elif title == "Defensive activity":
-            text += " Steals and blocks do not establish overall defensive quality."
-        notes.append(
-            {
-                "area": title,
-                "title": title,
-                "icon": "shield" if title == "Defensive activity" else "chart-bar",
-                "text": text,
-            }
-        )
+    notes = takeaways(metrics, profile, appearances, minimum, insights)
     return {
-        "version": "ask_metric_presentation/1",
+        "version": "ask_metric_presentation/2",
         "profile": profile,
         "primary_keys": [m["key"] for m in selected],
         "scope_note": f"{appearances} recorded appearances. Samples vary by metric; missing values are not zero. The {minimum}-game comparison floor is a project policy, not a guarantee of statistical precision.",

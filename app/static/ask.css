@@ -446,39 +446,50 @@ body:has(.ask-desk) .publication-health {
   font-size: 11px;
 }
 .followup-section {
-  margin-top: 3rem;
-  padding-top: 2rem;
-  border-top: 1px solid var(--line);
+  margin-top: 2rem;
+  padding: 1rem 1.125rem;
+  border: 0;
+  border-left: 3px solid var(--accent-hot);
+  background: #1a1d22;
 }
-.followup-section h2 {
+.followup-eyebrow {
+  color: var(--accent-hot);
+  font-size: 0.69rem;
+  font-weight: 600;
+  letter-spacing: 0.09rem;
+  text-transform: uppercase;
+  margin: 0 0 0.45rem;
+}
+.ask-desk .followup-section h2 {
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 1.375rem;
+  line-height: 1.2;
+  letter-spacing: 0;
   text-transform: none;
-  font-size: 1.5rem;
-  margin-bottom: 0.5rem;
+  margin: 0 0 0.45rem;
 }
+.followup-section [data-followup-context] { margin: 0; font-size: 0.82rem; }
 .followup-section textarea {
   width: 100%;
+  height: 60px;
+  min-height: 60px;
   resize: vertical;
-  min-height: 100px;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.35;
 }
-.followup-suggestions {
-  display: flex;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-  margin: 1rem 0;
-}
+.followup-suggestions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.75rem 0 0.625rem; }
 .followup-suggestions .button {
   text-transform: none;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
+  padding: 0.375rem 0.625rem;
   max-width: 100%;
   text-align: left;
 }
-.followup-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 1rem;
-  margin-top: 0.8rem;
-}
+.followup-actions { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-top: 0.625rem; }
+.followup-actions .meta { font-size: 0.75rem; }
+.followup-actions .button { padding: 0.625rem 1.25rem; font-size: 0.875rem; }
 .history-search {
   display: grid;
   gap: 0.4rem;
@@ -795,20 +806,10 @@ body:has(.ask-desk) .publication-health {
 .compact-takeaways {
   padding-left: 1.25rem;
 }
-.compact-contribution {
-  border-bottom: 1px solid var(--line);
-  padding: 0.6rem 0;
-}
-.compact-contribution summary {
-  cursor: pointer;
-  font-size: 0.95rem;
-  font-weight: 600;
-}
-.compact-contribution p {
-  font-size: 0.88rem;
-  line-height: 1.45;
-  margin: 0.5rem 0 0;
-}
+.compact-takeaways .takeaway { gap: 0.7rem; margin: 0.9rem 0 0; }
+.compact-takeaways .takeaway img { width: 22px; height: 22px; flex-basis: 22px; }
+.compact-takeaways .takeaway h3 { font-size: 1.1rem; line-height: 1.2; margin-bottom: 0.35rem; }
+.compact-takeaways .takeaway p { font-size: 0.88rem; line-height: 1.4; }
 .compact-metrics {
   table-layout: fixed;
 }
@@ -909,3 +910,8 @@ body:has(.ask-desk) .publication-health {
 
 /* Fit overview trends on phones; unrelated chart explorers retain scrolling. */
 .overview-chart svg { min-width: 0; }
+
+.followup-suggestions .button, .followup-actions .button { font-weight: 600; }
+@media (max-width: 600px) {
+  .ask-desk .followup-section h2 { font-size: 1.3125rem; }
+}

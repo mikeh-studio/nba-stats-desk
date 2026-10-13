@@ -15,11 +15,11 @@ import {
 import {
   overviewPresentation,
   overviewMetricsTable,
-  overviewContributions,
+  overviewTakeaways,
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-metrics-v7";
+} from "./ask_presentation.js?v=20261012-ask-panels-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1014,7 +1014,7 @@ function renderAnswerPayload(payload, targetEl) {
   }
   const overview = payload.award_evidence ? null : overviewPresentation(payload);
   targetEl.innerHTML = overview
-    ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p>${escHtml(p)}</p>`).join("")}</div>${overviewContributions(overview)}</div>`
+    ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p>${escHtml(p)}</p>`).join("")}</div>${overviewTakeaways(overview)}</div>`
     : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
   if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
     targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
@@ -1064,7 +1064,7 @@ function renderAuxiliaryPayload(
     const followup = document.querySelector("[data-followup-section]");
     if (followup) followup.hidden = false;
     const heading = document.querySelector("[data-followup-heading]");
-    if (heading) heading.textContent = "Ask a follow-up about this comparison";
+    if (heading) heading.textContent = "Ask your next question";
     const scopeLabel = document.querySelector("[data-followup-context]");
     if (scopeLabel)
       scopeLabel.textContent = `${comparison.names.join(" and ")} · ${comparison.scopeLabel} · This chat`;
@@ -1120,14 +1120,12 @@ function renderAuxiliaryPayload(
   const heading = document.querySelector("[data-followup-heading]");
   const name = payload.conversation_context?.players?.map((p) => p.player_name).join(" and ") || payload.player_profile?.player?.player_name;
   if (heading)
-    heading.textContent = name
-      ? `Ask a follow-up about ${name}`
-      : "Ask a follow-up";
+    heading.textContent = "Ask your next question";
   const scopeLabel = document.querySelector("[data-followup-context]");
   if (scopeLabel)
     scopeLabel.textContent = overview
-      ? `${overview.range} · ${overview.scope.phases.join(" + ")} · Continues this chat`
-      : "Continues this chat. Include the player and dates when changing the scope.";
+      ? `${name ? name + " · " : ""}${overview.range} · ${overview.scope.phases.join(" + ")}`
+      : `${name ? name + " · " : ""}Continues this chat. Include dates when changing the scope.`;
   const suggestions = document.querySelector("[data-followup-suggestions]");
   if (suggestions) {
     const prompts =

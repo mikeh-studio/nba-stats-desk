@@ -517,7 +517,7 @@ def test_limited_sample_retains_values_but_not_comparisons_or_standout_claims(ev
     assert pts["display_change"] is None and pts["percentile"] is None
     assert all(m["display_change"] is None for m in stats)
     assert all(
-        "no standout claim" in note["text"]
+        "no standout claim" in note["text"].lower()
         for note in result["semantic_evidence"]["presentation"]["takeaways"]
     )
 
@@ -562,7 +562,7 @@ def test_partial_sample_changes_are_withheld_and_takeaways_disclose_limit(eviden
     assert "1 missing components" in ast["sample"]["text"]
     assert (
         "no standout claim"
-        in result["semantic_evidence"]["presentation"]["takeaways"][0]["text"]
+        in result["semantic_evidence"]["presentation"]["takeaways"][0]["text"].lower()
     )
 
 
@@ -734,3 +734,71 @@ def test_calendar_clarification_resolves_without_repeating_ambiguity(reply):
     assert scoped["start"] == date(2025, 11, 1)
     assert scoped["end"] == date(2025, 11, 30)
     assert scoped["chart_grain"] == "daily"
+
+
+@pytest.mark.parametrize("inverse", [False, True])
+def test_takeaways_pair_assists_turnovers_and_keep_minutes_context(evidence, inverse):
+    for row in evidence.rows:
+        if row["player_id"] == 1:
+            current = row["season"] == "2025-26"
+            row.update(
+                ast=2 if current == inverse else 5,
+                tov=4 if current == inverse else 1,
+                min=32 if current else 30,
+            )
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    policy = result["semantic_evidence"]["presentation"]
+    assert policy["version"] == "ask_metric_presentation/2"
+    assert len(policy["takeaways"]) == 3
+    change = next(n for n in policy["takeaways"] if n["role"] == "change")
+    assert change["title"] == (
+        "Fewer assists, more turnovers" if inverse else "More assists, fewer turnovers"
+    )
+    assert ("TOV +3.0 per game" if inverse else "TOV -3.0 per game") in change["text"]
+    assert "MIN +2.0 per game" in change["text"]
+    defense = next(n for n in policy["takeaways"] if n["area"] == "Defensive activity")
+    assert "overall defensive impact" in defense["text"]
+    assert all(len(n["text"]) < 260 for n in policy["takeaways"])
+
+
+def test_takeaways_do_not_reconstruct_unqualified_baseline_changes(evidence):
+    for row in evidence.rows:
+        if row["player_id"] == 1 and row["season"] == "2024-25":
+            row["ast"] = None
+    result = build_overview(
+        "Player 1 playmaking performance", evidence, source_players(evidence), scope()
+    )
+    notes = result["semantic_evidence"]["presentation"]["takeaways"]
+    assert all("AST +" not in n["text"] and "AST -" not in n["text"] for n in notes)
+    assert all("More assists" not in n["title"] for n in notes)
+
+
+def test_takeaways_use_valid_game_range_when_comparison_is_thin(evidence):
+    evidence.rows[:] = [
+        r
+        for r in evidence.rows
+        if r["season"] == "2025-26" or int(r["game_date"][-2:]) < 3
+    ]
+    own = [r for r in evidence.rows if r["player_id"] == 1 and r["season"] == "2025-26"]
+    own[0]["pts"] = 40
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    notes = result["semantic_evidence"]["presentation"]["takeaways"]
+    assert not any(n["role"] == "change" for n in notes)
+    variation = next(n for n in notes if n["role"] == "variation")
+    assert "20 to 40" in variation["text"] and "median 20.0" in variation["text"]
+
+
+def test_thin_focus_uses_one_warning_and_no_filler_takeaways(evidence):
+    scoped = scope()
+    scoped["start"] = scoped["end"] = date(2025, 11, 1)
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scoped
+    )
+    notes = result["semantic_evidence"]["presentation"]["takeaways"]
+    assert len(notes) == 1
+    assert "1/1 valid appearances" in notes[0]["text"]
+    assert "limited" in notes[0]["text"]

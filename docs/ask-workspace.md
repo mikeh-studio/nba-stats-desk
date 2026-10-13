@@ -152,7 +152,7 @@ assessment labels and raw study diagnostics stay in server evidence and logs.
 Saved responses retain their original text; new requests use this presentation.
 
 Governed player overviews use the same evidence for the overall assessment,
-ordered contribution disclosures, ten primary metrics (six or seven for focused
+up to three visible Key Takeaways, ten primary metrics (six or seven for focused
 profiles) and an adaptive performance chart. The chart starts with the requested
 focus metric, or PTS for general overviews; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and

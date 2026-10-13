@@ -88,9 +88,10 @@ export function overviewPresentation(payload) {
     followups:[`Show ${name}'s points from ${scope.start} through ${scope.end} (${scope.phases.join(' + ')}).`, `Show ${name}'s performance from ${scope.start} through ${scope.end}, regular season.`],
   };
 }
-export function overviewContributions(overview) {
+export function overviewTakeaways(overview) {
   if (!overview.insights.length) return '';
-  return `<aside class="takeaways compact-takeaways" aria-label="Notable contributions and limitations"><h2>Contributions</h2>${overview.insights.map(i => `<details class="compact-contribution"><summary>${escape(i.title)}</summary><p>${escape(i.text)}</p></details>`).join('')}</aside>`;
+  const icons = new Set(['chart-bar','chart-line','shield']);
+  return `<aside class="takeaways compact-takeaways" aria-label="Key takeaways"><h2>Key Takeaways</h2>${overview.insights.slice(0,3).map(i => `<section class="takeaway"><img src="/static/icons/${icons.has(i.icon) ? i.icon : 'chart-bar'}.svg" alt="" /><div><h3>${escape(i.title)}</h3><p>${escape(i.text)}</p></div></section>`).join('')}</aside>`;
 }
 
 export function overviewMetricsTable(overview) {

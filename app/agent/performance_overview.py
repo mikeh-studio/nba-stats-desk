@@ -445,10 +445,10 @@ def build_overview(question, evidence, players, scope, selected=None):
         )
     phase = " + ".join(scope["phases"])
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
-    display_policy = presentation(
-        metrics + extra, question, len(own), contract.min_games
-    )
     insights = game_insights(own)
+    display_policy = presentation(
+        metrics + extra, question, len(own), contract.min_games, insights=insights
+    )
     paragraphs = summary_paragraphs(
         player["player_name"],
         [{**m, "change": m["display_change"]} for m in metrics + extra],
