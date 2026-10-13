@@ -100,23 +100,23 @@ const payload = () => ({
 });
 test("overview provides three evidence-backed areas, explicit scope and no causal claim", () => {
   const overview = overviewPresentation(payload());
-  assert.equal(overview.insights.length, 3);
+  assert.equal(overview.insights.length, 1);
   assert.deepEqual(
     overview.insights.map((i) => i.area),
-    ["Playmaking", "Trajectory", "Defense"],
+    ["Sample"],
   );
   assert.match(overview.comparison, /Sep 13, 2024/);
   assert.equal(overview.paragraphs.length, 2);
   assert.doesNotMatch(overview.paragraphs.join(" "), /have not been evaluated/);
   assert.match(overview.followups[0], /Fixture Player.*2025-09-13.*2026-09-12/);
-  assert.equal(overview.preferredMetric, "ast");
+  assert.equal(overview.preferredMetric, "pts");
 });
 test("partial metric data never creates a percentile or trend insight", () => {
   const data = payload();
   data.semantic_evidence.metrics[2].missing_component_games = 1;
   const overview = overviewPresentation(data);
   assert.notEqual(overview.preferredMetric, "ast");
-  assert.match(overview.paragraphs.join(" "), /Partial data for Assists/);
+  assert.doesNotMatch(overview.paragraphs.join(" "), /Assists.*per game/);
   assert.equal(overviewPresentation({ answer: "generic" }), null);
   assert.equal(ordinal(11), "11th");
   assert.equal(ordinal(21), "21st");
@@ -133,7 +133,7 @@ test("overview renders canonical summary without appending a metric inventory", 
   const overview = overviewPresentation(data);
   assert.deepEqual(overview.paragraphs, paragraphs);
   assert.equal(overview.metrics.length, 5);
-  assert.equal(overview.insights.length, 3);
+  assert.equal(overview.insights.length, 1);
 });
 
 test("playoff comparison label preserves the regular-season baseline phase", () => {

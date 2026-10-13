@@ -77,21 +77,10 @@ def test_overview_math_table_charts_profile_agree(evidence):
         scope(),
     )
     assert result["status"] == "ok"
-    assert [r[0] for r in result["tables"][0]["rows"]] == [
-        "Points",
-        "Rebounds",
-        "Assists",
-        "Steals",
-        "Blocks",
-    ]
-    assert result["tables"][0]["rows"][0] == [
-        "Points",
-        "20.0",
-        "50",
-        "+10.0",
-        "6 / 6",
-        "3",
-    ]
+    assert len(result["tables"][0]["rows"]) == 10
+    pts = result["tables"][0]["rows"][0]
+    assert pts[:5] == ["Points", "20.0", "per game", "50.0", "10.0"]
+    assert pts[5] == "6/6 valid appearances"
     from app.agent.visualization import VisualizationAgent
 
     expected_charts = list(result["charts"])
@@ -115,8 +104,9 @@ def test_missing_values_are_not_zero_or_qualified(evidence):
     result = build_overview(
         "Player 1 performance", evidence, source_players(evidence), scope()
     )
-    row = result["tables"][0]["rows"][3]
-    assert row[1:5] == ["2.0", "Unavailable", "Unavailable", "5 / 6"]
+    row = next(r for r in result["tables"][0]["rows"] if r[0] == "Steals")
+    assert row[1:5] == ["2.0", "per game", "Unavailable", "Unavailable"]
+    assert "5/6 valid appearances" in row[5]
     assert len(result["charts"]) == 4
     assert "Partial data for Steals" in result["answer"]
 
@@ -309,7 +299,7 @@ def test_natural_performance_phrasing_uses_full_overview(evidence, wording):
 @pytest.mark.parametrize(
     "question",
     [
-        "How did Curry perform in scoring?",
+        "How did Curry perform in scoring per 36 minutes?",
         "How did Curry do in fantasy?",
         "How did Curry play against Boston?",
         "How did Curry rank in assists?",
@@ -462,3 +452,137 @@ def test_play_in_tournament_remains_unsupported(phrase):
         overview_scope(
             f"Player 1 performance in the {phrase}", "2025-26", date(2026, 10, 5)
         )
+
+
+@pytest.mark.parametrize(
+    "profile,phrase,count",
+    [
+        ("general", "performance", 10),
+        ("scoring", "scoring performance", 7),
+        ("playmaking", "playmaking performance", 6),
+        ("rebounding", "rebounding performance", 6),
+        ("defense", "defensive activity performance", 6),
+        ("contribution", "contribution beyond scoring performance", 6),
+    ],
+)
+def test_profile_selection_is_explicit_and_does_not_depend_on_percentiles(
+    evidence, profile, phrase, count
+):
+    from app.agent.overview_policy import PROFILES
+
+    q = f"Player 1 {phrase} in 2025-26"
+    assert wants_overview(q)
+    result = build_overview(q, evidence, source_players(evidence), scope())
+    policy = result["semantic_evidence"]["presentation"]
+    assert policy["profile"] == profile
+    assert policy["primary_keys"] == list(PROFILES[profile])
+    assert len(result["tables"][0]["rows"]) == count
+    assert len(result["tables"][0]["rows"]) + len(result["tables"][1]["rows"]) == len(
+        result["semantic_evidence"]["metrics"]
+    )
+    assert "stood out at" not in result["answer"]
+    if profile == "scoring":
+        assert "fg3m" in policy["primary_keys"]
+    if profile == "defense":
+        assert policy["takeaways"][0]["area"] == "Defensive activity"
+        assert "overall defensive grade" in policy["limitation"]
+    if profile == "rebounding":
+        assert policy["takeaways"][0]["area"] == "Rebounding"
+        assert "box-outs are unavailable" in policy["limitation"]
+
+
+def test_limited_sample_retains_values_but_not_comparisons_or_standout_claims(evidence):
+    scoped = scope()
+    scoped["start"] = scoped["end"] = date(2025, 11, 1)
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scoped
+    )
+    stats = result["semantic_evidence"]["metrics"]
+    pts = next(m for m in stats if m["key"] == "pts")
+    assert pts["value"] == 20 and pts["sample"]["status"] == "limited"
+    assert pts["display_change"] is None and pts["percentile"] is None
+    assert all(m["display_change"] is None for m in stats)
+    assert all(
+        "no standout claim" in note["text"]
+        for note in result["semantic_evidence"]["presentation"]["takeaways"]
+    )
+
+
+def test_shooting_samples_pool_attempts_and_zero_attempts_are_unavailable(evidence):
+    own = [r for r in evidence.rows if r["player_id"] == 1 and r["season"] == "2025-26"]
+    for row in own:
+        row.update(fg3m=0, fg3a=0)
+    own[0].update(fg3m=1, fg3a=1)
+    own[1].update(fg3m=0, fg3a=9)
+    result = build_overview(
+        "Player 1 scoring performance", evidence, source_players(evidence), scope()
+    )
+    three = next(
+        m for m in result["semantic_evidence"]["metrics"] if m["key"] == "fg3_pct"
+    )
+    assert three["value"] == 10
+    assert "1 makes / 10 attempts" in three["sample"]["text"]
+    assert "no ranking threshold" in three["sample"]["text"]
+    assert three.get("percentile") is None
+    for row in own:
+        row.update(fg3m=0, fg3a=0)
+    result = build_overview(
+        "Player 1 performance", evidence, source_players(evidence), scope()
+    )
+    three = next(
+        m for m in result["semantic_evidence"]["metrics"] if m["key"] == "fg3_pct"
+    )
+    assert three["value"] is None and three["sample"]["status"] == "unavailable"
+    assert "0 makes / 0 attempts" in three["sample"]["text"]
+
+
+def test_partial_sample_changes_are_withheld_and_takeaways_disclose_limit(evidence):
+    own = [r for r in evidence.rows if r["player_id"] == 1 and r["season"] == "2025-26"]
+    own[0]["ast"] = None
+    result = build_overview(
+        "Player 1 playmaking performance", evidence, source_players(evidence), scope()
+    )
+    ast = next(m for m in result["semantic_evidence"]["metrics"] if m["key"] == "ast")
+    assert ast["valid_games"] == 5 and ast["observed_games"] == 6
+    assert ast["sample"]["status"] == "limited" and ast["display_change"] is None
+    assert "1 missing components" in ast["sample"]["text"]
+    assert (
+        "no standout claim"
+        in result["semantic_evidence"]["presentation"]["takeaways"][0]["text"]
+    )
+
+
+@pytest.mark.parametrize(
+    "condition", ["home", "against Boston", "per 36 minutes", "in the fourth quarter"]
+)
+def test_focus_does_not_erase_unsupported_or_specific_conditions(condition):
+    q = f"Player 1 scoring performance {condition}"
+    if condition == "in the fourth quarter":
+        with pytest.raises(SemanticError):
+            overview_scope(q, "2025-26")
+    else:
+        assert not wants_overview(q)
+
+
+@pytest.mark.parametrize(
+    "requested",
+    [
+        "offensive rebounds",
+        "box-outs",
+        "screen assists",
+        "potential assists",
+        "rim protection",
+        "defensive rating",
+        "fouls",
+        "rebound chances",
+    ],
+)
+def test_focused_profiles_cannot_substitute_box_scores_for_unconnected_measures(
+    requested,
+):
+    from app.agent.question_intent import question_intent
+
+    assert (
+        question_intent(f"How did Curry perform in {requested}?")["status"]
+        == "unsupported_scope"
+    )

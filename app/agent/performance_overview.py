@@ -1,4 +1,4 @@
-"""Source-backed player overviews sharing one scope across all five metrics."""
+"""Source-backed player overviews sharing explicit metric samples and one scope."""
 
 from __future__ import annotations
 
@@ -7,7 +7,8 @@ import re
 from collections import defaultdict
 from datetime import date, timedelta
 
-from app.agent.context_metrics import context_metrics, context_table
+from app.agent.context_metrics import context_metrics
+from app.agent.overview_policy import focus, metric_table, presentation, strip_focus
 from app.agent.overview_summary import game_insights, summary_paragraphs
 from app.agent.question_intent import has_specific_metric
 from app.agent.semantics import SemanticError, aggregate, load_contract
@@ -27,13 +28,15 @@ def wants_overview(question):
     return (
         bool(
             re.search(
-                r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics)\b"
+                r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics|profile|contribution|contribute)\b"
                 r"|\bhow\b[^?\n]*\b(?:play(?:ed|ing)?|do(?:ing)?|done|fare[ds]?)\b",
                 original,
                 re.I,
             )
         )
-        and not has_specific_metric(original)
+        and not has_specific_metric(
+            strip_focus(original) if focus(original) != "general" else original
+        )
         and not bool(
             re.search(
                 r"\b(fantasy|rank|top|compare|versus|opponent|against|home|away|road)\b",
@@ -419,9 +422,17 @@ def build_overview(question, evidence, players, scope, selected=None):
         )
     phase = " + ".join(scope["phases"])
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
+    display_policy = presentation(
+        metrics + extra, question, len(own), contract.min_games
+    )
     insights = game_insights(own)
     paragraphs = summary_paragraphs(
-        player["player_name"], metrics + extra, scope, len(own), insights
+        player["player_name"],
+        [{**m, "change": m["display_change"]} for m in metrics + extra],
+        scope,
+        len(own),
+        insights,
+        display_policy["profile"],
     )
     answer = "\n\n".join(paragraphs)
     return {
@@ -431,22 +442,18 @@ def build_overview(question, evidence, players, scope, selected=None):
         "clarification_options": [],
         "player_profile": identity_profile(player, own),
         "tables": [
-            {
-                "title": "Performance overview — per-game averages",
-                "columns": [
-                    {"key": k, "label": v}
-                    for k, v in (
-                        ("metric", "Stat"),
-                        ("average", "Per game"),
-                        ("percentile", "League percentile"),
-                        ("change", "Change vs comparison dates"),
-                        ("games", "Valid / played games"),
-                        ("cohort", "Qualified players"),
-                    )
+            metric_table(
+                metrics + extra, display_policy["primary_keys"], "Key metrics"
+            ),
+            metric_table(
+                metrics + extra,
+                [
+                    m["key"]
+                    for m in metrics + extra
+                    if m["key"] not in display_policy["primary_keys"]
                 ],
-                "rows": table,
-            },
-            context_table(extra),
+                "Additional metrics",
+            ),
         ],
         "charts": charts,
         "assumptions": [
@@ -475,6 +482,7 @@ def build_overview(question, evidence, players, scope, selected=None):
         ]
         + [{k: m[k] for k in ("key", "label", "definition", "unit")} for m in extra],
         "semantic_evidence": {
+            "presentation": display_policy,
             "summary_paragraphs": paragraphs,
             "game_insights": insights,
             "scope": {

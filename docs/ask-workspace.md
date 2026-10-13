@@ -680,3 +680,11 @@ retain `X-Request-ID`, release capacity after delivery closes, and record an
 
 HTTP/SSE provider failures keep the existing safe generic error response, while
 the server-generated request ID links to the private operational summary.
+
+## Compact metrics and balanced contributions
+
+Broad overviews use ten primary metrics; focused profiles use six or seven with
+expandable additional metrics. Per-metric sample/opportunity notes and balanced,
+server-authored takeaways replace browser-selected strongest-percentile claims.
+See [overview metrics and sample policy](ask-metric-presentation.md) for supported
+focuses, scope guards, units, comparison eligibility and missing-data behavior.

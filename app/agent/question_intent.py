@@ -79,7 +79,11 @@ def question_intent(question: str) -> dict[str, str | None]:
         )
     if re.search(
         r"\b(?:lineups?|starting five|closing five|on[ -]court|off[ -]court|on/off|clutch|"
-        r"possessions?|assisted baskets|deflections?|shot contests?)\b",
+        r"possessions?|assisted baskets|deflections?|shot contests?|"
+        r"offensive rebounds?|defensive rebounds?|oreb|dreb|box[ -]?outs?|"
+        r"screen assists?|potential assists?|secondary assists?|charges drawn|"
+        r"loose[ -]balls?|fouls?|rim protection|rim shots?|defended shots?|"
+        r"defensive rating|rebound chances?|contested rebounds?)\b",
         question,
         re.I,
     ):
@@ -87,7 +91,7 @@ def question_intent(question: str) -> dict[str, str | None]:
             kind="unavailable_grain",
             status="unsupported_scope",
             message=(
-                "This needs possession, lineup or tracking data that is not connected. "
+                "This needs rebound splits, possession, lineup, foul or tracking data that is not connected. "
                 "I can compare whole-game box scores with an explicit player and period; "
                 "those cannot establish on/off, clutch or individual defensive impact."
             ),

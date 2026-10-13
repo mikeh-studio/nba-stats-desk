@@ -561,3 +561,12 @@ request IDs, and capacity release. Recovery from already-saved context precedes
 governed execution; tests distinguish those retained recovery side effects from
 new failed-answer persistence. Successful staged agent mutations and separate
 history I/O are still not a cross-storage transaction.
+
+## Overview presentation regressions
+
+Overview presentation regressions in `tests/test_performance_overview.py` cover
+explicit general/focused metric selection, preserved scope guards, pooled ratios,
+zero attempts, partial samples, short samples, and absence of best-percentile
+headline selection. Browser tests verify primary row counts, sample notes,
+expandable details, saved-state recovery and narrow scoring results. These checks
+use frozen observations and controlled models, not live-model accuracy tests.

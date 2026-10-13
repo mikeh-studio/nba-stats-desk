@@ -169,3 +169,32 @@ for (const fault of ['busy', 'conversation-busy', 'partial-error', 'network-befo
     await expect(page.locator('[data-agent-tables]').last()).toContainText('11.7 per game');
   });
 }
+
+test('overview shows ten metrics, sample evidence, balanced takeaways and expandable details', async ({page}) => {
+  await prepare(page,'baseline_points');
+  await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
+  const table = page.locator('[data-agent-tables] > .table-scroll table');
+  await expect(table.locator('tbody tr')).toHaveCount(10);
+  await expect(page.getByRole('heading',{name:'Notable contributions and limitations'})).toBeVisible();
+  await expect(table).toContainText('3PM');
+  await expect(table).toContainText('attempts');
+  await expect(table).toContainText('games');
+  const details=page.locator('[data-additional-metrics]');
+  await expect(details).not.toHaveAttribute('open','');
+  await details.locator('summary').click();
+  await expect(details.locator('table')).toBeVisible();
+  await expect(details).toContainText('per 36 minutes');
+  await page.reload();
+  await expect(table.locator('tbody tr')).toHaveCount(10);
+});
+
+test('focused scoring retains 3PM and seven metrics at a narrow viewport', async ({page}) => {
+  await page.setViewportSize({width:390,height:844});
+  await prepare(page,'baseline_points');
+  await submit(page,'How did Avery Example perform in scoring in the 2024-25 regular season?');
+  const table=page.locator('[data-agent-tables] > .table-scroll table');
+  await expect(table.locator('tbody tr')).toHaveCount(7);
+  await expect(table).toContainText('3PM');
+  await expect(page.locator('[data-agent-tables]')).toContainText('no inferred ranking threshold');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+});

@@ -14,8 +14,9 @@ import {
 } from "./ask_sessions.js?v=20260913-review-fixes-v1";
 import {
   overviewPresentation,
+  overviewMetricsTable,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-capacity-v2";
+} from "./ask_presentation.js?v=20261012-ask-metrics-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1007,7 +1008,7 @@ function renderAnswerPayload(payload, targetEl) {
   }
   const overview = payload.award_evidence ? null : overviewPresentation(payload);
   targetEl.innerHTML = overview
-    ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p>${escHtml(p)}</p>`).join("")}</div>${overview.insights.length ? `<aside class="takeaways" aria-label="Key takeaways"><h2>Key takeaways</h2>${overview.insights.map((i) => `<section class="takeaway"><img src="/static/icons/${i.icon}.svg" alt="" /><div><h3>${escHtml(i.title)}</h3><p>${escHtml(i.text)}</p></div></section>`).join("")}</aside>` : ""}</div>`
+    ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p>${escHtml(p)}</p>`).join("")}</div>${overview.insights.length ? `<aside class="takeaways" aria-label="Notable contributions and limitations"><h2>Notable contributions and limitations</h2>${overview.insights.map((i) => `<section class="takeaway"><img src="/static/icons/${i.icon}.svg" alt="" /><div><h3>${escHtml(i.title)}</h3><p>${escHtml(i.text)}</p></div></section>`).join("")}</aside>` : ""}</div>`
     : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
   if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
     targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
@@ -1135,13 +1136,7 @@ function renderAuxiliaryPayload(
 }
 
 function renderOverviewTable(overview) {
-  const number = (n) => (Number.isFinite(n) ? n.toFixed(1) : "Unavailable");
-  const sameCohort =
-    new Set(overview.metrics.map((m) => m.cohort_size)).size === 1;
-  const coverage = sameCohort
-    ? `${overview.metrics[0].cohort_size} qualified players`
-    : "Qualification varies by metric; see methodology";
-  return `<p class="metric-comparison">Versus ${escHtml(overview.comparison)}</p><div class="table-scroll"><table class="overview-table"><caption class="sr-only">Per-game averages, league percentiles and change versus ${escHtml(overview.comparison)}</caption><thead><tr><th scope="col">Stat</th><th scope="col">Per game</th><th scope="col">League percentile</th><th scope="col">Change</th></tr></thead><tbody>${overview.metrics.map((m) => `<tr><th scope="row">${escHtml(m.label)}</th><td>${number(m.value)}</td><td>${Number.isFinite(m.percentile) ? `<div class="percentile-cell"><meter min="0" max="100" value="${Math.round(Math.max(0, Math.min(100, m.percentile)))}" aria-label="${escHtml(m.label)} league percentile">${ordinal(m.percentile)}</meter><span>${ordinal(m.percentile)}</span></div>` : "Unavailable"}</td><td class="${m.change > 0 ? "change-up" : m.change < 0 ? "change-down" : ""}">${Number.isFinite(m.change) ? `${m.change > 0 ? "+" : ""}${number(m.change)}` : "Unavailable"}</td></tr>`).join("")}</tbody></table></div><p class="metric-footnote">${coverage} · minimum ${overview.minGames} complete games per metric · same dates and phases.</p>`;
+  return overviewMetricsTable(overview);
 }
 
 function renderOverviewCharts(payload, key, root = document) {

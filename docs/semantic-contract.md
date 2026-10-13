@@ -179,3 +179,9 @@ unsupported. See [Ask workspace](ask-workspace.md#governed-similarity-and-league
 Availability questions accept “how many points … average”; award lookups accept
 “Name the MVP winner” and “Who received MVP”. These wording variants preserve
 the same bounded scope checks; unsupported additional constraints still refuse.
+
+Overview presentation retains full aggregates but withholds displayed changes
+when either comparison sample has fewer than five valid appearances or partial
+components. Ratio sample notes disclose pooled attempts; the games floor does
+not establish shooting ranking eligibility or statistical precision. See
+[Ask overview sample policy](ask-metric-presentation.md).
