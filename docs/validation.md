@@ -185,20 +185,9 @@ make airflow-live-validate
 The live harness starts and stops a local scheduler, triggers a unique run, and
 writes ignored reports under `reports/pipeline_triage/`.
 
-## Optional Path Checks
-
-Redshift:
-
-```bash
-dbt parse --project-dir . --profiles-dir dbt/profiles --target redshift
-dbt build --project-dir . --profiles-dir dbt/profiles --target redshift \
-  --select path:dbt/models/silver
-```
-
 ## Caveats
 
 - BigQuery tests fail against placeholder projects such as `local-project`.
-- Redshift checks require credentials and the `dbt-redshift` adapter.
 - Live Airflow validation depends on NBA endpoint availability and configured
   GCP access.
 

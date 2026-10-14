@@ -115,10 +115,4 @@ def test_persisted_details_match_pre_refactor_examples_byte_for_byte():
         (Path(__file__).parent / "fixtures" / "pipeline_run_details.json").read_text()
     )
     for example in examples:
-        assert (
-            format_run_details(
-                example["result"],
-                get_config=lambda key, default: example["redshift_enabled"],
-            )
-            == example["details"]
-        )
+        assert format_run_details(example["result"]) == example["details"]

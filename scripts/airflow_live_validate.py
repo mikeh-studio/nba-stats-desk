@@ -659,7 +659,6 @@ def failed_task_ids(tasks: list[dict[str, Any]]) -> list[str]:
 def run_validation(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     root = repo_root()
     env = prepare_environment(root)
-    env["ENABLE_REDSHIFT"] = "true" if args.enable_redshift else "false"
     task_runner_module_dir = write_exec_task_runner_module(root)
     env["PYTHONPATH"] = (
         f"{task_runner_module_dir}{os.pathsep}{env.get('PYTHONPATH', '')}"
@@ -680,7 +679,6 @@ def run_validation(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
             "fail_on_active_runs": args.fail_on_active_runs,
             "airflow_home": env["AIRFLOW_HOME"],
             "executor": env["AIRFLOW__CORE__EXECUTOR"],
-            "enable_redshift": env["ENABLE_REDSHIFT"],
             "task_runner": env["AIRFLOW__CORE__TASK_RUNNER"],
             "use_job_schedule": env["AIRFLOW__SCHEDULER__USE_JOB_SCHEDULE"],
             "objc_fork_safety_disabled": env["OBJC_DISABLE_INITIALIZE_FORK_SAFETY"],
@@ -780,9 +778,6 @@ def build_arg_parser(env: Mapping[str, str]) -> argparse.ArgumentParser:
         fail_on_active_runs=parse_bool(
             env.get("AIRFLOW_LIVE_VALIDATE_FAIL_ON_ACTIVE_RUNS"), default=True
         ),
-        enable_redshift=parse_bool(
-            env.get("AIRFLOW_LIVE_VALIDATE_ENABLE_REDSHIFT"), default=False
-        ),
     )
     parser.add_argument(
         "--timeout-seconds",
@@ -825,18 +820,6 @@ def build_arg_parser(env: Mapping[str, str]) -> argparse.ArgumentParser:
         dest="fail_on_active_runs",
         action="store_true",
         help="Fail preflight when queued/running DagRuns already exist.",
-    )
-    parser.add_argument(
-        "--enable-redshift",
-        dest="enable_redshift",
-        action="store_true",
-        help="Include optional Redshift tasks in the live validation run.",
-    )
-    parser.add_argument(
-        "--disable-redshift",
-        dest="enable_redshift",
-        action="store_false",
-        help="Skip optional Redshift tasks in the live validation run.",
     )
     return parser
 

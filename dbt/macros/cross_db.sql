@@ -1,4 +1,4 @@
-{#- Cross-database compatibility macros for BigQuery and Redshift. -#}
+{#- Warehouse-neutral SQL helpers. BigQuery is the supported target. -#}
 
 {% macro countif(condition) %}
   {% if target.type == 'bigquery' %}
