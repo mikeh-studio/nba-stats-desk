@@ -114,6 +114,7 @@ body:has(.ask-desk) .publication-health {
 .query-row textarea {
   flex: 1;
   width: 100%;
+  min-width: 0;
   min-height: 44px;
   resize: vertical;
   line-height: 1.5;
@@ -559,6 +560,10 @@ body:has(.ask-desk) .publication-health {
   }
 }
 @media (max-width: 600px) {
+  .query-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
   .chat-tab:not(.is-active) {
     display: none;
   }
@@ -597,6 +602,11 @@ body:has(.ask-desk) .publication-health {
   }
   .followup-actions {
     align-items: end;
+    flex-wrap: wrap;
+  }
+  .followup-actions .button {
+    white-space: nowrap;
+    margin-left: auto;
   }
   .followup-actions .meta {
     max-width: 160px;
@@ -962,3 +972,7 @@ html:has(.metric-drawer[open]) { overflow:hidden; scrollbar-gutter:stable; }
 .drawer-game-control select { flex:1; min-width:0; max-width:100%; padding:6px 8px; font-size:12px; }
 
 @media(max-width:600px) { html:has(.metric-drawer[open]) { scrollbar-gutter:auto; } }
+
+.comparison-additional { margin-top: 2rem; padding-top: 2rem; border-top: 1px solid var(--line); }
+.comparison-detail-table { min-width: 680px; }
+.comparison-detail-table small { display: block; margin-top: .35rem; color: var(--muted); font-size: .8rem; }

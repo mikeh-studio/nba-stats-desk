@@ -14,6 +14,87 @@ from app.agent.performance_overview import (
 from app.agent.semantics import SemanticError, aggregate, load_contract
 from app.seasons import season_bounds
 
+COMPARISON_SECTIONS = (
+    (
+        "shooting_efficiency",
+        "Shooting efficiency",
+        ("fg_pct", "fg3_pct", "ft_pct", "efg_pct", "ts_pct"),
+        "Percentages use total makes and attempts. Differences are percentage points. TS% uses the 0.44 free-throw approximation.",
+    ),
+    (
+        "ball_security",
+        "Ball security",
+        ("tov", "ast", "min"),
+        "Read turnovers alongside assists and minutes. A lower turnover average alone does not establish better playmaking.",
+    ),
+    (
+        "per36_production",
+        "Per-36 production",
+        ("pts_per36", "ast_per36"),
+        "Rates use 36 times total production divided by total minutes. They describe production rate, not projected output or isolated impact.",
+    ),
+)
+
+
+def additional_comparisons(summaries, names):
+    contract = load_contract()
+    by_key = [
+        {m["key"]: m for m in s["semantic_evidence"]["metrics"]} for s in summaries
+    ]
+    sections = []
+    for key, title, keys, description in COMPARISON_SECTIONS:
+        rows = []
+        for metric_key in keys:
+            left, right = (side[metric_key] for side in by_key)
+            metric = contract.metric(metric_key)
+            unit = left.get("unit", "per game")
+            difference_unit = "percentage points" if metric.unit == "ratio" else unit
+            complete = all(
+                m["value"] is not None and not m["missing_component_games"]
+                for m in (left, right)
+            )
+            delta = left["value"] - right["value"] if complete else None
+            label = (
+                "Turnovers"
+                if metric_key == "tov"
+                else "Assists"
+                if metric_key == "ast"
+                else "Minutes"
+                if metric_key == "min"
+                else metric.label
+            )
+            comparison = (
+                "Comparison withheld: incomplete inputs or no valid denominator"
+            )
+            if delta is not None:
+                if abs(delta) < 0.005:
+                    comparison = (
+                        "Tied" if delta == 0 else "Similar at displayed precision"
+                    )
+                elif metric_key == "min":
+                    comparison = f"{names[0 if delta > 0 else 1]} plays {abs(delta):.2f} more minutes per game"
+                else:
+                    higher = metric.direction != "lower"
+                    side = 0 if (delta > 0) == higher else 1
+                    comparison = f"{names[side]} is {'higher' if higher else 'lower'} by {abs(delta):.2f} {difference_unit}"
+            rows.append(
+                {
+                    "key": metric_key,
+                    "label": label,
+                    "left": left,
+                    "right": right,
+                    "delta": delta,
+                    "unit": unit,
+                    "difference_unit": difference_unit,
+                    "direction": metric.direction,
+                    "comparison": comparison,
+                }
+            )
+        sections.append(
+            {"key": key, "title": title, "description": description, "metrics": rows}
+        )
+    return sections
+
 
 def comparison_sides(question):
     original = question.split("\nClarification:", 1)[0]
@@ -163,6 +244,7 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
             }
         )
     names = [p["player_name"] for p in resolved]
+    sections = additional_comparisons(summaries, names)
     higher = [
         [
             m["label"].lower()
@@ -180,55 +262,34 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
         + "."
         if any(higher)
         else "The available core averages do not separate these players.",
-        "These category differences do not establish an overall winner. Win Shares and possession-based on/off ratings are unavailable in the governed source, so total versus per-minute winning contribution cannot yet be assessed.",
+        "These box-score differences do not establish an overall winner. Playing time, roles, teammates and opponents affect the comparison.",
     ]
+    summary_keys = {
+        "shooting_efficiency": ("ts_pct",),
+        "ball_security": ("tov",),
+        "per36_production": ("pts_per36", "ast_per36"),
+    }
+    for section in sections:
+        takeaways = [
+            f"{m['label']}: {m['comparison']}"
+            for m in section["metrics"]
+            if m["key"] in summary_keys[section["key"]]
+        ]
+        paragraphs.insert(
+            -1,
+            section["title"]
+            + ". "
+            + "; ".join(takeaways)
+            + ". "
+            + section["description"],
+        )
     if any(s["status"] == "no_observations" for s in summaries):
         paragraphs.insert(
             0,
             "At least one player has no recorded appearances in this scope; missing results are not zero.",
         )
-    impact = [
-        {
-            "key": key,
-            "label": label,
-            "left": None,
-            "right": None,
-            "reason": reason,
-            "definition": definition,
-        }
-        for key, label, reason, definition in (
-            (
-                "ws",
-                "Win Shares",
-                "Win Shares source not connected",
-                "Estimated total contribution; longer runs add opportunity.",
-            ),
-            (
-                "ws48",
-                "Win Shares / 48",
-                "Win Shares source not connected",
-                "Estimated contribution per 48 minutes.",
-            ),
-            (
-                "on_net",
-                "On-court net rating",
-                "On-court possession totals not available",
-                "Team scoring margin per 100 possessions while playing.",
-            ),
-            (
-                "off_net",
-                "Off-court net rating",
-                "Off-court possession totals not available",
-                "Team scoring margin per 100 possessions while resting.",
-            ),
-            (
-                "on_off",
-                "On/off difference",
-                "Requires both on- and off-court ratings",
-                "On-court minus off-court; not isolated player impact.",
-            ),
-        )
-    ]
+    # Optional impact measures stay absent until a verified matching-scope source is connected.
+    impact = []
     canonical = f"{names[0]} vs {names[1]} from {scope['start']} through {scope['end']} ({' + '.join(scope['phases'])})"
     return {
         "status": "ok"
@@ -250,7 +311,8 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
             f"Percentiles use all eligible players in these dates and phases, minimum {contract.min_games} games and complete data per metric. They are not head-to-head win probabilities.",
             "Missing components withhold comparison edges and percentiles. Partial averages show their valid-game sample.",
             f"Source: {evidence.source}; snapshot {evidence.snapshot_id}. Warehouse coverage is not independent proof of complete NBA coverage.",
-            "Win Shares and on/off possession data are not connected. Raw plus/minus is not substituted for net rating. No illustrative values are used.",
+            "Comparisons describe recorded box-score production, not isolated player impact.",
+            "Additional sections retain each metric's valid/observed appearances. Partial inputs suppress differences. Shooting rates use aggregate attempts, not averaged game percentages; per-36 rates use total minutes.",
         ],
         "semantic_evidence": {
             "kind": "player_comparison",
@@ -260,6 +322,7 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
                 if not k.startswith("previous")
             },
             "metrics": metrics,
+            "comparison_sections": sections,
             "impact": impact,
             "paragraphs": paragraphs,
             "min_games": contract.min_games,

@@ -1,11 +1,12 @@
 import { seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
+  comparisonAssumptions,
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20260912-comparison-v3";
+} from "./ask_comparison.js?v=20261013-comparison-expanded-v2";
 import {
   normalizeTabs,
   openTab,
@@ -19,8 +20,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261012-ask-distributions-v3";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261012-ask-distributions-v3";
+} from "./ask_presentation.js?v=20261013-comparison-expanded-v2";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261013-comparison-expanded-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -73,7 +74,7 @@ function restoreDraft() {
   const draft = tabState.drafts[activeConversationId || "new"] || {};
   const query = document.querySelector("[data-agent-question]");
   const followup = document.querySelector("[data-followup-question]");
-  if (query) query.value = draft.question ?? runtimeFor().lastQuestion;
+  if (query) query.value = draft.question || "";
   if (followup) followup.value = draft.followup || "";
 }
 function renderTabs() {
@@ -942,7 +943,7 @@ function updateSourceCoverage(payload, question = "") {
   const scope = payload.research_scope;
   const phase = scope?.phase === "Both" ? "Regular season and playoffs" : scope?.phase;
   const scopeText = scope ? [scope.season, phase, scope.start, scope.end ? `through ${scope.end}` : ""].filter(Boolean).join(" · ") : "";
-  context.innerHTML = (scopeText ? `<p class="meta">${escHtml(scopeText)}</p>` : "") + renderContext({ ...payload, player_profile: null, followups: [] });
+  context.innerHTML = (scopeText ? `<p class="meta">${escHtml(scopeText)}</p>` : "") + renderContext({ ...payload, assumptions: comparisonAssumptions(payload), player_profile: null, followups: [] });
 }
 
 function resetAuxiliaryPanels() {
@@ -2011,6 +2012,18 @@ async function askQuestionStream(request) {
   }
 }
 
+function askNewQuestion(question) {
+  if (runtimeFor().inFlight || !String(question).trim()) return;
+  const input = document.querySelector("[data-agent-question]");
+  if (input) input.value = "";
+  rememberDraft();
+  // Reuse an untouched draft; every submitted analysis gets its own identity.
+  const conversation = historyState.conversations.find((c) => c.id === activeConversationId);
+  if (conversation?.turns.length || runtimeFor().error) startNewChat();
+  showHistory(false, false);
+  return askQuestion(question);
+}
+
 async function askQuestion(question, selection = null) {
   if (runtimeFor().inFlight || !String(question).trim()) return;
   navigationGeneration += 1;
@@ -2094,7 +2107,7 @@ function initAgentPage() {
     event.preventDefault();
     const question = input.value.trim();
     if (!question) return;
-    askQuestion(question);
+    askNewQuestion(question);
   });
   const followupForm = document.querySelector("[data-followup-form]");
   const followupInput = document.querySelector("[data-followup-question]");
@@ -2138,6 +2151,7 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     turnEvidenceMarkup,
     buildAskBody,
     askQuestion,
+    askNewQuestion,
     handleStreamEvent,
     runtimeFor,
     initHistory,

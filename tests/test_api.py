@@ -1489,6 +1489,10 @@ def test_ask_page_smoke() -> None:
     assert "Ask NBA Stats" in response.text
     assert f"/static/agent.js?v={STATIC_VERSION}" in response.text
     assert (
+        f"ask_comparison.js?v={STATIC_VERSION}"
+        in (Path(__file__).parents[1] / "app/static/agent.js").read_text()
+    )
+    assert (
         f"ask_presentation.js?v={STATIC_VERSION}"
         in (Path(__file__).parents[1] / "app/static/agent.js").read_text()
     )
@@ -1513,7 +1517,7 @@ def test_ask_page_smoke() -> None:
     assert "claude-sonnet-5" in response.text
     assert "Claude (Anthropic)" in response.text
     assert ">ASK</a>" in response.text
-    assert ">PLAYERS</a>" in response.text
+    assert ">PLAYERS</a>" not in response.text
     assert ">TRENDING</a>" in response.text
     assert ">PERFORMANCE</a>" in response.text
     assert ">PROFILES</a>" in response.text

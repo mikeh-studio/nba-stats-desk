@@ -24,6 +24,126 @@ async function submit(page, question) {
   await expect(page.locator('[data-agent-submit]')).toBeEnabled();
 }
 
+test('comparison hides unavailable impact in fresh and legacy saved analyses', async ({page}, testInfo) => {
+  const c = await prepare(page, 'two_player');
+  await submit(page, c.turns[0].question);
+  await expect(page.locator('[data-agent-answer]')).toContainText('Playing time and workload');
+  await expect(page.locator('[data-agent-tables]')).toContainText('Blair Sample by 7.5');
+  await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
+  await expect(page.locator('.comparison-impact')).toHaveCount(0);
+  await expect(page.locator('[data-comparison-metric="impact"]')).toHaveCount(0);
+  await page.evaluate(() => {
+    const key = 'askChatHistory:v1';
+    const history = JSON.parse(localStorage.getItem(key));
+    const payload = history.conversations[0].turns[0].payload;
+    const old = 'These category differences do not establish an overall winner. Win Shares and possession-based on/off ratings are unavailable in the governed source, so total versus per-minute winning contribution cannot yet be assessed.';
+    payload.semantic_evidence.paragraphs.push(old);
+    payload.semantic_evidence.impact = [{key:'ws', label:'Win Shares', left:null, right:null, reason:'Win Shares source not connected'}];
+    payload.assumptions.push('Win Shares and on/off possession data are not connected. Raw plus/minus is not substituted for net rating. No illustrative values are used.');
+    localStorage.setItem(key, JSON.stringify(history));
+  });
+  await page.reload();
+  await expect(page.locator('[data-agent-tables]')).toContainText('Blair Sample by 7.5');
+  await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
+  await expect(page.locator('.comparison-impact')).toHaveCount(0);
+  await expect(page.locator('[data-answer-context]')).not.toContainText(/Win Shares|possession/i);
+  await page.locator('[data-comparison-metric="ast"]').click();
+  await expect(page.locator('[data-agent-charts]')).toContainText('Assists per game comparison');
+  await page.screenshot({path:testInfo.outputPath('comparison-available-metrics.png'),fullPage:true});
+});
+
+for (const width of [1280,390]) {
+  test(`additional comparison sections show actual endpoint values at ${width}px`, async ({page},testInfo) => {
+    await page.setViewportSize({width,height:900});
+    const c=await prepare(page,'two_player');
+    await submit(page,c.turns[0].question);
+    const shooting=page.locator('[data-comparison-section="shooting_efficiency"]');
+    await expect(shooting).toContainText('TS%');
+    await expect(shooting).toContainText('percentage points');
+    await expect(shooting).toContainText('6 of 6 games');
+    const security=page.locator('[data-comparison-section="ball_security"]');
+    await expect(security).toContainText('Turnovers');
+    const rates=page.locator('[data-comparison-section="per36_production"]');
+    await expect(rates).toContainText('Points per 36 minutes');
+    await expect(rates).toContainText('15.0');
+    await expect(rates).toContainText('Blair Sample is higher by 9.00 per 36 minutes');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+    await page.reload();
+    await expect(rates).toContainText('15.0');
+    await page.screenshot({path:testInfo.outputPath(`comparison-expanded-${width}.png`),fullPage:true});
+  });
+}
+
+test('top questions create separate analyses and follow-ups belong to the selected tab', async ({page}, testInfo) => {
+  const c = await prepare(page, 'follow_baseline');
+  const posts = [];
+  page.on('request', request => {
+    if (request.method() === 'POST' && request.url().includes('/api/agent/ask/stream'))
+      posts.push(request.postDataJSON());
+  });
+  await submit(page, c.turns[0].question);
+  const firstId = posts[0].conversation_id;
+  await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
+  await expect(page.locator('[data-agent-question]')).toHaveValue('');
+  await submit(page, c.turns[0].question);
+  const secondId = posts[1].conversation_id;
+  expect(secondId).not.toBe(firstId);
+  expect(posts[1].previous_context).toBeUndefined();
+  await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(2);
+  await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(1);
+  await page.locator(`[data-chat-id="${firstId}"]`).click();
+  await page.locator('[data-followup-question]').fill(c.turns[1].question);
+  await page.locator('[data-followup-submit]').click();
+  await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+  expect(posts[2].conversation_id).toBe(firstId);
+  expect(posts[2].previous_context).toBeDefined();
+  await expect(page.locator('[data-agent-tables]').last()).toContainText('3.8 per game');
+  await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(2);
+  await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(2);
+  await page.locator(`[data-chat-id="${secondId}"]`).click();
+  await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(1);
+  await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
+  await page.reload();
+  await expect(page.locator(`[data-chat-id="${secondId}"]`)).toHaveAttribute('aria-selected', 'true');
+  await page.locator(`[data-chat-id="${firstId}"]`).click();
+  await expect(page.locator('[data-agent-tables]').last()).toContainText('3.8 per game');
+  await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(2);
+  await page.screenshot({path:testInfo.outputPath('separate-analyses.png'), fullPage:true});
+});
+
+for (const width of [1280, 390, 320]) {
+  test(`revised header and composer layout works at ${width}px`, async ({page}, testInfo) => {
+    await page.setViewportSize({width, height:900});
+    const c = await prepare(page, 'baseline_points');
+    await submit(page, c.turns[0].question);
+    await expect(page.locator('.nav-tabs a')).toHaveCount(4);
+    await expect(page.locator('.nav-tabs a')).toHaveText(['ASK', 'PERFORMANCE', 'TRENDING', 'PROFILES']);
+    const brand = await page.locator('.brand-lockup').boundingBox();
+    const search = await page.locator('.nav-player-search').boundingBox();
+    const query = await page.locator('.ask-query').boundingBox();
+    const tabs = await page.locator('.chat-tab-strip').boundingBox();
+    expect(query.y + query.height).toBeLessThanOrEqual(tabs.y);
+    if (width > 720) { expect(search.x).toBeGreaterThan(brand.x + brand.width); expect(Math.abs(search.y - brand.y)).toBeLessThan(20); }
+    else expect(search.y).toBeGreaterThanOrEqual(brand.y + brand.height);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.locator('[data-chat-more]').click();
+    await expect(page.locator('[data-agent-form]')).toBeVisible();
+    await expect(page.locator('[data-chat-history]')).toBeVisible();
+    await page.locator('[data-history-back]').click();
+    await page.screenshot({path:testInfo.outputPath(`ask-layout-${width}.png`), fullPage:true});
+    // Search uses the existing real fixture endpoint and profile navigation.
+    const response = page.waitForResponse(r => r.url().includes('/api/players/search'));
+    await page.locator('[data-player-search-input]').fill('Avery');
+    expect((await response).status()).toBe(200);
+    const result = page.locator('[data-player-search-results] [data-player-id]').first();
+    await expect(result).toBeVisible();
+    const playerId = await result.getAttribute('data-player-id');
+    await result.click();
+    await expect(page).toHaveURL(new RegExp(`/players/${playerId}`));
+    await expect(page.locator('.nav-player-search')).toBeVisible();
+  });
+}
+
 test('streamed baseline displays verified values, chart and evidence', async ({page}) => {
   const c = await prepare(page,'baseline_points');
   await submit(page,c.turns[0].question);

@@ -23,14 +23,39 @@ from app.agent.semantic_source import (  # noqa: E402
     snapshot_digest,
     snapshot_evidence,
 )
+from app.agent.semantics import COMPONENTS  # noqa: E402
 
 PHASES = ("Regular Season", "Playoffs")
 COUNTS = "PTS REB AST STL BLK TOV FGM FGA FG3M FG3A FTM FTA OREB DREB PF".split()
 RECONCILE = [c for c in COUNTS if c not in ("TOV", "PF")]
 SOURCE = "https://stats.nba.com/stats/leaguegamelog"
+COMPARE_FIELDS = (
+    "season",
+    "season_type",
+    "game_id",
+    "player_id",
+    "player_name",
+    "game_date",
+    "team_abbr",
+    "opponent_abbr",
+    "home_away",
+    *sorted(COMPONENTS),
+)
 
 
-def capture_sources(directory, season="2025-26"):
+def statistics_equal(before, after):
+    """Ignore acquisition timestamps, keeping full-precision statistical values."""
+
+    def rows(snapshot):
+        return sorted(
+            tuple(str(r[k]) if k == "game_date" else r[k] for k in COMPARE_FIELDS)
+            for r in snapshot["rows"]
+        )
+
+    return rows(before) == rows(after)
+
+
+def capture_sources(directory, season="2025-26", *, timeout=25):
     """Four bounded public-source reads; preserve previously captured responses."""
     from nba_api.stats.endpoints import leaguegamelog
 
@@ -45,7 +70,7 @@ def capture_sources(directory, season="2025-26"):
                 player_or_team_abbreviation=entity,
                 season=season,
                 season_type_all_star=phase,
-                timeout=25,
+                timeout=timeout,
             )
             document = {
                 "source": SOURCE,

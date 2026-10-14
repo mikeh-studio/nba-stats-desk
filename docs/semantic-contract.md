@@ -48,6 +48,13 @@ Null components remain unknown. Partial individual averages disclose their valid
 sample; incomplete inputs suppress comparison changes and ranking eligibility.
 No missing game, quarter score, or injury status is fabricated.
 
+Two-player comparisons retain the same definitions for shooting efficiency,
+turnovers and points/assists per 36 minutes. Additional comparison sections bind
+both sides to the scorecard's dates and phases, retain metric components and
+valid/observed appearances, and withhold differences for partial inputs or zero
+denominators. Percentage differences are percentage points. Lower turnover
+averages are described as lower rather than an overall playmaking advantage.
+
 ## Qualification and supported answers
 
 The default count-ranking threshold is five appearances, a project policy rather

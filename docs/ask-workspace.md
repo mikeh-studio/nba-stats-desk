@@ -47,13 +47,36 @@ across points, rebounds, assists, steals and blocks. Minutes and sample sizes
 come from the same appearances. Differences use unrounded averages; missing
 components withhold edges and percentiles rather than becoming zero.
 
-The established winning-impact section currently has **unavailable values**.
-The governed player-game source has no Win Shares or on/off possession totals.
-No external metric feed has been added, no custom contribution score calculated,
-and raw plus/minus is not substituted for possession-based net rating. The net
-rating chart selector explains this missing-data state; the five core chart
-selectors remain usable. Completing advanced analytics requires a separately
-verified matching-scope source and its integration, not a UI placeholder change.
+Unavailable winning-impact measures are omitted from the comparison UI and
+analysis. The governed player-game source has no connected Win Shares or on/off
+possession totals. Comparisons publish an empty impact list; the browser hides
+null-valued legacy rows, obsolete missing-feed disclosures, and the unavailable
+net-rating chart option, including when restoring older saved comparisons.
+A future verified impact metric is displayed only when both players have numeric
+values in the matching scope. This change does not connect locally scraped data
+or substitute raw plus/minus for net rating.
+
+The third comparison takeaway describes scoped appearances and minutes per game.
+These measure playing time and workload, not health or isolated winning impact.
+The comparison includes three additional sections using the same scoped
+appearances as the core scorecard: shooting efficiency (FG%, 3P%, FT%, eFG%, TS%),
+ball security (turnovers, assists and minutes per game), and points/assists per
+36 minutes. Shooting percentages use combined makes and attempts; differences
+are percentage points. Per-36 rates use total production and total minutes,
+not averaged game rates. TS% uses the 0.44 free-throw approximation.
+
+Each row retains valid/observed games, missing-component counts and source
+components. Partial values disclose their sample and suppress comparison edges.
+Zero attempts or minutes produce unavailable rates, not zero. Server-built
+comparison prose uses unrounded differences and describes higher/lower values
+rather than declaring an overall winner. Turnovers favor the lower value, but
+role and playing time remain relevant. Saved comparisons created before these
+sections were added retain their original statistics; asking again retrieves
+new sections from current evidence.
+
+[Daily player comparison maintenance](daily-player-comparisons.md) checks fresh
+league-wide inputs and permits publication only after an isolated rebuild and
+transactional baseline checks. Saved answers retain their original evidence.
 
 Supported scope is a shared date range and regular season, playoffs, or both.
 Explicit playoff years resolve to the corresponding season. Round, clutch,
@@ -62,6 +85,18 @@ silently approximated. Period-versus-period questions keep their existing route.
 Saved comparison context includes both full names and explicit dates. Fill-only
 follow-ups preserve that scope, and an assists follow-up selects the AST chart.
 Narrow-screen tables scroll horizontally and are keyboard-focusable.
+
+The shared header puts Search players beside the brand at the upper right, with
+four navigation links: Ask, Performance, Trending, and Profiles. Player profiles
+remain available from search and existing player URLs. Search stacks below the
+brand on narrow screens.
+
+The new-question composer and model settings sit above the analysis tabs and
+remain visible while browsing history. Submitting the top composer starts a
+separate analysis with fresh conversation context (an untouched draft is reused).
+The bottom follow-up composer appends to the selected conversation and retains
+its validated identity/date/phase context. Suggestions fill that composer without
+submitting.
 
 Ask uses one tab per conversation. Five tabs are visible on desktop, including
 the new-question draft. At smaller widths, fewer tabs are shown; More remains
