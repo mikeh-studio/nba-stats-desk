@@ -75,7 +75,12 @@ def test_same_scope_all_metrics_aliases_and_no_invented_impact(evidence):
     assert data["metrics"][0]["delta"] == 1
     assert data["metrics"][0]["left"]["percentile"] == 100
     assert data["metrics"][0]["right"]["percentile"] == 50
-    assert all(m["left"] is None and m["right"] is None for m in data["impact"])
+    assert data["impact"] == []
+    assert "Win Shares" not in result["answer"]
+    assert "possession" not in result["answer"]
+    assert not any(
+        "Win Shares" in note or "possession" in note for note in result["assumptions"]
+    )
     assert result["player_profiles"][0]["minutes"] == 180
     assert result["player_profiles"][0]["minutes_per_game"] == 30
     assert "from 2025-07-01 through 2026-06-30" in saved_context_question(
@@ -98,6 +103,63 @@ def test_missing_partial_and_zero_data(evidence):
         "Jalen Brunson vs Wemby playoffs", evidence, source_players(evidence), scope()
     )
     assert result["semantic_evidence"]["metrics"][3]["delta"] == 0
+
+
+def test_additional_sections_use_weighted_shooting_and_total_minutes(evidence):
+    for row in evidence.rows:
+        row.update(fgm=1, fga=1, fg3m=0, fg3a=1, ftm=0, fta=0, tov=1)
+        row["min"] = 10 if row["game_date"].endswith("01") else 40
+    evidence.rows[1]["fgm"], evidence.rows[1]["fga"] = 0, 9
+    for row in evidence.rows:
+        if row["player_id"] == 2:
+            row["tov"] = 2
+    result = build_comparison(
+        "Jalen Brunson vs Wemby playoffs", evidence, source_players(evidence), scope()
+    )
+    sections = {
+        s["key"]: {m["key"]: m for m in s["metrics"]}
+        for s in result["semantic_evidence"]["comparison_sections"]
+    }
+    # 5 makes / 14 attempts, not the mean of the six game percentages.
+    fg = sections["shooting_efficiency"]["fg_pct"]
+    assert fg["left"]["value"] == pytest.approx(100 * 5 / 14)
+    assert fg["difference_unit"] == "percentage points"
+    assert sections["shooting_efficiency"]["ft_pct"]["delta"] is None
+    assert sections["ball_security"]["tov"]["comparison"].startswith(
+        "Jalen Brunson is lower"
+    )
+    per36 = sections["per36_production"]["pts_per36"]
+    assert per36["left"]["value"] == pytest.approx(36 * (29 * 6) / 210)
+    assert per36["unit"] == "per 36 minutes"
+
+
+@pytest.mark.parametrize(
+    "component,section,key",
+    [
+        ("fga", "shooting_efficiency", "ts_pct"),
+        ("tov", "ball_security", "tov"),
+        ("min", "per36_production", "pts_per36"),
+    ],
+)
+def test_partial_additional_inputs_withhold_comparison(
+    evidence, component, section, key
+):
+    for row in evidence.rows:
+        row.update(fgm=3, fga=7, fg3m=1, fg3a=3, ftm=2, fta=2, tov=1)
+    evidence.rows[0][component] = None
+    result = build_comparison(
+        "Jalen Brunson vs Wemby playoffs", evidence, source_players(evidence), scope()
+    )
+    metric = next(
+        m
+        for s in result["semantic_evidence"]["comparison_sections"]
+        if s["key"] == section
+        for m in s["metrics"]
+        if m["key"] == key
+    )
+    assert metric["left"]["missing_component_games"] == 1
+    assert metric["delta"] is None
+    assert metric["comparison"].startswith("Comparison withheld")
 
 
 def test_ambiguous_side_does_not_collapse_both_players(evidence):

@@ -21,7 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "dags"))
 from app.agent.semantic_source import snapshot_digest, snapshot_evidence  # noqa: E402
-from scripts.repair_context_snapshot import repair  # noqa: E402
+from scripts.repair_context_snapshot import (  # noqa: E402
+    COMPARE_FIELDS,
+    repair,
+    statistics_equal,
+)
 
 LAYERS = ("bronze", "silver", "gold", "agent")
 
@@ -82,6 +86,22 @@ def raw_repaired_rows(snapshot, schema):
             )
         output.append(item)
     return output
+
+
+def require_original_baseline(client, original, backup):
+    """Block a correction built against a snapshot superseded before staging."""
+    from dags.publication import quoted_table
+    from google.cloud import bigquery
+
+    actual = [
+        dict(row)
+        for row in client.query(
+            f"SELECT {', '.join(COMPARE_FIELDS)} FROM {quoted_table(backup)}",
+            job_config=bigquery.QueryJobConfig(maximum_bytes_billed=100_000_000),
+        ).result()
+    ]
+    if not statistics_equal(original, {"rows": actual}):
+        raise ValueError("Original comparison baseline changed; start a fresh refresh")
 
 
 def stage(args):
@@ -212,16 +232,43 @@ def stage(args):
             dict(active=active, candidate=candidate, backup=backup, etag=table.etag)
         )
     write_new(run / "baseline.json", plan)
+    if getattr(args, "require_original_baseline", False):
+        original = json.loads(args.original.read_text())
+        pair = next(
+            p
+            for p in plan["candidates"]
+            if p["active"].endswith(".nba_gold.fct_player_game_stats")
+        )
+        require_original_baseline(client, original, pair["backup"])
     finish_stage(args, plan, env, run, snapshot, client)
 
 
 def finish_stage(args, plan, env, run, snapshot, client):
     from google.cloud import bigquery
-    from scripts.repair_game_schedule import reconcile_schedule
-
-    snapshot, schedule, schedule_audit = reconcile_schedule(
-        snapshot, json.loads(args.schedule.read_text())
+    from scripts.repair_game_schedule import (
+        reconcile_schedule,
+        retain_warehouse_schedule,
     )
+
+    if args.schedule is None:
+        if not getattr(args, "retain_schedule", False):
+            raise ValueError(
+                "A verified schedule or explicit retained schedule is required"
+            )
+        candidate = f"{args.project}.{env['BQ_DATASET_BRONZE']}.raw_schedule"
+        prior_schedule = [
+            dict(row)
+            for row in client.query(
+                f"SELECT * FROM `{candidate}`",
+                job_config=bigquery.QueryJobConfig(maximum_bytes_billed=100_000_000),
+            ).result()
+        ]
+        snapshot, schedule_audit = retain_warehouse_schedule(snapshot, prior_schedule)
+        schedule = []  # No venue/date/schedule values are fabricated or refreshed.
+    else:
+        snapshot, schedule, schedule_audit = reconcile_schedule(
+            snapshot, json.loads(args.schedule.read_text())
+        )
     write_new(run / "schedule-reconciliation.json", schedule_audit)
     write_new(run / "scheduled-snapshot.json", snapshot)
     plan["snapshot_sha256"] = snapshot["sha256"]
@@ -476,7 +523,10 @@ def main():
     parser.add_argument("--project", required=True)
     parser.add_argument("--source-dir", type=Path, required=True)
     parser.add_argument("--original", type=Path, required=True)
-    parser.add_argument("--schedule", type=Path, required=True)
+    schedule = parser.add_mutually_exclusive_group(required=True)
+    schedule.add_argument("--schedule", type=Path)
+    schedule.add_argument("--retain-schedule", action="store_true")
+    parser.add_argument("--require-original-baseline", action="store_true")
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--location", default="US")
     parser.add_argument("--dbt", type=Path, default=ROOT / ".venv-airflow/bin/dbt")

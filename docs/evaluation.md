@@ -198,6 +198,14 @@ profile attributes stay null while identities observed in facts are retained.
 Similarity validation handles nullable warehouse measurements and checks compact
 archetype labels against the matching player’s feature measurements.
 
+For completed-season correction checks, `--retain-schedule` preserves verified
+warehouse assignments when the current NBA schedule has moved to a newer
+season. Missing or conflicting date/opponent/venue mappings block publication.
+`--require-original-baseline` additionally verifies the input comparison
+snapshot against the backed-up gold fact before rebuilding. The
+[daily maintenance command](daily-player-comparisons.md) uses both options and
+performs no warehouse writes when its validated inputs are unchanged.
+
 ```sh
 python scripts/stage_game_log_repair.py --project YOUR_PROJECT \
   --source-dir reports/repair-sources --original reports/inputs/snapshot.json \

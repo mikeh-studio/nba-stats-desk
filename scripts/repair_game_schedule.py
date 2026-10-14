@@ -6,6 +6,57 @@ from datetime import date, timedelta
 from app.agent.semantic_source import snapshot_digest, snapshot_evidence
 
 
+def retain_warehouse_schedule(snapshot, schedule):
+    """Retain verified venue assignments while refreshing completed-season stats.
+
+    The current NBA CDN schedule may belong to a newer season. Never relabel it
+    or derive neutral-site home/away assignments from player log matchup text.
+    New or conflicting game assignments require a separately verified schedule.
+    """
+    mapping = {}
+    seasons = {r["season"] for r in snapshot["rows"]}
+    for row in schedule:
+        key = (str(row["game_id"]), row["team_abbr"])
+        if row["season"] not in seasons:
+            continue
+        if row["game_status"] != "final":
+            continue
+        if key in mapping or row["home_away"] not in ("HOME", "AWAY"):
+            raise ValueError("Duplicate or invalid warehouse schedule assignment")
+        mapping[key] = row
+    output = []
+    for row in snapshot["rows"]:
+        game = mapping.get((row["game_id"], row["team_abbr"]))
+        if (
+            game is None
+            or str(game["schedule_date"]) != row["game_date"]
+            or game["opponent_abbr"] != row["opponent_abbr"]
+        ):
+            raise ValueError("Warehouse schedule does not match refreshed game")
+        opposite = mapping.get((row["game_id"], row["opponent_abbr"]))
+        if (
+            opposite is None
+            or opposite["opponent_abbr"] != row["team_abbr"]
+            or opposite["home_away"] == game["home_away"]
+            or str(opposite["schedule_date"]) != row["game_date"]
+        ):
+            raise ValueError("Conflicting warehouse home/away assignment")
+        output.append(
+            dict(
+                row,
+                home_away=game["home_away"],
+                matchup=f"{row['team_abbr']} {'vs.' if game['home_away'] == 'HOME' else '@'} {row['opponent_abbr']}",
+            )
+        )
+    repaired = dict(snapshot, rows=output)
+    repaired["sha256"] = snapshot_digest(repaired)
+    snapshot_evidence(repaired)
+    return repaired, {
+        "venue_basis": "retained_validated_warehouse_schedule",
+        "player_rows": len(output),
+    }
+
+
 def reconcile_schedule(snapshot, document):
     season = {row["season"] for row in snapshot["rows"]}
     if len(season) != 1 or document["leagueSchedule"]["seasonYear"] not in season:
