@@ -166,18 +166,6 @@ def test_pipeline_task_graph_and_execution_policies_remain_stable():
             "dbt_build": {"combine_pipeline_results"},
             "build_player_similarity_assets": {"dbt_build"},
             "publish_run_metrics": {"build_player_similarity_assets"},
-            "check_redshift_enabled": {"combine_pipeline_results"},
-            "export_bigquery_bronze": {
-                "combine_pipeline_results",
-                "check_redshift_enabled",
-            },
-            "sync_to_s3": {"export_bigquery_bronze"},
-            "load_redshift_bronze": {"sync_to_s3"},
-            "dbt_build_redshift": {"load_redshift_bronze"},
-            "skip_redshift_sync": {
-                "combine_pipeline_results",
-                "check_redshift_enabled",
-            },
         }
     )
     assert {task.task_id: task.upstream_task_ids for task in dag.tasks} == upstream

@@ -1,8 +1,7 @@
 # Architecture
 
 This project is an NBA analytics platform serving `2023-24` through `2025-26`.
-BigQuery is the warehouse system of record. Redshift is an optional
-learning/portfolio path, not a replacement for the default runtime.
+BigQuery is the warehouse system of record.
 
 ## Core Decisions
 
@@ -11,7 +10,7 @@ learning/portfolio path, not a replacement for the default runtime.
 - dbt owns bronze/silver/gold transformation logic.
 - Self-hosted Airflow is the supported orchestration path.
 - FastAPI serves the public read-only site and API.
-- Terraform manages GCP infrastructure and optional AWS Redshift infrastructure.
+- Terraform manages GCP infrastructure.
 - Governed statistics are computed deterministically; model-generated narratives
   use bounded application evidence.
 - Similarity training runs offline; validated public outputs are published to
@@ -160,8 +159,3 @@ string into one agent-specific table. Governed metric queries use the
 [semantic contract](semantic-contract.md). The stats agent reaches data only
 through allowlisted application tools before calling the selected OpenAI API or
 Claude API model, and it does not get arbitrary SQL access.
-
-## Optional Secondary Path
-
-Redshift sync exports BigQuery bronze tables as Parquet through GCS, copies them
-to S3, loads Redshift Serverless with `COPY`, and runs dbt Redshift models.

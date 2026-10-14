@@ -107,7 +107,7 @@ def combine_results(
     }
 
 
-def format_run_details(run_result: dict, *, get_config) -> str:
+def format_run_details(run_result: dict) -> str:
     """Preserve the existing ordered run-log fields and default values."""
     return publication_details(run_result) + (
         f"dbt_status={run_result.get('dbt_status', 'unknown')};"
@@ -133,7 +133,6 @@ def format_run_details(run_result: dict, *, get_config) -> str:
         f"shot_location_rows_unchanged={run_result.get('shot_location_rows_unchanged', 0)};"
         f"player_reference_rows_unchanged={run_result.get('player_reference_rows_unchanged', 0)};"
         f"bronze_bootstrap={run_result.get('bronze_bootstrap_summary', {})};"
-        f"redshift_status={run_result.get('redshift_status', get_config('ENABLE_REDSHIFT', 'false'))};"
         f"source_contracts={run_result.get('source_contract_results', {})};"
         f"dq={run_result.get('dq_results', {})};"
         f"reconciliation={run_result.get('reconciliation', {})}"

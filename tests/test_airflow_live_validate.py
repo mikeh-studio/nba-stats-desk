@@ -74,22 +74,6 @@ def test_prepare_environment_does_not_override_existing_env(tmp_path: Path) -> N
     assert env["BQ_DATASET_GOLD"] == "shell_gold"
 
 
-def test_arg_parser_disables_redshift_by_default() -> None:
-    parser = validate.build_arg_parser({"ENABLE_REDSHIFT": "true"})
-
-    args = parser.parse_args([])
-
-    assert args.enable_redshift is False
-
-
-def test_arg_parser_can_enable_redshift_for_live_validation() -> None:
-    parser = validate.build_arg_parser({})
-
-    args = parser.parse_args(["--enable-redshift"])
-
-    assert args.enable_redshift is True
-
-
 def test_prepare_environment_allows_live_validation_executor_override(
     tmp_path: Path,
 ) -> None:

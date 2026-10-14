@@ -25,7 +25,6 @@ from nba_pipeline_triage import (
     write_pipeline_triage_on_success,
 )
 from optional_assets import optional_injury_stage
-from redshift_tasks import add_redshift_branch
 from run_results import combine_results, format_run_details
 from source_landing import (
     _safe_storage_token,
@@ -1082,7 +1081,7 @@ def nba_analytics_pipeline():
             watermark_after=run_result["watermark_after"],
             started_at_utc=context["data_interval_start"],
             finished_at_utc=datetime.now(tz=context["data_interval_start"].tzinfo),
-            details=format_run_details(run_result, get_config=get_config),
+            details=format_run_details(run_result),
         )
         pipeline.record_pipeline_run(client, run_table, record)
         return run_result
@@ -1130,16 +1129,6 @@ def nba_analytics_pipeline():
         merged_player_reference,
         merged_injury_reports,
         bootstrapped_bronze,
-    )
-
-    # Optional Redshift tasks run independently of core publication.
-    add_redshift_branch(
-        combined,
-        get_config=get_config,
-        get_project_id=get_project_id,
-        get_dataset=get_dataset,
-        get_dbt_repo_root=get_dbt_repo_root,
-        season=SUPPORTED_SEASON,
     )
 
     # Asset builders catch and report their own non-critical failures so the

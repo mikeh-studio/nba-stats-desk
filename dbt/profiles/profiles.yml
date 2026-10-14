@@ -10,13 +10,3 @@ nba_warehouse:
       threads: 4
       timeout_seconds: 300
       priority: interactive
-
-    redshift:
-      type: redshift
-      host: "{{ env_var('REDSHIFT_HOST', 'localhost') }}"
-      port: "{{ env_var('REDSHIFT_PORT', '5439') | int }}"
-      user: "{{ env_var('REDSHIFT_USER', 'admin') }}"
-      password: "{{ env_var('REDSHIFT_PASSWORD', '') }}"
-      dbname: "{{ env_var('REDSHIFT_DB', 'nba_analytics') }}"
-      schema: "{{ env_var('REDSHIFT_SCHEMA_GOLD', 'nba_gold') }}"
-      threads: 4

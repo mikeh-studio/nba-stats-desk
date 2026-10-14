@@ -35,7 +35,6 @@ STAGE_ORDER = [
     "merge_to_bronze_raw",
     "dbt_run_test",
     "similarity_archetype_publish",
-    "optional_redshift_sync",
     "run_metadata_publish",
     "unknown",
 ]
@@ -60,12 +59,6 @@ TASK_STAGE_MAP = {
     "combine_pipeline_results": "merge_to_bronze_raw",
     "dbt_build": "dbt_run_test",
     "build_player_similarity_assets": "similarity_archetype_publish",
-    "check_redshift_enabled": "optional_redshift_sync",
-    "export_bigquery_bronze": "optional_redshift_sync",
-    "sync_to_s3": "optional_redshift_sync",
-    "load_redshift_bronze": "optional_redshift_sync",
-    "dbt_build_redshift": "optional_redshift_sync",
-    "skip_redshift_sync": "optional_redshift_sync",
     "publish_run_metrics": "run_metadata_publish",
 }
 
@@ -76,7 +69,6 @@ FAILURE_TYPE_BY_STAGE = {
     "merge_to_bronze_raw": "merge_reconciliation_failure",
     "dbt_run_test": "dbt_failure",
     "similarity_archetype_publish": "downstream_publish_failure",
-    "optional_redshift_sync": "downstream_publish_failure",
     "run_metadata_publish": "downstream_publish_failure",
     "unknown": "unknown_failure",
 }
@@ -112,11 +104,6 @@ INTERESTING_METRIC_KEYS = {
     "similarity_status",
     "similarity_player_count",
     "similarity_archetype_count",
-    "redshift_status",
-    "redshift_load_status",
-    "redshift_dbt_status",
-    "redshift_gcs_prefix",
-    "redshift_s3_prefix",
     "should_build",
 }
 
@@ -496,14 +483,9 @@ def _recommended_actions(
         return actions
 
     if failure_type == "downstream_publish_failure":
-        if impacted_stage == "optional_redshift_sync":
-            actions.append(
-                "Verify the optional Redshift dependency path separately; do not block the core BigQuery/dbt platform on this branch."
-            )
-        else:
-            actions.append(
-                "Verify the downstream publish inputs in BigQuery and rerun only the affected publish task after the core warehouse path is green."
-            )
+        actions.append(
+            "Verify the downstream publish inputs in BigQuery and rerun only the affected publish task after the core warehouse path is green."
+        )
         actions.append(
             "Check the failing task logs for missing gold inputs, permission issues, or optional dependency outages."
         )

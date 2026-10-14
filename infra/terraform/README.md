@@ -13,10 +13,9 @@ the runtime intentionally cannot create arbitrary project datasets. Standalone
 repair/backfill scripts that create additional datasets require separately
 reviewed operator access and are not runtime provisioning paths.
 
-Landing uploads can overwrite a destination during retries. Optional Redshift
-sync also lists and downloads exported objects. Bucket-scoped
+Landing uploads can overwrite a destination during retries. Bucket-scoped
 [Storage Object User](https://cloud.google.com/storage/docs/access-control/iam-roles)
-retains these operations without object ACL administration. Object Creator alone
+retains overwrite and read operations without object ACL administration. Object Creator alone
 cannot support overwrites or reads. The bucket uses uniform bucket-level access.
 
 ## Existing deployment migration
