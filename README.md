@@ -38,8 +38,24 @@ with explicit season scope, evidence-backed answers, and interactive charts.
 
 Pages default to the latest supported season, currently **2025–26**. Ask supports
 explicit historical questions within the available **2023–24 through 2025–26**
-coverage. Availability varies by question and source; teammate comparisons describe
-observed differences and do not establish causation.
+coverage. Availability varies by question and source.
+
+## How Ask answers a question
+
+1. **Resolve scope.** Player names, dates, season, and regular-season/playoff
+   phase are resolved explicitly. Ambiguous names ask for clarification instead
+   of guessing.
+2. **Gather evidence.** The planner chooses from allowlisted, read-only tools with
+   bounded queries. Models never write or run SQL.
+3. **Calculate in code.** Statistics follow the [semantic contract](docs/semantic-contract.md):
+   pooled shooting ratios, valid-game denominators, and missing games kept
+   separate from zero production.
+4. **Answer from evidence.** Prose, tables, and charts share the same evidence.
+   A chart model may only pick among server-built candidates; application code
+   supplies every value.
+5. **Decline what the data can't support.** For example, *"How did Jalen Brunson
+   play in the 2026 NBA Finals?"* returns an explanation that individual playoff
+   rounds aren't available yet. It does not quietly substitute the full playoff run.
 
 ## Engineering and evaluation
 
@@ -50,8 +66,10 @@ NBA sources → GCS → BigQuery / dbt → FastAPI → Ask, Players, Performance
          Airflow orchestration and source checks
 ```
 
-- **Data platform:** six source domains, source contracts, quarantine evidence,
-  freshness tracking, and atomic publication of validated outputs.
+- **Data platform:** six contract-checked source domains (game logs, schedule,
+  game line scores, player reference, shot locations, and injury reports) refreshed
+  by a daily Airflow run. Quarantine evidence, freshness tracking, and atomic
+  publication keep a failed refresh from replacing the last valid outputs.
 - **Ask:** OpenAI, Anthropic, and OpenRouter adapters; allowlisted tools and governed
   calculations. The visualization specialist selects verified chart candidates;
   application code supplies their values. Arbitrary model-authored SQL is not exposed.
@@ -60,10 +78,42 @@ NBA sources → GCS → BigQuery / dbt → FastAPI → Ask, Players, Performance
   A public interactive evaluation showcase is not published yet; private runs are
   not evidence of general model superiority or production readiness.
 
+Every pull request runs in CI:
+
+- `ruff` linting and formatting, and `mypy` type checks
+- 1,500+ Python tests, plus JavaScript unit tests
+- Semantic-contract fixtures and an Ask endpoint harness over frozen evidence
+- Browser checks of populated Ask flows
+- `dbt parse`, Terraform validation, and the public/private boundary check
+
 Read the [architecture](docs/architecture.md), [Ask contract](docs/ask-workspace.md),
 [metric semantics](docs/semantic-contract.md), [profile similarity](docs/player-similarity-model.md),
 and [evaluation workflow](docs/evaluation.md). Model availability is reviewed locally
 with the [model catalog check](docs/model-catalog.md).
+
+## Repository map
+
+| Path | Contents |
+| --- | --- |
+| `app/` | FastAPI app, Ask agent and tools, BigQuery repository, templates, and static assets |
+| `dags/` | Airflow pipeline: extraction, staging, data-quality checks, merges, and publication |
+| `dbt/` | Bronze, silver, gold, and Ask-specific models with tests |
+| `contracts/` | Source contracts for the six ingested domains |
+| `infra/terraform/` | GCP infrastructure |
+| `scripts/` | Backfills, study builders, evaluators, and repository checks |
+| `tests/`, `tests_js/` | Python and JavaScript test suites and frozen fixtures |
+
+## Limitations
+
+- **No live deployment.** The app is Cloud Run-ready, but no public instance is
+  implied and there is no account system.
+- **Bring your own warehouse.** Running the app requires your own populated BigQuery
+  datasets; no sample dataset ships with the repo. CI uses frozen fixtures instead.
+- **Ask scope.** Individual playoff rounds, Win Shares, and on/off data are not
+  connected. Teammate comparisons describe observed differences and do not
+  establish causation.
+- **OpenRouter** is covered by mocked tests only; see its
+  [current limits](docs/ask-workspace.md#openrouter).
 
 ## How the project evolved
 
@@ -88,10 +138,8 @@ credentials, and proprietary model experiments stay outside Git. Only reviewed,
 sanitized examples and concise summaries belong in public showcases.
 See the [public/private boundary](docs/public-private-boundary.md).
 
-The app supports Cloud Run deployment; this repository does not imply an active
-public deployment. Public serving is read-only and currently has no account system.
-Deployment configuration and access boundaries are covered in the
-[public service guide](docs/public-service.md).
+Public serving is read-only. Deployment configuration and access boundaries are
+covered in the [public service guide](docs/public-service.md).
 
 ## Run locally
 
@@ -108,8 +156,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8001 --no-proxy-headers
 
 Open `http://localhost:8001`. Ask accepts `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or
 `OPENROUTER_API_KEY` in the server environment. Keep `AGENT_HISTORY_ENABLED=false`
-for public deployments. OpenRouter is covered by mocked tests only; see its
-[current limits](docs/ask-workspace.md#openrouter).
+for public deployments.
 
 For pipeline setup and checks, see [Local Airflow](docs/local-airflow.md),
 [historical seasons](docs/historical-seasons.md), and [validation](docs/validation.md).
