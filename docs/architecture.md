@@ -126,7 +126,7 @@ Similarity outputs:
 - `player_archetypes`
 
 The public baseline and publish contract are documented in
-[`docs/player-similarity-model.md`](player-similarity-model.md).
+[Profile similarity](pages.md#statistical-profile-similarity).
 Tuned personal-model work
 should stay outside the public repo; see
 [`docs/public-private-boundary.md`](public-private-boundary.md).
@@ -145,7 +145,7 @@ Context models:
 - `player_game_context`
 
 These preserve player-game grain and distinguish prior opponent/status evidence
-from same-game outcomes. See [Player context](player-context.md) for availability
+from same-game outcomes. See [Player context](pages.md#player-context) for availability
 cutoffs, coverage rules, and the offline integration boundary.
 
 ## Serving Path

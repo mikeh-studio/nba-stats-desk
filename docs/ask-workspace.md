@@ -74,7 +74,7 @@ role and playing time remain relevant. Saved comparisons created before these
 sections were added retain their original statistics; asking again retrieves
 new sections from current evidence.
 
-[Daily player comparison maintenance](daily-player-comparisons.md) checks fresh
+[Daily player comparison maintenance](operations.md#daily-player-comparison-updates) checks fresh
 league-wide inputs and permits publication only after an isolated rebuild and
 transactional baseline checks. Saved answers retain their original evidence.
 
@@ -222,17 +222,17 @@ The overview describes scoped category production, game-level variation, and
 box-score activity, with additional minutes, attempt, shooting-efficiency,
 turnover, and per-36 context. These metrics do not establish causal drivers.
 Opponent and selected teammate summaries are available in the offline evaluation;
-see [Player context](player-context.md) for integration and coverage limits.
+see [Player context](pages.md#player-context) for integration and coverage limits.
 Thin percentile bars use native meters. Icons are vendored Tabler assets under
 their MIT license; the existing locally hosted Barlow fonts and real player
 headshots are reused.
 
-See [Players and research breakdowns](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
+See [Players and research breakdowns](pages.md#players-and-research-breakdowns) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
 
 Teammate comparisons default to regular season plus playoffs for the selected
 season. A December-ending pilot is not a full-season fallback. Published studies
 must bind their phase and window; explicit dates or phases cannot reuse a
-differently scoped result. See [study scope](research-workbench.md) for full-season
+differently scoped result. See [study scope](pages.md#players-and-research-breakdowns) for full-season
 build checks and missing-status handling.
 
 ### Visualization specialist
@@ -498,7 +498,7 @@ Performance-over-time overviews retain five selectable trends (PTS, REB, AST, ST
 BLK) when complete data is available. Visualization selection preserves these
 views without a model call; missing metric observations still withhold that trend.
 Windows up to 31 days show game dates; longer windows show monthly averages.
-See [metric labels, samples and calendar scope](ask-metric-presentation.md).
+See [metric labels, samples and calendar scope](pages.md#ask-overview-metrics-and-samples).
 
 Browser recovery carries only an award key, season and performance phase. The
 server reconstructs award evidence from the reviewed catalog and verifies the
@@ -726,13 +726,13 @@ exact qualified comparison cohort, and **Across games** shows individual recorde
 appearances, median and spread. Shooting observations include attempts; the game
 selector supports touch and keyboard use. The drawer overlays the page without
 expanding metric rows or making additional Ask requests. See the
-[distribution contract](ask-metric-presentation.md#metric-distributions) for
+[distribution contract](pages.md#metric-distributions) for
 qualification, missingness, quantiles and bounded observations.
 
 Broad overviews use eleven primary metrics; focused profiles use six or nine with
 expandable additional metrics. Per-metric sample/opportunity notes and balanced,
 server-authored takeaways replace browser-selected strongest-percentile claims.
-See [overview metrics and sample policy](ask-metric-presentation.md) for supported
+See [overview metrics and sample policy](pages.md#ask-overview-metrics-and-samples) for supported
 focuses, scope guards, units, comparison eligibility and missing-data behavior.
 
 

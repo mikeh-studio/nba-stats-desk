@@ -76,14 +76,14 @@ Warehouse capture uses fixed bounded queries, snapshot identity and completeness
 validation. Frozen snapshot completeness establishes retrieval of its warehouse
 rows, not independent completeness of NBA source observations. Historical injury
 ordering cannot be claimed from ambiguous game times; see the explicit cutoff
-in [Player context](player-context.md).
+in [Player context](pages.md#player-context).
 
 Public synthetic fixtures exercise identity, dates, ratios, missingness, ranking,
 and evidence boundaries. Historical evaluations compare against frozen reference
 results. Run instructions are in [Evaluation](evaluation.md). Passing fixtures
 establishes tested behavior, not universal model accuracy or production deployment.
 
-See [Players and research breakdowns](research-workbench.md) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
+See [Players and research breakdowns](pages.md#players-and-research-breakdowns) for shared detailed queries, multi-stat teammate studies, and versioned pregame context.
 
 Dynamic availability comparisons preserve focal/exposure roles and attach the
 executed request and per-group game IDs to every metric. A teammate predicate
@@ -191,7 +191,7 @@ Overview presentation retains full aggregates but withholds displayed changes
 when either comparison sample has fewer than five valid appearances or partial
 components. Ratio sample notes disclose pooled attempts; the games floor does
 not establish shooting ranking eligibility or statistical precision. See
-[Ask overview sample policy](ask-metric-presentation.md).
+[Ask overview sample policy](pages.md#ask-overview-metrics-and-samples).
 
 
 Broad overview windows up to 31 inclusive days use game-date chart buckets; longer
@@ -201,7 +201,7 @@ partial or conflicting calendar phrase requires clarification. A month without a
 year uses the documented conversational default, disclosed in the answer. Calendar-month
 comparisons use the preceding full calendar month. Table abbreviations and change
 colors do not alter canonical metric values, sample rules or full-name evidence.
-See [Ask overview presentation](ask-metric-presentation.md#performance-over-time).
+See [Ask overview presentation](pages.md#performance-over-time).
 
 Overview presentation has a separate, versioned percentile qualification policy:
 five complete appearances, at least two qualified players including the focal player,
@@ -209,7 +209,7 @@ and provisional attempt floors of 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, and
 50 3PA for 3P%. TOV ranks lower values favorably; MIN ranks exposure. The general
 overview shows eleven metrics with FG%/FT%/TS% last. Direct governed ranking
 queries retain their explicit attempt-threshold contract. See
-[overview policy](ask-metric-presentation.md#samples-and-comparisons).
+[overview policy](pages.md#samples-and-comparisons).
 
 
 ## Metric distributions
