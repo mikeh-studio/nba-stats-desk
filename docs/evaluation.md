@@ -109,7 +109,7 @@ python scripts/build_player_context.py \
 
 Add `--context-dir reports/evaluation-context` to the prepare command. Database
 and audit hashes must match the statistics snapshot. SQLite execution and dbt
-parsing do not replace BigQuery execution checks. See [Player context](player-context.md).
+parsing do not replace BigQuery execution checks. See [Player context](pages.md#player-context).
 
 For a completed 2025–26 season snapshot needing repair, the repair tool reconciles
 player logs against separate official team logs and preserves an audit ledger:
@@ -203,7 +203,7 @@ warehouse assignments when the current NBA schedule has moved to a newer
 season. Missing or conflicting date/opponent/venue mappings block publication.
 `--require-original-baseline` additionally verifies the input comparison
 snapshot against the backed-up gold fact before rebuilding. The
-[daily maintenance command](daily-player-comparisons.md) uses both options and
+[daily maintenance command](operations.md#daily-player-comparison-updates) uses both options and
 performs no warehouse writes when its validated inputs are unchanged.
 
 ```sh

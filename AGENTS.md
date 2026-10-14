@@ -21,12 +21,12 @@ continue; shared requirements must work in a fresh clone.
   watermarks, and atomic publication. Optional failures retain prior valid data
   and must remain visible as failures.
 - Read relevant [Ask](docs/ask-workspace.md), [semantic](docs/semantic-contract.md),
-  [pipeline](docs/architecture.md), or [source-contract](docs/source-contracts.md)
+  [pipeline](docs/architecture.md), or [source-contract](docs/operations.md#source-contracts)
   guides. Update contracts, tests, and docs together when behavior changes.
 
 ## Verify
 
-- Follow [validation](docs/validation.md): focused checks while iterating, relevant
+- Follow [validation](docs/operations.md#validation): focused checks while iterating, relevant
   CI checks before pushing. Documentation-only edits need link/path and diff checks.
 - For Ask changes, align planner, evidence, renderer, and evaluator; use actual
   endpoints for end-to-end claims. Follow the [evaluation guide](docs/evaluation.md).
