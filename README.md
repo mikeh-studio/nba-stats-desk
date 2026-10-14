@@ -21,20 +21,18 @@ with explicit season scope, evidence-backed answers, and interactive charts.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/players.jpg" alt="Players: Jalen Brunson's profile with a points trend through June 13, 2026, archetype, and league percentiles"></td>
     <td width="50%"><img src="docs/images/performance.jpg" alt="Performance: June 13, 2026 playoff player games compared with each player's season baseline"></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Players</b>: profile, trend, and percentiles</td>
-    <td align="center"><b>Performance</b>: playoff games against season baselines</td>
-  </tr>
-  <tr>
     <td width="50%"><img src="docs/images/trending.jpg" alt="Trending: production change versus minutes change for the last four team games"></td>
-    <td width="50%"><img src="docs/images/profiles.jpg" alt="Profiles: Jalen Brunson's nearest statistical matches in the 3D archetype space"></td>
   </tr>
   <tr>
+    <td align="center"><b>Performance</b>: playoff games against season baselines</td>
     <td align="center"><b>Trending</b>: production and minutes changes</td>
-    <td align="center"><b>Profiles</b>: archetype space and nearest matches</td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/images/profiles.jpg" alt="Profiles: Jalen Brunson's nearest statistical matches in the 3D archetype space"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><b>Profiles</b>: archetype space and nearest matches</td>
   </tr>
 </table>
 
