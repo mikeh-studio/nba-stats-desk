@@ -38,7 +38,8 @@ with explicit season scope, evidence-backed answers, and interactive charts.
 
 Pages default to the latest supported season, currently **2025–26**. Ask supports
 explicit historical questions within the available **2023–24 through 2025–26**
-coverage. Availability varies by question and source.
+coverage. Availability varies by question and source; teammate comparisons describe
+observed differences and do not establish causation.
 
 ## How Ask answers a question
 
@@ -103,18 +104,6 @@ with the [model catalog check](docs/model-catalog.md).
 | `scripts/` | Backfills, study builders, evaluators, and repository checks |
 | `tests/`, `tests_js/` | Python and JavaScript test suites and frozen fixtures |
 
-## Limitations
-
-- **No live deployment.** The app is Cloud Run-ready, but no public instance is
-  implied and there is no account system.
-- **Bring your own warehouse.** Running the app requires your own populated BigQuery
-  datasets; no sample dataset ships with the repo. CI uses frozen fixtures instead.
-- **Ask scope.** Individual playoff rounds, Win Shares, and on/off data are not
-  connected. Teammate comparisons describe observed differences and do not
-  establish causation.
-- **OpenRouter** is covered by mocked tests only; see its
-  [current limits](docs/ask-workspace.md#openrouter).
-
 ## How the project evolved
 
 1. **Data platform:** the initial ingestion and BigQuery pipeline grew into
@@ -138,8 +127,10 @@ credentials, and proprietary model experiments stay outside Git. Only reviewed,
 sanitized examples and concise summaries belong in public showcases.
 See the [public/private boundary](docs/public-private-boundary.md).
 
-Public serving is read-only. Deployment configuration and access boundaries are
-covered in the [public service guide](docs/public-service.md).
+The app supports Cloud Run deployment; this repository does not imply an active
+public deployment. Public serving is read-only and currently has no account system.
+Deployment configuration and access boundaries are covered in the
+[public service guide](docs/public-service.md).
 
 ## Run locally
 
@@ -156,7 +147,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 8001 --no-proxy-headers
 
 Open `http://localhost:8001`. Ask accepts `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or
 `OPENROUTER_API_KEY` in the server environment. Keep `AGENT_HISTORY_ENABLED=false`
-for public deployments.
+for public deployments. OpenRouter is covered by mocked tests only; see its
+[current limits](docs/ask-workspace.md#openrouter).
 
 For pipeline setup and checks, see [Local Airflow](docs/local-airflow.md),
 [historical seasons](docs/historical-seasons.md), and [validation](docs/validation.md).
