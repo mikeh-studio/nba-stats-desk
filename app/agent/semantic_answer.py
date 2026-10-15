@@ -474,10 +474,13 @@ class SemanticAsk:
         )
 
         resume_error = None
+        resumed_overview = False
         if pending and (pending.query_plan or {}).get("overview_clarification"):
-            question, resume_error = resume_overview(question, pending)
+            question, resume_error, restated = resume_overview(question, pending)
+            resumed_overview = True
             pending = None
-            context = {}
+            if not restated:
+                context = {}
         leader_plan = contextual_leader_plan(original, context, self.settings.season)
         if leader_plan:
             # A fully restated supported request supersedes an earlier mistaken
@@ -496,7 +499,7 @@ class SemanticAsk:
                 question = pending.question
             else:
                 question = f"{pending.question}\nClarification: {question}"
-        elif store and not context:
+        elif store and not context and not resumed_overview:
             if turns and re.search(
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
             ):

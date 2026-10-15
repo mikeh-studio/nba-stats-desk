@@ -8047,6 +8047,79 @@
           ]
         }
       ]
+    },
+    {
+      "id": "overview_prior_answer_recovery",
+      "family": "Overview conversations",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "A prior April answer contains 56/8 = 7 points per game across both phases. A pronoun restatement explicitly asks for the full regular season, which is 30/6 = 5 and July-June bounds; prior month dates must not leak into that request.",
+      "turns": [
+        {
+          "question": "Give an overview of Avery Example in April 2025.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2025-04-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-04-30"
+            },
+            {
+              "path": "semantic_evidence.metrics.0.value",
+              "equals": 7
+            }
+          ]
+        },
+        {
+          "question": "How was his scoring among guards and wings?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "Please give an overview of his scoring among guards in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.metrics.0.value",
+              "equals": 5
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -404,3 +404,135 @@ def test_single_player_cohort_wording_keeps_overview(ask, suffix, connector):
         ]
         == 16
     )
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_restatement_after_answer_preserves_new_dates(ask, suffix):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    first = ask(
+        "Give an overview of Example 1 in November 2024.", suffix, conversation_id=cid
+    )
+    assert first["status"] == "ok"
+    assert first["semantic_evidence"]["scope"]["start"] == "2024-11-01"
+    assert (
+        ask("How was his scoring among guards and wings?", suffix, conversation_id=cid)[
+            "status"
+        ]
+        == "clarification_required"
+    )
+    result = ask(
+        "How was his scoring among guards in the 2024-25 regular season?",
+        suffix,
+        conversation_id=cid,
+    )
+    assert result["status"] == "ok"
+    scope = result["semantic_evidence"]["scope"]
+    assert (scope["start"], scope["end"]) == ("2024-07-01", "2025-06-30")
+    assert scope["phases"] == ["Regular Season"]
+    assert result["semantic_evidence"]["player_id"] == 1
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "prefix", ["Please give", "Can you give", "Okay, show", "Overview of"]
+)
+def test_natural_restatement_recovers(ask, suffix, prefix):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 1 among guards and wings in 2024-25.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "clarification_required"
+    )
+    question = (
+        f"{prefix} an overview of Example 1 among guards in 2024-25."
+        if prefix != "Overview of"
+        else "Overview of Example 1 among guards in 2024-25."
+    )
+    assert ask(question, suffix, conversation_id=cid)["status"] == "ok"
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "reply,group",
+    [
+        ("Guards", "Guard"),
+        ("Forwards", "Wing"),
+        ("Centers", "Big"),
+        ("How about wings?", "Wing"),
+    ],
+)
+def test_oxford_list_and_group_aliases(ask, suffix, reply, group):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 1 among guards, wings, and bigs in 2024-25.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "clarification_required"
+    )
+    result = ask(reply, suffix, conversation_id=cid)
+    assert result["status"] == "ok"
+    assert (
+        result["semantic_evidence"]["request_fulfillment"]["requested_group"] == group
+    )
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_named_profile_replaces_pending_request(ask, suffix):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 1 among guards and wings in 2024-25.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "clarification_required"
+    )
+    result = ask(
+        "Example 2 among guards in the 2024-25 regular season",
+        suffix,
+        conversation_id=cid,
+    )
+    assert result["status"] == "ok"
+    assert result["semantic_evidence"]["player_id"] == 2
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "reply", ["What about November 2023?", "Compare with November 2023"]
+)
+def test_baseline_fragment_after_answer_is_not_new_current_period(ask, suffix, reply):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 1 in November 2024.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "ok"
+    )
+    assert (
+        ask(
+            "How was his scoring in November 2024 compared with the previous season and other guards?",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "clarification_required"
+    )
+    result = ask(reply, suffix, conversation_id=cid)
+    assert result["status"] == "clarification_required"
+    assert result.get("semantic_evidence") is None

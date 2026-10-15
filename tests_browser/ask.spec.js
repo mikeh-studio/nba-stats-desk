@@ -534,7 +534,7 @@ for (const width of [1280,390]) {
 }
 
 for (const width of [1280, 390]) {
-  for (const id of ['overview_group_recovery', 'overview_pair_recovery', 'overview_window_recovery']) {
+  for (const id of ['overview_group_recovery', 'overview_pair_recovery', 'overview_window_recovery', 'overview_prior_answer_recovery']) {
     test(`overview clarification recovers in the same conversation: ${id} at ${width}px`, async ({page}, testInfo) => {
       await page.setViewportSize({width, height:900});
       const c = await prepare(page, id);
@@ -545,12 +545,14 @@ for (const width of [1280, 390]) {
       // April includes 8 games totaling 56 points; the regular season has 30/6.
       const expected = id === 'overview_window_recovery' ? '7.0 points per game' : '5.0 points per game';
       await submit(page, c.turns[0].question);
-      await expect(page.locator('.overall-copy')).toHaveCount(0);
+      let populated = c.turns[0].checks[0].equals === 'ok' ? 1 : 0;
+      await expect(page.locator('.overall-copy')).toHaveCount(populated);
       for (const turn of c.turns.slice(1)) {
         await page.locator('[data-followup-question]').fill(turn.question);
         await page.locator('[data-followup-submit]').click();
         await expect(page.locator('[data-followup-submit]')).toBeEnabled();
-        if (turn.checks[0].equals === 'clarification_required') await expect(page.locator('.overall-copy')).toHaveCount(0);
+        if (turn.checks[0].equals === 'ok') populated++;
+        await expect(page.locator('.overall-copy')).toHaveCount(populated);
       }
       await expect(page.locator('.overall-copy').last()).toContainText(expected);
       await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(1);

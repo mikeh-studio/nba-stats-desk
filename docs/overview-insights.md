@@ -272,3 +272,11 @@ two-player detection; actual named-player comparisons retain both identities.
 
 Regression coverage includes same-conversation JSON/SSE sequences and populated
 desktop/phone browser recovery, in addition to single-question reporting checks.
+
+Restatements retain normal pronoun resolution while explicit new dates supersede
+the last answered scope. Resuming a typed clarification never concatenates the
+previous question's raw text. Common polite lead-ins and named-player cohort
+profiles are accepted as restatements. Group choices accept forwards/centers
+aliases and comma-separated lists. Baseline-only fragments remain clarifications
+even when an earlier answered turn supplies an identity. Tests include an
+answered month, a group clarification, and a pronoun restatement for a full season.
