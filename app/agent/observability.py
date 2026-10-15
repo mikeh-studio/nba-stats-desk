@@ -60,6 +60,7 @@ class AgentTrace:
     capacity: dict[str, int | bool] = field(default_factory=dict)
     outcome: str = "unknown"
     error_type: str | None = None
+    overview_tracking: list[dict[str, Any]] = field(default_factory=list)
     start_time: float = field(default_factory=monotonic)
 
     def set_plan(self, *, route: str, confidence: float) -> None:
@@ -130,4 +131,7 @@ class AgentTrace:
         }
 
     def emit(self) -> None:
+        from app.agent.overview_tracking import emit_tracking
+
         logger.info(json.dumps(self.to_log_dict(), sort_keys=True, default=str))
+        emit_tracking(self.request_id, self.overview_tracking, self.outcome)

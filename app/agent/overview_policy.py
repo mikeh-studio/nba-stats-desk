@@ -57,11 +57,11 @@ PROFILES = {
     "contribution": ("ast", "tov", "reb", "stl", "blk", "min"),
 }
 FOCUS_WORDS = {
-    "contribution": r"contribution beyond scoring|non[ -]scoring contribution",
+    "contribution": r"(?:contribut(?:e[ds]?|ing|ions?)\s+)?beyond scoring|non[ -]scoring(?:\s+(?:stats|statistics|contributions?))?|besides scoring|other than scoring",
     "scoring": r"scoring|shooting",
     "playmaking": r"playmaking",
     "rebounding": r"rebounding",
-    "defense": r"defen[cs]e|defensive activity",
+    "defense": r"defen[cs]e|defensive activity|defend(?:ed|ing)?",
 }
 LIMITS = {
     "general": "Box scores describe recorded production. Screening, defensive positioning and individual defensive impact are not measured here.",
@@ -75,10 +75,26 @@ LIMITS = {
 
 def focus(question):
     text = question.split("\nClarification:", 1)[0]
+    if re.search(r"\ball[ -](?:around|round)\b", text, re.I):
+        return "general"
     for name, pattern in FOCUS_WORDS.items():
         if re.search(r"\b(?:" + pattern + r")\b", text, re.I):
             return name
     return "general"
+
+
+def mixed_focus(question):
+    """Do not erase a second named category to force a single-focus overview."""
+    text = question.split("\nClarification:", 1)[0]
+    text = re.sub(FOCUS_WORDS["contribution"], "", text, flags=re.I)
+    return (
+        sum(
+            bool(re.search(r"\b(?:" + pattern + r")\b", text, re.I))
+            for key, pattern in FOCUS_WORDS.items()
+            if key != "contribution"
+        )
+        > 1
+    )
 
 
 def strip_focus(question):
@@ -145,11 +161,11 @@ def presentation(metrics, question, appearances, minimum, *, insights=None):
     selected = [lookup[key] for key in PROFILES[profile]]
     notes = takeaways(metrics, profile, appearances, minimum, insights)
     return {
-        "version": "ask_metric_presentation/3",
+        "version": "ask_metric_presentation/5",
         "profile": profile,
         "primary_keys": [m["key"] for m in selected],
         "scope_note": f"{appearances} recorded appearances. Samples vary by metric; missing values are not zero. The {minimum}-game comparison floor is a project policy, not a guarantee of statistical precision.",
-        "limitation": LIMITS[profile],
+        "limitation": "",
         "takeaways": notes,
         "preferred_metric": {
             "scoring": "pts",

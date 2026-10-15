@@ -1,5 +1,7 @@
 """Short, server-authored takeaways from governed samples, never an impact score."""
 
+from app.agent.overview_observations import changed as metric_changed
+
 GROUPS = {
     "Scoring": ("pts", "fg3m", "ts_pct", "fg3_pct"),
     "Creation": ("ast", "tov"),
@@ -26,12 +28,7 @@ def takeaways(metrics, profile, appearances, minimum, insights=None):
 
     def changed(key):
         m = lookup.get(key, {})
-        delta = m.get("display_change")
-        return (
-            supported(key)
-            and delta is not None
-            and abs(delta) >= max(0.1, abs(m["value"]) * 0.02)
-        )
+        return supported(key) and metric_changed(m)
 
     def note(area, title, text, role="context"):
         return {
@@ -69,19 +66,6 @@ def takeaways(metrics, profile, appearances, minimum, insights=None):
                 " across " if text else ""
             ) + f"{lookup['min']['value']:.1f} MIN per game"
         text += "." if text else ""
-        if area == "Defensive activity":
-            text += " These events do not establish overall defensive impact."
-        elif area == "Rebounding":
-            text += " Rebound splits and box-outs are unavailable."
-        elif area == "Creation":
-            text += " Read assists with turnovers and playing time."
-        missing = [lookup[k]["display_label"] for k in GROUPS[area] if not supported(k)]
-        if missing:
-            text += (
-                " "
-                + ", ".join(missing)
-                + " limited or unavailable; comparisons withheld for those metrics."
-            )
         title = {
             "Scoring": "Scoring and efficiency",
             "Creation": "Assists with ball security",
@@ -90,6 +74,46 @@ def takeaways(metrics, profile, appearances, minimum, insights=None):
             "Exposure": "Minutes and opportunities",
         }[area]
         return note(area, title, text.strip())
+
+    if profile in ("general", "contribution"):
+        areas = (
+            ["Scoring", "Creation", "Defensive activity", "Rebounding"]
+            if profile == "general"
+            else ["Creation", "Rebounding", "Defensive activity"]
+        )
+        notes = []
+        for area in areas:
+            if not any(supported(k) for k in CORES[area]):
+                continue
+            item = snapshot(area)
+            if area == "Creation":
+                keys = [k for k in CORES[area] if changed(k)]
+                if keys:
+                    item["role"] = "change"
+                    item["title"] = "Playmaking changed vs comparison"
+                    if changed("ast") and changed("tov"):
+                        ast, tov = (lookup[k]["display_change"] for k in ("ast", "tov"))
+                        if ast > 0 and tov < 0:
+                            item["title"] = "More assists, fewer turnovers"
+                        elif ast < 0 and tov > 0:
+                            item["title"] = "Fewer assists, more turnovers"
+                    item["text"] += (
+                        " "
+                        + "; ".join(
+                            f"{lookup[k]['display_label']} {lookup[k]['display_change']:+.1f} per game"
+                            for k in keys
+                        )
+                        + " vs comparison."
+                    )
+                    if changed("min"):
+                        item["text"] += (
+                            f" MIN {lookup['min']['display_change']:+.1f} per game."
+                        )
+            notes.append(item)
+            if len(notes) == 3:
+                return notes
+        if notes:
+            return notes
 
     main_area = {
         "general": "Scoring",

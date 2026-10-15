@@ -149,6 +149,7 @@ class Evidence:
     data_through: Mapping[tuple[str, str], str]
     model_built_at: str | None = None
     complete: bool = False
+    position_context: Mapping[str, Any] | None = None
 
     def validate(self) -> None:
         if not self.complete:

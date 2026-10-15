@@ -90,7 +90,7 @@ def test_overview_math_table_charts_profile_agree(evidence):
     assert len(result["charts"]) == 5
     assert result["charts"][0]["series"][0]["points"][0]["y"] == 20
     assert "20.0 points" in result["answer"]
-    assert "scoring rose 10.0 per game" in result["answer"]
+    assert "up 10.0 against his baseline" in result["answer"]
     assert result["answer"] == "\n\n".join(
         result["semantic_evidence"]["summary_paragraphs"]
     )
@@ -108,7 +108,7 @@ def test_missing_values_are_not_zero_or_qualified(evidence):
     assert row[1:5] == ["2.0", "per game", "Unavailable", "Unavailable"]
     assert "5/6 valid appearances" in row[5]
     assert len(result["charts"]) == 4
-    assert "Partial data for Steals" in result["answer"]
+    assert "2.0 steals" not in result["answer"]
 
 
 def test_duplicate_names_require_selection_or_chat(evidence):
@@ -355,7 +355,7 @@ def test_full_playoffs_compare_same_season_regular_season(evidence):
     metrics = result["semantic_evidence"]["metrics"]
     assert metrics[0]["observed_games"] == 1
     assert metrics[0]["previous"]["observed_games"] == 5
-    assert "Regular Season from 2025-07-01 through 2026-06-30" in result["answer"]
+    assert "1 playoff appearances" in result["answer"]
     facts = result["semantic_evidence"]["game_insights"]
     assert facts["observed_games"] == 1
     assert facts["peak_date"] == "2025-11-06"
@@ -380,8 +380,7 @@ def test_missing_regular_baseline_coverage_withholds_playoff_changes(evidence):
         "Player 1 performance", evidence, source_players(evidence), scoped
     )
     assert all(m["change"] is None for m in result["semantic_evidence"]["metrics"])
-    assert "comparison with Regular Season" in result["answer"]
-    assert "unavailable" in result["answer"]
+    assert "baseline is" not in result["answer"]
 
 
 def test_calendar_comparison_is_preceding_disjoint_window():
@@ -444,7 +443,12 @@ def test_three_paragraph_overview_json_and_stream_agree(evidence, question, grai
             assert payload["status"] == "ok"
             assert payload["charts"][0]["grain"] == grain
             assert len(payload["charts"]) == 5
-            assert len(payload["semantic_evidence"]["summary_paragraphs"]) == 3
+            assert 1 <= len(payload["semantic_evidence"]["summary_paragraphs"]) <= 4
+            if payload["semantic_evidence"]["insights"][0].get("game_variation"):
+                assert "Across his games" in payload["answer"]
+            assert payload["semantic_evidence"]["summary_paragraphs"][-1].startswith(
+                "Scope:"
+            )
             assert payload["answer"] == "\n\n".join(
                 payload["semantic_evidence"]["summary_paragraphs"]
             )
@@ -501,10 +505,10 @@ def test_profile_selection_is_explicit_and_does_not_depend_on_percentiles(
         assert "fg3m" in policy["primary_keys"]
     if profile == "defense":
         assert policy["takeaways"][0]["area"] == "Defensive activity"
-        assert "overall defensive grade" in policy["limitation"]
+        assert policy["limitation"] == ""
     if profile == "rebounding":
         assert policy["takeaways"][0]["area"] == "Rebounding"
-        assert "box-outs are unavailable" in policy["limitation"]
+        assert policy["limitation"] == ""
 
 
 def test_limited_sample_retains_values_but_not_comparisons_or_standout_claims(evidence):
@@ -519,7 +523,7 @@ def test_limited_sample_retains_values_but_not_comparisons_or_standout_claims(ev
     assert pts["display_change"] is None and pts["percentile"] is None
     assert all(m["display_change"] is None for m in stats)
     assert all(
-        "no standout claim" in note["text"].lower()
+        "exceeded" not in note["text"].lower()
         for note in result["semantic_evidence"]["presentation"]["takeaways"]
     )
 
@@ -562,10 +566,9 @@ def test_partial_sample_changes_are_withheld_and_takeaways_disclose_limit(eviden
     assert ast["valid_games"] == 5 and ast["observed_games"] == 6
     assert ast["sample"]["status"] == "limited" and ast["display_change"] is None
     assert "1 missing components" in ast["sample"]["text"]
-    assert (
-        "no standout claim"
-        in result["semantic_evidence"]["presentation"]["takeaways"][0]["text"].lower()
-    )
+    notes = result["semantic_evidence"]["presentation"]["takeaways"]
+    assert all("assists" not in n["text"].lower() for n in notes)
+    assert "assists per game" not in result["answer"]
 
 
 @pytest.mark.parametrize(
@@ -751,17 +754,23 @@ def test_takeaways_pair_assists_turnovers_and_keep_minutes_context(evidence, inv
         "Player 1 performance", evidence, source_players(evidence), scope()
     )
     policy = result["semantic_evidence"]["presentation"]
-    assert policy["version"] == "ask_metric_presentation/3"
+    assert policy["version"] == "ask_metric_presentation/5"
     assert len(policy["takeaways"]) == 3
-    change = next(n for n in policy["takeaways"] if n["role"] == "change")
+    change = next(n for n in policy["takeaways"] if n["area"] == "Creation")
     assert change["title"] == (
         "Fewer assists, more turnovers" if inverse else "More assists, fewer turnovers"
     )
-    assert ("TOV +3.0 per game" if inverse else "TOV -3.0 per game") in change["text"]
-    assert "MIN +2.0 per game" in change["text"]
-    defense = next(n for n in policy["takeaways"] if n["area"] == "Defensive activity")
-    assert "overall defensive impact" in defense["text"]
-    assert all(len(n["text"]) < 260 for n in policy["takeaways"])
+    assert ("Turnovers rose 3.0" if inverse else "Turnovers fell 3.0") in result[
+        "answer"
+    ]
+    assert "per 36 minutes" in result["answer"]
+    assert (
+        next(m for m in result["semantic_evidence"]["metrics"] if m["key"] == "min")[
+            "display_change"
+        ]
+        == 2
+    )
+    assert all("overall defensive impact" not in n["text"] for n in policy["takeaways"])
 
 
 def test_takeaways_do_not_reconstruct_unqualified_baseline_changes(evidence):
@@ -785,12 +794,13 @@ def test_takeaways_use_valid_game_range_when_comparison_is_thin(evidence):
     own = [r for r in evidence.rows if r["player_id"] == 1 and r["season"] == "2025-26"]
     own[0]["pts"] = 40
     result = build_overview(
-        "Player 1 performance", evidence, source_players(evidence), scope()
+        "Player 1 scoring performance", evidence, source_players(evidence), scope()
     )
     notes = result["semantic_evidence"]["presentation"]["takeaways"]
     assert not any(n["role"] == "change" for n in notes)
-    variation = next(n for n in notes if n["role"] == "variation")
-    assert "20 to 40" in variation["text"] and "median 20.0" in variation["text"]
+    assert all("against his baseline" not in n["text"] for n in notes)
+    assert result["semantic_evidence"]["game_insights"]["max_points"] == 40
+    assert result["semantic_evidence"]["insights"][0]["id"] == "scoring_context"
 
 
 def test_thin_focus_uses_one_warning_and_no_filler_takeaways(evidence):
@@ -800,9 +810,9 @@ def test_thin_focus_uses_one_warning_and_no_filler_takeaways(evidence):
         "Player 1 performance", evidence, source_players(evidence), scoped
     )
     notes = result["semantic_evidence"]["presentation"]["takeaways"]
-    assert len(notes) == 1
-    assert "1/1 valid appearances" in notes[0]["text"]
-    assert "limited" in notes[0]["text"]
+    assert len(notes) <= 3
+    assert all("exceeded" not in n["text"] for n in notes)
+    assert "small sample" in result["answer"]
 
 
 @pytest.mark.parametrize(
@@ -949,7 +959,7 @@ def test_recent_playoffs_compare_previous_playoff_appearances(evidence):
 
 @pytest.mark.parametrize(
     "profile,word,abbreviation",
-    [("scoring", "three-pointers made", "3pm"), ("playmaking", "turnovers", "tov")],
+    [("scoring", "points", "pts"), ("playmaking", "turnovers", "tov")],
 )
 def test_focused_prose_uses_statistic_names(evidence, profile, word, abbreviation):
     payload = build_overview(

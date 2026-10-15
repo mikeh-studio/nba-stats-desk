@@ -97,6 +97,10 @@ def additional_comparisons(summaries, names):
 
 
 def comparison_sides(question):
+    from app.agent.overview_positions import requested_group
+
+    if requested_group(question):
+        return None
     original = question.split("\nClarification:", 1)[0]
     original = original.split("\nSelected player:", 1)[0]
     if "\nCurrent question:" in original:

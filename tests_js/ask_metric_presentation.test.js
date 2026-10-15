@@ -99,3 +99,43 @@ test('distribution buttons announce percentile or qualification and descriptive 
  html=overviewMetricsTable(overviewPresentation(p));
  assert.match(html,/aria-label="PTS distribution: Low attempts"/);
 });
+
+test('scope metadata preserves canonical text and saved responses need no migration',()=>{
+ const p=payload();
+ p.semantic_evidence.summary_context='Scope: 19 appearances · baseline: 74 appearances.';
+ p.semantic_evidence.summary_paragraphs.push(p.semantic_evidence.summary_context);
+ const o=overviewPresentation(p);
+ assert.equal(o.summaryContext,p.semantic_evidence.summary_context);
+ assert.deepEqual(o.paragraphs,p.semantic_evidence.summary_paragraphs);
+ delete p.semantic_evidence.summary_context;
+ assert.equal(overviewPresentation(p).summaryContext,'');
+});
+
+test('position evidence has its own labeled distribution and preserves league table',()=>{
+ const p=payload(), m=p.semantic_evidence.metrics[0];
+ m.peer_comparison={kind:'position',group:'Guard',mode:'ordinal',rank:4,tied:true,cohort_size:14,season:'2024-25',phases:['Regular Season'],start:'2024-07-01',end:'2025-06-30',qualification:{min_games:5},distribution:{among_players:{bins:[{start:1,end:2,count:4},{start:2,end:3,count:10}]}}};
+ const html=overviewMetricsTable(overviewPresentation(p));
+ assert.match(html,/League percentile/);assert.match(html,/data-peer-details/);
+ assert.match(html,/Tied 4th of 14/);assert.match(html,/PTS Guards distribution, 14 qualifying players/);
+ assert.match(html,/1.0 to 2.0: 4 players/);
+ m.peer_comparison.mode='withheld';assert.doesNotMatch(overviewMetricsTable(overviewPresentation(p)),/data-peer-details/);
+});
+
+test('variation chart uses focused metric, median band, dates and escaped opponents',async()=>{
+ const {gameVariationDetails}=await import('../app/static/ask_presentation.js');
+ const p=payload(), m=p.semantic_evidence.metrics.find(m=>m.key==='reb');
+ m.distribution={across_games:{points:[{date:'2024-11-01',value:2,opponent:'<script>'},{date:'2024-11-05',value:16,opponent:'XYZ'}]}};
+ p.semantic_evidence.insights=[{game_variation:{metric_key:'reb',summary:{n:5,min:0,max:16,q1:2,median:4,q3:8},spread_text:'Median 4 rebounds.',peak_text:'16 rebounds on 2024-11-05 against XYZ.'}}];
+ const html=gameVariationDetails(overviewPresentation(p));
+ assert.match(html,/REB game-by-game spread/);assert.match(html,/2024-11-05/);
+ assert.match(html,/stroke-dasharray/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
+ assert.equal((html.match(/<circle /g)||[]).length,2);
+ assert.equal(gameVariationDetails({...overviewPresentation(p),gameVariation:null}), '');
+});
+
+test('unfulfilled position request never displays a league peer histogram as its answer',()=>{
+ const p=payload(); p.semantic_evidence.metrics[0].peer_comparison={mode:'withheld',kind:'unavailable',requested_group:'Wing'};
+ const html=overviewMetricsTable(overviewPresentation(p));
+ assert.doesNotMatch(html,/data-peer-details/);
+ assert.match(html,/League percentile/);
+});

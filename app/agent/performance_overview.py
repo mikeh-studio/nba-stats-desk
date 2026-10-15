@@ -8,7 +8,19 @@ from datetime import date, timedelta
 
 from app.agent.context_metrics import context_metrics
 from app.agent.overview_calendar import MONTH_PATTERN, calendar_window, shift_months
-from app.agent.overview_policy import focus, metric_table, presentation, strip_focus
+from app.agent.overview_policy import (
+    focus,
+    metric_table,
+    mixed_focus,
+    presentation,
+    strip_focus,
+)
+from app.agent.overview_positions import (
+    add_position_comparisons,
+    comparison_intent,
+    peer_question,
+    requested_group,
+)
 from app.agent.overview_summary import game_insights, summary_paragraphs
 from app.agent.question_intent import has_specific_metric
 from app.agent.semantics import SemanticError, aggregate, load_contract
@@ -24,16 +36,17 @@ METRICS = (
 
 
 def wants_overview(question):
-    original = question.split("\nClarification:", 1)[0]
+    original = peer_question(question.split("\nClarification:", 1)[0])
     return (
         bool(
             re.search(
-                r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics|profile|contribution|contribute)\b"
+                r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics|profile|contribut(?:e[ds]?|ing|ions?)|assessment|all[ -](?:around|round)|scoring|shooting|playmaking|rebounding|defen[cs]e|defend(?:ed|ing)?)\b"
                 r"|\bhow\b[^?\n]*\b(?:play(?:ed|ing)?|do(?:ing)?|done|fare[ds]?)\b",
                 original,
                 re.I,
             )
         )
+        and not mixed_focus(original)
         and not has_specific_metric(
             strip_focus(original) if focus(original) != "general" else original
         )
@@ -48,6 +61,18 @@ def wants_overview(question):
 
 
 def overview_scope(question, selected_season, today=None):
+    question = peer_question(question)
+    question = question.replace("–", "-")
+    first = bool(re.search(r"\bfirst (?:two|2) appearances\b", question, re.I))
+    if re.search(r"\bfirst \w+ (?:appearances|games)\b", question, re.I) and not first:
+        raise SemanticError(
+            "clarification_required",
+            "Please use an explicit date range or first two appearances for this overview.",
+        )
+    if first:
+        question = re.sub(r"\bfirst (?:two|2) appearances\b", "", question, flags=re.I)
+        if not re.search(r"playoffs?|regular season", question, re.I):
+            question += " regular season"
     from app.agent.question_intent import round_scope_message
 
     if message := round_scope_message(question):
@@ -227,6 +252,7 @@ def overview_scope(question, selected_season, today=None):
         )
     return dict(
         recent_appearances=10 if recent else None,
+        first_appearances=2 if first else None,
         start=start,
         end=end,
         previous_start=previous_start,
@@ -350,7 +376,7 @@ def build_overview(question, evidence, players, scope, selected=None):
             ],
         }
     player = candidates[0]
-    if scope.get("recent_appearances"):
+    if scope.get("recent_appearances") or scope.get("first_appearances"):
         scope = dict(scope)
         scope["previous_phases"] = list(scope["phases"])
         games = sorted(
@@ -366,8 +392,12 @@ def build_overview(question, evidence, players, scope, selected=None):
             key=lambda r: (str(r["game_date"]), r["game_id"]),
         )
         if games:
-            n = scope["recent_appearances"]
-            chosen, baseline = games[-n:], games[-2 * n : -n]
+            n = scope.get("first_appearances") or scope["recent_appearances"]
+            chosen, baseline = (
+                (games[:n], [])
+                if scope.get("first_appearances")
+                else (games[-n:], games[-2 * n : -n])
+            )
             scope["start"] = date.fromisoformat(str(chosen[0]["game_date"]))
             scope["end"] = date.fromisoformat(str(chosen[-1]["game_date"]))
             scope["previous_end"] = scope["start"] - timedelta(days=1)
@@ -481,18 +511,109 @@ def build_overview(question, evidence, players, scope, selected=None):
     from app.agent.overview_percentiles import add_percentiles
 
     add_percentiles(metrics + extra, grouped, player["player_id"], contract.min_games)
+    add_position_comparisons(
+        metrics + extra,
+        grouped,
+        player["player_id"],
+        scope,
+        evidence.position_context,
+        question,
+    )
     insights = game_insights(own)
     display_policy = presentation(
         metrics + extra, question, len(own), contract.min_games, insights=insights
     )
+    scope = {
+        **scope,
+        "previous_appearances": len(prior),
+        "comparison_intent": scope.get(
+            "comparison_intent", comparison_intent(question)
+        ),
+    }
     paragraphs = summary_paragraphs(
         player["player_name"],
-        [{**m, "change": m["display_change"]} for m in metrics + extra],
+        metrics + extra,
         scope,
         len(own),
         insights,
         display_policy["profile"],
     )
+    from app.agent.overview_insights import VERSION, select_insights
+
+    selected_insights = (
+        select_insights(
+            metrics + extra,
+            scope,
+            phase.replace("Regular Season", "regular-season")
+            .replace("Playoffs", "playoff")
+            .replace(" + ", " and "),
+            display_policy["profile"],
+        )
+        if own
+        else []
+    )
+    if selected_insights:
+        display_policy["takeaways"] = [
+            dict(
+                insight_id=f["id"],
+                area=f["area"],
+                title=f["title"],
+                text=f["summary"],
+                role="context",
+                icon="shield" if f["area"] == "Defensive activity" else "chart-bar",
+            )
+            for f in selected_insights
+        ]
+    if len(selected_insights) == 1 and selected_insights[0].get("game_variation"):
+        v = selected_insights[0]["game_variation"]
+        if (
+            scope["comparison_intent"]["requested_group"]
+            and not scope["comparison_intent"]["baseline_requested"]
+            and not selected_insights[0]["peer_keys"]
+        ):
+            # Keep the direct unavailable answer in prose; useful game evidence
+            # belongs in the sidebar instead of repeating the missing cohort.
+            display_policy["takeaways"] = []
+        display_policy["takeaways"].append(
+            dict(
+                insight_id=selected_insights[0]["id"],
+                area="Variation",
+                title="Game-to-game spread",
+                text=v["spread_text"],
+                role="context",
+                icon="chart-bar",
+            )
+        )
+        if v["peak_text"]:
+            display_policy["takeaways"].append(
+                dict(
+                    insight_id=selected_insights[0]["id"],
+                    area="Standout",
+                    title="Highest recorded game",
+                    text=v["peak_text"],
+                    role="context",
+                    icon="chart-bar",
+                )
+            )
+    from app.agent.overview_variation import FOCUS_METRICS
+
+    focus_key = FOCUS_METRICS[display_policy["profile"]]
+    focal_metric = next(m for m in metrics + extra if m["key"] == focus_key)
+    peer = focal_metric.get("peer_comparison", {})
+    requested = requested_group(question)
+    fulfilled = not requested or (
+        peer.get("kind") == "position" and peer.get("mode") != "withheld"
+    )
+    fulfillment = {
+        "status": "complete" if fulfilled else "partial",
+        "requested_group": requested,
+        "metric_key": focus_key,
+        "reason": None
+        if fulfilled
+        else peer.get("fallback_reason") or "ineligible_comparison",
+    }
+    if 0 < len(own) < contract.min_games:
+        display_policy["takeaways"] = []
     answer = "\n\n".join(paragraphs)
     return {
         **empty,
@@ -548,7 +669,12 @@ def build_overview(question, evidence, players, scope, selected=None):
         + [{k: m[k] for k in ("key", "label", "definition", "unit")} for m in extra],
         "semantic_evidence": {
             "presentation": display_policy,
+            "insight_version": VERSION,
+            "insights": selected_insights,
+            "request_fulfillment": fulfillment,
+            "snapshot_id": evidence.snapshot_id,
             "summary_paragraphs": paragraphs,
+            "summary_context": paragraphs[-1] if len(paragraphs) > 1 else "",
             "game_insights": insights,
             "scope": {
                 k: str(v) if isinstance(v, date) else v for k, v in scope.items()

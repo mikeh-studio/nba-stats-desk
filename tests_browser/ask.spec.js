@@ -24,6 +24,53 @@ async function submit(page, question) {
   await expect(page.locator('[data-agent-submit]')).toBeEnabled();
 }
 
+for (const width of [1280, 390]) {
+  test(`insight overview connects peer context and non-scoring production at ${width}px`, async ({page}, testInfo) => {
+    await page.setViewportSize({width, height:900});
+    const scenario = await prepare(page, 'balanced_overview');
+    await submit(page, scenario.turns[0].question);
+    const prose = page.locator('.overall-copy');
+    await expect(prose).toContainText('2.5 assists per game');
+    await expect(prose).toContainText('2.0 turnovers per game');
+    await expect(page.locator('.overview-scope')).toContainText('6 regular-season appearances');
+    await expect(prose.locator('p').first()).not.toContainText('This assessment covers');
+    await expect(prose).not.toContainText('exceeded');
+    await expect(prose).not.toContainText('positioning and assignments');
+    await expect(prose).not.toContainText('highest-scoring game');
+    await expect(page.locator('.takeaway')).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path:testInfo.outputPath(`balanced-overview-${width}.png`), fullPage:true});
+    // Frozen saved prose stays intact; an explicit new question gets new prose.
+    await page.evaluate(() => {
+      const key = 'askChatHistory:v1';
+      const history = JSON.parse(localStorage.getItem(key));
+      const payload = history.conversations[0].turns[0].payload;
+      payload.semantic_evidence.summary_paragraphs = ['Saved scoring-only assessment.'];
+      payload.answer = 'Saved scoring-only assessment.';
+      localStorage.setItem(key, JSON.stringify(history));
+    });
+    await page.reload();
+    await expect(prose).toContainText('Saved scoring-only assessment.');
+    await expect(prose).not.toContainText('2.5 assists');
+    await submit(page, scenario.turns[0].question);
+    await expect(prose).toContainText('2.5 assists per game');
+    await expect(prose).toContainText('2.0 turnovers per game');
+    await expect(page.locator('.overview-scope')).toContainText('6 regular-season appearances');
+    await expect(prose.locator('p').first()).not.toContainText('This assessment covers');
+  });
+}
+
+test('non-scoring wording selects creation chart and omits generic limitations', async ({page}) => {
+  const scenario = await prepare(page, 'balanced_non_scoring');
+  await submit(page, scenario.turns[0].question);
+  await expect(page.locator('.overall-copy')).toContainText('2.5 assists per game');
+  await expect(page.locator('.overall-copy')).toContainText('2.0 turnovers per game');
+  await expect(page.locator('.overall-copy')).not.toContainText('exceeded');
+  await expect(page.locator('.overall-copy')).not.toContainText(/Screens|secondary assists|overall defensive impact/);
+  await expect(page.locator('.overall-copy')).not.toContainText('True shooting');
+  await expect(page.locator('[data-chart-key="ast"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('comparison hides unavailable impact in fresh and legacy saved analyses', async ({page}, testInfo) => {
   const c = await prepare(page, 'two_player');
   await submit(page, c.turns[0].question);

@@ -193,13 +193,32 @@ focus metric, or PTS for general overviews; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and
 table/chart renderers instead of receiving invented overview insights.
 
-Supported broad overviews use three ordinary paragraphs: scoped scoring,
-playmaking and efficiency; a named comparison; then game-level variation.
-Stable scoring remains relevant and small rebound changes do not become the
-headline. Complete comparable data is required for changes, which use a display
-threshold of at least 0.1 and 2% of the current value. These are descriptive
-observations, not causal claims. The backend and browser share the same prose.
-Older saved responses retain a short fallback until the question is asked again.
+Broad overviews select up to three evidence-backed findings rather than narrating
+every metric. Scoring links personal-baseline changes with shot volume, true
+shooting and per-36 rates; creation pairs assists with turnovers and peer standing.
+A remaining slot may explain a material rebounding change or notable qualified
+steal/block production. These are recorded events, never defensive grades.
+Every category is considered; unchanged low-signal values remain in the table.
+Findings lead the copy; activity can be a supporting sentence. A final compact
+scope line retains sample counts, baseline dates and distinct cohort qualifications.
+Sidebar bodies pair each conclusion with its decisive supporting contrast.
+Peer comparisons require the current qualification policy and matching distribution
+cohort. Scope and baseline are explicit. Partial or thin evidence never creates
+comparisons; complete thin samples retain current values and a short sample note.
+Generic lists of unmeasured capabilities are omitted. Direct unsupported questions
+still receive an honest answer. Saved responses retain their original prose.
+
+Private backend events distinguish explicit capability requests from incidental
+evidence gaps and overview denominators. They contain allowlisted codes, request
+IDs, scope and evidence/version references, not raw questions or answers. See
+`docs/overview-insights.md` for monitoring and privacy boundaries.
+
+“Non-scoring stats,” “contribute/contributed beyond scoring,” “besides scoring”
+and “other than scoring” select the contribution profile before generic scoring
+matches. All-around/all-round requests select a broad overview. Multiple named
+focuses and explicit metric pairs retain semantic planning/clarification instead
+of silently becoming a single-focus overview. Focused scoring, playmaking,
+rebounding and defensive questions remain focused.
 
 Full playoff overviews compare with the same season's regular season. Season
 overviews compare with the corresponding prior-season dates; calendar windows
@@ -213,7 +232,9 @@ Finals-to-regular-season comparisons therefore remain unavailable.
 
 Game insights use the same scoped player appearances: scoring minimum, maximum,
 median, 20-point game count and a dated high (ties disclosed). Any missing scoring
-value withholds the distribution. Samples below five games carry a caution.
+value withholds the distribution. Scoring-distribution prose is reserved for the
+scoring focus, freeing the broad assessment for non-scoring coverage. Samples
+below five games carry a caution.
 Narrow metric requests, awards and unsupported requests remain concise. No-data
 responses do not pad out three paragraphs. All detailed metrics remain in the
 tables and evidence, with their original units.
@@ -788,3 +809,21 @@ coverage warnings and do not establish complete coverage of later seasons.
 Distribution buttons announce both the percentile or qualification status and
 the descriptive qualification note. Focused prose uses full statistic names such
 as three-pointers made and turnovers; metric tables keep their abbreviations.
+
+Position-aware Overview requests retain explicitly labeled league fallback when
+season-specific position evidence is unavailable. Supported comparison clauses,
+shared focused summaries and peer-evidence details follow the
+[position policy](overview-insights.md#position-comparisons-and-focused-profiles-v3).
+
+
+### Overview variation and requested-peer fulfillment
+
+Overview v4 separates HTTP delivery, arithmetic correctness, and fulfillment of
+an explicit position comparison. An unavailable requested cohort is partial,
+never an answered league substitute. Regression coverage includes metric-led
+openers, same-cohort per-36 context, independent quartiles, tied dated highs,
+missing games, tiny samples, and peaks outside the chart point cap. Re-run
+`tests/test_overview_variation.py`, distribution and Overview suites, plus the
+JavaScript suite and populated mobile/desktop charts after rendering changes.
+Frozen-source runs and synthetic position-group tests establish different things;
+real position comparisons require separately verified season membership.

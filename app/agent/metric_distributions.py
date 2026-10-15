@@ -79,6 +79,7 @@ def distribution(metric, cohort, own_rows, player_id):
             {
                 "game_id": row["game_id"],
                 "date": str(row.get("game_date", "")),
+                "opponent": row.get("opponent_abbr"),
                 "value": stats["value"] * scale,
                 "attempts": stats["components"].get(metric.attempt_field)
                 if metric.attempt_field
@@ -89,6 +90,17 @@ def distribution(metric, cohort, own_rows, player_id):
         )
     values = [p["value"] for p in points]
     discrete = metric.unit == "count"
+    # Use the full sample, before the displayed point cap. A highest-count
+    # game is descriptive, not a best-overall-performance or skill claim.
+    highest = None
+    if discrete and points and not missing:
+        peak = max(p["value"] for p in points)
+        tied = [p for p in points if p["value"] == peak]
+        highest = {
+            **tied[0],
+            "tied_games": len(tied),
+            "selection": "earliest_date_then_game_id",
+        }
     return {
         "version": "ask_metric_distribution/1",
         "quantile_method": "linear (n-1)",
@@ -99,6 +111,7 @@ def distribution(metric, cohort, own_rows, player_id):
         },
         "across_games": {
             "summary": describe(values),
+            "highest": highest,
             "bins": histogram(values, discrete),
             "observed_games": len(own_rows),
             "missing_games": missing,

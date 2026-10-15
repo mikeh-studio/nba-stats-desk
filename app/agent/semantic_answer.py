@@ -577,11 +577,25 @@ class SemanticAsk:
                 raise SemanticError(
                     intent["status"], intent["message"] or "Unsupported question"
                 )
+            from app.agent.overview_positions import (
+                comparison_intent,
+                peer_question,
+                requested_group,
+            )
             from app.agent.time_defaults import resolve_time_defaults
 
+            requested_comparison = comparison_intent(question)
+            position_group = requested_group(question)
             question, time_assumptions, period_options = resolve_time_defaults(
-                question, context=context
+                peer_question(question), context=context
             )
+            if position_group:
+                question += (
+                    " among "
+                    + {"Guard": "guards", "Wing": "wings", "Big": "big men"}[
+                        position_group
+                    ]
+                )
             from app.agent.routes import semantic_shape
 
             shape = semantic_shape(question)
@@ -596,6 +610,8 @@ class SemanticAsk:
                 if shape == "overview"
                 else None
             )
+            if overview and not comparison:
+                overview["comparison_intent"] = requested_comparison
             seasons = (
                 overview["seasons"]
                 if overview

@@ -7049,6 +7049,761 @@
         "availability"
       ],
       "variant_of": "availability_assists"
+    },
+    {
+      "id": "balanced_overview",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "Give me an overview of Avery Example in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "general"
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "scoring_context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_non_scoring",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "What were Avery Example\u2019s non-scoring stats in the 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "contribution"
+            },
+            {
+              "path": "semantic_evidence.presentation.primary_keys",
+              "equals": [
+                "ast",
+                "tov",
+                "reb",
+                "stl",
+                "blk",
+                "min"
+              ]
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "creation_context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_contribute",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "How did Avery Example contribute beyond scoring in the 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "contribution"
+            },
+            {
+              "path": "semantic_evidence.presentation.primary_keys",
+              "equals": [
+                "ast",
+                "tov",
+                "reb",
+                "stl",
+                "blk",
+                "min"
+              ]
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "creation_context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_besides",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "Give me an overview of Avery Example besides scoring in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "contribution"
+            },
+            {
+              "path": "semantic_evidence.presentation.primary_keys",
+              "equals": [
+                "ast",
+                "tov",
+                "reb",
+                "stl",
+                "blk",
+                "min"
+              ]
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "creation_context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_all_around",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "Give me an all-around assessment of Avery Example in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "general"
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "scoring_context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_scoring",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "Give me an overview of Avery Example\u2019s scoring in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "scoring"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_playmaking",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "How was Avery Example\u2019s playmaking in the 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "playmaking"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_defend",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "How did Avery Example defend in the 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "defense"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_rebounding",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "How was Avery Example\u2019s rebounding in the 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "rebounding"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_partial_scoring",
+      "family": "Overview coverage",
+      "source_variant": "missing_points",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "Give me an overview of Avery Example in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "general"
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "creation_context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_follow_non_scoring",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "Give me an overview of Avery Example in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "general"
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "scoring_context"
+            }
+          ]
+        },
+        {
+          "question": "What were his non-scoring stats?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "contribution"
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "creation_context"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "balanced_mixed",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "How did Avery Example\u2019s scoring and rebounding change in the 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ],
+          "planner_response": {
+            "status": "clarification_required",
+            "message": "Please specify the comparison period for these metrics.",
+            "queries": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "balanced_follow_pair",
+      "family": "Overview coverage",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Independent fictional row arithmetic remains asserted in metrics. Insight identities check selective presentation; prose relationships, null safety, peer qualification and private logging are independently evaluated in insight and endpoint tests.",
+      "turns": [
+        {
+          "question": "Give me an overview of Avery Example in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.presentation.profile",
+              "equals": "general"
+            },
+            {
+              "path": "semantic_evidence.insight_version",
+              "equals": "ask_overview_insights/4"
+            },
+            {
+              "path": "semantic_evidence.insights.0.id",
+              "equals": "scoring_context"
+            }
+          ]
+        },
+        {
+          "question": "What about his rebounds and turnovers?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ],
+          "planner_response": {
+            "status": "clarification_required",
+            "message": "Please specify the comparison period for these metrics.",
+            "queries": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "demand_screens",
+      "family": "Private tracking",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Unsupported capability requests stay truthful. Private backend event assertions are evaluated separately from the public response; raw text never enters the tracking event.",
+      "turns": [
+        {
+          "question": "How did Avery Example perform in screen assists in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "unsupported_scope"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demand_secondary",
+      "family": "Private tracking",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Unsupported capability requests stay truthful. Private backend event assertions are evaluated separately from the public response; raw text never enters the tracking event.",
+      "turns": [
+        {
+          "question": "How did Avery Example perform in secondary assists in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "unsupported_scope"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "feedback_overview",
+      "family": "Private tracking",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Unsupported capability requests stay truthful. Private backend event assertions are evaluated separately from the public response; raw text never enters the tracking event.",
+      "turns": [
+        {
+          "question": "Give me an overview of Avery Example in 2024-25. This repeats the table. Do not mention limitations.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            }
+          ]
+        }
+      ]
     }
   ]
 }
