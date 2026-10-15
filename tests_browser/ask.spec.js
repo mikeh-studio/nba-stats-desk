@@ -569,3 +569,29 @@ for (const width of [1280, 390]) {
     });
   }
 }
+
+for (const width of [1280,390]) {
+  test(`lost pending state without server history never revives older player at ${width}px`, async ({page}) => {
+    await page.setViewportSize({width,height:900});
+    const c = await prepare(page,'overview_pending_player_recovery');
+    await submit(page,c.turns[0].question);
+    await page.locator('[data-followup-question]').fill(c.turns[1].question);
+    await page.locator('[data-followup-submit]').click();
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    expect((await page.request.post('/__eval/reset-conversations')).ok()).toBe(true);
+    await page.reload();
+    const request = page.waitForRequest(r=>r.method()==='POST' && r.url().includes('/api/agent/ask/stream'));
+    await page.locator('[data-followup-question]').fill(c.turns[2].question);
+    await page.locator('[data-followup-submit]').click();
+    expect((await request).postDataJSON().previous_context).toBeUndefined();
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    await expect(page.locator('.overall-copy')).toHaveCount(1);
+    await expect(page.locator('.agent-turn').last()).toContainText('Which player');
+    await expect(page.locator('.agent-turn').last()).not.toContainText('7.0 points per game');
+    await page.locator('[data-followup-question]').fill('Give an overview of Blair Sample among guards in the 2024-25 regular season.');
+    await page.locator('[data-followup-submit]').click();
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    await expect(page.locator('.overall-copy').last()).toContainText('12.5 points per game');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+  });
+}

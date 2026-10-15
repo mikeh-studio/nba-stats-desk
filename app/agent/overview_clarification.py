@@ -97,13 +97,13 @@ def restored_overview_plan(payload):
         and marker.get("kind") in ("groups", "composition", "window_baseline")
     ):
         return {"overview_clarification": marker["kind"]}
-    # Older local history predates the marker. Recover only the recognized
-    # group intent; a single-group composition requires a fresh restatement.
-    # Unknown versions are treated conservatively, never executed as plans.
-    if payload.get("status") == "clarification_required":
+    # Absence identifies legacy records. A present null/unknown marker must
+    # retain ordinary player/date clarification rather than guessing composition.
+    if (
+        "overview_clarification" not in payload
+        and payload.get("status") == "clarification_required"
+    ):
         groups = requested_groups(str(payload.get("clarification_question", "")))
-        if groups:
-            return {
-                "overview_clarification": "groups" if len(groups) > 1 else "composition"
-            }
+        if len(groups) > 1:
+            return {"overview_clarification": "groups"}
     return None

@@ -290,10 +290,17 @@ players/dates override pending hints; rejected comparison constraints do not
 return through history concatenation.
 
 Local opt-in JSONL history retains `overview_clarification: {version: 1, kind}`
-for groups, composition, and window/baseline prompts. Restart recovery validates
-the marker; older/unknown markers recover only recognized group intent, with
-single-group compositions requiring a restatement. This adds no new history
-access or logging of conversations. JSON/SSE regressions replace the entire
+for groups, composition, and window/baseline prompts, and an explicit null kind
+for ordinary player/date clarifications. Restart recovery validates the marker;
+only legacy records with no marker and multiple groups infer a group prompt.
+Single-group and unknown markers retain ordinary clarification behavior. This
+adds no new history access or logging of conversations. JSON/SSE regressions replace the entire
 in-memory store before recovery from disk, including repeated clarifications,
 changed players, missing identities, and legacy history. Desktop/phone tests
 exercise the answered-player → different pending player → pronoun reply sequence.
+
+Browser restoration stops at the latest typed Overview clarification instead of
+sending the last answered player's context. If opt-in server history is disabled
+and pending state is lost, the next pronoun reply asks for an explicit player;
+it cannot silently resurrect an older answer. Existing live pending state and
+opt-in persisted history still recover normally.

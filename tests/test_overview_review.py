@@ -72,7 +72,7 @@ def ask(source, tmp_path, monkeypatch):
         {get_settings: lambda: config, get_repository: lambda: repo}
     )
 
-    def run(question, suffix, model=None, conversation_id=None):
+    def run(question, suffix, model=None, conversation_id=None, selection=None):
         # Unsupported shapes must clarify without attempting model generation.
         app.dependency_overrides[get_agent_client] = lambda: model or object()
         with TestClient(
@@ -80,7 +80,11 @@ def ask(source, tmp_path, monkeypatch):
         ) as client:
             response = client.post(
                 "/api/agent/ask" + suffix,
-                json={"question": question, "conversation_id": conversation_id},
+                json={
+                    "question": question,
+                    "conversation_id": conversation_id,
+                    **(selection or {}),
+                },
             )
             assert response.status_code == 200, response.text
             if not suffix:
@@ -697,7 +701,7 @@ def test_typed_recovery_survives_repeated_restarts(
         {"version": 1, "kind": ["groups"]},
     ],
 )
-def test_legacy_or_unknown_marker_uses_safe_group_recovery(ask, suffix, marker):
+def test_legacy_group_recovery_and_unknown_marker_fail_safe(ask, suffix, marker):
     from uuid import uuid4
 
     cid = str(uuid4())
@@ -720,8 +724,12 @@ def test_legacy_or_unknown_marker_uses_safe_group_recovery(ask, suffix, marker):
         path.write_text("".join(json.dumps(record) + "\n" for record in records))
     ask.restart()
     result = ask("Guards", suffix, conversation_id=cid)
-    assert result["status"] == "ok"
-    assert result["semantic_evidence"]["player_id"] == 2
+    if marker is None:
+        assert result["status"] == "ok"
+        assert result["semantic_evidence"]["player_id"] == 2
+    else:
+        assert result["status"] == "clarification_required"
+        assert not result.get("semantic_evidence")
 
 
 @pytest.mark.parametrize("suffix", ["", "/stream"])
@@ -737,3 +745,38 @@ def test_appearance_window_is_not_widened_during_pronoun_recovery(ask, suffix):
     result = ask("How was his scoring among guards?", suffix, conversation_id=cid)
     assert result["status"] == "clarification_required"
     assert not result.get("semantic_evidence")
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize("selected", [False, True])
+@pytest.mark.parametrize("legacy", [False, True])
+def test_untyped_player_clarification_recovers_after_restart(
+    ask, suffix, selected, legacy
+):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    first = ask(
+        "Give an overview of Missing Player among guards in the 2024-25 regular season.",
+        suffix,
+        conversation_id=cid,
+    )
+    assert first["status"] == "clarification_required"
+    if legacy:
+        for path in ask.history.rglob("*.jsonl"):
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+            for record in records:
+                record["payload"].pop("overview_clarification", None)
+            path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    ask.restart()
+    result = ask(
+        "Example 2",
+        suffix,
+        conversation_id=cid,
+        selection={"selected_player_id": 2, "selected_player_name": "Example 2"}
+        if selected
+        else None,
+    )
+    assert result["status"] == "ok"
+    assert result["semantic_evidence"]["player_id"] == 2
+    assert result["semantic_evidence"]["scope"]["start"] == "2024-07-01"

@@ -6,7 +6,7 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261015-overview-intent-v6";
+} from "./ask_comparison.js?v=20261015-overview-recovery-v7";
 import {
   normalizeTabs,
   openTab,
@@ -20,8 +20,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261015-overview-intent-v6";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261015-overview-intent-v6";
+} from "./ask_presentation.js?v=20261015-overview-recovery-v7";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261015-overview-recovery-v7";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1883,8 +1883,12 @@ function buildAskBody(question, selection, conversationId = activeConversationId
   const previous = [...(conversation?.turns || [])]
     .reverse()
     .find((turn) => turn.payload?.status === "ok" ||
+      (turn.payload?.status === "clarification_required" &&
+        ["groups", "composition", "window_baseline"].includes(turn.payload?.overview_clarification?.kind)) ||
       (turn.payload?.status == null && turn.payload?.availability_scope && turn.payload?.availability_evidence));
-  if (previous) {
+  // A typed Overview prompt supersedes older answered context. If history is
+  // unavailable after restart, clarify instead of resurrecting another player.
+  if (previous && previous.payload?.status !== "clarification_required") {
     const payload = previous.payload;
     const evidence = payload.semantic_evidence || {};
     const canonical = payload.conversation_context;

@@ -1114,11 +1114,10 @@ class SemanticAsk:
         payload["conversation_id"] = conversation_id
         if payload["status"] == "clarification_required":
             payload["clarification_question"] = question
-            if overview_pending:
-                payload["overview_clarification"] = {
-                    "version": 1,
-                    "kind": overview_pending["overview_clarification"],
-                }
+            payload["overview_clarification"] = {
+                "version": 1,
+                "kind": (overview_pending or {}).get("overview_clarification"),
+            }
         payload["agent_plan"] = {
             "route": "governed_metrics",
             "confidence": 1.0,
