@@ -8120,6 +8120,79 @@
           ]
         }
       ]
+    },
+    {
+      "id": "overview_pending_player_recovery",
+      "family": "Overview conversations",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "An answered Avery April overview must not override pending Blair regular-season identity/scope. Blair has 75 points in 6 regular-season appearances: 12.5 per game.",
+      "turns": [
+        {
+          "question": "Give an overview of Avery Example in April 2025.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2025-04-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-04-30"
+            },
+            {
+              "path": "semantic_evidence.metrics.0.value",
+              "equals": 7
+            }
+          ]
+        },
+        {
+          "question": "Give an overview of Blair Sample among guards and wings in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "How was his scoring among guards?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 202
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.scope.phases",
+              "equals": [
+                "Regular Season"
+              ]
+            },
+            {
+              "path": "semantic_evidence.metrics.0.value",
+              "equals": 12.5
+            }
+          ]
+        }
+      ]
     }
   ]
 }

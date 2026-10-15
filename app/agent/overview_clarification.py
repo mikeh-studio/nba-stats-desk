@@ -61,8 +61,8 @@ def resume_overview(question, pending):
         re.I,
     )
     if not baseline_reply:
-        # Restatements keep normal identity/date resolution, never raw history
-        # concatenation. Explicit new dates supersede the prior answer's dates.
+        # Restatements resolve only against the pending request. Explicit new
+        # identities and dates supersede those hints, never an older answer.
         if re.match(
             r"^\s*(?:give|show|how|what|who|which|compare|tell|analy[sz]e|summari[sz]e|overview|profile|stats|statistics)\b",
             text,
@@ -84,3 +84,26 @@ def resume_overview(question, pending):
         "or ask for a two-player scorecard without a group comparison."
     )
     return pending.question, OverviewClarification(kind, message), False
+
+
+def restored_overview_plan(payload):
+    """Only recognized, versioned markers can restore a typed clarification."""
+    marker = payload.get("overview_clarification")
+    if (
+        payload.get("status") == "clarification_required"
+        and isinstance(marker, dict)
+        and type(marker.get("version")) is int
+        and marker["version"] == 1
+        and marker.get("kind") in ("groups", "composition", "window_baseline")
+    ):
+        return {"overview_clarification": marker["kind"]}
+    # Older local history predates the marker. Recover only the recognized
+    # group intent; a single-group composition requires a fresh restatement.
+    # Unknown versions are treated conservatively, never executed as plans.
+    if payload.get("status") == "clarification_required":
+        groups = requested_groups(str(payload.get("clarification_question", "")))
+        if groups:
+            return {
+                "overview_clarification": "groups" if len(groups) > 1 else "composition"
+            }
+    return None

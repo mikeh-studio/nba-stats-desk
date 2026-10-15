@@ -636,11 +636,14 @@ def _restore_agent_context(
             for turn in saved[0]["turns"]:
                 stored_payload = turn["payload"]
                 if stored_payload.get("status") == "clarification_required":
+                    from app.agent.overview_clarification import restored_overview_plan
+
                     store.set_pending_clarification(
                         conversation_id,
                         question=stored_payload.get("clarification_question")
                         or turn["question"],
-                        query_plan=stored_payload.get("semantic_plan"),
+                        query_plan=restored_overview_plan(stored_payload)
+                        or stored_payload.get("semantic_plan"),
                     )
                 elif successful_analysis(stored_payload):
                     next_context = analysis_context(turn["question"], stored_payload)

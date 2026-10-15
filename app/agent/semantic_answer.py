@@ -478,9 +478,20 @@ class SemanticAsk:
         if pending and (pending.query_plan or {}).get("overview_clarification"):
             question, resume_error, restated = resume_overview(question, pending)
             resumed_overview = True
+            context = {}
+            if restated:
+                from app.agent.overview_clarification_context import (
+                    pending_overview_context,
+                )
+
+                try:
+                    context = pending_overview_context(
+                        question, pending, self.settings.season, self.warehouse
+                    )
+                except OverviewClarification as exc:
+                    resume_error = exc
+                    question = pending.question
             pending = None
-            if not restated:
-                context = {}
         leader_plan = contextual_leader_plan(original, context, self.settings.season)
         if leader_plan:
             # A fully restated supported request supersedes an earlier mistaken
@@ -1103,6 +1114,11 @@ class SemanticAsk:
         payload["conversation_id"] = conversation_id
         if payload["status"] == "clarification_required":
             payload["clarification_question"] = question
+            if overview_pending:
+                payload["overview_clarification"] = {
+                    "version": 1,
+                    "kind": overview_pending["overview_clarification"],
+                }
         payload["agent_plan"] = {
             "route": "governed_metrics",
             "confidence": 1.0,

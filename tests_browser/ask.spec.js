@@ -534,7 +534,7 @@ for (const width of [1280,390]) {
 }
 
 for (const width of [1280, 390]) {
-  for (const id of ['overview_group_recovery', 'overview_pair_recovery', 'overview_window_recovery', 'overview_prior_answer_recovery']) {
+  for (const id of ['overview_group_recovery', 'overview_pair_recovery', 'overview_window_recovery', 'overview_prior_answer_recovery', 'overview_pending_player_recovery']) {
     test(`overview clarification recovers in the same conversation: ${id} at ${width}px`, async ({page}, testInfo) => {
       await page.setViewportSize({width, height:900});
       const c = await prepare(page, id);
@@ -543,7 +543,7 @@ for (const width of [1280, 390]) {
         if (r.method() === 'POST' && r.url().includes('/api/agent/ask/stream')) posts.push(r.postDataJSON());
       });
       // April includes 8 games totaling 56 points; the regular season has 30/6.
-      const expected = id === 'overview_window_recovery' ? '7.0 points per game' : '5.0 points per game';
+      const expected = id === 'overview_pending_player_recovery' ? '12.5 points per game' : id === 'overview_window_recovery' ? '7.0 points per game' : '5.0 points per game';
       await submit(page, c.turns[0].question);
       let populated = c.turns[0].checks[0].equals === 'ok' ? 1 : 0;
       await expect(page.locator('.overall-copy')).toHaveCount(populated);
@@ -555,6 +555,10 @@ for (const width of [1280, 390]) {
         await expect(page.locator('.overall-copy')).toHaveCount(populated);
       }
       await expect(page.locator('.overall-copy').last()).toContainText(expected);
+      if (id === 'overview_pending_player_recovery') {
+        await expect(page.locator('.agent-turn').last()).toContainText('Blair Sample');
+        await expect(page.locator('.agent-turn').last()).not.toContainText('Avery Example');
+      }
       await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(1);
       expect(posts).toHaveLength(c.turns.length);
       expect(new Set(posts.map(p => p.conversation_id)).size).toBe(1);

@@ -273,10 +273,27 @@ two-player detection; actual named-player comparisons retain both identities.
 Regression coverage includes same-conversation JSON/SSE sequences and populated
 desktop/phone browser recovery, in addition to single-question reporting checks.
 
-Restatements retain normal pronoun resolution while explicit new dates supersede
-the last answered scope. Resuming a typed clarification never concatenates the
+Restatements resolve pronouns from the pending request while explicit new dates
+supersede its scope. Resuming a typed clarification never concatenates the
 previous question's raw text. Common polite lead-ins and named-player cohort
 profiles are accepted as restatements. Group choices accept forwards/centers
 aliases and comma-separated lists. Baseline-only fragments remain clarifications
 even when an earlier answered turn supplies an identity. Tests include an
 answered month, a group clarification, and a pronoun restatement for a full season.
+
+Pending Overview clarifications own their conversational context: replies inherit
+identity and omitted current dates/phases from that pending request, never the
+last completed answer. Pronouns require exactly one identity revalidated against
+the bounded statistical source. Ambiguous or missing identities and appearance
+windows that cannot be preserved request an explicit restatement. New explicit
+players/dates override pending hints; rejected comparison constraints do not
+return through history concatenation.
+
+Local opt-in JSONL history retains `overview_clarification: {version: 1, kind}`
+for groups, composition, and window/baseline prompts. Restart recovery validates
+the marker; older/unknown markers recover only recognized group intent, with
+single-group compositions requiring a restatement. This adds no new history
+access or logging of conversations. JSON/SSE regressions replace the entire
+in-memory store before recovery from disk, including repeated clarifications,
+changed players, missing identities, and legacy history. Desktop/phone tests
+exercise the answered-player → different pending player → pronoun reply sequence.

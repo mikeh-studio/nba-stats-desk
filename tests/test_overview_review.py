@@ -53,11 +53,16 @@ def source():
 
 
 @pytest.fixture
-def ask(source):
+def ask(source, tmp_path, monkeypatch):
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
 
-    config = replace(settings("2024-25"), performance_cache_prewarm_enabled=False)
+    config = replace(
+        settings("2024-25"),
+        performance_cache_prewarm_enabled=False,
+        agent_history_enabled=True,
+        agent_history_path=str(tmp_path / "history.jsonl"),
+    )
     repo = BigQueryWarehouseRepository(config, client=SimpleNamespace())
     repo._governed_warehouse = SimpleNamespace(
         load=lambda seasons: ({"capture": {}}, source)
@@ -70,7 +75,9 @@ def ask(source):
     def run(question, suffix, model=None, conversation_id=None):
         # Unsupported shapes must clarify without attempting model generation.
         app.dependency_overrides[get_agent_client] = lambda: model or object()
-        with TestClient(app) as client:
+        with TestClient(
+            app, base_url="http://localhost", client=("127.0.0.1", 12345)
+        ) as client:
             response = client.post(
                 "/api/agent/ask" + suffix,
                 json={"question": question, "conversation_id": conversation_id},
@@ -85,6 +92,17 @@ def ask(source):
                 and json.loads(line[6:]).get("type") == "final"
             )
 
+    from app import main
+    from app.agent.conversation import InMemoryConversationStore
+
+    stores = {}
+    monkeypatch.setattr(
+        main,
+        "_season_conversation_store",
+        lambda season: stores.setdefault(season, InMemoryConversationStore()),
+    )
+    run.restart = stores.clear
+    run.history = tmp_path
     yield run
     app.dependency_overrides.clear()
     app.dependency_overrides.update(old)
@@ -536,3 +554,186 @@ def test_baseline_fragment_after_answer_is_not_new_current_period(ask, suffix, r
     result = ask(reply, suffix, conversation_id=cid)
     assert result["status"] == "clarification_required"
     assert result.get("semantic_evidence") is None
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize("restart", [False, True])
+def test_clarified_player_and_season_replace_last_answer(ask, suffix, restart):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 1 in November 2024.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "ok"
+    )
+    pending = ask(
+        "Give an overview of Example 2 among guards and wings in the 2024-25 regular season.",
+        suffix,
+        conversation_id=cid,
+    )
+    assert pending["status"] == "clarification_required"
+    if restart:
+        ask.restart()
+    result = ask("How was his scoring among guards?", suffix, conversation_id=cid)
+    assert result["status"] == "ok"
+    e = result["semantic_evidence"]
+    assert e["player_id"] == 2
+    assert (e["scope"]["start"], e["scope"]["end"]) == ("2024-07-01", "2025-06-30")
+    assert e["scope"]["phases"] == ["Regular Season"]
+    assert next(m for m in e["metrics"] if m["key"] == "pts")["value"] == 2
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_group_choice_recovers_from_persisted_history(ask, suffix):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    first = ask(
+        "Give an overview of Example 2 among guards and wings in 2024-25.",
+        suffix,
+        conversation_id=cid,
+    )
+    assert first["status"] == "clarification_required"
+    ask.restart()
+    result = ask("Guards", suffix, conversation_id=cid)
+    assert result["status"] == "ok"
+    assert result["semantic_evidence"]["player_id"] == 2
+    assert (
+        result["semantic_evidence"]["request_fulfillment"]["requested_group"] == "Guard"
+    )
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "pending_player", ["Example 2 and Example 3", "Missing Player"]
+)
+def test_pending_identity_must_resolve_uniquely_after_restart(
+    ask, suffix, pending_player
+):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 1 in November 2024.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "ok"
+    )
+    question = (
+        f"Give an overview of {pending_player} among guards and wings in 2024-25."
+    )
+    assert (
+        ask(question, suffix, conversation_id=cid)["status"] == "clarification_required"
+    )
+    ask.restart()
+    result = ask("How was his scoring among guards?", suffix, conversation_id=cid)
+    assert result["status"] == "clarification_required"
+    assert result["clarification_question"].startswith(question)
+    assert not result.get("semantic_evidence")
+    # The user can disambiguate explicitly, even after another restart.
+    ask.restart()
+    fixed = ask(
+        "Give an overview of Example 3 among guards in the 2023-24 regular season.",
+        suffix,
+        conversation_id=cid,
+    )
+    assert fixed["status"] == "ok"
+    assert fixed["semantic_evidence"]["player_id"] == 3
+    assert fixed["semantic_evidence"]["scope"]["start"] == "2023-07-01"
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "kind,question,fragment",
+    [
+        (
+            "composition",
+            "Compare Example 1 with Example 2 among guards in 2024-25.",
+            "Guards",
+        ),
+        (
+            "window_baseline",
+            "How was Example 2's scoring in November 2024 compared with the previous season and other guards?",
+            "What about November 2023?",
+        ),
+    ],
+)
+def test_typed_recovery_survives_repeated_restarts(
+    ask, suffix, kind, question, fragment
+):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    first = ask(question, suffix, conversation_id=cid)
+    assert first["status"] == "clarification_required"
+    assert first["overview_clarification"] == {"version": 1, "kind": kind}
+    ask.restart()
+    again = ask(fragment, suffix, conversation_id=cid)
+    assert again["status"] == "clarification_required"
+    assert again["overview_clarification"] == first["overview_clarification"]
+    ask.restart()
+    fixed = ask(
+        "Give an overview of Example 2 among guards in the 2024-25 regular season.",
+        suffix,
+        conversation_id=cid,
+    )
+    assert fixed["status"] == "ok"
+    assert fixed["semantic_evidence"]["player_id"] == 2
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "marker",
+    [
+        None,
+        {"version": 999, "kind": "groups"},
+        {"version": True, "kind": "groups"},
+        {"version": 1, "kind": ["groups"]},
+    ],
+)
+def test_legacy_or_unknown_marker_uses_safe_group_recovery(ask, suffix, marker):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 2 among guards and wings in 2024-25.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "clarification_required"
+    )
+    paths = list(ask.history.rglob("*.jsonl"))
+    assert paths
+    for path in paths:
+        records = [json.loads(line) for line in path.read_text().splitlines()]
+        for record in records:
+            record["payload"].pop("overview_clarification", None)
+            if marker is not None:
+                record["payload"]["overview_clarification"] = marker
+        path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    ask.restart()
+    result = ask("Guards", suffix, conversation_id=cid)
+    assert result["status"] == "ok"
+    assert result["semantic_evidence"]["player_id"] == 2
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_appearance_window_is_not_widened_during_pronoun_recovery(ask, suffix):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    question = "Give an overview of Example 2 among guards and wings in his first two appearances of 2024-25."
+    assert (
+        ask(question, suffix, conversation_id=cid)["status"] == "clarification_required"
+    )
+    ask.restart()
+    result = ask("How was his scoring among guards?", suffix, conversation_id=cid)
+    assert result["status"] == "clarification_required"
+    assert not result.get("semantic_evidence")
