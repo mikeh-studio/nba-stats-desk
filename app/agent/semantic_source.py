@@ -37,6 +37,7 @@ def snapshot_evidence(snapshot: dict[str, Any]) -> Evidence:
         snapshot_id=snapshot["sha256"],
         data_through={(c["season"], c["phase"]): c["data_through"] for c in coverage},
         complete=True,
+        position_context=snapshot.get("position_context"),
     )
     evidence.validate()
     return evidence
@@ -61,6 +62,7 @@ class BigQuerySemanticSource:
         *,
         project: str,
         gold_dataset: str = "nba_gold",
+        position_context_path: str | None = None,
         max_rows: int = 100_000,
         maximum_bytes_billed: int = 100_000_000,
     ):
@@ -75,6 +77,7 @@ class BigQuerySemanticSource:
             or not 1 <= maximum_bytes_billed <= 1_000_000_000
         ):
             raise SemanticError("invalid_scope", "Byte budget must be 1..1000000000")
+        self.position_context_path = position_context_path
         self.client = client
         self.project = project
         self.dataset = gold_dataset
@@ -199,6 +202,16 @@ class BigQuerySemanticSource:
                 "Retrospective corrected facts, not historical ingestion knowledge.",
             ],
         }
+        if self.position_context_path:
+            path = Path(self.position_context_path)
+            try:
+                if path.stat().st_size > 1_000_000:
+                    raise ValueError("size")
+                snapshot["position_context"] = json.loads(path.read_text())
+            except (OSError, ValueError) as exc:
+                raise SemanticError(
+                    "invalid_evidence", "Configured position context could not be read"
+                ) from exc
         snapshot["sha256"] = snapshot_digest(snapshot)
         snapshot_evidence(snapshot)
         return snapshot

@@ -845,3 +845,17 @@ test("a delivered final answer survives a failing stream teardown", async () => 
   assert.equal(agent.runtimeFor(id).error, null);
   assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===id).turns[0].payload.answer, "Completed answer");
 });
+
+test("unresolved clarification blocks older successful browser context", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  agent.persistHistoryTurn("Avery in April", {conversation_id:id,status:"ok",conversation_context:{players:[{player_id:101,player_name:"Avery Example"}],scope:{start:"2025-04-01",end:"2025-04-30"}}});
+  assert.equal(agent.buildAskBody("his scoring").previous_context.players[0].player_id,101);
+  agent.persistHistoryTurn("Blair among guards and wings", {conversation_id:id,status:"clarification_required",overview_clarification:{version:1,kind:"groups"}});
+  assert.equal(agent.buildAskBody("How was his scoring among guards?").previous_context,undefined);
+  agent.persistHistoryTurn("retry", {conversation_id:id,status:"error"});
+  assert.equal(agent.buildAskBody("his scoring").previous_context,undefined);
+  agent.persistHistoryTurn("Blair in 2024-25", {conversation_id:id,status:"ok",conversation_context:{players:[{player_id:202,player_name:"Blair Sample"}],scope:{start:"2024-07-01",end:"2025-06-30"}}});
+  assert.equal(agent.buildAskBody("his scoring").previous_context.players[0].player_id,202);
+});

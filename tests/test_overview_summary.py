@@ -11,6 +11,9 @@ def metric(key, value, change=None, missing=0):
             "ast": "Assists",
             "min": "MIN",
             "ts_pct": "TS%",
+            "tov": "Turnovers",
+            "stl": "Steals",
+            "blk": "Blocks",
         }[key],
         "value": value,
         "change": change,
@@ -24,67 +27,36 @@ def summarize(metrics, appearances=43):
     )
 
 
-def test_three_paragraph_assessment_keeps_scoring_when_rebounds_change():
+def test_selective_assessment_explains_non_scoring_change():
     paragraphs = summarize(
-        [
-            metric("pts", 26.6, 0.01),
-            metric("reb", 3.6, 0.3),
-            metric("ast", 4.7, -1.3),
-            metric("min", 31, -1.2),
-            metric("ts_pct", 63.7, 1.9),
-        ]
+        [metric("pts", 26.6, 0.01), metric("ast", 4.7, -1.3), metric("tov", 2.7, 0.3)]
     )
+    text = " ".join(paragraphs)
+    assert "26.6 points" in text and "broadly in line with his baseline" in text
+    assert "Turnovers rose 0.3" in text
+    assert "assists fell 1.3" in text
+    assert "43 regular-season appearances" in text
     assert len(paragraphs) == 3
-    assert "26.6 points and 4.7 assists" in paragraphs[0]
-    assert "63.7%" in paragraphs[0]
-    assert "rebounds" not in paragraphs[0]
-    assert "scoring stayed broadly similar" in paragraphs[1]
-    assert "true shooting rose 1.9 percentage points" in paragraphs[1]
-    assert "Minutes per game fell 1.2" in paragraphs[1]
-    assert "43 regular-season appearances" in paragraphs[0]
-    assert "Complete game-level scoring is unavailable" in paragraphs[2]
 
 
-@pytest.mark.parametrize(
-    "change,phrase",
-    [
-        (None, "comparison with the previous period is unavailable"),
-        (0.01, "broadly similar"),
-        (-2, "scoring fell 2.0 per game"),
-    ],
-)
-def test_missing_stable_and_negative_baselines(change, phrase):
-    text = " ".join(summarize([metric("pts", 20, change)]))
-    assert phrase in text
-    assert "improved" not in text
-
-
-@pytest.mark.parametrize(
-    "value,change,missing", [(None, None, 0), (62, None, 0), (62, 3, 1)]
-)
-def test_efficiency_claim_requires_complete_comparable_data(value, change, missing):
+@pytest.mark.parametrize("value,missing", [(None, 0), (62, 1)])
+def test_incomplete_efficiency_is_not_reported(value, missing):
     text = " ".join(
-        summarize([metric("pts", 20, 2), metric("ts_pct", value, change, missing)])
+        summarize([metric("pts", 20, 2), metric("ts_pct", value, 3, missing)])
     )
-    assert "true shooting rose" not in text
-    assert "true shooting fell" not in text
-    if missing or value is None:
-        assert "True shooting was" not in text
+    assert "True shooting moved" not in text
 
 
-def test_missing_primary_uses_complete_metric_and_discloses_partial_data():
+def test_missing_primary_retains_complete_rebounding():
     text = " ".join(summarize([metric("pts", 20, None, 1), metric("reb", 8, 2)]))
-    assert "incomplete scoring" in text
-    assert "20.0 points" not in text
-    assert "Partial data for Points" in text
+    assert "20.0 points" not in text and "Rebounds rose 2.0 to 8.0 per game" in text
+    assert "incomplete" not in text
 
 
-def test_zero_appearances_and_thin_sample_are_explicit():
+def test_no_appearances_and_thin_sample():
     assert "No recorded appearances" in summarize([], 0)[0]
     assert "small sample" in " ".join(summarize([metric("pts", 20)], 2))
-    text = " ".join(summarize([metric("pts", None)], 2))
-    assert "incomplete scoring" in text
-    assert "0.0" not in text
+    assert "0.0" not in " ".join(summarize([metric("pts", None)], 2))
 
 
 def test_game_facts_and_prose_reconcile_with_outlier_and_tied_peak():
@@ -108,12 +80,18 @@ def test_game_facts_and_prose_reconcile_with_outlier_and_tied_peak():
         threshold_games=3,
     )
     paragraphs = summary_paragraphs(
-        "Example Player", [metric("pts", 26)], {"phases": ["Playoffs"]}, 5, facts
+        "Example Player",
+        [metric("pts", 26)],
+        {"phases": ["Playoffs"]},
+        5,
+        facts,
+        profile="scoring",
     )
-    assert "3 of 5 appearances" in paragraphs[2]
-    assert "median of 20.0" in paragraphs[2]
-    assert "One of the highest-scoring games" in paragraphs[2]
-    assert len(" ".join(paragraphs).split()) <= 180
+    # Range/peak evidence remains inspectable; the focused narrative no longer
+    # repeats a fixed third paragraph of game facts.
+    assert len(paragraphs) == 2
+    assert "26.0 points per game" in paragraphs[0]
+    assert paragraphs[-1].startswith("Scope:")
 
 
 def test_incomplete_game_scoring_withholds_distribution():

@@ -468,6 +468,30 @@ class SemanticAsk:
             context = {}
             pending = None
             selected_player = None
+        from app.agent.overview_clarification import (
+            OverviewClarification,
+            resume_overview,
+        )
+
+        resume_error = None
+        resumed_overview = False
+        if pending and (pending.query_plan or {}).get("overview_clarification"):
+            question, resume_error, restated = resume_overview(question, pending)
+            resumed_overview = True
+            context = {}
+            if restated:
+                from app.agent.overview_clarification_context import (
+                    pending_overview_context,
+                )
+
+                try:
+                    context = pending_overview_context(
+                        question, pending, self.settings.season, self.warehouse
+                    )
+                except OverviewClarification as exc:
+                    resume_error = exc
+                    question = pending.question
+            pending = None
         leader_plan = contextual_leader_plan(original, context, self.settings.season)
         if leader_plan:
             # A fully restated supported request supersedes an earlier mistaken
@@ -486,7 +510,7 @@ class SemanticAsk:
                 question = pending.question
             else:
                 question = f"{pending.question}\nClarification: {question}"
-        elif store and not context:
+        elif store and not context and not resumed_overview:
             if turns and re.search(
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
             ):
@@ -507,7 +531,11 @@ class SemanticAsk:
                     "required_tools": ["governed_metrics"],
                 }
             )
+        request_question = question
+        overview_pending = None
         try:
+            if resume_error:
+                raise resume_error
             notice = None
             prior_award = context.get("award_evidence") or {}
             if (
@@ -570,6 +598,14 @@ class SemanticAsk:
                 question = award["performance_question"]
                 inherited = {}
                 selected_player = {k: award[k] for k in ("player_id", "player_name")}
+            from app.agent.overview_positions import requested_groups
+
+            groups = requested_groups(question)
+            if len(groups) > 1:
+                raise OverviewClarification(
+                    "groups",
+                    "Choose one comparison group: guards, wings/forwards, or bigs/centers. Multiple groups need separate comparisons.",
+                )
             intent = question_intent(question)
             if award:
                 intent["kind"] = "award_lookup_then_performance"
@@ -577,11 +613,44 @@ class SemanticAsk:
                 raise SemanticError(
                     intent["status"], intent["message"] or "Unsupported question"
                 )
+            from app.agent.overview_positions import (
+                comparison_intent,
+                peer_question,
+                requested_group,
+            )
             from app.agent.time_defaults import resolve_time_defaults
 
+            requested_comparison = comparison_intent(question)
+            position_group = requested_group(question)
+            from app.agent.routes import semantic_shape
+
+            initial_shape = semantic_shape(question)
+            if position_group and initial_shape != "overview":
+                # A cohort constraint must not disappear in a scalar/league plan
+                # or a two-player scorecard that cannot represent it.
+                message = (
+                    "Choose a two-player scorecard without a group ranking, or name one player for a comparison with "
+                    + {
+                        "Guard": "guards",
+                        "Wing": "wings/forwards",
+                        "Big": "bigs/centers",
+                    }[position_group]
+                    + "."
+                    if initial_shape == "player_comparison"
+                    else "Position comparisons currently need one player and a broad scoring, playmaking, rebounding, or defensive-activity question. Please specify that comparison."
+                )
+                raise OverviewClarification("composition", message)
             question, time_assumptions, period_options = resolve_time_defaults(
-                question, context=context
+                peer_question(question) if initial_shape == "overview" else question,
+                context=context,
             )
+            if position_group:
+                question += (
+                    " among "
+                    + {"Guard": "guards", "Wing": "wings", "Big": "big men"}[
+                        position_group
+                    ]
+                )
             from app.agent.routes import semantic_shape
 
             shape = semantic_shape(question)
@@ -592,10 +661,14 @@ class SemanticAsk:
             overview = (
                 comparison_scope(question, self.settings.season)
                 if comparison
-                else overview_scope(question, self.settings.season)
+                else overview_scope(
+                    question, self.settings.season, comparison=requested_comparison
+                )
                 if shape == "overview"
                 else None
             )
+            if overview and not comparison:
+                overview["comparison_intent"] = requested_comparison
             seasons = (
                 overview["seasons"]
                 if overview
@@ -681,7 +754,9 @@ class SemanticAsk:
                     overview = (
                         comparison_scope(question, used)
                         if comparison
-                        else overview_scope(question, used)
+                        else overview_scope(
+                            question, used, comparison=requested_comparison
+                        )
                     )
                     overview["seasons"] = seasons
                 if used != self.settings.season:
@@ -1004,6 +1079,9 @@ class SemanticAsk:
                 }
             ]
         except SemanticError as exc:
+            if isinstance(exc, OverviewClarification):
+                overview_pending = {"overview_clarification": exc.kind}
+                question = request_question
             payload = _payload(str(exc), exc.code)
             if award:
                 payload["answer"] = (
@@ -1036,6 +1114,10 @@ class SemanticAsk:
         payload["conversation_id"] = conversation_id
         if payload["status"] == "clarification_required":
             payload["clarification_question"] = question
+            payload["overview_clarification"] = {
+                "version": 1,
+                "kind": (overview_pending or {}).get("overview_clarification"),
+            }
         payload["agent_plan"] = {
             "route": "governed_metrics",
             "confidence": 1.0,
@@ -1055,7 +1137,7 @@ class SemanticAsk:
                 store.set_pending_clarification(
                     conversation_id,
                     question=question,
-                    query_plan=payload.get("semantic_plan"),
+                    query_plan=overview_pending or payload.get("semantic_plan"),
                 )
             else:
                 store.clear_pending_clarification(conversation_id)

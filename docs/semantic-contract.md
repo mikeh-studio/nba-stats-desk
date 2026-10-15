@@ -138,7 +138,10 @@ explicit intent or a metric-preserving continuation of an existing fantasy
 analysis; otherwise Ask requests clarification before executing the query.
 
 Overview prose is deterministic and shared between the API answer and the UI
-through `semantic_evidence.summary_paragraphs`. Summary comparisons use the
+through `semantic_evidence.summary_paragraphs`. Broad responses lead with findings;
+`summary_context` identifies a final scope paragraph (including baseline game
+count and distinct peer qualifications) for compact UI rendering without changing
+the canonical answer. Summary comparisons use the
 already-validated metric changes, never differences between rounded display
 values. Partial metrics cannot support headline, efficiency, or minutes claims.
 Percentages and per-36 rates are not appended to a per-game sentence; the full
@@ -148,7 +151,13 @@ Overview comparison scope includes `previous_phases`, alongside explicit date
 bounds and a display label. Full playoffs use same-season regular-season
 appearances as the baseline; source coverage is checked independently for both
 phases. `semantic_evidence.game_insights` records the scoring distribution and
-peak game identity used in paragraph three. Distribution claims require complete
+peak game identity used in focused scoring prose. Broad prose selects supported relationships across scoring opportunity, efficiency,
+creation and non-scoring activity. It does not require every value in the prose.
+`semantic_evidence.insights` records selected claim IDs and supporting metric keys.
+Peer prose requires versioned qualification and matching cohort distribution data. Summary and
+takeaways share comparison eligibility and the display-change threshold; raw
+changes cannot bypass an explicitly suppressed `display_change`. No new metric
+or composite impact calculation is introduced. Distribution claims require complete
 scoring coverage. Round-specific requests fail closed before querying evidence;
 season-wide observations cannot stand in for a requested Finals or playoff round.
 
@@ -253,3 +262,20 @@ phrases use request/as-of anchored dates; existing source-anchored numeric-month
 queries keep their established window rules. Month comparisons retain separate
 validated per-query periods and load their required archive union. Source loads
 remain bounded to the supported archive allowlist.
+
+### Position Overview references
+
+Overview position references are additive under `ask_position_peers/3`; existing
+league percentile fields retain their arithmetic and distribution. Membership
+requires independently reviewed historical listed positions, metric-specific
+eligibility and explicit cohort scope. See [position policy](overview-insights.md#position-comparisons-and-focused-profiles-v3)
+for mapping, provenance, coverage, ordinal/percentile gates and private tracking.
+
+
+### Overview variation and requested-peer fulfillment
+
+See [question-first comparisons and variation](overview-insights.md#question-first-comparisons-and-variation-v4)
+and [request fidelity](overview-insights.md#request-fidelity-and-review-regressions)
+for the shared contract. An unavailable explicitly requested cohort is partial,
+never an answered league substitute. Game spread and dated highs use the requested
+metric and full scoped sample; all displayed comparisons retain their reference.

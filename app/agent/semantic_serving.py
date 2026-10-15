@@ -181,7 +181,10 @@ def warehouse_for_repository(repo: Any) -> SemanticWarehouse:
                 dataset = dataset.removesuffix("_" + settings.season.replace("-", "_"))
             warehouse = SemanticWarehouse(
                 BigQuerySemanticSource(
-                    repo.client, project=settings.project_id, gold_dataset=dataset
+                    repo.client,
+                    project=settings.project_id,
+                    gold_dataset=dataset,
+                    position_context_path=settings.agent_position_context_path,
                 ),
                 settings.agent_cache_ttl_seconds,
             )

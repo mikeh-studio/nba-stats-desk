@@ -74,7 +74,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261013-comparison-expanded-v2"
+STATIC_VERSION = "20261015-overview-recovery-v7"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -636,11 +636,14 @@ def _restore_agent_context(
             for turn in saved[0]["turns"]:
                 stored_payload = turn["payload"]
                 if stored_payload.get("status") == "clarification_required":
+                    from app.agent.overview_clarification import restored_overview_plan
+
                     store.set_pending_clarification(
                         conversation_id,
                         question=stored_payload.get("clarification_question")
                         or turn["question"],
-                        query_plan=stored_payload.get("semantic_plan"),
+                        query_plan=restored_overview_plan(stored_payload)
+                        or stored_payload.get("semantic_plan"),
                     )
                 elif successful_analysis(stored_payload):
                     next_context = analysis_context(turn["question"], stored_payload)
@@ -1146,6 +1149,15 @@ async def _start_agent_execution(
                 # Restore only after admission; rejected work cannot alter state.
                 _restore_agent_context(payload, settings, conversation_id)
                 agent = _build_stats_agent(settings, repo, agent_client)
+                from app.agent.overview_tracking import (
+                    overview_events,
+                    requested_capabilities,
+                )
+
+                try:
+                    trace.overview_tracking.extend(requested_capabilities(question))
+                except Exception:
+                    app_logger.warning("overview request tracking failed")
                 answer = agent.answer(
                     question,
                     conversation_id=conversation_id,
@@ -1157,6 +1169,11 @@ async def _start_agent_execution(
                 )
                 answer["request_id"] = request_id
                 answer["season"] = current_season()
+                try:
+                    trace.overview_tracking.extend(overview_events(answer))
+                except Exception:
+                    # Best-effort private telemetry cannot break answer delivery.
+                    app_logger.warning("overview tracking collection failed")
                 answer_streamed = answer.pop("answer_streamed", False)
                 if streaming and not answer_streamed:
                     for chunk in _answer_delta_chunks(str(answer.get("answer") or "")):

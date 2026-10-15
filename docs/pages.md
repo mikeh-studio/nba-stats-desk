@@ -577,8 +577,8 @@ transport or deployment. CLI token counts include its own context overhead.
 ## Ask overview metrics and samples
 
 The server owns `semantic_evidence.presentation`, version
-`ask_metric_presentation/3`, including selected metric keys, sample notes,
-question focus, limitations and ordered takeaways. The browser renders those
+`ask_metric_presentation/5`, including selected metric keys, sample notes,
+question focus and ordered takeaways. The browser renders those
 facts without selecting the largest percentile as the headline.
 
 ### Visible metrics
@@ -647,21 +647,14 @@ population-wide live-source validation is implied.
 
 ### Takeaways
 
-Key Takeaways retain the original visible icon, headline and short explanation
-structure alongside Overall. They show at most three server-authored observations:
-the requested focus (scoring for general overviews), a supported comparison or
-game-level variation when available, and relevant production beyond scoring or
-playing-time context. General change notes read assists with turnovers when
-those changes are supported. Defense and rebounding remain separate observations.
-
-Incomplete or thin core focus samples produce one sample warning, without filler
-or a standout claim. Comparison notes use only `display_change` values that pass
-the existing sample rules and the overview's 0.1/2%-of-current-value descriptive
-change threshold. Complete scoring samples can show a game range when its spread
-is at least five points or 30% of the period average (whichever is greater); this
-is a display rule, not a significance or consistency test. Minutes accompany
-production changes when comparable. Qualified ratio ranks do not select takeaways, and no
-highest-percentile or composite-impact selector is introduced.
+Key Takeaways retain the icon, headline and short explanation structure. Broad
+profiles share up to three selected findings with Overall: scoring opportunity
+and efficiency, assists with ball security, then a material or notable non-scoring
+observation when supported. No category quota forces ordinary values into prose.
+Table values and sample methodology remain available for inspection. Generic
+unavailable-capability lists are omitted; private backend tracking records gaps.
+Focused scoring can still describe game-level variation. Thin samples retain
+values without peer or baseline claims and include a short sample note.
 
 Saved results retain their own server-authored takeaways, with at most three
 visible rows. Missing canonical metadata receives the saved-answer notice.

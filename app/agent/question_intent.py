@@ -24,7 +24,9 @@ def has_specific_metric(question: str) -> bool:
 
 
 def split_kind(question: str) -> str | None:
-    text = question.lower()
+    from app.agent.overview_positions import peer_question
+
+    text = peer_question(question).lower()
     compare = re.search(
         r"\b(?:vs\.?|versus|compare|compared|difference|gap|between)\b", text
     )

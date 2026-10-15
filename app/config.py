@@ -110,6 +110,7 @@ class Settings:
     agent_trusted_proxy_cidrs: tuple[str, ...] = ()
     agent_conversation_max_turns: int = 6
     agent_cache_ttl_seconds: int = 300
+    agent_position_context_path: str | None = None
     agent_teammate_study_path: str | None = None
     research_snapshot_path: str | None = None
     research_context_path: str | None = None
@@ -213,6 +214,7 @@ def get_settings() -> Settings:
             os.getenv("AGENT_CONVERSATION_MAX_TURNS", "6")
         ),
         agent_cache_ttl_seconds=int(os.getenv("AGENT_CACHE_TTL_SECONDS", "300")),
+        agent_position_context_path=os.getenv("AGENT_POSITION_CONTEXT_PATH") or None,
         agent_teammate_study_path=os.getenv("AGENT_TEAMMATE_STUDY_PATH") or None,
         research_snapshot_path=os.getenv("RESEARCH_SNAPSHOT_PATH") or None,
         research_context_path=os.getenv("RESEARCH_CONTEXT_PATH") or None,

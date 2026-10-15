@@ -249,7 +249,8 @@ The concurrency guarantee relies on BigQuery's
 
 ## Ask endpoint regression and human review
 
-The Ask harness has 100 draft scenarios in `tests/fixtures/ask/cases.json` and
+The Ask harness has 113 distinct draft scenarios and 24 paraphrases (137 cases)
+in `tests/fixtures/ask/cases.json` and
 fictional statistics in `tests/fixtures/ask/source.json`. The schema validates
 case shape, IDs, structured assertions and review provenance. Expectations cover
 identity, phase/date scope, numeric tolerances, missingness, rendered values,
@@ -572,6 +573,25 @@ history I/O are still not a cross-storage transaction.
 
 ## Overview presentation regressions
 
+`tests/test_overview_insights.py` checks volume versus efficiency, per-minute
+versus per-game changes, strong peer standing alongside personal decline,
+qualification exclusions, null semantics, selective coverage and input order.
+Editorial regressions also cover absent-baseline headings, opposing assist rates,
+small TS changes, exact versus rounded leader ranks, separate cohort qualifications,
+stable elite activity and explanatory sidebar bodies. Word-count and phrase checks
+are targeted contracts, not independent ratings of prose quality.
+`tests/test_overview_tracking.py` checks private codes, deduplication, exclusions,
+separate demand/gap counts and absence of raw text. JSON/SSE tests verify these
+contracts at the endpoints, including private gap logging outside responses.
+Routing checks preserve focused, mixed-metric and unsupported requests.
+
+The `balanced_*` harness cases use fictional rows with independently specified
+scope/value and insight-selection expectations. Desktop/mobile tests cover prose,
+chart selection and saved-text preservation. A separate private captured-warehouse
+run can compare revisions using identical rows and independently recomputed peer
+cohorts. Such a run validates local endpoints over a captured source; it does not
+establish deployed behavior or paid model accuracy.
+
 Overview presentation regressions in `tests/test_performance_overview.py` cover
 explicit general/focused metric selection, preserved scope guards, pooled ratios,
 zero attempts, partial samples, short samples, and absence of best-percentile
@@ -594,3 +614,27 @@ archives appear in saved context, resolve off-season recent-game requests from
 preceding available appearances, and clip a planner's current-month end to the
 request date. The current-month fixture includes a later 100-point game to prove
 that clipping excludes future appearances from the mean.
+
+### Position Overview evaluation
+
+`tests/test_overview_positions.py` uses fictional players to check historical
+provenance, hybrids, coverage, cohort thresholds, conventional ties, complete
+components, reference selection, exact first-two-appearance scope and private
+tracking. `test_overview_insights.py` checks main/sidebar rate contradictions.
+Browser verification must exercise labeled peer details and matching distributions
+as well as the unchanged league table. Evaluate real questions separately with
+frozen source captures; a valid league fallback is not evidence that historical
+position cohorts exist. Keep before/after answers and failed attempts private.
+
+
+### Overview variation and requested-peer fulfillment
+
+Overview v4 separates HTTP delivery, arithmetic correctness, and fulfillment of
+an explicit position comparison. An unavailable requested cohort is partial,
+never an answered league substitute. Regression coverage includes metric-led
+openers, same-cohort per-36 context, independent quartiles, tied dated highs,
+missing games, tiny samples, and peaks outside the chart point cap. Re-run
+`tests/test_overview_variation.py`, distribution and Overview suites, plus the
+JavaScript suite and populated mobile/desktop charts after rendering changes.
+Frozen-source runs and synthetic position-group tests establish different things;
+real position comparisons require separately verified season membership.

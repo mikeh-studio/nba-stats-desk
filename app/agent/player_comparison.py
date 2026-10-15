@@ -97,7 +97,9 @@ def additional_comparisons(summaries, names):
 
 
 def comparison_sides(question):
-    original = question.split("\nClarification:", 1)[0]
+    from app.agent.overview_positions import strip_peer_clause
+
+    original = strip_peer_clause(question.split("\nClarification:", 1)[0])
     original = original.split("\nSelected player:", 1)[0]
     if "\nCurrent question:" in original:
         return None  # Do not reinterpret an arbitrary follow-up as the old question.
@@ -205,10 +207,12 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
     contract = load_contract()
     profiles = []
     for player, summary in zip(resolved, summaries):
+        selected_games = set(summary["semantic_evidence"]["game_ids"])
         rows = [
             r
             for r in evidence.rows
             if r["player_id"] == player["player_id"]
+            and r["game_id"] in selected_games
             and r["season_type"] in scope["phases"]
             and scope["start"]
             <= date.fromisoformat(str(r["game_date"]))

@@ -24,6 +24,53 @@ async function submit(page, question) {
   await expect(page.locator('[data-agent-submit]')).toBeEnabled();
 }
 
+for (const width of [1280, 390]) {
+  test(`insight overview connects peer context and non-scoring production at ${width}px`, async ({page}, testInfo) => {
+    await page.setViewportSize({width, height:900});
+    const scenario = await prepare(page, 'balanced_overview');
+    await submit(page, scenario.turns[0].question);
+    const prose = page.locator('.overall-copy');
+    await expect(prose).toContainText('2.5 assists per game');
+    await expect(prose).toContainText('2.0 turnovers per game');
+    await expect(page.locator('.overview-scope')).toContainText('6 regular-season appearances');
+    await expect(prose.locator('p').first()).not.toContainText('This assessment covers');
+    await expect(prose).not.toContainText('exceeded');
+    await expect(prose).not.toContainText('positioning and assignments');
+    await expect(prose).not.toContainText('highest-scoring game');
+    await expect(page.locator('.takeaway')).toHaveCount(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({path:testInfo.outputPath(`balanced-overview-${width}.png`), fullPage:true});
+    // Frozen saved prose stays intact; an explicit new question gets new prose.
+    await page.evaluate(() => {
+      const key = 'askChatHistory:v1';
+      const history = JSON.parse(localStorage.getItem(key));
+      const payload = history.conversations[0].turns[0].payload;
+      payload.semantic_evidence.summary_paragraphs = ['Saved scoring-only assessment.'];
+      payload.answer = 'Saved scoring-only assessment.';
+      localStorage.setItem(key, JSON.stringify(history));
+    });
+    await page.reload();
+    await expect(prose).toContainText('Saved scoring-only assessment.');
+    await expect(prose).not.toContainText('2.5 assists');
+    await submit(page, scenario.turns[0].question);
+    await expect(prose).toContainText('2.5 assists per game');
+    await expect(prose).toContainText('2.0 turnovers per game');
+    await expect(page.locator('.overview-scope')).toContainText('6 regular-season appearances');
+    await expect(prose.locator('p').first()).not.toContainText('This assessment covers');
+  });
+}
+
+test('non-scoring wording selects creation chart and omits generic limitations', async ({page}) => {
+  const scenario = await prepare(page, 'balanced_non_scoring');
+  await submit(page, scenario.turns[0].question);
+  await expect(page.locator('.overall-copy')).toContainText('2.5 assists per game');
+  await expect(page.locator('.overall-copy')).toContainText('2.0 turnovers per game');
+  await expect(page.locator('.overall-copy')).not.toContainText('exceeded');
+  await expect(page.locator('.overall-copy')).not.toContainText(/Screens|secondary assists|overall defensive impact/);
+  await expect(page.locator('.overall-copy')).not.toContainText('True shooting');
+  await expect(page.locator('[data-chart-key="ast"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('comparison hides unavailable impact in fresh and legacy saved analyses', async ({page}, testInfo) => {
   const c = await prepare(page, 'two_player');
   await submit(page, c.turns[0].question);
@@ -483,5 +530,68 @@ for (const width of [1280,390]) {
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
     await page.reload();await page.getByRole('button',{name:/^PTS distribution:/}).first().click();await expect(drawer).toBeVisible();
     await drawer.getByRole('button',{name:'Close metric details',exact:true}).click();
+  });
+}
+
+for (const width of [1280, 390]) {
+  for (const id of ['overview_group_recovery', 'overview_pair_recovery', 'overview_window_recovery', 'overview_prior_answer_recovery', 'overview_pending_player_recovery']) {
+    test(`overview clarification recovers in the same conversation: ${id} at ${width}px`, async ({page}, testInfo) => {
+      await page.setViewportSize({width, height:900});
+      const c = await prepare(page, id);
+      const posts = [];
+      page.on('request', r => {
+        if (r.method() === 'POST' && r.url().includes('/api/agent/ask/stream')) posts.push(r.postDataJSON());
+      });
+      // April includes 8 games totaling 56 points; the regular season has 30/6.
+      const expected = id === 'overview_pending_player_recovery' ? '12.5 points per game' : id === 'overview_window_recovery' ? '7.0 points per game' : '5.0 points per game';
+      await submit(page, c.turns[0].question);
+      let populated = c.turns[0].checks[0].equals === 'ok' ? 1 : 0;
+      await expect(page.locator('.overall-copy')).toHaveCount(populated);
+      for (const turn of c.turns.slice(1)) {
+        await page.locator('[data-followup-question]').fill(turn.question);
+        await page.locator('[data-followup-submit]').click();
+        await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+        if (turn.checks[0].equals === 'ok') populated++;
+        await expect(page.locator('.overall-copy')).toHaveCount(populated);
+      }
+      await expect(page.locator('.overall-copy').last()).toContainText(expected);
+      if (id === 'overview_pending_player_recovery') {
+        await expect(page.locator('.agent-turn').last()).toContainText('Blair Sample');
+        await expect(page.locator('.agent-turn').last()).not.toContainText('Avery Example');
+      }
+      await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(1);
+      expect(posts).toHaveLength(c.turns.length);
+      expect(new Set(posts.map(p => p.conversation_id)).size).toBe(1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+      await page.reload();
+      await expect(page.locator('.overall-copy').last()).toContainText(expected);
+      await page.screenshot({path:testInfo.outputPath('clarification-recovered.png'), fullPage:true});
+    });
+  }
+}
+
+for (const width of [1280,390]) {
+  test(`lost pending state without server history never revives older player at ${width}px`, async ({page}) => {
+    await page.setViewportSize({width,height:900});
+    const c = await prepare(page,'overview_pending_player_recovery');
+    await submit(page,c.turns[0].question);
+    await page.locator('[data-followup-question]').fill(c.turns[1].question);
+    await page.locator('[data-followup-submit]').click();
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    expect((await page.request.post('/__eval/reset-conversations')).ok()).toBe(true);
+    await page.reload();
+    const request = page.waitForRequest(r=>r.method()==='POST' && r.url().includes('/api/agent/ask/stream'));
+    await page.locator('[data-followup-question]').fill(c.turns[2].question);
+    await page.locator('[data-followup-submit]').click();
+    expect((await request).postDataJSON().previous_context).toBeUndefined();
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    await expect(page.locator('.overall-copy')).toHaveCount(1);
+    await expect(page.locator('.agent-turn').last()).toContainText('Which player');
+    await expect(page.locator('.agent-turn').last()).not.toContainText('7.0 points per game');
+    await page.locator('[data-followup-question]').fill('Give an overview of Blair Sample among guards in the 2024-25 regular season.');
+    await page.locator('[data-followup-submit]').click();
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    await expect(page.locator('.overall-copy').last()).toContainText('12.5 points per game');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   });
 }
