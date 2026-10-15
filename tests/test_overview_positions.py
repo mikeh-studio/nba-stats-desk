@@ -326,7 +326,7 @@ def test_precise_positions_enable_all_groups(position, group):
 
 def test_windowed_request_keeps_explicit_baseline_intent():
     q = "How was Example's scoring in January 2025 compared with the prior season and other guards?"
-    with pytest.raises(SemanticError, match="specify the current and comparison dates"):
+    with pytest.raises(SemanticError, match="current window alone"):
         overview_scope(q, "2024-25")
 
 

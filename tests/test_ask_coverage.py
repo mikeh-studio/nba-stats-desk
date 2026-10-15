@@ -18,7 +18,7 @@ SOURCE, DOCUMENT = load_inputs(ROOT)
 def test_distinct_and_paraphrase_counts_and_parent_contracts():
     distinct = {c["id"]: c for c in DOCUMENT["cases"] if not c.get("variant_of")}
     variants = [c for c in DOCUMENT["cases"] if c.get("variant_of")]
-    assert len(distinct) == 116 and len(variants) == 24
+    assert len(distinct) == 121 and len(variants) == 24
     for case in variants:
         assert (
             case["turns"][0]["checks"]

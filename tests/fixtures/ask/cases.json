@@ -7804,6 +7804,249 @@
           ]
         }
       ]
+    },
+    {
+      "id": "overview_group_recovery",
+      "family": "Overview conversations",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Replies share the same conversation id. Rejected constraints must be replaced explicitly; a comparison-date reply must not change the current window. Identity and dates are independently specified.",
+      "turns": [
+        {
+          "question": "Give an overview of Avery Example among guards and wings in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "Guards",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.request_fulfillment.requested_group",
+              "equals": "Guard"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview_pair_recovery",
+      "family": "Overview conversations",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Replies share the same conversation id. Rejected constraints must be replaced explicitly; a comparison-date reply must not change the current window. Identity and dates are independently specified.",
+      "turns": [
+        {
+          "question": "Compare Avery Example with Blair Sample among guards in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "Avery Example",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "Give an overview of Avery Example among guards in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.request_fulfillment.requested_group",
+              "equals": "Guard"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview_rank_recovery",
+      "family": "Overview conversations",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Replies share the same conversation id. Rejected constraints must be replaced explicitly; a comparison-date reply must not change the current window. Identity and dates are independently specified.",
+      "turns": [
+        {
+          "question": "Who were the best rebounding guards in 2024-25?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "Give an overview of Avery Example among guards in the 2024-25 regular season.",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.request_fulfillment.requested_group",
+              "equals": "Guard"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview_window_recovery",
+      "family": "Overview conversations",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Replies share the same conversation id. Rejected constraints must be replaced explicitly; a comparison-date reply must not change the current window. Identity and dates are independently specified.",
+      "turns": [
+        {
+          "question": "How was Avery Example scoring in April 2025 compared with the previous season and other guards?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "Use April 2024 as the comparison",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "clarification_required"
+            }
+          ]
+        },
+        {
+          "question": "How was Avery Example scoring in April 2025 among guards?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2025-04-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-04-30"
+            },
+            {
+              "path": "semantic_evidence.request_fulfillment.requested_group",
+              "equals": "Guard"
+            },
+            {
+              "path": "semantic_evidence.metrics.0.value",
+              "equals": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "overview_vs_cohort",
+      "family": "Overview conversations",
+      "source_variant": "complete",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Replies share the same conversation id. Rejected constraints must be replaced explicitly; a comparison-date reply must not change the current window. Identity and dates are independently specified.",
+      "turns": [
+        {
+          "question": "How did Avery Example play vs other guards in the 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.player_id",
+              "equals": 101
+            },
+            {
+              "path": "semantic_evidence.scope.start",
+              "equals": "2024-07-01"
+            },
+            {
+              "path": "semantic_evidence.scope.end",
+              "equals": "2025-06-30"
+            },
+            {
+              "path": "semantic_evidence.request_fulfillment.requested_group",
+              "equals": "Guard"
+            }
+          ]
+        }
+      ]
     }
   ]
 }

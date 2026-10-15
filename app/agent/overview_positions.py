@@ -43,7 +43,7 @@ BASELINE_CLAUSE = re.compile(
 
 def strip_peer_clause(question):
     return re.sub(
-        r"\b(?:compare(?:d)?\s+with|with|among|against|and)\s+"
+        r"\b(?:compare(?:d)?\s+(?:with|to|against)|v(?:s\.?|ersus)|with|among|against|and)\s+"
         r"(?:other\s+)?(?:guards|wings|big men|bigs)\b",
         "",
         question,

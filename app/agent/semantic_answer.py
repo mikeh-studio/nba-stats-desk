@@ -468,6 +468,16 @@ class SemanticAsk:
             context = {}
             pending = None
             selected_player = None
+        from app.agent.overview_clarification import (
+            OverviewClarification,
+            resume_overview,
+        )
+
+        resume_error = None
+        if pending and (pending.query_plan or {}).get("overview_clarification"):
+            question, resume_error = resume_overview(question, pending)
+            pending = None
+            context = {}
         leader_plan = contextual_leader_plan(original, context, self.settings.season)
         if leader_plan:
             # A fully restated supported request supersedes an earlier mistaken
@@ -507,7 +517,11 @@ class SemanticAsk:
                     "required_tools": ["governed_metrics"],
                 }
             )
+        request_question = question
+        overview_pending = None
         try:
+            if resume_error:
+                raise resume_error
             notice = None
             prior_award = context.get("award_evidence") or {}
             if (
@@ -574,8 +588,8 @@ class SemanticAsk:
 
             groups = requested_groups(question)
             if len(groups) > 1:
-                raise SemanticError(
-                    "clarification_required",
+                raise OverviewClarification(
+                    "groups",
                     "Choose one comparison group: guards, wings/forwards, or bigs/centers. Multiple groups need separate comparisons.",
                 )
             intent = question_intent(question)
@@ -611,7 +625,7 @@ class SemanticAsk:
                     if initial_shape == "player_comparison"
                     else "Position comparisons currently need one player and a broad scoring, playmaking, rebounding, or defensive-activity question. Please specify that comparison."
                 )
-                raise SemanticError("clarification_required", message)
+                raise OverviewClarification("composition", message)
             question, time_assumptions, period_options = resolve_time_defaults(
                 peer_question(question) if initial_shape == "overview" else question,
                 context=context,
@@ -1051,6 +1065,9 @@ class SemanticAsk:
                 }
             ]
         except SemanticError as exc:
+            if isinstance(exc, OverviewClarification):
+                overview_pending = {"overview_clarification": exc.kind}
+                question = request_question
             payload = _payload(str(exc), exc.code)
             if award:
                 payload["answer"] = (
@@ -1102,7 +1119,7 @@ class SemanticAsk:
                 store.set_pending_clarification(
                     conversation_id,
                     question=question,
-                    query_plan=payload.get("semantic_plan"),
+                    query_plan=overview_pending or payload.get("semantic_plan"),
                 )
             else:
                 store.clear_pending_clarification(conversation_id)

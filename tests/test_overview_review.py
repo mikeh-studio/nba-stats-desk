@@ -67,12 +67,13 @@ def ask(source):
         {get_settings: lambda: config, get_repository: lambda: repo}
     )
 
-    def run(question, suffix, model=None):
+    def run(question, suffix, model=None, conversation_id=None):
         # Unsupported shapes must clarify without attempting model generation.
         app.dependency_overrides[get_agent_client] = lambda: model or object()
         with TestClient(app) as client:
             response = client.post(
-                "/api/agent/ask" + suffix, json={"question": question}
+                "/api/agent/ask" + suffix,
+                json={"question": question, "conversation_id": conversation_id},
             )
             assert response.status_code == 200, response.text
             if not suffix:
@@ -147,7 +148,7 @@ def test_shooting_log_reaches_metric_planner(ask, suffix):
         ),
         (
             "How was Example 1 scoring in January 2025 compared with the previous season and other guards?",
-            "current and comparison dates",
+            "current window alone",
         ),
     ],
 )
@@ -303,3 +304,103 @@ def test_defense_lead_keeps_matching_evidence_keys(ask, source, suffix):
 )
 def test_explicit_metric_operation_variants_never_become_overview(question):
     assert not wants_overview(question)
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "reply",
+    ["Guards", "Wings", "Give an overview of Example 2 among guards in 2024-25."],
+)
+def test_group_clarification_resumes_same_conversation(ask, suffix, reply):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    first = ask(
+        "Give an overview of Example 1 among guards and wings in 2024-25.",
+        suffix,
+        conversation_id=cid,
+    )
+    assert first["status"] == "clarification_required"
+    result = ask(reply, suffix, conversation_id=cid)
+    assert result["status"] == "ok"
+    evidence = result["semantic_evidence"]
+    expected = "Wing" if reply == "Wings" else "Guard"
+    assert evidence["request_fulfillment"]["requested_group"] == expected
+    metric = next(m for m in evidence["metrics"] if m["key"] == "pts")
+    assert metric["value"] == (17 if "Example 2" in reply else 16)
+    assert result["conversation_id"] == cid
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "first",
+    [
+        "Compare Example 1 with Example 2 among guards in 2024-25.",
+        "Who were the best rebounding guards in 2024-25?",
+    ],
+)
+def test_composition_reply_can_restate_single_player(ask, suffix, first):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert ask(first, suffix, conversation_id=cid)["status"] == "clarification_required"
+    assert (
+        ask("Example 1", suffix, conversation_id=cid)["status"]
+        == "clarification_required"
+    )
+    result = ask(
+        "How was Example 1 rebounding among guards in 2024-25?",
+        suffix,
+        conversation_id=cid,
+    )
+    assert result["status"] == "ok"
+    assert (
+        result["semantic_evidence"]["request_fulfillment"]["requested_group"] == "Guard"
+    )
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize(
+    "reply",
+    ["Use November 2023 as the comparison", "from 2023-11-01 through 2023-11-30"],
+)
+def test_baseline_reply_never_replaces_current_window(ask, suffix, reply):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    first = "How was Example 1 scoring in November 2024 compared with the previous season and other guards?"
+    assert ask(first, suffix, conversation_id=cid)["status"] == "clarification_required"
+    rejected = ask(reply, suffix, conversation_id=cid)
+    assert rejected["status"] == "clarification_required"
+    assert rejected.get("semantic_evidence") is None
+    assert "current window alone" in rejected["answer"]
+    result = ask(
+        "How was Example 1 scoring in November 2024 among guards?",
+        suffix,
+        conversation_id=cid,
+    )
+    assert result["status"] == "ok"
+    assert result["semantic_evidence"]["scope"]["start"] == "2024-11-01"
+    assert result["semantic_evidence"]["scope"]["end"] == "2024-11-30"
+    assert (
+        next(m for m in result["semantic_evidence"]["metrics"] if m["key"] == "pts")[
+            "value"
+        ]
+        == 1
+    )
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize("connector", ["vs", "vs.", "versus", "compared to"])
+def test_single_player_cohort_wording_keeps_overview(ask, suffix, connector):
+    result = ask(f"How did Example 1 play {connector} other guards in 2024-25?", suffix)
+    assert result["status"] == "ok"
+    assert (
+        result["semantic_evidence"]["request_fulfillment"]["requested_group"] == "Guard"
+    )
+    assert (
+        next(m for m in result["semantic_evidence"]["metrics"] if m["key"] == "pts")[
+            "value"
+        ]
+        == 16
+    )

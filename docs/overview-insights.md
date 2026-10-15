@@ -258,3 +258,17 @@ respect the same magnitude thresholds in narrative and sidebar.
 actual JSON and SSE endpoints with independently specified fictional values.
 Controlled planner responses establish routing and deterministic calculation,
 not live model interpretation. Re-run the frozen five-question reports separately.
+
+### Clarification recovery
+
+Overview composition clarifications retain a typed pending request. A group-only
+reply replaces the rejected group list; a fully restated question replaces the
+pending request. Short replies that do not resolve the composition ask for a full
+restatement without appending rejected constraints. Window-plus-full-season
+baseline requests offer supported choices: the current window alone or a
+full-season comparison. A comparison-date reply never replaces the current window.
+Single-player `vs`, `vs.`, and `versus` position clauses normalize before
+two-player detection; actual named-player comparisons retain both identities.
+
+Regression coverage includes same-conversation JSON/SSE sequences and populated
+desktop/phone browser recovery, in addition to single-question reporting checks.

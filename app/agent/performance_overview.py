@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from app.agent.context_metrics import context_metrics
 from app.agent.overview_calendar import MONTH_PATTERN, calendar_window, shift_months
+from app.agent.overview_clarification import WINDOW_MESSAGE, OverviewClarification
 from app.agent.overview_policy import (
     focus,
     metric_table,
@@ -113,10 +114,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
     if comparison.get("baseline_period") and (
         first or recent or explicit or trailing or calendar_scope or as_of
     ):
-        raise SemanticError(
-            "clarification_required",
-            "For this window, specify the current and comparison dates separately; a full-season baseline cannot be substituted.",
-        )
+        raise OverviewClarification("window_baseline", WINDOW_MESSAGE)
     if calendar_scope and (explicit or trailing):
         raise SemanticError(
             "clarification_required",
