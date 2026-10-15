@@ -52,7 +52,7 @@ def wants_overview(question):
         )
         and not bool(
             re.search(
-                r"\b(fantasy|rank|top|compare|versus|opponent|against|home|away|road)\b",
+                r"\b(fantasy|rank|top|compare|versus|vs|opponent|against|home|away|road|who|which|leaders?|led|best|most|highest|percentages?|game[ -]logs?|game[ -]by[ -]game)\b",
                 original,
                 re.I,
             )
@@ -60,7 +60,8 @@ def wants_overview(question):
     )
 
 
-def overview_scope(question, selected_season, today=None):
+def overview_scope(question, selected_season, today=None, *, comparison=None):
+    comparison = comparison if comparison is not None else comparison_intent(question)
     question = peer_question(question)
     question = question.replace("–", "-")
     first = bool(re.search(r"\bfirst (?:two|2) appearances\b", question, re.I))
@@ -109,6 +110,13 @@ def overview_scope(question, selected_season, today=None):
                 "clarification_required", "Please provide a valid as-of date."
             ) from exc
     calendar_scope = calendar_window(question, end)
+    if comparison.get("baseline_period") and (
+        first or recent or explicit or trailing or calendar_scope or as_of
+    ):
+        raise SemanticError(
+            "clarification_required",
+            "For this window, specify the current and comparison dates separately; a full-season baseline cannot be substituted.",
+        )
     if calendar_scope and (explicit or trailing):
         raise SemanticError(
             "clarification_required",
@@ -237,6 +245,13 @@ def overview_scope(question, selected_season, today=None):
         # Actual last-N/prior-N bounds are resolved from this bounded pool later.
         previous_start, previous_end = start, end
         previous_phases = list(phases)
+    if comparison.get("baseline_period"):
+        previous_start, previous_end = (
+            (shift_months(start, 12), shift_months(end, 12))
+            if comparison["baseline_period"] == "prior_season"
+            else (start, end)
+        )
+        previous_phases = comparison.get("baseline_phases") or list(phases)
     comparison_label = (
         f"{' + '.join(previous_phases)} from {previous_start} through {previous_end}"
     )
@@ -251,6 +266,7 @@ def overview_scope(question, selected_season, today=None):
             "The requested period starts before available 2023–24 coverage.",
         )
     return dict(
+        comparison_intent=comparison,
         recent_appearances=10 if recent else None,
         first_appearances=2 if first else None,
         start=start,
@@ -601,8 +617,12 @@ def build_overview(question, evidence, players, scope, selected=None):
     focal_metric = next(m for m in metrics + extra if m["key"] == focus_key)
     peer = focal_metric.get("peer_comparison", {})
     requested = requested_group(question)
-    fulfilled = not requested or (
-        peer.get("kind") == "position" and peer.get("mode") != "withheld"
+    from app.agent.overview_insights import missing_focus
+
+    missing_requested = missing_focus(metrics + extra, display_policy["profile"])
+    fulfilled = not missing_requested and (
+        not requested
+        or (peer.get("kind") == "position" and peer.get("mode") != "withheld")
     )
     fulfillment = {
         "status": "complete" if fulfilled else "partial",
@@ -610,6 +630,8 @@ def build_overview(question, evidence, players, scope, selected=None):
         "metric_key": focus_key,
         "reason": None
         if fulfilled
+        else "incomplete_requested_metric"
+        if missing_requested
         else peer.get("fallback_reason") or "ineligible_comparison",
     }
     if 0 < len(own) < contract.min_games:
@@ -680,6 +702,7 @@ def build_overview(question, evidence, players, scope, selected=None):
                 k: str(v) if isinstance(v, date) else v for k, v in scope.items()
             },
             "metrics": metrics + extra,
+            "game_ids": [r["game_id"] for r in own],
             "player_id": player["player_id"],
             "source": evidence.source,
             "data_through": str(max(evidence.data_through.values())),

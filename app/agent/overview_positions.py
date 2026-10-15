@@ -19,20 +19,64 @@ POSITION_FIRST = {"pts", "ast", "reb", "fg3m", "stl", "blk"}
 PATTERN = r"\b(?:other\s+|among\s+(?:other\s+)?|against\s+(?:other\s+)?)?(guards|wings|big men|bigs)\b"
 
 
-def requested_group(question):
+def requested_groups(question):
     found = {m.group(1).lower() for m in re.finditer(PATTERN, question, re.I)}
     groups = {
         "Guard" if x == "guards" else "Wing" if x == "wings" else "Big" for x in found
     }
-    return next(iter(groups)) if len(groups) == 1 else None
+    return sorted(groups)
+
+
+def requested_group(question):
+    groups = requested_groups(question)
+    return groups[0] if len(groups) == 1 else None
+
+
+BASELINE_CLAUSE = re.compile(
+    r"\b(?:compared?|comparing)\s+(?:with|to|against)\s+"
+    r"(?:(?:his|the|their)\s+)?"
+    r"(?P<period>(?:prior|previous|last)\s+season|regular[ -]season)\b"
+    r"(?:['’]s)?(?:\s+(?P<phase>regular[ -]season|playoffs?|postseason)\b)?",
+    re.I,
+)
+
+
+def strip_peer_clause(question):
+    return re.sub(
+        r"\b(?:compare(?:d)?\s+with|with|among|against|and)\s+"
+        r"(?:other\s+)?(?:guards|wings|big men|bigs)\b",
+        "",
+        question,
+        flags=re.I,
+    )
 
 
 def comparison_intent(question):
     group = requested_group(question)
+    baseline = BASELINE_CLAUSE.search(question) if group else None
     return {
         "requested_group": group,
+        "requested_groups": requested_groups(question),
+        "baseline_period": (
+            "same_season"
+            if baseline["period"].lower().replace("-", " ") == "regular season"
+            else "prior_season"
+        )
+        if baseline
+        else None,
+        "baseline_phases": (
+            ["Regular Season"]
+            if baseline["period"].lower().replace("-", " ") == "regular season"
+            or (baseline["phase"] or "").lower().replace("-", " ") == "regular season"
+            else ["Playoffs"]
+            if baseline["phase"]
+            else None
+        )
+        if baseline
+        else None,
         "baseline_requested": bool(
-            re.search(
+            baseline
+            or re.search(
                 r"\b(?:prior|previous|his regular|baseline|usual|normal)\b",
                 question,
                 re.I,
@@ -47,30 +91,7 @@ def peer_question(question):
     """Normalize only a position-comparison clause, never another player's name."""
     if not requested_group(question):
         return question
-    if re.search(
-        r"\b(?:from \d{4}|last \d+|past \d+|January|February|March|April|May|June|July|August|September|October|November|December)\b",
-        question,
-        re.I,
-    ) and re.search(r"\b(?:prior|previous|his regular) season\b", question, re.I):
-        return question
-    text = re.sub(
-        r"\b(?:compared?|comparing)\s+(?:with|to|against)\s+(?:his|the)\s+(?:prior|previous)\s+season(?:\s+and)?",
-        "",
-        question,
-        flags=re.I,
-    )
-    text = re.sub(
-        r"\bcompared\s+with\s+his\s+regular season(?:\s+and)?", "", text, flags=re.I
-    )
-    text = re.sub(
-        r"\b(?:compare\s+with|compared\s+with|with|among|against)\s+(?:other\s+)?(?:guards|wings|big men|bigs)\b",
-        "",
-        text,
-        flags=re.I,
-    )
-    text = re.sub(
-        r"\band\s+other\s+(?:guards|wings|big men|bigs)\b", "", text, flags=re.I
-    )
+    text = strip_peer_clause(BASELINE_CLAUSE.sub("", question))
     if re.search(r"\b(?:with|and|versus|vs)\b", text, re.I):
         return text
     return re.sub(r"^\s*compare\s+", "Give me an overview of ", text, flags=re.I)

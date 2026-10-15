@@ -6,7 +6,7 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261014-historical-positions-v5";
+} from "./ask_comparison.js?v=20261015-overview-intent-v6";
 import {
   normalizeTabs,
   openTab,
@@ -20,8 +20,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261014-historical-positions-v5";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261014-historical-positions-v5";
+} from "./ask_presentation.js?v=20261015-overview-intent-v6";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261015-overview-intent-v6";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")

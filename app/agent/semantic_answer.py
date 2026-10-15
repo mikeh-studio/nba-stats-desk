@@ -570,6 +570,14 @@ class SemanticAsk:
                 question = award["performance_question"]
                 inherited = {}
                 selected_player = {k: award[k] for k in ("player_id", "player_name")}
+            from app.agent.overview_positions import requested_groups
+
+            groups = requested_groups(question)
+            if len(groups) > 1:
+                raise SemanticError(
+                    "clarification_required",
+                    "Choose one comparison group: guards, wings/forwards, or bigs/centers. Multiple groups need separate comparisons.",
+                )
             intent = question_intent(question)
             if award:
                 intent["kind"] = "award_lookup_then_performance"
@@ -586,8 +594,27 @@ class SemanticAsk:
 
             requested_comparison = comparison_intent(question)
             position_group = requested_group(question)
+            from app.agent.routes import semantic_shape
+
+            initial_shape = semantic_shape(question)
+            if position_group and initial_shape != "overview":
+                # A cohort constraint must not disappear in a scalar/league plan
+                # or a two-player scorecard that cannot represent it.
+                message = (
+                    "Choose a two-player scorecard without a group ranking, or name one player for a comparison with "
+                    + {
+                        "Guard": "guards",
+                        "Wing": "wings/forwards",
+                        "Big": "bigs/centers",
+                    }[position_group]
+                    + "."
+                    if initial_shape == "player_comparison"
+                    else "Position comparisons currently need one player and a broad scoring, playmaking, rebounding, or defensive-activity question. Please specify that comparison."
+                )
+                raise SemanticError("clarification_required", message)
             question, time_assumptions, period_options = resolve_time_defaults(
-                peer_question(question), context=context
+                peer_question(question) if initial_shape == "overview" else question,
+                context=context,
             )
             if position_group:
                 question += (
@@ -606,7 +633,9 @@ class SemanticAsk:
             overview = (
                 comparison_scope(question, self.settings.season)
                 if comparison
-                else overview_scope(question, self.settings.season)
+                else overview_scope(
+                    question, self.settings.season, comparison=requested_comparison
+                )
                 if shape == "overview"
                 else None
             )
@@ -697,7 +726,9 @@ class SemanticAsk:
                     overview = (
                         comparison_scope(question, used)
                         if comparison
-                        else overview_scope(question, used)
+                        else overview_scope(
+                            question, used, comparison=requested_comparison
+                        )
                     )
                     overview["seasons"] = seasons
                 if used != self.settings.season:

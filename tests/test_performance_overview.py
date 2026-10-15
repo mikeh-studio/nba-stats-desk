@@ -180,7 +180,9 @@ def test_conversation_resumes_original_dates_after_clarification(
 ):
     from app.agent import semantic_answer
 
-    monkeypatch.setattr(semantic_answer, "overview_scope", lambda *args: scope())
+    monkeypatch.setattr(
+        semantic_answer, "overview_scope", lambda *args, **kwargs: scope()
+    )
     for r in evidence.rows:
         if r["player_id"] in (1, 2):
             r["player_name"] = "Same Name"
@@ -355,7 +357,7 @@ def test_full_playoffs_compare_same_season_regular_season(evidence):
     metrics = result["semantic_evidence"]["metrics"]
     assert metrics[0]["observed_games"] == 1
     assert metrics[0]["previous"]["observed_games"] == 5
-    assert "1 playoff appearances" in result["answer"]
+    assert "1 playoff appearance" in result["answer"]
     facts = result["semantic_evidence"]["game_insights"]
     assert facts["observed_games"] == 1
     assert facts["peak_date"] == "2025-11-06"
@@ -567,7 +569,8 @@ def test_partial_sample_changes_are_withheld_and_takeaways_disclose_limit(eviden
     assert ast["sample"]["status"] == "limited" and ast["display_change"] is None
     assert "1 missing components" in ast["sample"]["text"]
     notes = result["semantic_evidence"]["presentation"]["takeaways"]
-    assert all("assists" not in n["text"].lower() for n in notes)
+    assert any("Assists are incomplete" in n["text"] for n in notes)
+    assert result["semantic_evidence"]["request_fulfillment"]["status"] == "partial"
     assert "assists per game" not in result["answer"]
 
 

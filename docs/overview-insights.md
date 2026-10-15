@@ -18,7 +18,7 @@ takeaway titles share those findings. Saved answers are not rewritten.
 - Peer prose requires `ask_overview_percentiles/1`, ranked status, complete
   components, focal inclusion and a matching distribution cohort of at least two.
   The text names the phase, cohort count and minimum appearances. It compares
-  all qualifying players, not position or role-matched peers. Strictly worse
+  the explicitly named league or historical position cohort. Strictly worse
   peers define the percentage; tied players are not counted as worse.
 - Additional activity is selected for a change of at least 0.5 and 10% of the
   current value, or an upper-quartile peer result (lower-quartile rebounding also
@@ -31,7 +31,7 @@ takeaway titles share those findings. Saved answers are not rewritten.
 
 ## Concise editorial rendering
 
-Renderer `ask_overview_insights/4` leads with the player finding. Broad responses
+Renderer `ask_overview_insights/5` leads with the player finding. Broad responses
 have one or two narrative paragraphs, an optional game-variation paragraph,
 and a compact scope paragraph.
 `summary_context` identifies that final paragraph for subdued UI styling; it
@@ -119,7 +119,7 @@ season by default); peers use those same dates, not each peer's first two games.
 
 Existing metric `percentile` and `distribution` remain league-wide. Counting
 metrics PTS/AST/REB/3PM/STL/BLK additionally carry `peer_comparison` under
-`ask_position_peers/2`. It includes the selected reference, dates/phase, season,
+`ask_position_peers/3`. It includes the selected reference, dates/phase, season,
 qualification, sample size, competition rank/ties, strictly-worse percentile,
 coverage, availability reason and its own matching distribution. The frontend
 labels the table League percentile and exposes separate Overview peer evidence.
@@ -228,3 +228,33 @@ band, and highs. Focused sidebars add variation and dated-high cards. Structured
 `game_variation` evidence links prose to the same metric distribution. Private
 tracking records bounded variation/standout demand and requested-comparison
 fulfillment; raw questions, answers and backend events are not added to the UI.
+
+## Request fidelity and review regressions
+
+League leaders and explicit shooting percentages/game logs retain the metric
+planner route. Position constraints cannot be dropped by that planner: unsupported
+league-position rankings, two-player-plus-group requests, and requests for multiple
+groups receive a specific clarification before evidence queries. A two-player
+scorecard remains available without the extra cohort constraint.
+
+For supported single-player position Overviews, explicit baseline intent is
+retained before normalization: prior season uses the prior season and the named
+phase (or the current phase when omitted); his regular season uses the same
+season's regular season. Windowed requests combined with a season baseline require
+explicit clarification rather than substituting a full season.
+
+Incomplete focused points/assists/rebounds or defensive-activity components
+produce a concise requested-statistic message and partial request fulfillment,
+never unrelated production or an empty sentence. Broad summaries can still omit
+missing components. Generic capability boilerplate remains omitted and detailed
+evidence gaps remain in private telemetry.
+
+The Overview exposes its selected `game_ids`; two-player profile minutes use
+those same games, including each player's first two appearances. The defensive
+lead is attached to its matching metric keys, and displayed directional changes
+respect the same magnitude thresholds in narrative and sidebar.
+
+`tests/test_overview_review.py` exercises the affected query shapes through both
+actual JSON and SSE endpoints with independently specified fictional values.
+Controlled planner responses establish routing and deterministic calculation,
+not live model interpretation. Re-run the frozen five-question reports separately.

@@ -265,21 +265,17 @@ remain bounded to the supported archive allowlist.
 
 ### Position Overview references
 
-Overview position references are additive under `ask_position_peers/1`; existing
+Overview position references are additive under `ask_position_peers/3`; existing
 league percentile fields retain their arithmetic and distribution. Membership
-requires independently reviewed season-primary positions, metric-specific
+requires independently reviewed historical listed positions, metric-specific
 eligibility and explicit cohort scope. See [position policy](overview-insights.md#position-comparisons-and-focused-profiles-v3)
 for mapping, provenance, coverage, ordinal/percentile gates and private tracking.
 
 
 ### Overview variation and requested-peer fulfillment
 
-Overview v4 separates HTTP delivery, arithmetic correctness, and fulfillment of
-an explicit position comparison. An unavailable requested cohort is partial,
-never an answered league substitute. Regression coverage includes metric-led
-openers, same-cohort per-36 context, independent quartiles, tied dated highs,
-missing games, tiny samples, and peaks outside the chart point cap. Re-run
-`tests/test_overview_variation.py`, distribution and Overview suites, plus the
-JavaScript suite and populated mobile/desktop charts after rendering changes.
-Frozen-source runs and synthetic position-group tests establish different things;
-real position comparisons require separately verified season membership.
+See [question-first comparisons and variation](overview-insights.md#question-first-comparisons-and-variation-v4)
+and [request fidelity](overview-insights.md#request-fidelity-and-review-regressions)
+for the shared contract. An unavailable explicitly requested cohort is partial,
+never an answered league substitute. Game spread and dated highs use the requested
+metric and full scoped sample; all displayed comparisons retain their reference.

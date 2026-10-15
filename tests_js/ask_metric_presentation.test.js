@@ -139,3 +139,11 @@ test('unfulfilled position request never displays a league peer histogram as its
  assert.doesNotMatch(html,/data-peer-details/);
  assert.match(html,/League percentile/);
 });
+
+test('league-only peer details omit historical-position methodology',()=>{
+ const p=payload();
+ p.semantic_evidence.metrics[0].peer_comparison={kind:'league',group:null,mode:'ordinal',rank:2,cohort_size:15,season:'2024-25',phases:['Regular Season'],qualification:{min_games:5},distribution:{among_players:{bins:[]}}};
+ const html=overviewMetricsTable(overviewPresentation(p));
+ assert.match(html,/League-wide/);
+ assert.doesNotMatch(html,/Historical listed positions|Hybrids belong/);
+});

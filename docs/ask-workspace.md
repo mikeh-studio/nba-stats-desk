@@ -810,20 +810,17 @@ Distribution buttons announce both the percentile or qualification status and
 the descriptive qualification note. Focused prose uses full statistic names such
 as three-pointers made and turnovers; metric tables keep their abbreviations.
 
-Position-aware Overview requests retain explicitly labeled league fallback when
-season-specific position evidence is unavailable. Supported comparison clauses,
+Implicit position context may fall back to an explicitly labeled league reference.
+An unavailable explicitly requested group is partial and never replaced by league
+data. Supported comparison clauses,
 shared focused summaries and peer-evidence details follow the
 [position policy](overview-insights.md#position-comparisons-and-focused-profiles-v3).
 
 
 ### Overview variation and requested-peer fulfillment
 
-Overview v4 separates HTTP delivery, arithmetic correctness, and fulfillment of
-an explicit position comparison. An unavailable requested cohort is partial,
-never an answered league substitute. Regression coverage includes metric-led
-openers, same-cohort per-36 context, independent quartiles, tied dated highs,
-missing games, tiny samples, and peaks outside the chart point cap. Re-run
-`tests/test_overview_variation.py`, distribution and Overview suites, plus the
-JavaScript suite and populated mobile/desktop charts after rendering changes.
-Frozen-source runs and synthetic position-group tests establish different things;
-real position comparisons require separately verified season membership.
+See [question-first comparisons and variation](overview-insights.md#question-first-comparisons-and-variation-v4)
+and [request fidelity](overview-insights.md#request-fidelity-and-review-regressions)
+for the shared contract. An unavailable explicitly requested cohort is partial,
+never an answered league substitute. Game spread and dated highs use the requested
+metric and full scoped sample; all displayed comparisons retain their reference.

@@ -61,7 +61,7 @@ FOCUS_WORDS = {
     "scoring": r"scoring|shooting",
     "playmaking": r"playmaking",
     "rebounding": r"rebounding",
-    "defense": r"defen[cs]e|defensive activity|defend(?:ed|ing)?",
+    "defense": r"defen[cs]e|defensive activity|defend(?:ed|ing)?(?!\s+champions?\b)",
 }
 LIMITS = {
     "general": "Box scores describe recorded production. Screening, defensive positioning and individual defensive impact are not measured here.",

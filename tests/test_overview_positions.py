@@ -19,7 +19,7 @@ from app.agent.performance_overview import (
     overview_scope,
     wants_overview,
 )
-from app.agent.semantics import COMPONENTS, Evidence
+from app.agent.semantics import COMPONENTS, Evidence, SemanticError
 
 
 def fixture(n=20, position="PG"):
@@ -326,7 +326,8 @@ def test_precise_positions_enable_all_groups(position, group):
 
 def test_windowed_request_keeps_explicit_baseline_intent():
     q = "How was Example's scoring in January 2025 compared with the prior season and other guards?"
-    assert peer_question(q) == q
+    with pytest.raises(SemanticError, match="specify the current and comparison dates"):
+        overview_scope(q, "2024-25")
 
 
 @pytest.mark.parametrize(

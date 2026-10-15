@@ -1,9 +1,26 @@
 """Concise, deterministic relationships over governed overview evidence."""
 
-from app.agent.overview_observations import NAMES, changed, comparison_change, complete
+from app.agent.overview_observations import (
+    NAMES,
+    changed,
+    comparison_change,
+    complete,
+    limitations,
+)
 
-VERSION = "ask_overview_insights/4"
+VERSION = "ask_overview_insights/5"
 ACTIVITY_PRIORITY = {"reb": 3, "stl": 2, "blk": 1}
+
+
+def missing_focus(metrics, profile):
+    required = {
+        "scoring": ("pts",),
+        "playmaking": ("ast",),
+        "rebounding": ("reb",),
+        "defense": ("stl", "blk"),
+    }.get(profile, ())
+    lookup = {m["key"]: m for m in metrics}
+    return [key for key in required if not complete(lookup.get(key, {}))]
 
 
 def qualified_peer(metric):
@@ -93,6 +110,19 @@ def select_insights(metrics, scope, phase, profile="general"):
             )
         )
 
+    missing = missing_focus(metrics, profile)
+    if missing:
+        text = limitations(lookup, missing)
+        add(
+            "focus_unavailable",
+            "Requested metric",
+            "Requested result incomplete",
+            text,
+            text,
+            (),
+        )
+        return results
+
     if profile in ("general", "scoring") and complete(get("pts")):
         m = get("pts")
         p, ts = delta("pts"), delta("ts_pct")
@@ -111,7 +141,7 @@ def select_insights(metrics, scope, phase, profile="general"):
             )
         clauses = [lead + "."]
         if peer and m.get("percentile") != 100:
-            clauses.append(f"That {peer}.")
+            clauses.append(f"He {peer}.")
         volume = [
             f"{abs(delta(k)):.1f} {'more' if delta(k) > 0 else 'fewer'} {label}"
             for k, label in (
@@ -163,7 +193,7 @@ def select_insights(metrics, scope, phase, profile="general"):
         if d is not None and p is not None and changed(m) and changed(get("pts_per36")):
             rate = get("pts_per36")["value"]
             clause = f"Scoring {'rose' if d > 0 else 'fell'} per 36 minutes ({rate - d:.1f} to {rate:.1f})"
-            if p > 0 and d > 0 and delta("min") is not None and delta("min") > 0:
+            if p > 0 and d > 0 and changed(get("min")) and delta("min") > 0:
                 clause += ", so extra playing time was only part of the increase"
             elif p * d < 0:
                 clause += ", the opposite direction to his per-game output"
@@ -243,7 +273,7 @@ def select_insights(metrics, scope, phase, profile="general"):
                 )
             )
         rate, d = get("ast_per36"), delta("ast_per36")
-        if a is not None and changed(get("ast")) and d is not None:
+        if a is not None and changed(get("ast")) and d is not None and changed(rate):
             direction = "rose" if d > 0 else "fell" if d < 0 else "stayed flat"
             clause = f"Assists {direction} per 36 minutes ({rate['value'] - d:.1f} to {rate['value']:.1f})"
             if a * d < 0:
@@ -256,7 +286,13 @@ def select_insights(metrics, scope, phase, profile="general"):
             if moves
             else " ".join(clauses[:2])
         )
-        if a is not None and d is not None and a * d < 0:
+        if (
+            a is not None
+            and d is not None
+            and a * d < 0
+            and changed(get("ast"))
+            and changed(rate)
+        ):
             summary += f" Assists per 36 {'rose' if d > 0 else 'fell'} {abs(d):.1f}."
         elif peer and moves:
             summary += f" He {peer}."
@@ -342,6 +378,9 @@ def select_insights(metrics, scope, phase, profile="general"):
     from app.agent.overview_variation import FOCUS_METRICS, variation
 
     focus = FOCUS_METRICS[profile]
+    if profile == "defense":
+        # Stable focus ordering keeps the lead, sidebar and evidence keys aligned.
+        results.sort(key=lambda finding: focus not in finding["metric_keys"])
     if results and intent.get("requested_group"):
         primary = get(focus)
         p = primary.get("peer_comparison", {})
@@ -407,7 +446,9 @@ def select_insights(metrics, scope, phase, profile="general"):
 
 
 def scope_context(metrics, scope, appearances, phase, findings):
-    parts = [f"{appearances} {phase} appearances"]
+    parts = [
+        f"{appearances} {phase} {'appearance' if appearances == 1 else 'appearances'}"
+    ]
     if scope.get("comparison_intent", {}).get(
         "baseline_requested"
     ) is not False and any(comparison_change(m) is not None for m in metrics):
@@ -454,7 +495,7 @@ def insight_paragraphs(name, metrics, scope, appearances, phase, profile):
         return [
             f"This assessment covers {name}'s {appearances} {phase} appearances. No complete statistics are available for this assessment."
         ]
-    if appearances < 5:
+    if appearances < 5 and findings[0]["id"] != "focus_unavailable":
         keys = {
             "scoring": ("pts", "ts_pct"),
             "playmaking": ("ast", "tov"),
@@ -469,7 +510,18 @@ def insight_paragraphs(name, metrics, scope, appearances, phase, profile):
             if complete(lookup.get(k, {})) and k != "ts_pct"
         ]
         return [
-            f"{name} averaged {', '.join(values)} per game across these {appearances} appearances."
+            (
+                (
+                    f"{name} averaged {', '.join(values)} per game across "
+                    + (
+                        "this appearance."
+                        if appearances == 1
+                        else f"these {appearances} appearances."
+                    )
+                )
+                if values
+                else "No complete requested statistics are available for these appearances."
+            )
             + (
                 " The requested position comparison needs at least five appearances in the same dates."
                 if scope.get("comparison_intent", {}).get("requested_group")
