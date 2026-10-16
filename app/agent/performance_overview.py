@@ -36,9 +36,11 @@ METRICS = (
 )
 
 # Participation conditions the full-period overview cannot represent. "Out" counts
-# only as a status ("is out", "with B out"), not "out of" or "find out".
+# only as a status ("is out", "with B out"), not "out of" or "find out". The word
+# "teammates" alone is a relationship, not a condition ("compare teammates A and B").
 ABSENCE_CUES = re.compile(
-    r"\b(?:teammates?|inactive|dnp|absen(?:t|ce)|sidelined|unavailable|healthy scratch(?:es)?"
+    r"\b(?:without (?:(?:his|her|their|a|the) )?teammates?|inactive|dnp|absen(?:t|ce)"
+    r"|sidelined|unavailable|healthy scratch(?:es)?"
     r"|did(?: not|n[’']?t) play|missed(?! (?:shots?|field goals?|free throws?|threes?|3s)\b)"
     r"|sat|sits|sitting)\b"
     r"|(?<!\bfind )(?<!\bfigure )(?<!\bcheck )(?<!\bwork )(?<!\bpoint )(?<!\bturn )(?<!\bturns )"

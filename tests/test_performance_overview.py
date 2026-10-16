@@ -982,6 +982,7 @@ ABSENCE_QUESTIONS = [
     "Player 1 stats when Player 2 was inactive",
     "Player 1 stats in Player 2 DNP games",
     "Player 1 stats when Player 2 didn't play",
+    "Player 1 stats without his teammate",
 ]
 
 
@@ -1018,6 +1019,28 @@ def test_comparison_scope_rejects_teammate_absence(question):
 def test_absence_guard_ignores_unrelated_out_wording(question):
     s = overview_scope(question + " in 2025-26", "2025-26", date(2026, 9, 12))
     assert s["phases"] == ["Regular Season", "Playoffs"]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Compare teammates Player 1 and Player 2 during the 2025-26 regular season",
+        "Player 1 vs Player 2, former teammates, during the 2025-26 regular season",
+    ],
+)
+def test_teammate_relationship_alone_keeps_scorecard(evidence, question):
+    # "Teammates" names a relationship, not an availability condition.
+    class Warehouse:
+        def load(self, seasons):
+            return {"capture": {}}, evidence
+
+    agent = SemanticAsk(
+        SimpleNamespace(season="2025-26", agent_conversation_max_turns=6),
+        Warehouse(),
+    )
+    result = agent.answer(question, client=None, model="test")
+    assert result["status"] == "ok"
+    assert result["semantic_plan"]["model_calls"] == 0
 
 
 @pytest.mark.parametrize("question", ABSENCE_QUESTIONS[:2])
