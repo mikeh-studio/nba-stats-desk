@@ -18,6 +18,7 @@ from app.agent.metric_presentation import (
 )
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.research_ask import refusal
+from app.agent.route_labels import route_hint
 from app.agent.semantic_serving import requested_seasons, source_players
 from app.agent.semantics import SemanticError
 from app.availability import compare_availability, load_availability
@@ -590,6 +591,7 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
         result = compare_availability(loaded, request)
         payload = render_answer(result, players)
         payload["conversation_id"] = conversation_id
+        route_hint(payload, route="availability")
         if conversation_id and agent.conversation_store:
             agent.conversation_store.append_turn(
                 conversation_id,

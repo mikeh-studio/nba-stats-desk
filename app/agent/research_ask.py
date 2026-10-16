@@ -10,6 +10,7 @@ import traceback
 import jsonschema
 from pydantic import ValidationError
 
+from app.agent.route_labels import route_hint
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -49,6 +50,16 @@ def mentioned_pairs(question):
             for side in names
         )
     ]
+
+
+def named_absence_pair(question):
+    """The one registered pair named with an absence cue, checked before planning."""
+    pairs = mentioned_pairs(question)
+    if len(pairs) == 1 and re.search(
+        r"\b(out|without|absence|absent)\b", question, re.I
+    ):
+        return pairs[0]
+    return None
 
 
 def direct_study_plan(question, season):
@@ -98,7 +109,7 @@ def wants_research(question):
     )
 
 
-def refusal(message, *, code=None, trace=None, followups=()):
+def refusal(message, *, code=None, trace=None, followups=(), reason_code=None):
     if trace:
         trace.route = "research"
         trace.outcome = (
@@ -117,6 +128,8 @@ def refusal(message, *, code=None, trace=None, followups=()):
     }
     if code:
         payload["research_error_code"] = code
+    if reason_code:
+        route_hint(payload, reason_code=reason_code)
     return payload
 
 
@@ -193,6 +206,17 @@ def research_plan_schema():
 
 
 def answer_research(agent, question, provider, model, conversation_id=None, trace=None):
+    # "research" until a study or breakdown is chosen; the planner may refuse first.
+    decision = {"route": "research"}
+    payload = _answer_research(
+        agent, question, provider, model, conversation_id, trace, decision
+    )
+    return route_hint(payload, **decision)
+
+
+def _answer_research(
+    agent, question, provider, model, conversation_id, trace, decision
+):
     previous = None
     if conversation_id and agent.conversation_store:
         turns = agent.conversation_store.get_turns(conversation_id, max_turns=1)
@@ -210,7 +234,8 @@ def answer_research(agent, question, provider, model, conversation_id=None, trac
         )
         if len(seasons) != 1:
             return refusal(
-                "Research currently requires one explicit season; no cross-season request was approximated."
+                "Research currently requires one explicit season; no cross-season request was approximated.",
+                reason_code="multi_season",
             )
         allow_fallback = not previous and not has_time_scope(question)
         candidates = (
@@ -218,25 +243,25 @@ def answer_research(agent, question, provider, model, conversation_id=None, trac
         )
         # A known absence question cannot be answered from box scores alone.
         # Check published coverage before warehouse work or a paid planning call.
-        pairs = mentioned_pairs(question)
-        named_absence = len(pairs) == 1 and bool(
-            re.search(r"\b(out|without|absence|absent)\b", question, re.I)
-        )
+        absence_pair = named_absence_pair(question)
         study_entries = None
-        if named_absence:
+        if absence_pair:
             stage = "study_catalog"
             study_entries = catalog(agent.settings.research_studies_path)
             matched = next(
-                (s for s in study_entries if s["pair_id"] == pairs[0]["pair_id"]), None
+                (s for s in study_entries if s["pair_id"] == absence_pair["pair_id"]),
+                None,
             )
             if not matched or not matched.get("scope"):
-                return missing_study(pairs[0], seasons[0], trace)
+                decision.update(route="teammate_study", source="deterministic")
+                return missing_study(absence_pair, seasons[0], trace)
         schema = research_plan_schema()
         direct = direct_study_plan(question, seasons[0]) if not previous else None
         if direct:
             evidence = None
             evidence_season = seasons[0]
             decoded = {"request": direct}
+            decision["source"] = "deterministic"
         else:
             stage = "evidence"
             evidence = None
@@ -306,6 +331,7 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
             if trace:
                 trace.add_usage(getattr(response, "usage", None))
             decoded = json.loads(response.output_text)
+            decision["source"] = "model"
         try:
             jsonschema.validate(decoded, schema)
         except jsonschema.ValidationError:
@@ -319,13 +345,25 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
             )
         plan = decoded["request"]
         if plan["kind"] == "unsupported":
-            return refusal(plan["message"] or "This research scope is unsupported.")
+            return refusal(
+                plan["message"] or "This research scope is unsupported.",
+                reason_code="planner_unsupported",
+            )
+        decision["route"] = (
+            "teammate_study" if plan["kind"] == "study" else "research_breakdown"
+        )
         raw = plan["query"]
         if raw["season"] != seasons[0]:
-            return refusal("The planned season does not match the requested season.")
+            return refusal(
+                "The planned season does not match the requested season.",
+                reason_code="season_mismatch",
+            )
         literal_dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", question)
         if any(d not in (raw.get("start"), raw.get("end")) for d in literal_dates):
-            return refusal("The planned dates do not match the requested dates.")
+            return refusal(
+                "The planned dates do not match the requested dates.",
+                reason_code="date_mismatch",
+            )
         if plan["kind"] == "study":
             if not re.search(
                 r"\b(?:regular[ -]season|playoffs?|post[ -]?season)\b", question, re.I
@@ -343,7 +381,8 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
                 or raw["teammate_id"] != study["teammate_id"]
             ):
                 return refusal(
-                    "The requested pair, roles, or phase do not match a supported study."
+                    "The requested pair, roles, or phase do not match a supported study.",
+                    reason_code="study_roles_mismatch",
                 )
             if not study.get("scope"):
                 return missing_study(study, seasons[0], trace)
@@ -363,7 +402,8 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
                     raw["aggregation"],
                 )
                 return refusal(
-                    "Additional study filters or totals require a separate reviewed study."
+                    "Additional study filters or totals require a separate reviewed study.",
+                    reason_code="study_filters_unsupported",
                 )
             # These are the two arms already reported by every study, not extra filters.
             raw["teammate_status"] = None
@@ -388,13 +428,15 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
                     f"{(' through ' + str(raw['end'])) if raw.get('end') else ''}. "
                     f"The available {study['player_name']} / {study['teammate_name']} study "
                     f"covers {scope['season']}, {scope['start']} through {scope['end']}. "
-                    "Ask for that period to use it; your requested period was not changed."
+                    "Ask for that period to use it; your requested period was not changed.",
+                    reason_code="study_scope_mismatch",
                 )
             if scope and raw["phase"] != scope.get("phase", "Regular Season"):
                 return refusal(
                     "That comparison is not available for the requested season phase. The available comparison covers "
                     + scope.get("phase", "Regular Season").lower()
-                    + "."
+                    + ".",
+                    reason_code="study_phase_mismatch",
                 )
             if (
                 scope
@@ -404,7 +446,8 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
                 return refusal(
                     "The full-season comparison is not available yet. "
                     f"The available comparison only covers {scope['start']} through {scope['end']}; "
-                    "ask for those dates to view that period."
+                    "ask for those dates to view that period.",
+                    reason_code="study_window_unavailable",
                 )
             stage = "study_rendering"
             payload = study_answer(study, raw["metrics"])
@@ -418,7 +461,8 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
         else:
             if evidence is None:
                 return refusal(
-                    "No matching research data is available in the supported seasons."
+                    "No matching research data is available in the supported seasons.",
+                    reason_code="research_coverage_missing",
                 )
             stage = "breakdown"
             context = load_context(agent.settings.research_context_path)
@@ -446,7 +490,8 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
                     break
             if result is None:
                 return refusal(
-                    "No matching research data is available in the supported seasons."
+                    "No matching research data is available in the supported seasons.",
+                    reason_code="research_coverage_missing",
                 )
             payload = answer_payload(result)
         if used_season != seasons[0]:
@@ -463,7 +508,10 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
                 question=question,
                 answer=payload["answer"],
                 max_turns=agent.settings.agent_conversation_max_turns,
-                context={"research_scope": payload["research_scope"]},
+                context={
+                    "research_scope": payload["research_scope"],
+                    "route": decision["route"],
+                },
             )
         return payload
     except (

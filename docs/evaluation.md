@@ -468,6 +468,40 @@ HTTP failure, and continues evaluating unaffected cases. Runtime metadata lists
 these capability failures separately from ordinary contract mismatches. A missing
 frozen attachment also fails closed; it never enables live warehouse fallback.
 
+## Ask route evaluation
+
+`tests/fixtures/semantics/route_cases.json` labels the intended Ask route for
+known misroutes, controls, follow-up chains, pending-clarification replies,
+reversed study roles and research refusal classes. Each case has three phrasings,
+an `expected` map (dotted paths; a list means any of), `forbidden` routes and a
+`category` (`route`, `scope_drop`, `followup`, `refusal`, `control`). Generic
+cases use the fictional players in `tests/fixtures/ask/source.json`; study-pair
+cases use the public pair identities in `app/research_studies.py`. `opponent_splits`
+is a planned route with no handler yet, valid only as an expectation.
+
+```bash
+python scripts/evaluate_ask_routing.py --mode current
+python scripts/evaluate_ask_routing.py --mode ask
+```
+
+`current` replays the dispatch registry plus each handler's deterministic
+pre-planner checks with zero model calls. `ask` runs `StatsAgent.answer` on the
+frozen Ask fixture warehouse and reads the payload `ask_route`; its default
+controlled model returns planner refusals, so only route decisions are measured
+and outcomes of model-calling turns are `unknown`. `--provider openai` runs a live
+planner locally with a bounded `--max-calls` budget; provider keys are never added
+to CI. Reports default to `reports/ask-routing/<date>/<mode>.json` with JSONL
+progress beside them, and are never overwritten.
+
+Each report gives route accuracy per category, a confusion matrix, **scope
+drops** (a forbidden route whose outcome is an answer or unknown), forbidden-route
+hits, wrong-path refusals (a refusal or clarification from the wrong route) and
+misroutes with unknown outcomes. A `research` label matches an expected
+`research_breakdown` or `teammate_study` and is counted separately. `--fail-under`
+and `--max-scope-drops` turn the summary into a gate. The frozen fixture has no v3
+study catalog, so `ask` mode reads every study as coverage pending. Fixture
+results are not live-warehouse or browser evidence.
+
 ## Offline execution-policy QA
 
 Run the real OpenAI Responses interface and Claude/OpenRouter adapters over

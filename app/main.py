@@ -644,6 +644,8 @@ def _restore_agent_context(
                         or turn["question"],
                         query_plan=restored_overview_plan(stored_payload)
                         or stored_payload.get("semantic_plan"),
+                        # History saved before route labels has no ask_route.
+                        route=(stored_payload.get("ask_route") or {}).get("route"),
                     )
                 elif successful_analysis(stored_payload):
                     next_context = analysis_context(turn["question"], stored_payload)

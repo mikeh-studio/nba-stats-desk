@@ -5,6 +5,7 @@ import re
 from app.agent.availability_ask import _identities
 from app.agent.followup import analysis_context, resolve_followup
 from app.agent.research_ask import refusal
+from app.agent.route_labels import route_hint
 from app.agent.semantic_serving import requested_seasons, source_players
 from app.agent.semantics import Query, SemanticError, run_query
 from app.availability import load_availability
@@ -198,6 +199,7 @@ def answer_appearances(agent, question, context, conversation_id, trace=None):
             conversation_context=next_context,
             appearance_evidence=results,
         )
+        route_hint(payload, route="appearances")
         if conversation_id and agent.conversation_store:
             agent.conversation_store.clear_pending_clarification(conversation_id)
             agent.conversation_store.append_turn(

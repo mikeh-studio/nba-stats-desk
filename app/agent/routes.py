@@ -221,9 +221,79 @@ ROUTES = (
 )
 
 
+def pending_routing(
+    question: str, pending_question: str | None, selected_player: Any = None
+) -> tuple[str, str | None, bool]:
+    """Return the routing question, reference reply and whether pending survives.
+
+    A pending reference clarification survives only a selection or a short name
+    reply. Otherwise a pending question claims routing unless the new turn is a
+    reference or award request itself.
+    """
+    if pending_question is None:
+        return question, None, False
+    reference_reply = None
+    if reference_kind(pending_question):
+        from app.agent.service import _clarify_reply_name
+
+        reply = _clarify_reply_name(question)
+        new_question = bool(
+            reference_kind(question)
+            or wants_award(question)
+            or re.search(
+                r"\b(?:how|what|who|which|show|compare|rank|when|without|out|sits|games|per)\b",
+                question,
+                re.I,
+            )
+        )
+        if selected_player:
+            reference_reply = str(selected_player.get("player_name", ""))
+        elif reply and not new_question:
+            reference_reply = reply
+        else:
+            return question, None, False
+    if reference_kind(question) or wants_award(question):
+        return question, reference_reply, True
+    return pending_question, reference_reply, True
+
+
 @timed("routing")
 def select_route(context: RouteContext) -> Route:
     return next(route for route in ROUTES if route.matches(context))
+
+
+def dispatch_source(context: RouteContext, route: Route) -> str:
+    """Name what claimed the route: a pending clarification, a prior turn, or cues."""
+    if context.reference_reply is not None or (
+        context.routing_question != context.question
+    ):
+        return "pending_clarification"
+
+    def reference() -> bool:
+        return bool(context.reference_followup_question) and not reference_kind(
+            context.question
+        )
+
+    sticky: dict[str, Callable[[], bool]] = {
+        "research": lambda: (
+            context.research_followup and not wants_research(context.question)
+        ),
+        "teammate_study": lambda: (
+            context.study_followup
+            and not wants_study(
+                context.question, context.settings.agent_teammate_study_path
+            )
+        ),
+        "availability": lambda: (
+            bool(context.context.get("availability_scope"))
+            and availability_followup(context.question)
+            and not wants_availability(context.question)
+        ),
+        "similarity": reference,
+        "league_baseline": reference,
+    }
+    claimed = sticky.get(route.key)
+    return "prior_route" if claimed and claimed() else "deterministic"
 
 
 def semantic_shape(question: str) -> str:
