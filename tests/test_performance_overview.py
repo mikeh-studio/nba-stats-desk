@@ -971,3 +971,106 @@ def test_focused_prose_uses_statistic_names(evidence, profile, word, abbreviatio
     first = payload["semantic_evidence"]["summary_paragraphs"][0]
     assert word in first
     assert abbreviation not in first
+
+
+ABSENCE_QUESTIONS = [
+    "Player 1 stats when Player 2 is out",
+    "Player 1 stats in games his teammate sat out",
+    "Player 1 stats with Player 2 out",
+    "Player 1 stats when Player 2 sat",
+    "Player 1 stats in games Player 2 missed",
+    "Player 1 stats when Player 2 was inactive",
+    "Player 1 stats in Player 2 DNP games",
+    "Player 1 stats when Player 2 didn't play",
+    "Player 1 stats without his teammate",
+]
+
+
+@pytest.mark.parametrize("question", ABSENCE_QUESTIONS)
+def test_overview_scope_rejects_teammate_absence(question):
+    for text in (question, question + "\nClarification: Player 1"):
+        with pytest.raises(SemanticError) as exc:
+            overview_scope(text + " in 2025-26", "2025-26", date(2026, 9, 12))
+        assert exc.value.code == "clarification_required"
+        assert "teammate availability" in str(exc.value)
+
+
+@pytest.mark.parametrize("question", ABSENCE_QUESTIONS[:2])
+def test_comparison_scope_rejects_teammate_absence(question):
+    from app.agent.player_comparison import comparison_scope
+
+    with pytest.raises(SemanticError, match="teammate availability"):
+        comparison_scope(
+            question.replace("Player 1", "Player 1 vs Player 3"),
+            "2025-26",
+            date(2026, 9, 12),
+        )
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Player 1 stats in games he outscored his matchup",
+        "Player 1 stats out of all 2025-26 games",
+        "Find out Player 1 stats",
+        "Player 1 stats on Saturday nights",
+    ],
+)
+def test_absence_guard_ignores_unrelated_out_wording(question):
+    s = overview_scope(question + " in 2025-26", "2025-26", date(2026, 9, 12))
+    assert s["phases"] == ["Regular Season", "Playoffs"]
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Compare teammates Player 1 and Player 2 during the 2025-26 regular season",
+        "Player 1 vs Player 2, former teammates, during the 2025-26 regular season",
+    ],
+)
+def test_teammate_relationship_alone_keeps_scorecard(evidence, question):
+    # "Teammates" names a relationship, not an availability condition.
+    class Warehouse:
+        def load(self, seasons):
+            return {"capture": {}}, evidence
+
+    agent = SemanticAsk(
+        SimpleNamespace(season="2025-26", agent_conversation_max_turns=6),
+        Warehouse(),
+    )
+    result = agent.answer(question, client=None, model="test")
+    assert result["status"] == "ok"
+    assert result["semantic_plan"]["model_calls"] == 0
+
+
+@pytest.mark.parametrize("question", ABSENCE_QUESTIONS[:2])
+@pytest.mark.parametrize(
+    "selection", [None, {"player_id": 1, "player_name": "Player 1"}]
+)
+def test_absence_overview_never_drops_filter_or_asks_for_player(
+    evidence, monkeypatch, question, selection
+):
+    # Bypass the earlier availability refusal to exercise the overview guard itself,
+    # including the selected-player resume path.
+    from app.agent import availability_ask
+
+    monkeypatch.setattr(availability_ask, "wants_availability", lambda q: False)
+
+    class Warehouse:
+        def load(self, seasons):
+            return {"capture": {}}, evidence
+
+    agent = SemanticAsk(
+        SimpleNamespace(season="2025-26", agent_conversation_max_turns=6),
+        Warehouse(),
+    )
+    result = agent.answer(
+        question + " during the 2025-26 regular season",
+        client=None,
+        model="test",
+        selected_player=selection,
+    )
+    assert result["status"] == "clarification_required"
+    assert "teammate availability" in result["answer"]
+    assert "Which player" not in result["answer"]
+    assert not result.get("charts")
