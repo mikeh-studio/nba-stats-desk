@@ -488,7 +488,7 @@ class SemanticAsk:
             pending
             and not selected_player
             and not (pending.query_plan or {}).get("overview_clarification")
-            and supersedes_pending(original, pending.question)
+            and supersedes_pending(original, pending)
         ):
             # A self-contained request for a different task is answered on its
             # own wording; it must not be folded into the pending question.
@@ -1194,6 +1194,7 @@ class SemanticAsk:
                     question=question,
                     query_plan=overview_pending or payload.get("semantic_plan"),
                     route=route_label,
+                    candidates=payload.get("clarification_options"),
                 )
             else:
                 store.clear_pending_clarification(conversation_id)

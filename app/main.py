@@ -646,6 +646,7 @@ def _restore_agent_context(
                         or stored_payload.get("semantic_plan"),
                         # History saved before route labels has no ask_route.
                         route=(stored_payload.get("ask_route") or {}).get("route"),
+                        candidates=stored_payload.get("clarification_options"),
                     )
                 elif successful_analysis(stored_payload):
                     next_context = analysis_context(turn["question"], stored_payload)

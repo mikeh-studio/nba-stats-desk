@@ -1001,6 +1001,7 @@ class StatsAgent:
                     question=original_question,
                     query_plan=query_plan.model_dump(mode="json"),
                     route=f"legacy:{agent_plan.route.value}",
+                    candidates=options,
                 )
                 self.conversation_store.append_turn(
                     conversation_id,
@@ -1530,13 +1531,7 @@ class StatsAgent:
             else None
         )
         routing_question, reference_reply, keep_pending = pending_routing(
-            cleaned_question,
-            pending_route.question if pending_route else None,
-            selected_player,
-            typed_overview=bool(
-                pending_route
-                and (pending_route.query_plan or {}).get("overview_clarification")
-            ),
+            cleaned_question, pending_route, selected_player
         )
         if pending_route and not keep_pending:
             assert conversation_id and self.conversation_store

@@ -7,6 +7,8 @@ rules, trade dates, or lineup membership from a language model's world knowledge
 from __future__ import annotations
 
 import re
+import unicodedata
+from collections.abc import Iterable
 
 _METRIC = re.compile(
     r"\b(?:points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|"
@@ -204,6 +206,54 @@ def name_reply(question: str) -> bool:
         and not _REQUEST_CUE.match(text)
         and not has_specific_metric(text)
         and not _TASK_WORD.search(text)
+    )
+
+
+_NOT_A_NAME = frozenset(
+    """a an and the i me my show give tell pick use go with mean meant it its
+    player please yes no ok okay both either neither all one first second third
+    last other how what who which when where why is are was were did does do has
+    have regular season seasons playoffs playoff postseason home away road
+    january february march april may june july august september october november
+    december monday tuesday wednesday thursday friday saturday sunday""".split()
+)
+
+
+def _fold(word: str) -> str:
+    word = re.sub(r"['’]s$", "", word.strip(".,!?()'’-"))
+    decomposed = unicodedata.normalize("NFKD", word.casefold())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def name_tokens(text: str) -> frozenset[str]:
+    """Capitalized words that can belong to a player's name.
+
+    Abbreviations (ATL), IDs and common reply or calendar words are excluded, so
+    "Show me ATL" or "Both" names no one.
+    """
+    words = re.findall(r"[^\W\d_][\w'’.-]*", text)
+    folded = (
+        _fold(w) for w in words if w[0].isupper() and not w.isupper() and len(w) > 1
+    )
+    return frozenset(w for w in folded if w and w not in _NOT_A_NAME)
+
+
+def names_other_player(reply: str, known_names: Iterable[str]) -> bool:
+    """True when a reply names someone but matches none of the known names.
+
+    ``known_names`` are the clarification's identity candidates or, when none
+    were stored, the names in the pending question. Partial names ("Avery" for
+    "Avery Example") match; with nothing named on either side the reply is not
+    treated as naming someone else.
+    """
+    said = name_tokens(reply)
+    known = {_fold(w) for name in known_names for w in name.split()} - {""}
+    if not said or not known:
+        return False
+    return not any(
+        s == k or (min(len(s), len(k)) >= 3 and (s in k or k in s))
+        for s in said
+        for k in known
     )
 
 

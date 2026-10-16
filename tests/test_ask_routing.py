@@ -271,7 +271,7 @@ def test_semantic_ask_does_not_fold_new_question_into_pending():
 def test_new_question_detection_keeps_clarification_replies(question, expected):
     from app.agent.routes import supersedes_pending
 
-    pending = (
+    pending = PendingClarification(
         "Who leads FG%?"
         if "FG%" in question
         else "How is Avery performing during the 2024-25 regular season?"
@@ -302,6 +302,67 @@ def test_identity_reply_resumes_pending_overview_with_its_scope(reply):
     scope = payload["semantic_evidence"]["scope"]
     assert scope["phases"] == ["Regular Season"]
     assert (scope["start"], scope["end"]) == ("2024-07-01", "2025-06-30")
+
+
+@pytest.mark.parametrize("reply", ["Blair Sample", "Show me Blair Sample"])
+def test_reply_naming_a_different_player_supersedes_pending_overview(reply):
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p", question=SCOPED_PENDING, query_plan=None, route="player_overview"
+    )
+    payload = agent(store=store).answer(reply, conversation_id="p")
+    assert payload["ask_route"]["route"] == "governed_metrics"
+    assert payload["ask_route"]["source"] == "deterministic"
+    assert payload.get("player_profile") is None
+    assert store.get_pending_clarification("p") is None
+
+
+@pytest.mark.parametrize(
+    "reply,resumes",
+    [
+        ("Avery Example (ID 101)", True),
+        ("Avery Example", True),
+        ("Blair Sample", False),
+    ],
+)
+def test_name_reply_is_checked_against_stored_identity_candidates(reply, resumes):
+    store = InMemoryConversationStore()
+    ambiguous = agent(variant="ambiguous", store=store)
+    first = ambiguous.answer("How is Avery Example performing?", conversation_id="c")
+    assert first["status"] == "clarification_required"
+    pending = store.get_pending_clarification("c")
+    assert pending is not None
+    assert {c["player_id"] for c in pending.candidates} == {101, 202}
+    payload = ambiguous.answer(reply, conversation_id="c")
+    assert (payload["ask_route"]["source"] == "pending_clarification") is resumes
+    if resumes:
+        assert payload["ask_route"]["route"] == "player_overview"
+    else:
+        assert payload["ask_route"]["route"] == "governed_metrics"
+        assert payload.get("player_profile") is None
+        assert store.get_pending_clarification("c") is None
+
+
+def test_name_reply_identity_check_uses_candidates_then_pending_names():
+    from app.agent.routes import supersedes_pending
+
+    offered = PendingClarification(
+        "Same Name performance",
+        candidates=(
+            {"player_id": 1, "player_name": "Same Name", "team_abbr": "ATL"},
+            {"player_id": 2, "player_name": "Same Name", "team_abbr": "BOS"},
+        ),
+    )
+    # Team abbreviations and IDs narrow the offered candidates.
+    for reply in ("ATL", "1", "Same Name (ID 1)", "Same"):
+        assert not supersedes_pending(reply, offered)
+    assert supersedes_pending("Show me Jokic", offered)
+    named = PendingClarification(SCOPED_PENDING)
+    assert not supersedes_pending("Avery Example", named)
+    assert supersedes_pending("Nikola Jokić", named)
+    # Nothing to check against: a name reply still resumes the pending question.
+    assert not supersedes_pending("Blair Sample", PendingClarification("How is he?"))
+    assert not supersedes_pending("Both", named)
 
 
 def test_different_task_for_same_player_replaces_scoped_pending_overview():

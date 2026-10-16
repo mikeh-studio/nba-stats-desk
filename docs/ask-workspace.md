@@ -615,7 +615,8 @@ before any handler. A handler's own refusal or clarification keeps its label and
 sets `reason_code`. `source` is `deterministic`, `prior_route`,
 `pending_clarification` or `model` (the research planner chose the sub-route).
 The label is recorded on the request trace (`ask_route` in the service log),
-stored as `route` in successful turn context and on pending clarifications, and
+stored as `route` in successful turn context and on pending clarifications
+(which also keep the offered candidates' player ID, name and team), and
 withheld from planner prompts. Logs carry labels and reason codes, never question
 text. Older stored turns and clarifications without a route remain readable.
 
@@ -630,7 +631,11 @@ task (a game log, a leaderboard, another metric, a teammate absence or research)
 it routes on its own wording instead of being folded into the pending question.
 Name replies (“Show me Avery Example”), scope replies, thresholds and
 restatements of the same task (“How is Avery Example performing?” for a pending
-overview) still resume the pending request and keep its scope. Typed Overview clarifications keep their restatement contract: the reply's
+overview) still resume the pending request and keep its scope. A name reply must
+match the clarification's stored identity candidates (name, team abbreviation or
+ID), or, when none were stored, a name in the pending question; a short reply
+naming another player is a new question. Legacy clarifications keep resolving
+name replies against the full roster. Typed Overview clarifications keep their restatement contract: the reply's
 wording is used and only missing dates or phase come from the pending request.
 Routing and rendering share the same captured conversation context.
 
