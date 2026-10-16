@@ -31,12 +31,9 @@ from app.agent.player_comparison import (
     comparison_sides,
 )
 from app.agent.player_splits import answer_split
-from app.agent.question_intent import (
-    question_intent,
-    split_kind,
-    starts_new_question,
-)
+from app.agent.question_intent import question_intent, split_kind
 from app.agent.route_labels import route_hint, status_reason
+from app.agent.routes import supersedes_pending
 from app.agent.semantic_planner import execute_plan, explicit_scope, plan_question
 from app.agent.semantic_serving import (
     fallback_notice,
@@ -491,10 +488,10 @@ class SemanticAsk:
             pending
             and not selected_player
             and not (pending.query_plan or {}).get("overview_clarification")
-            and starts_new_question(original)
+            and supersedes_pending(original, pending.question)
         ):
-            # A self-contained new request is answered on its own wording; it
-            # must not be folded into the pending question as a clarification.
+            # A self-contained request for a different task is answered on its
+            # own wording; it must not be folded into the pending question.
             # Typed Overview clarifications resume through resume_overview.
             pending = None
         from app.agent.overview_clarification import (

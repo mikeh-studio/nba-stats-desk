@@ -8,18 +8,25 @@ from __future__ import annotations
 
 import re
 
+_METRIC = re.compile(
+    r"\b(?:points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|"
+    r"minutes?|turnovers?|efficiency|field[ -]goals?|free[ -]throws?|"
+    r"three[ -]pointers?|3[ -]pointers?|games? played|"
+    r"pts|reb|ast|stl|blk|tov|fgm|fga|fg|ftm|fta|ft|3pm|3pa|3p|ts|efg)\b|%",
+    re.I,
+)
+
 
 def has_specific_metric(question: str) -> bool:
     """Recognize metric changes before inheriting or broadening analysis intent."""
-    return bool(
-        re.search(
-            r"\b(?:points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|"
-            r"minutes?|turnovers?|efficiency|field[ -]goals?|free[ -]throws?|"
-            r"three[ -]pointers?|3[ -]pointers?|games? played|"
-            r"pts|reb|ast|stl|blk|tov|fgm|fga|fg|ftm|fta|ft|3pm|3pa|3p|ts|efg)\b|%",
-            question,
-            re.I,
-        )
+    return bool(_METRIC.search(question))
+
+
+def metric_terms(question: str) -> frozenset[str]:
+    """Named metric words, normalized enough to compare two requests' tasks."""
+    return frozenset(
+        re.sub(r"[ -]", " ", term.lower()).rstrip("s")
+        for term in _METRIC.findall(question)
     )
 
 
@@ -153,6 +160,18 @@ _REPLY_FRAGMENT = re.compile(
     r"first|second|last|other|one)\b)",
     re.I,
 )
+# "Show me Avery Example" answers "Which player?"; it asks for no task of its own.
+_NAME_REPLY_LEAD = re.compile(
+    r"^(?:(?:show|give|tell)\s+me(?:\s+about)?|show|give|pick|use|go\s+with|"
+    r"i\s+mean[t]?|it'?s|(?:the\s+)?player)\b[,:\s]*",
+    re.I,
+)
+_TASK_WORD = re.compile(
+    r"\b(?:stats?|statistics|numbers|log|overview|profile|summary|leaders?|leads?|"
+    r"season|playoffs?|postseason|games?|vs\.?|versus|compare|career|trend|chart|"
+    r"table|similar|average|totals?)\b|\d",
+    re.I,
+)
 _ANAPHORA = re.compile(
     r"\b(?:he|him|his|she|her|hers|they|them|their|it|same|instead|"
     r"that\s+(?:player|one|guy)|this\s+(?:player|one|guy))\b",
@@ -160,12 +179,42 @@ _ANAPHORA = re.compile(
 )
 
 
+_TASK_MARKER = re.compile(
+    r"\bgame[ -]?logs?\b|\bbox[ -]?scores?\b|\b(?:leaders?|leads?|leading|top|best|"
+    r"rank(?:ed|ing|s)?|most|fewest|highest|lowest)\b|\bcareer\b|\btotals?\b",
+    re.I,
+)
+
+
+def task_terms(question: str) -> frozenset[str]:
+    """Metric and task words that define what a request asks for, not its scope."""
+    markers = (
+        re.sub(r"[ -]", "", m.lower()).rstrip("s")
+        for m in _TASK_MARKER.findall(question)
+    )
+    return metric_terms(question) | frozenset(markers)
+
+
+def name_reply(question: str) -> bool:
+    """A reply that only names a player, with or without "show me"/"I meant"."""
+    text = _NAME_REPLY_LEAD.sub("", _REPLY_LEAD.sub("", question).strip())
+    text = text.strip(" .!?")
+    return bool(
+        0 < len(text.split()) <= 4
+        and not _REQUEST_CUE.match(text)
+        and not has_specific_metric(text)
+        and not _TASK_WORD.search(text)
+    )
+
+
 def starts_new_question(question: str) -> bool:
-    """Recognize a self-contained request that supersedes a pending clarification.
+    """Recognize a self-contained request that may supersede a pending one.
 
     A request cue with at least three words and no reference back to the pending
     question (pronouns, "what about", "which one") stands on its own. Name
-    replies, scope fragments and thresholds such as "At least 1 FGA" do not.
+    replies such as "Show me Avery Example", scope fragments and thresholds such
+    as "At least 1 FGA" do not. Whether it is a different task from the pending
+    question is decided by ``routes.supersedes_pending``.
     """
     text = _REPLY_LEAD.sub("", question).strip()
     return bool(
@@ -173,4 +222,5 @@ def starts_new_question(question: str) -> bool:
         and _REQUEST_CUE.match(text)
         and not _REPLY_FRAGMENT.match(text)
         and not _ANAPHORA.search(text)
+        and not name_reply(text)
     )

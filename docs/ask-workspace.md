@@ -625,11 +625,12 @@ reference wording (for example “similar minutes when a teammate is out”). Ex
 peer-similarity filters such as “similar players at home” are still refused rather
 than replaced by unrelated research. New questions clear a pending reference
 clarification; short name or metric replies can resume it. Other untyped
-pending clarifications are likewise cleared by a self-contained new request (a
-request cue such as “Show …” or “Who leads …”, without pronouns or “what about”
-fragments); it routes on its own wording instead of being folded into the pending
-question. Name replies, scope fragments and thresholds still resume the pending
-request. Typed Overview clarifications keep their restatement contract: the reply's
+pending clarifications are cleared by a self-contained request for a different
+task (a game log, a leaderboard, another metric, a teammate absence or research);
+it routes on its own wording instead of being folded into the pending question.
+Name replies (“Show me Avery Example”), scope replies, thresholds and
+restatements of the same task (“How is Avery Example performing?” for a pending
+overview) still resume the pending request and keep its scope. Typed Overview clarifications keep their restatement contract: the reply's
 wording is used and only missing dates or phase come from the pending request.
 Routing and rendering share the same captured conversation context.
 

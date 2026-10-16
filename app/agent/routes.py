@@ -23,6 +23,7 @@ from app.agent.question_intent import (
     round_scope_message,
     split_kind,
     starts_new_question,
+    task_terms,
 )
 from app.agent.reference_ask import reference_followup, reference_kind
 from app.agent.research_ask import (
@@ -235,7 +236,8 @@ def pending_routing(
 
     A pending reference clarification survives only a selection or a short name
     reply. Any other untyped pending clarification is dropped by a self-contained
-    new question, which routes on its own wording. Typed Overview clarifications
+    request for a different task (``supersedes_pending``), which routes on its
+    own wording. Typed Overview clarifications
     keep their own restatement contract (``resume_overview``). Otherwise the
     pending question claims routing unless the new turn is a reference or award
     request itself.
@@ -262,11 +264,38 @@ def pending_routing(
             reference_reply = reply
         else:
             return question, None, False
-    elif not selected_player and not typed_overview and starts_new_question(question):
+    elif (
+        not selected_player
+        and not typed_overview
+        and supersedes_pending(question, pending_question)
+    ):
         return question, None, False
     if reference_kind(question) or wants_award(question):
         return question, reference_reply, True
     return pending_question, reference_reply, True
+
+
+def supersedes_pending(question: str, pending_question: str) -> bool:
+    """A self-contained request for a different task replaces a pending one.
+
+    Name replies, scope replies ("Show me the 2024-25 season") and restatements
+    of the same task ("How is Avery Example performing?" for a pending overview)
+    resume the pending question and keep its scope. A request with its own task
+    (a game log, a leaderboard, another metric, a teammate absence, research)
+    is answered on its own wording.
+    """
+    if not starts_new_question(question):
+        return False
+    if wants_availability(question) or wants_research(question):
+        return True
+    shape = semantic_shape(question)
+    terms = task_terms(question)
+    if shape == "metrics" and not terms:
+        return False
+    # Adding a threshold or metric to the pending task restates it.
+    return shape != semantic_shape(pending_question) or not (
+        task_terms(pending_question) <= terms
+    )
 
 
 @timed("routing")
