@@ -16,10 +16,19 @@ from typing import Any, Callable
 from app.agent.appearance_ask import wants_appearances
 from app.agent.availability_ask import availability_followup, wants_availability
 from app.agent.award_lookup import wants_award
+from app.agent.conversation import PendingClarification
 from app.agent.execution import timed
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
-from app.agent.question_intent import round_scope_message, split_kind
+from app.agent.question_intent import (
+    name_reply,
+    name_tokens,
+    names_other_player,
+    round_scope_message,
+    split_kind,
+    starts_new_question,
+    task_terms,
+)
 from app.agent.reference_ask import reference_followup, reference_kind
 from app.agent.research_ask import (
     mentioned_pairs,
@@ -222,16 +231,23 @@ ROUTES = (
 
 
 def pending_routing(
-    question: str, pending_question: str | None, selected_player: Any = None
+    question: str,
+    pending: PendingClarification | None,
+    selected_player: Any = None,
 ) -> tuple[str, str | None, bool]:
     """Return the routing question, reference reply and whether pending survives.
 
     A pending reference clarification survives only a selection or a short name
-    reply. Otherwise a pending question claims routing unless the new turn is a
-    reference or award request itself.
+    reply. Any other untyped pending clarification is dropped by a request for a
+    different task or a reply naming a player outside its identity candidates
+    (``supersedes_pending``); that turn routes on its own wording. Typed
+    Overview clarifications keep their own restatement contract
+    (``resume_overview``). Otherwise the pending question claims routing unless
+    the new turn is a reference or award request itself.
     """
-    if pending_question is None:
+    if pending is None:
         return question, None, False
+    pending_question = pending.question
     reference_reply = None
     if reference_kind(pending_question):
         from app.agent.service import _clarify_reply_name
@@ -248,13 +264,59 @@ def pending_routing(
         )
         if selected_player:
             reference_reply = str(selected_player.get("player_name", ""))
-        elif reply and not new_question:
+        elif reply and not new_question and not _names_other_player(question, pending):
             reference_reply = reply
         else:
             return question, None, False
+    elif (
+        not selected_player
+        and not (pending.query_plan or {}).get("overview_clarification")
+        and supersedes_pending(question, pending)
+    ):
+        return question, None, False
     if reference_kind(question) or wants_award(question):
         return question, reference_reply, True
     return pending_question, reference_reply, True
+
+
+def _names_other_player(question: str, pending: PendingClarification) -> bool:
+    """Check a name reply against the stored candidates, else the pending names."""
+    known = [str(c.get("player_name", "")) for c in pending.candidates] or [
+        " ".join(name_tokens(pending.question))
+    ]
+    return names_other_player(question, known)
+
+
+def supersedes_pending(question: str, pending: PendingClarification) -> bool:
+    """A reply naming someone else, or a request for a different task, replaces it.
+
+    A short name reply resumes the pending question only when it names one of
+    the clarification's identity candidates, or, when none were stored, a name
+    in the pending question; "Show me Jokic" for a pending Avery clarification
+    is a new question. Scope replies ("Show me the 2024-25 season") and
+    restatements of the same task ("How is Avery Example performing?" for a
+    pending overview) resume the pending question and keep its scope. A request
+    with its own task (a game log, a leaderboard, another metric, a teammate
+    absence, research) is answered on its own wording.
+    """
+    if name_reply(question):
+        # Legacy clarifications resolve a short reply against the full roster
+        # and re-ask on a miss, so the pick stays with that flow.
+        return not (pending.route or "").startswith("legacy:") and _names_other_player(
+            question, pending
+        )
+    if not starts_new_question(question):
+        return False
+    if wants_availability(question) or wants_research(question):
+        return True
+    shape = semantic_shape(question)
+    terms = task_terms(question)
+    if shape == "metrics" and not terms:
+        return False
+    # Adding a threshold or metric to the pending task restates it.
+    return shape != semantic_shape(pending.question) or not (
+        task_terms(pending.question) <= terms
+    )
 
 
 @timed("routing")

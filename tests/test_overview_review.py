@@ -780,3 +780,25 @@ def test_untyped_player_clarification_recovers_after_restart(
     assert result["status"] == "ok"
     assert result["semantic_evidence"]["player_id"] == 2
     assert result["semantic_evidence"]["scope"]["start"] == "2024-07-01"
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_typed_group_restatement_keeps_pending_season(ask, suffix):
+    from uuid import uuid4
+
+    cid = str(uuid4())
+    assert (
+        ask(
+            "Give an overview of Example 1 among guards and wings in the 2023-24 regular season.",
+            suffix,
+            conversation_id=cid,
+        )["status"]
+        == "clarification_required"
+    )
+    result = ask(
+        "Give an overview of Example 1 among guards", suffix, conversation_id=cid
+    )
+    assert result["status"] == "ok"
+    e = result["semantic_evidence"]
+    assert (e["scope"]["start"], e["scope"]["end"]) == ("2023-07-01", "2024-06-30")
+    assert e["scope"]["phases"] == ["Regular Season"]

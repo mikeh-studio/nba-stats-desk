@@ -184,14 +184,200 @@ def test_overview_turn_and_clarification_persist_route():
     assert pending is not None and pending.route == "player_overview"
 
 
-def test_pending_reply_reports_pending_source():
+@pytest.mark.parametrize("reply", ["Avery Example", "I meant Avery Example"])
+def test_pending_reply_reports_pending_source(reply):
     store = InMemoryConversationStore()
     store.set_pending_clarification(
         "p", question="How is Avery performing?", query_plan=None
     )
-    payload = agent(store=store).answer("Avery Example", conversation_id="p")
+    payload = agent(store=store).answer(reply, conversation_id="p")
     assert payload["ask_route"]["route"] == "player_overview"
     assert payload["ask_route"]["source"] == "pending_clarification"
+
+
+@pytest.mark.parametrize(
+    "question,route",
+    [
+        ("Show Blair Sample's game log for points", "governed_metrics"),
+        ("Who leads the league in assists this season?", "governed_metrics"),
+    ],
+)
+def test_new_question_replaces_pending_overview_clarification(question, route):
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p",
+        question="How is Avery performing?",
+        query_plan=None,
+        route="player_overview",
+    )
+    model = CapturingModel({"planner_response": NO_DECISION})
+    payload = agent(model, store=store).answer(question, conversation_id="p")
+    assert payload["ask_route"]["route"] == route
+    assert payload["ask_route"]["source"] == "deterministic"
+    assert payload["status"] != "ok"
+    assert payload.get("player_profile") is None
+    plans = [
+        json.loads(r["input"][0]["content"])
+        for r in model.requests
+        if r.get("text", {}).get("format", {}).get("name") == "semantic_plan"
+    ]
+    assert plans and "Clarification:" not in json.dumps(plans[-1])
+    assert "How is Avery performing?" not in json.dumps(plans[-1])
+    assert store.get_pending_clarification("p") is None
+
+
+def test_semantic_ask_does_not_fold_new_question_into_pending():
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p", question="How is Avery performing?", query_plan=None
+    )
+    model = CapturingModel({"planner_response": NO_DECISION})
+    payload = agent(model, store=store).semantic_agent.answer(
+        "Show Blair Sample's game log for points",
+        client=model,
+        model="fixture-model",
+        conversation_id="p",
+    )
+    assert payload["ask_route"]["route"] == "governed_metrics"
+    assert payload["ask_route"]["source"] == "deterministic"
+    assert payload.get("player_profile") is None
+    assert store.get_pending_clarification("p") is None
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        ("Show Blair Sample's game log for points", True),
+        ("Who leads the league in assists this season?", True),
+        ("Can you show Blair Sample's game log?", True),
+        ("Avery Example", False),
+        ("I meant Avery Example", False),
+        ("Avery Example please", False),
+        ("At least 1 FGA and one game", False),
+        ("November 2025", False),
+        ("What about November 2023?", False),
+        ("Compare with November 2023", False),
+        ("How was his scoring among guards?", False),
+        ("Show me the regular season", False),
+        ("Which one?", False),
+        ("Show me Avery Example", False),
+        ("Give me Avery Example", False),
+        ("How is Avery Example performing?", False),
+        ("Show me the 2024-25 season", False),
+        ("Who leads FG% with at least 1 FGA?", False),
+        ("How did Avery Example play when Blair Sample sat out?", True),
+    ],
+)
+def test_new_question_detection_keeps_clarification_replies(question, expected):
+    from app.agent.routes import supersedes_pending
+
+    pending = PendingClarification(
+        "Who leads FG%?"
+        if "FG%" in question
+        else "How is Avery performing during the 2024-25 regular season?"
+    )
+    assert supersedes_pending(question, pending) is expected
+
+
+SCOPED_PENDING = "How is Avery performing during the 2024-25 regular season?"
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "Show me Avery Example",
+        "Give me Avery Example",
+        "How is Avery Example performing?",
+    ],
+)
+def test_identity_reply_resumes_pending_overview_with_its_scope(reply):
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p", question=SCOPED_PENDING, query_plan=None, route="player_overview"
+    )
+    payload = agent(store=store).answer(reply, conversation_id="p")
+    assert payload["status"] == "ok"
+    assert payload["ask_route"]["route"] == "player_overview"
+    assert payload["ask_route"]["source"] == "pending_clarification"
+    scope = payload["semantic_evidence"]["scope"]
+    assert scope["phases"] == ["Regular Season"]
+    assert (scope["start"], scope["end"]) == ("2024-07-01", "2025-06-30")
+
+
+@pytest.mark.parametrize("reply", ["Blair Sample", "Show me Blair Sample"])
+def test_reply_naming_a_different_player_supersedes_pending_overview(reply):
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p", question=SCOPED_PENDING, query_plan=None, route="player_overview"
+    )
+    payload = agent(store=store).answer(reply, conversation_id="p")
+    assert payload["ask_route"]["route"] == "governed_metrics"
+    assert payload["ask_route"]["source"] == "deterministic"
+    assert payload.get("player_profile") is None
+    assert store.get_pending_clarification("p") is None
+
+
+@pytest.mark.parametrize(
+    "reply,resumes",
+    [
+        ("Avery Example (ID 101)", True),
+        ("Avery Example", True),
+        ("Blair Sample", False),
+    ],
+)
+def test_name_reply_is_checked_against_stored_identity_candidates(reply, resumes):
+    store = InMemoryConversationStore()
+    ambiguous = agent(variant="ambiguous", store=store)
+    first = ambiguous.answer("How is Avery Example performing?", conversation_id="c")
+    assert first["status"] == "clarification_required"
+    pending = store.get_pending_clarification("c")
+    assert pending is not None
+    assert {c["player_id"] for c in pending.candidates} == {101, 202}
+    payload = ambiguous.answer(reply, conversation_id="c")
+    assert (payload["ask_route"]["source"] == "pending_clarification") is resumes
+    if resumes:
+        assert payload["ask_route"]["route"] == "player_overview"
+    else:
+        assert payload["ask_route"]["route"] == "governed_metrics"
+        assert payload.get("player_profile") is None
+        assert store.get_pending_clarification("c") is None
+
+
+def test_name_reply_identity_check_uses_candidates_then_pending_names():
+    from app.agent.routes import supersedes_pending
+
+    offered = PendingClarification(
+        "Same Name performance",
+        candidates=(
+            {"player_id": 1, "player_name": "Same Name", "team_abbr": "ATL"},
+            {"player_id": 2, "player_name": "Same Name", "team_abbr": "BOS"},
+        ),
+    )
+    # Team abbreviations and IDs narrow the offered candidates.
+    for reply in ("ATL", "1", "Same Name (ID 1)", "Same"):
+        assert not supersedes_pending(reply, offered)
+    assert supersedes_pending("Show me Jokic", offered)
+    named = PendingClarification(SCOPED_PENDING)
+    assert not supersedes_pending("Avery Example", named)
+    assert supersedes_pending("Nikola Jokić", named)
+    # Nothing to check against: a name reply still resumes the pending question.
+    assert not supersedes_pending("Blair Sample", PendingClarification("How is he?"))
+    assert not supersedes_pending("Both", named)
+
+
+def test_different_task_for_same_player_replaces_scoped_pending_overview():
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p", question=SCOPED_PENDING, query_plan=None, route="player_overview"
+    )
+    model = CapturingModel({"planner_response": NO_DECISION})
+    payload = agent(model, store=store).answer(
+        "Show Avery Example's game log for points", conversation_id="p"
+    )
+    assert payload["ask_route"]["route"] == "governed_metrics"
+    assert payload["ask_route"]["source"] == "deterministic"
+    assert payload.get("player_profile") is None
+    assert store.get_pending_clarification("p") is None
 
 
 def test_stored_route_is_not_sent_to_the_metrics_planner():

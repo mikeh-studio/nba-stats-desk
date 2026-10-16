@@ -622,6 +622,7 @@ def answer_reference(
                 question=question,
                 query_plan={"kind": kind},
                 route=kind,
+                candidates=payload.get("clarification_options"),
             )
         else:
             store.clear_pending_clarification(conversation_id)

@@ -54,7 +54,9 @@ def wants_availability(question):
     )
     return bool(
         re.search(
-            r"\b(?:without|out|absent|absence|sidelined|unavailable|availability|injured|injury)\b|\b(?:did not|didn.t) play\b|\b(?:missed games?|sat out|sits|sitting)\b",
+            r"\b(?:without|out|absent|absence|sidelined|unavailable|availability|injured|injury)\b|\b(?:did not|didn.t) play\b|\b(?:missed games?|sat out|sits|sitting)\b"
+            # "games Blair missed" names the absence after its subject.
+            r"|\bgames?\s+(?:that\s+|where\s+|when\s+)?(?:\S+\s+){1,4}?missed\b(?!\s+(?:shots?|free|threes?|3s|field|layups?|dunks?|jumpers?))",
             question,
             re.I,
         )
@@ -141,7 +143,7 @@ def parse_request(question, players, season, previous=None, teams=()):
             )
         teammate_matches = list(
             re.finditer(
-                r"\bwithout\s+player(\d+)|\bplayer(\d+)\s+(?:(?:was|is|were|has been|being)\s+)?(?:out|absent|sidelined|unavailable|missing|did not play|didn.t play|missed games?|sat out|sits|sitting)\b|\bplayer(\d+)\s*[\x27’]s\s+absence\b",
+                r"\bwithout\s+player(\d+)|\bplayer(\d+)\s+(?:(?:was|is|were|has been|being)\s+)?(?:out|absent|sidelined|unavailable|missing|did not play|didn.t play|missed games?|sat out|sits|sitting)\b|\bplayer(\d+)\s*[\x27’]s\s+absence\b|\bgames?\s+(?:that\s+|where\s+|when\s+)?player(\d+)\s+missed\b",
                 text,
             )
         )
@@ -290,7 +292,7 @@ def parse_request(question, players, season, previous=None, teams=()):
     # "How many points" asks for a metric, not an additional sample filter.
     text = re.sub(r"\bhow many\b", "how", text)
     # No leftover constraint may disappear into an ordinary season summary.
-    allowed = r"\b(?:tell|me|how|did|does|do|was|is|were|has|been|play|played|perform|performed|performance|stats|statistics|when|while|with|without|out|absent|sidelined|unavailable|absence|being|missing|missed|sat|in|the|a|an|and|or|of|for|during|only|what|about|show|compare|compared|versus|vs|to|both|together|games|game|same|scope|now|instead|use|please|including|can|you|average|averages|averaged|per|total|totals)\b"
+    allowed = r"\b(?:tell|me|how|did|does|do|was|is|were|has|been|play|played|perform|performed|performance|stats|statistics|numbers|when|where|that|while|with|without|out|absent|sidelined|unavailable|absence|being|missing|missed|sat|in|the|a|an|and|or|of|for|during|only|what|about|show|compare|compared|versus|vs|to|both|together|games|game|same|scope|now|instead|use|please|including|can|you|average|averages|averaged|per|total|totals)\b"
     leftover = re.sub(allowed, " ", text)
     leftover = re.sub(r"['’]s\b|[\s,?.!:;()]+", "", leftover)
     if leftover:

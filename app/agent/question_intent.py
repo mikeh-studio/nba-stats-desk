@@ -7,19 +7,28 @@ rules, trade dates, or lineup membership from a language model's world knowledge
 from __future__ import annotations
 
 import re
+import unicodedata
+from collections.abc import Iterable
+
+_METRIC = re.compile(
+    r"\b(?:points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|"
+    r"minutes?|turnovers?|efficiency|field[ -]goals?|free[ -]throws?|"
+    r"three[ -]pointers?|3[ -]pointers?|games? played|"
+    r"pts|reb|ast|stl|blk|tov|fgm|fga|fg|ftm|fta|ft|3pm|3pa|3p|ts|efg)\b|%",
+    re.I,
+)
 
 
 def has_specific_metric(question: str) -> bool:
     """Recognize metric changes before inheriting or broadening analysis intent."""
-    return bool(
-        re.search(
-            r"\b(?:points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|"
-            r"minutes?|turnovers?|efficiency|field[ -]goals?|free[ -]throws?|"
-            r"three[ -]pointers?|3[ -]pointers?|games? played|"
-            r"pts|reb|ast|stl|blk|tov|fgm|fga|fg|ftm|fta|ft|3pm|3pa|3p|ts|efg)\b|%",
-            question,
-            re.I,
-        )
+    return bool(_METRIC.search(question))
+
+
+def metric_terms(question: str) -> frozenset[str]:
+    """Named metric words, normalized enough to compare two requests' tasks."""
+    return frozenset(
+        re.sub(r"[ -]", " ", term.lower()).rstrip("s")
+        for term in _METRIC.findall(question)
     )
 
 
@@ -131,3 +140,137 @@ def question_intent(question: str) -> dict[str, str | None]:
             ),
         )
     return dict(kind=kind or "statistics", status=None, message=None)
+
+
+_REPLY_LEAD = re.compile(
+    r"^\s*(?:(?:please|ok(?:ay)?|so|then|now|also|actually)\b[,\s]*|"
+    r"(?:can|could|would)\s+you\s+(?:please\s+)?|"
+    r"i\s+(?:want|need|would\s+like)\s+(?:to\s+(?:know|see)\s+)?)+",
+    re.I,
+)
+_REQUEST_CUE = re.compile(
+    r"^(?:how|what|who|which|when|where|why|is|are|was|were|did|does|do|has|have|"
+    r"show|list|give|tell|compare|rank|find|get|pull|display|break\s+down|"
+    r"summari[sz]e|analy[sz]e)\b",
+    re.I,
+)
+# Reply fragments lean on the pending question for their subject or scope.
+_REPLY_FRAGMENT = re.compile(
+    r"^(?:(?:what|how)\s+about|what\s+if|which\s+(?:one|player|season|year|team)\b|"
+    r"compare\s+(?:with|to|against)\b|(?:is|was)\s+it\b|"
+    r"(?:show|give|tell)\s+me\s+(?:the\s+)?(?:regular|playoffs?|postseason|season|"
+    r"first|second|last|other|one)\b)",
+    re.I,
+)
+# "Show me Avery Example" answers "Which player?"; it asks for no task of its own.
+_NAME_REPLY_LEAD = re.compile(
+    r"^(?:(?:show|give|tell)\s+me(?:\s+about)?|show|give|pick|use|go\s+with|"
+    r"i\s+mean[t]?|it'?s|(?:the\s+)?player)\b[,:\s]*",
+    re.I,
+)
+_TASK_WORD = re.compile(
+    r"\b(?:stats?|statistics|numbers|log|overview|profile|summary|leaders?|leads?|"
+    r"season|playoffs?|postseason|games?|vs\.?|versus|compare|career|trend|chart|"
+    r"table|similar|average|totals?)\b|\d",
+    re.I,
+)
+_ANAPHORA = re.compile(
+    r"\b(?:he|him|his|she|her|hers|they|them|their|it|same|instead|"
+    r"that\s+(?:player|one|guy)|this\s+(?:player|one|guy))\b",
+    re.I,
+)
+
+
+_TASK_MARKER = re.compile(
+    r"\bgame[ -]?logs?\b|\bbox[ -]?scores?\b|\b(?:leaders?|leads?|leading|top|best|"
+    r"rank(?:ed|ing|s)?|most|fewest|highest|lowest)\b|\bcareer\b|\btotals?\b",
+    re.I,
+)
+
+
+def task_terms(question: str) -> frozenset[str]:
+    """Metric and task words that define what a request asks for, not its scope."""
+    markers = (
+        re.sub(r"[ -]", "", m.lower()).rstrip("s")
+        for m in _TASK_MARKER.findall(question)
+    )
+    return metric_terms(question) | frozenset(markers)
+
+
+def name_reply(question: str) -> bool:
+    """A reply that only names a player, with or without "show me"/"I meant"."""
+    text = _NAME_REPLY_LEAD.sub("", _REPLY_LEAD.sub("", question).strip())
+    text = text.strip(" .!?")
+    return bool(
+        0 < len(text.split()) <= 4
+        and not _REQUEST_CUE.match(text)
+        and not has_specific_metric(text)
+        and not _TASK_WORD.search(text)
+    )
+
+
+_NOT_A_NAME = frozenset(
+    """a an and the i me my show give tell pick use go with mean meant it its
+    player please yes no ok okay both either neither all one first second third
+    last other how what who which when where why is are was were did does do has
+    have regular season seasons playoffs playoff postseason home away road
+    january february march april may june july august september october november
+    december monday tuesday wednesday thursday friday saturday sunday""".split()
+)
+
+
+def _fold(word: str) -> str:
+    word = re.sub(r"['’]s$", "", word.strip(".,!?()'’-"))
+    decomposed = unicodedata.normalize("NFKD", word.casefold())
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
+
+
+def name_tokens(text: str) -> frozenset[str]:
+    """Capitalized words that can belong to a player's name.
+
+    Abbreviations (ATL), IDs and common reply or calendar words are excluded, so
+    "Show me ATL" or "Both" names no one.
+    """
+    words = re.findall(r"[^\W\d_][\w'’.-]*", text)
+    folded = (
+        _fold(w) for w in words if w[0].isupper() and not w.isupper() and len(w) > 1
+    )
+    return frozenset(w for w in folded if w and w not in _NOT_A_NAME)
+
+
+def names_other_player(reply: str, known_names: Iterable[str]) -> bool:
+    """True when a reply names someone but matches none of the known names.
+
+    ``known_names`` are the clarification's identity candidates or, when none
+    were stored, the names in the pending question. Partial names ("Avery" for
+    "Avery Example") match; with nothing named on either side the reply is not
+    treated as naming someone else.
+    """
+    said = name_tokens(reply)
+    known = {_fold(w) for name in known_names for w in name.split()} - {""}
+    if not said or not known:
+        return False
+    return not any(
+        s == k or (min(len(s), len(k)) >= 3 and (s in k or k in s))
+        for s in said
+        for k in known
+    )
+
+
+def starts_new_question(question: str) -> bool:
+    """Recognize a self-contained request that may supersede a pending one.
+
+    A request cue with at least three words and no reference back to the pending
+    question (pronouns, "what about", "which one") stands on its own. Name
+    replies such as "Show me Avery Example", scope fragments and thresholds such
+    as "At least 1 FGA" do not. Whether it is a different task from the pending
+    question is decided by ``routes.supersedes_pending``.
+    """
+    text = _REPLY_LEAD.sub("", question).strip()
+    return bool(
+        len(text.split()) >= 3
+        and _REQUEST_CUE.match(text)
+        and not _REPLY_FRAGMENT.match(text)
+        and not _ANAPHORA.search(text)
+        and not name_reply(text)
+    )

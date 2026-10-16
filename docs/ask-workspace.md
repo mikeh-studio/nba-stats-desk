@@ -330,8 +330,9 @@ also blocks availability conditions, so a model cannot discard them. Overview an
 two-player scorecard scopes independently reject absence cues (“when B is out”,
 sat out, missed, inactive, DNP, “without his teammate”) with a clarification,
 including after player selection, rather than returning a full-period summary.
-Naming two players as teammates is not itself a condition. The old
-published-study route remains compatibility support when dynamic evidence is not
+Absences named after their subject (“in games B missed”) route to this
+comparison, while “missed shots” does not. Naming two players as teammates is not
+itself a condition. The old published-study route remains compatibility support when dynamic evidence is not
 configured; it is not a prerequisite when dynamic evidence is available.
 
 Availability policy `availability/2` classifies final participation before sample
@@ -614,7 +615,8 @@ before any handler. A handler's own refusal or clarification keeps its label and
 sets `reason_code`. `source` is `deterministic`, `prior_route`,
 `pending_clarification` or `model` (the research planner chose the sub-route).
 The label is recorded on the request trace (`ask_route` in the service log),
-stored as `route` in successful turn context and on pending clarifications, and
+stored as `route` in successful turn context and on pending clarifications
+(which also keep the offered candidates' player ID, name and team), and
 withheld from planner prompts. Logs carry labels and reason codes, never question
 text. Older stored turns and clarifications without a route remain readable.
 
@@ -623,8 +625,19 @@ Participation, research and published-study intents retain priority over inciden
 reference wording (for example “similar minutes when a teammate is out”). Explicit
 peer-similarity filters such as “similar players at home” are still refused rather
 than replaced by unrelated research. New questions clear a pending reference
-clarification; short name or metric replies can resume it. Routing and rendering
-share the same captured conversation context.
+clarification; short name or metric replies can resume it. Other untyped
+pending clarifications are cleared by a self-contained request for a different
+task (a game log, a leaderboard, another metric, a teammate absence or research);
+it routes on its own wording instead of being folded into the pending question.
+Name replies (“Show me Avery Example”), scope replies, thresholds and
+restatements of the same task (“How is Avery Example performing?” for a pending
+overview) still resume the pending request and keep its scope. A name reply must
+match the clarification's stored identity candidates (name, team abbreviation or
+ID), or, when none were stored, a name in the pending question; a short reply
+naming another player is a new question. Legacy clarifications keep resolving
+name replies against the full roster. Typed Overview clarifications keep their restatement contract: the reply's
+wording is used and only missing dates or phase come from the pending request.
+Routing and rendering share the same captured conversation context.
 
 Reference handlers own visualization selection and call no chart-selection model.
 Unexpected source errors use the normal agent error response. Non-warehouse

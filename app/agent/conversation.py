@@ -27,6 +27,23 @@ class PendingClarification:
     query_plan: dict[str, Any] | None = None
     # The Ask route label that asked; None for clarifications stored before routes.
     route: str | None = None
+    # Identity options offered with the clarification (player_id, player_name,
+    # team_abbr). A short name reply resumes the pending question only when it
+    # names one of them; empty for non-identity or older clarifications.
+    candidates: tuple[dict[str, Any], ...] = ()
+
+
+def clarification_candidates(options: Any) -> tuple[dict[str, Any], ...]:
+    """Keep only identity fields from offered options; nothing else is persisted."""
+    return tuple(
+        {
+            key: option[key]
+            for key in ("player_id", "player_name", "team_abbr")
+            if option.get(key) is not None
+        }
+        for option in options or ()
+        if isinstance(option, dict) and option.get("player_name")
+    )
 
 
 @dataclass
@@ -61,6 +78,7 @@ class ConversationStore(Protocol):
         question: str,
         query_plan: dict[str, Any] | None,
         route: str | None = None,
+        candidates: Any = (),
     ) -> None: ...
 
     def clear_pending_clarification(self, conversation_id: str) -> None: ...
@@ -144,28 +162,33 @@ class InMemoryConversationStore:
         question: str,
         query_plan: dict[str, Any] | None,
         route: str | None = None,
+        candidates: Any = (),
     ) -> None:
         if not conversation_id:
             return
+        pending = PendingClarification(
+            question=question,
+            query_plan=query_plan,
+            route=route,
+            candidates=clarification_candidates(candidates),
+        )
         if defer_until_success(
             lambda: self.set_pending_clarification(
-                conversation_id, question=question, query_plan=query_plan, route=route
+                conversation_id,
+                question=question,
+                query_plan=query_plan,
+                route=route,
+                candidates=pending.candidates,
             )
         ):
             policy = CURRENT.get()
             assert policy is not None
-            policy.pending_clarifications[(id(self), conversation_id)] = (
-                PendingClarification(
-                    question=question, query_plan=query_plan, route=route
-                )
-            )
+            policy.pending_clarifications[(id(self), conversation_id)] = pending
             return
         with self._lock:
             checkpoint()
             state = self._touch_locked(conversation_id)
-            state.pending = PendingClarification(
-                question=question, query_plan=query_plan, route=route
-            )
+            state.pending = pending
 
     def clear_pending_clarification(self, conversation_id: str) -> None:
         if not conversation_id:

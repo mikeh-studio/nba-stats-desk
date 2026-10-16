@@ -181,6 +181,10 @@ def current_route(
 ) -> dict[str, Any]:
     """Replay dispatch and pre-planner checks for one question; no model calls."""
     from app.agent.availability_ask import wants_availability
+    from app.agent.conversation import (
+        PendingClarification,
+        clarification_candidates,
+    )
     from app.agent.followup import resolve_followup
     from app.agent.performance_overview import overview_scope
     from app.agent.player_comparison import comparison_scope
@@ -210,7 +214,15 @@ def current_route(
     recent = prior_context(context.get("prior_route"), season)
     pending = context.get("pending")
     routing_question, reference_reply, _ = pending_routing(
-        question, pending["question"] if pending else None
+        question,
+        PendingClarification(
+            question=pending["question"],
+            query_plan=pending.get("query_plan"),
+            route=pending.get("route"),
+            candidates=clarification_candidates(pending.get("candidates")),
+        )
+        if pending
+        else None,
     )
     route_context = RouteContext(
         question,
@@ -392,6 +404,7 @@ def ask_route_case(
             question=pending["question"],
             query_plan=pending.get("query_plan"),
             route=pending.get("route"),
+            candidates=pending.get("candidates", ()),
         )
     agent = StatsAgent(
         settings,
