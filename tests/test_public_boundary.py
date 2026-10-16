@@ -43,7 +43,7 @@ def test_private_artifacts_are_rejected(path):
         "app/.env.example",
         "infra/terraform/terraform.tfvars.example",
         "tests/fixtures/semantics/cases.json",
-        "docs/images/ask-page.png",
+        "docs/images/ask.jpg",
         "app/agent/reporting_evidence.py",
         "docs/evaluation.md",
         "contracts/game_logs.yml",
