@@ -326,7 +326,10 @@ follow-ups such as “What about assists?” or “Only the playoffs” recalcul
 the saved player roles and remaining filters. The parser accounts for the entire
 request; unsupported phrases, ambiguous roles and conflicting filters produce an
 explanation, never a partial season summary. Ordinary semantic planning/answering
-also blocks availability conditions, so a model cannot discard them. The old
+also blocks availability conditions, so a model cannot discard them. Overview and
+two-player scorecard scopes independently reject absence cues (“when B is out”,
+sat out, missed, inactive, DNP, teammate) with a clarification, including after
+player selection, rather than returning a full-period summary. The old
 published-study route remains compatibility support when dynamic evidence is not
 configured; it is not a prerequisite when dynamic evidence is available.
 

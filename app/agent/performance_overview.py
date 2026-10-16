@@ -35,6 +35,22 @@ METRICS = (
     ("blk", "Blocks"),
 )
 
+# Participation conditions the full-period overview cannot represent. "Out" counts
+# only as a status ("is out", "with B out"), not "out of" or "find out".
+ABSENCE_CUES = re.compile(
+    r"\b(?:teammates?|inactive|dnp|absen(?:t|ce)|sidelined|unavailable|healthy scratch(?:es)?"
+    r"|did(?: not|n[’']?t) play|missed(?! (?:shots?|field goals?|free throws?|threes?|3s)\b)"
+    r"|sat|sits|sitting)\b"
+    r"|(?<!\bfind )(?<!\bfigure )(?<!\bcheck )(?<!\bwork )(?<!\bpoint )(?<!\bturn )(?<!\bturns )"
+    r"(?<!\bturned )(?<!\bbreak )(?<!\bstand )(?<!\blook )(?<!\bsort )\bout\b(?!\s*(?:of\b|-))",
+    re.I,
+)
+ABSENCE_MESSAGE = (
+    "This overview covers every game in the period and cannot filter by teammate "
+    "availability. Ask how one player did when a named teammate was out, or remove "
+    "the condition."
+)
+
 
 def wants_overview(question):
     original = peer_question(question.split("\nClarification:", 1)[0])
@@ -65,6 +81,9 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
     comparison = comparison if comparison is not None else comparison_intent(question)
     question = peer_question(question)
     question = question.replace("–", "-")
+    if ABSENCE_CUES.search(question):
+        # Never return a full-period overview with the absence filter dropped.
+        raise SemanticError("clarification_required", ABSENCE_MESSAGE)
     first = bool(re.search(r"\bfirst (?:two|2) appearances\b", question, re.I))
     if re.search(r"\bfirst \w+ (?:appearances|games)\b", question, re.I) and not first:
         raise SemanticError(
