@@ -131,3 +131,46 @@ def question_intent(question: str) -> dict[str, str | None]:
             ),
         )
     return dict(kind=kind or "statistics", status=None, message=None)
+
+
+_REPLY_LEAD = re.compile(
+    r"^\s*(?:(?:please|ok(?:ay)?|so|then|now|also|actually)\b[,\s]*|"
+    r"(?:can|could|would)\s+you\s+(?:please\s+)?|"
+    r"i\s+(?:want|need|would\s+like)\s+(?:to\s+(?:know|see)\s+)?)+",
+    re.I,
+)
+_REQUEST_CUE = re.compile(
+    r"^(?:how|what|who|which|when|where|why|is|are|was|were|did|does|do|has|have|"
+    r"show|list|give|tell|compare|rank|find|get|pull|display|break\s+down|"
+    r"summari[sz]e|analy[sz]e)\b",
+    re.I,
+)
+# Reply fragments lean on the pending question for their subject or scope.
+_REPLY_FRAGMENT = re.compile(
+    r"^(?:(?:what|how)\s+about|what\s+if|which\s+(?:one|player|season|year|team)\b|"
+    r"compare\s+(?:with|to|against)\b|(?:is|was)\s+it\b|"
+    r"(?:show|give|tell)\s+me\s+(?:the\s+)?(?:regular|playoffs?|postseason|season|"
+    r"first|second|last|other|one)\b)",
+    re.I,
+)
+_ANAPHORA = re.compile(
+    r"\b(?:he|him|his|she|her|hers|they|them|their|it|same|instead|"
+    r"that\s+(?:player|one|guy)|this\s+(?:player|one|guy))\b",
+    re.I,
+)
+
+
+def starts_new_question(question: str) -> bool:
+    """Recognize a self-contained request that supersedes a pending clarification.
+
+    A request cue with at least three words and no reference back to the pending
+    question (pronouns, "what about", "which one") stands on its own. Name
+    replies, scope fragments and thresholds such as "At least 1 FGA" do not.
+    """
+    text = _REPLY_LEAD.sub("", question).strip()
+    return bool(
+        len(text.split()) >= 3
+        and _REQUEST_CUE.match(text)
+        and not _REPLY_FRAGMENT.match(text)
+        and not _ANAPHORA.search(text)
+    )

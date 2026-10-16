@@ -210,7 +210,11 @@ def current_route(
     recent = prior_context(context.get("prior_route"), season)
     pending = context.get("pending")
     routing_question, reference_reply, _ = pending_routing(
-        question, pending["question"] if pending else None
+        question,
+        pending["question"] if pending else None,
+        typed_overview=bool(
+            pending and (pending.get("query_plan") or {}).get("overview_clarification")
+        ),
     )
     route_context = RouteContext(
         question,

@@ -359,6 +359,8 @@ def test_late_reports_and_bulletin_omissions_do_not_prove_absence(bundle):
         "What were Avery Finch points during Blake Reed’s absence?",
         "How did Avery Finch perform when Blake Reed missed games?",
         "How did Avery Finch play with Blake Reed unavailable?",
+        "Show Avery Finch's numbers in games Blake Reed missed",
+        "How did Avery Finch play in games that Blake Reed missed?",
     ],
 )
 def test_additional_absence_phrasing(bundle, question):
@@ -766,6 +768,8 @@ def test_participation_snapshot_rejects_conflicting_minutes(bundle):
         "Find out Nikola Jokic's points per game this season",
         "Figure out Avery Finch's assists",
         "Check out Blake Reed's rebounds",
+        "Avery Finch points in games where Blake Reed missed shots",
+        "How many games missed by Avery Finch this season?",
     ],
 )
 def test_informational_out_idioms_are_not_availability(question):

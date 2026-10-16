@@ -1533,6 +1533,10 @@ class StatsAgent:
             cleaned_question,
             pending_route.question if pending_route else None,
             selected_player,
+            typed_overview=bool(
+                pending_route
+                and (pending_route.query_plan or {}).get("overview_clarification")
+            ),
         )
         if pending_route and not keep_pending:
             assert conversation_id and self.conversation_store

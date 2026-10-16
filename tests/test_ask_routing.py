@@ -184,14 +184,88 @@ def test_overview_turn_and_clarification_persist_route():
     assert pending is not None and pending.route == "player_overview"
 
 
-def test_pending_reply_reports_pending_source():
+@pytest.mark.parametrize("reply", ["Avery Example", "I meant Avery Example"])
+def test_pending_reply_reports_pending_source(reply):
     store = InMemoryConversationStore()
     store.set_pending_clarification(
         "p", question="How is Avery performing?", query_plan=None
     )
-    payload = agent(store=store).answer("Avery Example", conversation_id="p")
+    payload = agent(store=store).answer(reply, conversation_id="p")
     assert payload["ask_route"]["route"] == "player_overview"
     assert payload["ask_route"]["source"] == "pending_clarification"
+
+
+@pytest.mark.parametrize(
+    "question,route",
+    [
+        ("Show Blair Sample's game log for points", "governed_metrics"),
+        ("Who leads the league in assists this season?", "governed_metrics"),
+    ],
+)
+def test_new_question_replaces_pending_overview_clarification(question, route):
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p",
+        question="How is Avery performing?",
+        query_plan=None,
+        route="player_overview",
+    )
+    model = CapturingModel({"planner_response": NO_DECISION})
+    payload = agent(model, store=store).answer(question, conversation_id="p")
+    assert payload["ask_route"]["route"] == route
+    assert payload["ask_route"]["source"] == "deterministic"
+    assert payload["status"] != "ok"
+    assert payload.get("player_profile") is None
+    plans = [
+        json.loads(r["input"][0]["content"])
+        for r in model.requests
+        if r.get("text", {}).get("format", {}).get("name") == "semantic_plan"
+    ]
+    assert plans and "Clarification:" not in json.dumps(plans[-1])
+    assert "How is Avery performing?" not in json.dumps(plans[-1])
+    assert store.get_pending_clarification("p") is None
+
+
+def test_semantic_ask_does_not_fold_new_question_into_pending():
+    store = InMemoryConversationStore()
+    store.set_pending_clarification(
+        "p", question="How is Avery performing?", query_plan=None
+    )
+    model = CapturingModel({"planner_response": NO_DECISION})
+    payload = agent(model, store=store).semantic_agent.answer(
+        "Show Blair Sample's game log for points",
+        client=model,
+        model="fixture-model",
+        conversation_id="p",
+    )
+    assert payload["ask_route"]["route"] == "governed_metrics"
+    assert payload["ask_route"]["source"] == "deterministic"
+    assert payload.get("player_profile") is None
+    assert store.get_pending_clarification("p") is None
+
+
+@pytest.mark.parametrize(
+    "question,expected",
+    [
+        ("Show Blair Sample's game log for points", True),
+        ("Who leads the league in assists this season?", True),
+        ("Can you show Blair Sample's game log?", True),
+        ("Avery Example", False),
+        ("I meant Avery Example", False),
+        ("Avery Example please", False),
+        ("At least 1 FGA and one game", False),
+        ("November 2025", False),
+        ("What about November 2023?", False),
+        ("Compare with November 2023", False),
+        ("How was his scoring among guards?", False),
+        ("Show me the regular season", False),
+        ("Which one?", False),
+    ],
+)
+def test_new_question_detection_keeps_clarification_replies(question, expected):
+    from app.agent.question_intent import starts_new_question
+
+    assert starts_new_question(question) is expected
 
 
 def test_stored_route_is_not_sent_to_the_metrics_planner():

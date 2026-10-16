@@ -19,7 +19,11 @@ from app.agent.award_lookup import wants_award
 from app.agent.execution import timed
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
-from app.agent.question_intent import round_scope_message, split_kind
+from app.agent.question_intent import (
+    round_scope_message,
+    split_kind,
+    starts_new_question,
+)
 from app.agent.reference_ask import reference_followup, reference_kind
 from app.agent.research_ask import (
     mentioned_pairs,
@@ -222,13 +226,19 @@ ROUTES = (
 
 
 def pending_routing(
-    question: str, pending_question: str | None, selected_player: Any = None
+    question: str,
+    pending_question: str | None,
+    selected_player: Any = None,
+    typed_overview: bool = False,
 ) -> tuple[str, str | None, bool]:
     """Return the routing question, reference reply and whether pending survives.
 
     A pending reference clarification survives only a selection or a short name
-    reply. Otherwise a pending question claims routing unless the new turn is a
-    reference or award request itself.
+    reply. Any other untyped pending clarification is dropped by a self-contained
+    new question, which routes on its own wording. Typed Overview clarifications
+    keep their own restatement contract (``resume_overview``). Otherwise the
+    pending question claims routing unless the new turn is a reference or award
+    request itself.
     """
     if pending_question is None:
         return question, None, False
@@ -252,6 +262,8 @@ def pending_routing(
             reference_reply = reply
         else:
             return question, None, False
+    elif not selected_player and not typed_overview and starts_new_question(question):
+        return question, None, False
     if reference_kind(question) or wants_award(question):
         return question, reference_reply, True
     return pending_question, reference_reply, True

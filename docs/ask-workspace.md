@@ -330,8 +330,9 @@ also blocks availability conditions, so a model cannot discard them. Overview an
 two-player scorecard scopes independently reject absence cues (“when B is out”,
 sat out, missed, inactive, DNP, “without his teammate”) with a clarification,
 including after player selection, rather than returning a full-period summary.
-Naming two players as teammates is not itself a condition. The old
-published-study route remains compatibility support when dynamic evidence is not
+Absences named after their subject (“in games B missed”) route to this
+comparison, while “missed shots” does not. Naming two players as teammates is not
+itself a condition. The old published-study route remains compatibility support when dynamic evidence is not
 configured; it is not a prerequisite when dynamic evidence is available.
 
 Availability policy `availability/2` classifies final participation before sample
@@ -623,8 +624,14 @@ Participation, research and published-study intents retain priority over inciden
 reference wording (for example “similar minutes when a teammate is out”). Explicit
 peer-similarity filters such as “similar players at home” are still refused rather
 than replaced by unrelated research. New questions clear a pending reference
-clarification; short name or metric replies can resume it. Routing and rendering
-share the same captured conversation context.
+clarification; short name or metric replies can resume it. Other untyped
+pending clarifications are likewise cleared by a self-contained new request (a
+request cue such as “Show …” or “Who leads …”, without pronouns or “what about”
+fragments); it routes on its own wording instead of being folded into the pending
+question. Name replies, scope fragments and thresholds still resume the pending
+request. Typed Overview clarifications keep their restatement contract: the reply's
+wording is used and only missing dates or phase come from the pending request.
+Routing and rendering share the same captured conversation context.
 
 Reference handlers own visualization selection and call no chart-selection model.
 Unexpected source errors use the normal agent error response. Non-warehouse
