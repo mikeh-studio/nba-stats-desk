@@ -25,6 +25,8 @@ class PendingClarification:
 
     question: str
     query_plan: dict[str, Any] | None = None
+    # The Ask route label that asked; None for clarifications stored before routes.
+    route: str | None = None
 
 
 @dataclass
@@ -58,6 +60,7 @@ class ConversationStore(Protocol):
         *,
         question: str,
         query_plan: dict[str, Any] | None,
+        route: str | None = None,
     ) -> None: ...
 
     def clear_pending_clarification(self, conversation_id: str) -> None: ...
@@ -140,25 +143,28 @@ class InMemoryConversationStore:
         *,
         question: str,
         query_plan: dict[str, Any] | None,
+        route: str | None = None,
     ) -> None:
         if not conversation_id:
             return
         if defer_until_success(
             lambda: self.set_pending_clarification(
-                conversation_id, question=question, query_plan=query_plan
+                conversation_id, question=question, query_plan=query_plan, route=route
             )
         ):
             policy = CURRENT.get()
             assert policy is not None
             policy.pending_clarifications[(id(self), conversation_id)] = (
-                PendingClarification(question=question, query_plan=query_plan)
+                PendingClarification(
+                    question=question, query_plan=query_plan, route=route
+                )
             )
             return
         with self._lock:
             checkpoint()
             state = self._touch_locked(conversation_id)
             state.pending = PendingClarification(
-                question=question, query_plan=query_plan
+                question=question, query_plan=query_plan, route=route
             )
 
     def clear_pending_clarification(self, conversation_id: str) -> None:

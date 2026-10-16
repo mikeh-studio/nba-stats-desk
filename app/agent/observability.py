@@ -50,6 +50,8 @@ class AgentTrace:
     conversation_id: str | None = None
     route: str | None = None
     confidence: float | None = None
+    # Payload ask_route: route label, source and reason code; never question text.
+    ask_route: dict[str, str | None] | None = None
     tools: list[dict[str, Any]] = field(default_factory=list)
     prompt_tokens: int = 0
     completion_tokens: int = 0
@@ -110,6 +112,7 @@ class AgentTrace:
             "event_name": "agent_request_summary",
             "request_id": self.request_id,
             "route": self.route,
+            "ask_route": self.ask_route,
             "confidence": self.confidence,
             "model": self.model,
             "total_tool_calls": len(self.tools),

@@ -603,6 +603,21 @@ payload builder supplies common fields while preserving route-specific statuses
 and evidence. The older adapter remains only for repositories without a governed
 warehouse; the production BigQuery path does not fall back to it on errors.
 
+Every Ask payload carries `ask_route: {route, source, reason_code}`
+([`app/agent/route_labels.py`](../app/agent/route_labels.py)). `route` names the
+answer path: `player_overview`, `player_comparison`, `player_split`, `award`,
+`governed_metrics` (the metrics planner), `similarity`, `league_baseline`,
+`availability`, `appearances`, `research_breakdown`, `teammate_study` (v3
+catalog), `teammate_study_v1`, `research` (research handler reached, no sub-route
+chosen), `legacy:<sub-route>`, and `unsupported`/`clarify` for decisions made
+before any handler. A handler's own refusal or clarification keeps its label and
+sets `reason_code`. `source` is `deterministic`, `prior_route`,
+`pending_clarification` or `model` (the research planner chose the sub-route).
+The label is recorded on the request trace (`ask_route` in the service log),
+stored as `route` in successful turn context and on pending clarifications, and
+withheld from planner prompts. Logs carry labels and reason codes, never question
+text. Older stored turns and clarifications without a route remain readable.
+
 Reference routing recognizes “nearest comps” and “alike” as similarity requests.
 Participation, research and published-study intents retain priority over incidental
 reference wording (for example “similar minutes when a teammate is out”). Explicit

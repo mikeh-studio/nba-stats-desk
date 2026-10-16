@@ -104,6 +104,7 @@ def run_case(
             plan = payload.get("semantic_plan")
             actual = {
                 "status": payload["status"],
+                "ask_route": payload.get("ask_route"),
                 "resolved_queries": payload.get("query_plan", {}).get("queries", []),
                 "evidence": payload.get("semantic_evidence"),
                 "identity": payload.get("identity"),

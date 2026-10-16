@@ -19,6 +19,15 @@ def successful_analysis(payload: dict[str, Any]) -> bool:
 
 
 def analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:
+    context = _analysis_context(question, payload)
+    # The route label is stored for later routing; it is never planner evidence.
+    route = (payload.get("ask_route") or {}).get("route")
+    if context and route:
+        context["route"] = route
+    return context
+
+
+def _analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:
     if not successful_analysis(payload):
         return {}
     if payload.get("conversation_context"):

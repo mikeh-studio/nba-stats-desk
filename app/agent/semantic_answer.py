@@ -32,6 +32,7 @@ from app.agent.player_comparison import (
 )
 from app.agent.player_splits import answer_split
 from app.agent.question_intent import question_intent, split_kind
+from app.agent.route_labels import route_hint, status_reason
 from app.agent.semantic_planner import execute_plan, explicit_scope, plan_question
 from app.agent.semantic_serving import (
     fallback_notice,
@@ -44,6 +45,15 @@ from app.agent.semantic_serving import (
 )
 from app.agent.semantics import Query, SemanticError, run_query
 from app.seasons import season_bounds
+
+# Semantic shapes (app.agent.routes) and the payload labels that tell them apart.
+SEMANTIC_LABELS = {
+    "award": "award",
+    "player_split": "player_split",
+    "player_comparison": "player_comparison",
+    "overview": "player_overview",
+    "metrics": "governed_metrics",
+}
 
 
 def contextual_leader_plan(question, context, season):
@@ -444,10 +454,15 @@ class SemanticAsk:
         from app.agent.research_ask import refusal
 
         if wants_availability(question):
-            return refusal(
-                "This question requires verified teammate availability. Overall statistics cannot answer that condition.",
-                code="availability_scope_required",
-                trace=trace,
+            return route_hint(
+                refusal(
+                    "This question requires verified teammate availability. Overall statistics cannot answer that condition.",
+                    code="availability_scope_required",
+                    trace=trace,
+                ),
+                route="unsupported",
+                source="deterministic",
+                reason_code="availability_scope_required",
             )
         original = question
         award = None
@@ -520,6 +535,15 @@ class SemanticAsk:
 
             question = split_followup(question, context["split_question"])
         question, inherited = resolve_followup(question, context)
+        # Route labels for payload/trace; the semantic shape is filled in below.
+        route_shape = "award" if award_request else None
+        route_source = (
+            "pending_clarification"
+            if pending or resumed_overview
+            else "prior_route"
+            if inherited or leader_plan or context.get("split_question")
+            else "deterministic"
+        )
         if selected_player:
             question += f"\nSelected player: {selected_player.get('player_name', '')}"
         if progress_callback:
@@ -566,6 +590,7 @@ class SemanticAsk:
                     }
                     payload["conversation_id"] = conversation_id
                     payload["conversation_context"] = {
+                        "route": "award",
                         "award_evidence": award,
                         "players": [
                             {k: award[k] for k in ("player_id", "player_name")}
@@ -586,8 +611,9 @@ class SemanticAsk:
                             max_turns=self.settings.agent_conversation_max_turns,
                             context=payload["conversation_context"],
                         )
+                    route_hint(payload, route="award", source=route_source)
                     if trace:
-                        trace.set_plan(route="governed_metrics", confidence=1.0)
+                        trace.set_plan(route="award", confidence=1.0)
                         trace.outcome = "answered"
                     return payload
                 if award["performance_phase"] == "Finals":
@@ -625,6 +651,7 @@ class SemanticAsk:
             from app.agent.routes import semantic_shape
 
             initial_shape = semantic_shape(question)
+            route_shape = route_shape or initial_shape
             if position_group and initial_shape != "overview":
                 # A cohort constraint must not disappear in a scalar/league plan
                 # or a two-player scorecard that cannot represent it.
@@ -654,6 +681,7 @@ class SemanticAsk:
             from app.agent.routes import semantic_shape
 
             shape = semantic_shape(question)
+            route_shape = "award" if award_request else shape
             split = split_kind(question) if shape == "player_split" else None
             comparison = (
                 comparison_sides(question) if shape == "player_comparison" else None
@@ -879,7 +907,10 @@ class SemanticAsk:
                     else self.settings.season,
                     usage_callback=trace.add_usage if trace else None,
                     players=players,
-                    conversation_context=context,
+                    # Stored route labels are routing state, not planner context.
+                    conversation_context={
+                        k: v for k, v in context.items() if k != "route"
+                    },
                     teams=sorted(
                         {
                             r[k]
@@ -1123,8 +1154,21 @@ class SemanticAsk:
             "confidence": 1.0,
             "needs_clarification": payload["status"] == "clarification_required",
         }
+        if route_shape is None:
+            from app.agent.routes import semantic_shape as shape_of
+
+            route_shape = shape_of(request_question)
+        route_label = SEMANTIC_LABELS[route_shape]
+        reason_code = (
+            f"overview_{overview_pending['overview_clarification']}"
+            if overview_pending and overview_pending.get("overview_clarification")
+            else status_reason(payload)
+        )
+        route_hint(
+            payload, route=route_label, source=route_source, reason_code=reason_code
+        )
         if trace:
-            trace.set_plan(route="governed_metrics", confidence=1.0)
+            trace.set_plan(route=route_label, confidence=1.0)
             trace.outcome = (
                 "clarified"
                 if payload["status"] == "clarification_required"
@@ -1138,6 +1182,7 @@ class SemanticAsk:
                     conversation_id,
                     question=question,
                     query_plan=overview_pending or payload.get("semantic_plan"),
+                    route=route_label,
                 )
             else:
                 store.clear_pending_clarification(conversation_id)

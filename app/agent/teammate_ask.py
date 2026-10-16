@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from app.agent.performance_overview import scoped_identity_profile
+from app.agent.route_labels import route_hint
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -113,7 +114,7 @@ def legacy_study_has_replacement(legacy_path, catalog_path):
         return True
 
 
-def unavailable(study=None):
+def unavailable(study=None, reason_code=None):
     message = "No reviewed teammate study is configured for this Ask instance."
     if study:
         s = study["scope"]
@@ -123,7 +124,7 @@ def unavailable(study=None):
             f"from {s['start']} to {s['end']} ({s['season']}, regular season). "
             "It does not answer the requested different scope. No estimate has been applied to that request."
         )
-    return {
+    payload = {
         "answer": message,
         "assumptions": [],
         "tables": [],
@@ -134,12 +135,20 @@ def unavailable(study=None):
         "clarification_options": [],
         "study_status": "unavailable",
     }
+    return route_hint(payload, reason_code=reason_code)
 
 
 def answer_study(agent, question, provider, model, trace=None):
+    return route_hint(
+        _answer_study(agent, question, provider, model, trace),
+        route="teammate_study_v1",
+    )
+
+
+def _answer_study(agent, question, provider, model, trace):
     path = agent.settings.agent_teammate_study_path
     if not path:
-        return unavailable()
+        return unavailable(reason_code="study_not_configured")
     study = load_study(path)
     s = study["scope"]
     requested = requested_seasons(question, agent.settings.season)
@@ -149,14 +158,14 @@ def answer_study(agent, question, provider, model, trace=None):
         and s["season"] < agent.settings.season
     )
     if requested != [s["season"]] and not can_fallback:
-        return unavailable(study)
+        return unavailable(study, reason_code="study_scope_mismatch")
     # Literal date/season requests cannot be overwritten by model interpretation.
     dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", question)
     seasons = re.findall(r"\b20\d{2}-\d{2}\b(?!-)", question)
     if (dates and sorted(dates) != sorted([s["start"], s["end"]])) or any(
         x != s["season"] for x in seasons
     ):
-        return unavailable(study)
+        return unavailable(study, reason_code="study_scope_mismatch")
     response = agent._create_response(
         client=agent._get_client(provider),
         model=model,
@@ -184,7 +193,7 @@ def answer_study(agent, question, provider, model, trace=None):
         parsed.get(k) != s[k]
         for k in ("focal_player_id", "teammate_id", "season", "start", "end", "metric")
     ):
-        return unavailable(study)
+        return unavailable(study, reason_code="study_scope_rejected")
     stats = study["statistics"]
     primary = stats["adjusted"]
     ci = primary["nominal_cluster_95_ci"]

@@ -1000,6 +1000,7 @@ class StatsAgent:
                     conversation_id,
                     question=original_question,
                     query_plan=query_plan.model_dump(mode="json"),
+                    route=f"legacy:{agent_plan.route.value}",
                 )
                 self.conversation_store.append_turn(
                     conversation_id,
@@ -1425,16 +1426,24 @@ class StatsAgent:
         provider: str | None = None,
         model: str | None = None,
     ) -> dict[str, Any]:
+        from app.agent.route_labels import finish_route
         from app.agent.visualization import VisualizationAgent
 
-        payload = self._answer(
-            question,
-            conversation_id=conversation_id,
+        routing: dict[str, str] = {}
+        payload = finish_route(
+            self._answer(
+                question,
+                conversation_id=conversation_id,
+                trace=trace,
+                progress_callback=progress_callback,
+                selected_player=selected_player,
+                provider=provider,
+                model=model,
+                routing=routing,
+            ),
+            route=routing["route"],
+            source=routing["source"],
             trace=trace,
-            progress_callback=progress_callback,
-            selected_player=selected_player,
-            provider=provider,
-            model=model,
         )
         provider_name = (provider or "openai").strip().lower()
         selected_model = model or (
@@ -1462,6 +1471,7 @@ class StatsAgent:
         selected_player: dict[str, Any] | None = None,
         provider: str | None = None,
         model: str | None = None,
+        routing: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         cleaned_question = question.strip()
         if not cleaned_question:
@@ -1493,12 +1503,17 @@ class StatsAgent:
 
         from app.agent.appearance_ask import answer_appearances
         from app.agent.availability_ask import answer_availability
-        from app.agent.award_lookup import wants_award
         from app.agent.payload import answer_payload
         from app.agent.question_intent import round_scope_message
-        from app.agent.reference_ask import answer_reference, reference_kind
+        from app.agent.reference_ask import answer_reference
         from app.agent.research_ask import answer_research
-        from app.agent.routes import RouteContext, select_route
+        from app.agent.route_labels import DISPATCH_LABELS, route_hint
+        from app.agent.routes import (
+            RouteContext,
+            dispatch_source,
+            pending_routing,
+            select_route,
+        )
         from app.agent.teammate_ask import answer_study
 
         turns = (
@@ -1514,37 +1529,17 @@ class StatsAgent:
             if conversation_id and self.conversation_store
             else None
         )
-        reference_reply = None
-        if (
-            pending_route
-            and conversation_id
-            and self.conversation_store
-            and reference_kind(pending_route.question)
-        ):
-            reply = _clarify_reply_name(cleaned_question)
-            new_question = bool(
-                reference_kind(cleaned_question)
-                or wants_award(cleaned_question)
-                or re.search(
-                    r"\b(?:how|what|who|which|show|compare|rank|when|without|out|sits|games|per)\b",
-                    cleaned_question,
-                    re.I,
-                )
-            )
-            if selected_player:
-                reference_reply = str(selected_player.get("player_name", ""))
-            elif reply and not new_question:
-                reference_reply = reply
-            else:
-                self.conversation_store.clear_pending_clarification(conversation_id)
-                pending_route = None
+        routing_question, reference_reply, keep_pending = pending_routing(
+            cleaned_question,
+            pending_route.question if pending_route else None,
+            selected_player,
+        )
+        if pending_route and not keep_pending:
+            assert conversation_id and self.conversation_store
+            self.conversation_store.clear_pending_clarification(conversation_id)
         route_context = RouteContext(
             cleaned_question,
-            pending_route.question
-            if pending_route
-            and not reference_kind(cleaned_question)
-            and not wants_award(cleaned_question)
-            else cleaned_question,
+            routing_question,
             context,
             turns[-1].context if turns else {},
             self.settings,
@@ -1552,6 +1547,11 @@ class StatsAgent:
             reference_reply=reference_reply,
         )
         route = select_route(route_context)
+        if routing is not None:
+            routing.update(
+                route=DISPATCH_LABELS.get(route.key, route.key),
+                source=dispatch_source(route_context, route),
+            )
         if trace:
             trace.set_plan(route=route.key, confidence=1.0)
         if route.handler == "scope_refusal":
@@ -1564,14 +1564,17 @@ class StatsAgent:
                 if trace:
                     trace.set_plan(route="event_participation", confidence=1.0)
                     trace.outcome = "not_applicable"
-                return participation
+                return route_hint(participation, route="event_participation")
             if trace:
                 trace.outcome = "unsupported_scope"
                 trace.error_type = "unsupported_scope"
-            return answer_payload(
-                round_scope_message(cleaned_question) or "Unsupported scope",
-                status="unsupported_scope",
-                conversation_id=conversation_id,
+            return route_hint(
+                answer_payload(
+                    round_scope_message(cleaned_question) or "Unsupported scope",
+                    status="unsupported_scope",
+                    conversation_id=conversation_id,
+                ),
+                reason_code="unsupported_round",
             )
         if route.handler == "appearances":
             return answer_appearances(
@@ -1622,7 +1625,8 @@ class StatsAgent:
                         answer=payload["answer"],
                         max_turns=self.settings.agent_conversation_max_turns,
                         context={
-                            "teammate_study": payload["study_status"] == "answered"
+                            "teammate_study": payload["study_status"] == "answered",
+                            "route": "teammate_study_v1",
                         },
                     )
                 return payload

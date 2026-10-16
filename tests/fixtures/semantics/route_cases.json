@@ -1,0 +1,464 @@
+{
+  "version": 1,
+  "description": "Intended Ask routes for misrouting findings, controls, follow-ups, pending clarifications and research refusals. Generic cases use synthetic players from tests/fixtures/ask/source.json; study-pair cases use the public identities in app.research_studies.PAIRS.",
+  "human_reviewed": false,
+  "selected_season": "2024-25",
+  "settings": {
+    "research_studies": true,
+    "research_availability": false,
+    "teammate_study_v1": false
+  },
+  "catalog": {
+    "lebron-luka": {"status": "published", "season": "2024-25", "phase": "Both", "window": "full_season"},
+    "johnson-young": {"status": "published", "season": "2024-25", "phase": "Regular Season", "window": "pilot", "start": "2025-01-01", "end": "2025-02-28"},
+    "brunson-hart": {"status": "coverage_pending"}
+  },
+  "cases": [
+    {
+      "id": "m1_absence_two_named_players",
+      "finding": "M1",
+      "questions": [
+        "Avery Example stats when Blair Sample is out",
+        "How did Avery Example play when Blair Sample sat out?",
+        "Show Avery Example's numbers in games Blair Sample missed"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "coverage": {"teammate_status": [[101, 202]]},
+      "expected": {"ask_route.route": ["availability", "research_breakdown"]},
+      "forbidden": {"ask_route.route": ["player_overview", "player_comparison", "governed_metrics"]},
+      "category": "scope_drop"
+    },
+    {
+      "id": "m1_absence_one_named_player",
+      "finding": "M1",
+      "questions": [
+        "Avery Example stats in games his teammate sat out",
+        "How does Avery Example play without his teammate?",
+        "Avery Example numbers when his teammate is out"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["availability", "research_breakdown", "unsupported"]},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "scope_drop"
+    },
+    {
+      "id": "m2_compare_with_study_pair",
+      "finding": "M2",
+      "questions": [
+        "Compare Jalen Brunson with Josh Hart",
+        "Compare LeBron James with Luka Doncic this season",
+        "Compare Jalen Johnson with Trae Young"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "player_comparison"},
+      "forbidden": {},
+      "category": "route"
+    },
+    {
+      "id": "m3_teammate_impact_phrase",
+      "finding": "M3",
+      "questions": [
+        "Teammate impact of Trae Young on Jalen Johnson",
+        "Teammate analysis for Jalen Brunson and Josh Hart",
+        "What is the teammate impact of Luka Doncic on LeBron James?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "teammate_study"},
+      "forbidden": {"ask_route.route": ["teammate_study_v1"]},
+      "category": "route"
+    },
+    {
+      "id": "m4_similar_across_phases",
+      "finding": "M4",
+      "questions": [
+        "Has Avery Example's scoring been similar in the playoffs and regular season?",
+        "Is Avery Example's scoring similar in the regular season and the playoffs?",
+        "Has Avery Example scored similarly in the playoffs compared with the regular season?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["player_split", "governed_metrics", "clarify"]},
+      "forbidden": {"ask_route.route": ["similarity"]},
+      "category": "route"
+    },
+    {
+      "id": "m5_each_opponent",
+      "finding": "M5",
+      "questions": [
+        "How does Avery Example do against each opponent?",
+        "Show Avery Example's points against every opponent",
+        "Break down Avery Example's scoring by opponent"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "opponent_splits"},
+      "forbidden": {},
+      "category": "route"
+    },
+    {
+      "id": "m6_research_followup_game_log",
+      "finding": "M6",
+      "questions": [
+        "Now show Avery Example's game log for points",
+        "Now show Blair Sample's game log for rebounds",
+        "Instead show Avery Example's game log for assists"
+      ],
+      "context": {"prior_route": "research_breakdown", "pending": null},
+      "expected": {"ask_route.route": "governed_metrics"},
+      "forbidden": {},
+      "category": "followup"
+    },
+    {
+      "id": "m6_research_followup_ranking",
+      "finding": "M6",
+      "questions": [
+        "What about the top 10 scorers this season?",
+        "And who leads the league in assists?",
+        "Now rank the top 5 rebounders"
+      ],
+      "context": {"prior_route": "research_breakdown", "pending": null},
+      "expected": {"ask_route.route": "governed_metrics"},
+      "forbidden": {},
+      "category": "followup"
+    },
+    {
+      "id": "m6_research_followup_career",
+      "finding": "M6",
+      "questions": [
+        "Is that consistent with his career?",
+        "Is that pattern consistent across his career?",
+        "Is that consistent with his previous seasons?"
+      ],
+      "context": {"prior_route": "research_breakdown", "pending": null},
+      "expected": {"ask_route.route": ["governed_metrics", "clarify"]},
+      "forbidden": {},
+      "category": "followup"
+    },
+    {
+      "id": "research_followup_keeps_research",
+      "questions": [
+        "What about assists?",
+        "And only the playoffs?",
+        "Is that difference significant?"
+      ],
+      "context": {"prior_route": "research_breakdown", "pending": null},
+      "expected": {"ask_route.route": "research_breakdown"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "study_followup_keeps_study",
+      "questions": [
+        "Is that difference significant?",
+        "What about only the regular season?",
+        "Is that pattern reliable?"
+      ],
+      "context": {"prior_route": "teammate_study", "pending": null},
+      "expected": {"ask_route.route": "teammate_study"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "m7_absence_unregistered_pair",
+      "finding": "M7",
+      "questions": [
+        "How does Josh Hart play without Trae Young?",
+        "Josh Hart stats when LeBron James is out",
+        "How did Luka Doncic play in games Jalen Johnson sat out?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["availability", "research_breakdown", "unsupported"]},
+      "forbidden": {"ask_route.route": ["player_overview", "player_comparison", "governed_metrics"]},
+      "category": "scope_drop"
+    },
+    {
+      "id": "m8_league_average_filter",
+      "finding": "M8",
+      "questions": [
+        "Which players score above the league average in assists?",
+        "Which players average more assists than the league average?",
+        "List players above the league average in rebounds"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["governed_metrics", "unsupported"]},
+      "forbidden": {},
+      "category": "route"
+    },
+    {
+      "id": "m9_research_keyword_single_player",
+      "finding": "M9",
+      "questions": [
+        "Is Avery Example's scoring trend causal?",
+        "Research Avery Example's rebounds this season",
+        "Is there a causal reason for Avery Example's assists this season?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["governed_metrics", "unsupported"]},
+      "forbidden": {},
+      "category": "route"
+    },
+    {
+      "id": "m10_league_wide_research_keywords",
+      "finding": "M10",
+      "questions": [
+        "Who leads the league in points at home?",
+        "Who has scored back-to-back 40-point games?",
+        "Which player has the most rebounds on the road?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "unsupported"},
+      "forbidden": {},
+      "category": "refusal"
+    },
+    {
+      "id": "control_study_pair_absence",
+      "questions": [
+        "LeBron James with Luka Doncic out",
+        "Jalen Johnson without Trae Young",
+        "LeBron James without Luka Dončić"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "teammate_study"},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "control"
+    },
+    {
+      "id": "control_direct_study_question",
+      "questions": [
+        "How did LeBron James play without Luka Doncic?",
+        "How did Jalen Johnson play while Trae Young was out?",
+        "How does LeBron James perform without Luka Doncic?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "teammate_study"},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "control"
+    },
+    {
+      "id": "control_vs_scorecard",
+      "questions": [
+        "Avery Example vs Blair Sample",
+        "Compare Avery Example and Blair Sample",
+        "Avery Example versus Blair Sample this season"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "player_comparison"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "control_compare_with_last_season",
+      "questions": [
+        "Compare Avery Example with his last season",
+        "Compare Avery Example's scoring with last season",
+        "How does Avery Example's scoring compare with his last season?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "governed_metrics"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "control_player_overview",
+      "questions": [
+        "How is Avery Example performing?",
+        "How has Blair Sample been playing?",
+        "How has Casey Demo performed this season?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "player_overview"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "control_game_log",
+      "questions": [
+        "Show Avery Example's game log for points",
+        "Show Blair Sample's game log for rebounds",
+        "Show Casey Demo's game log for assists"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "governed_metrics"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "control_similar_players",
+      "questions": [
+        "Who are the most similar players to Avery Example?",
+        "Which players are most similar to Blair Sample?",
+        "Find players similar to Casey Demo"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "similarity"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "control_league_baseline",
+      "questions": [
+        "Show Avery Example's recent scoring trend against the league average",
+        "Compare Avery Example's assists with the league average",
+        "How does Blair Sample's rebounding compare to the league baseline?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "league_baseline"},
+      "forbidden": {},
+      "category": "control"
+    },
+    {
+      "id": "control_home_away_split",
+      "questions": [
+        "Avery Example at home vs on the road",
+        "Compare Avery Example's home and away scoring",
+        "Avery Example home versus away points"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["player_split", "research_breakdown"]},
+      "forbidden": {"ask_route.route": ["player_overview"]},
+      "category": "control"
+    },
+    {
+      "id": "control_unavailable_playoff_round",
+      "questions": [
+        "How did Avery Example play in the conference finals?",
+        "Show Avery Example's points in the second round",
+        "Avery Example stats in the first round of the playoffs"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "unsupported"},
+      "forbidden": {},
+      "category": "refusal"
+    },
+    {
+      "id": "pending_overview_player_reply",
+      "questions": [
+        "Avery Example",
+        "I meant Avery Example",
+        "Avery Example please"
+      ],
+      "context": {
+        "prior_route": null,
+        "pending": {"question": "How is Avery performing?", "route": "player_overview", "query_plan": null}
+      },
+      "expected": {"ask_route.route": "player_overview", "ask_route.source": "pending_clarification"},
+      "forbidden": {},
+      "category": "followup"
+    },
+    {
+      "id": "pending_reference_player_reply",
+      "questions": [
+        "Avery Example",
+        "I meant Avery Example",
+        "Avery Example."
+      ],
+      "context": {
+        "prior_route": null,
+        "pending": {"question": "Who are the most similar players to Avery?", "route": "similarity", "query_plan": {"kind": "similarity"}}
+      },
+      "expected": {"ask_route.route": "similarity", "ask_route.source": "pending_clarification"},
+      "forbidden": {},
+      "category": "followup"
+    },
+    {
+      "id": "pending_reference_new_question",
+      "questions": [
+        "How is Blair Sample performing?",
+        "Show Blair Sample's game log for points",
+        "Compare Avery Example and Blair Sample"
+      ],
+      "context": {
+        "prior_route": null,
+        "pending": {"question": "Who are the most similar players to Avery?", "route": "similarity", "query_plan": {"kind": "similarity"}}
+      },
+      "expected": {"ask_route.route": ["player_overview", "governed_metrics", "player_comparison"], "ask_route.source": "deterministic"},
+      "forbidden": {"ask_route.route": ["similarity"]},
+      "category": "followup"
+    },
+    {
+      "id": "pending_overview_new_question",
+      "questions": [
+        "Show Blair Sample's game log for points",
+        "Who leads the league in assists this season?",
+        "Who are the most similar players to Blair Sample?"
+      ],
+      "context": {
+        "prior_route": null,
+        "pending": {"question": "How is Avery performing?", "route": "player_overview", "query_plan": null}
+      },
+      "expected": {"ask_route.route": ["governed_metrics", "similarity"], "ask_route.source": "deterministic"},
+      "forbidden": {"ask_route.route": ["player_overview"]},
+      "category": "followup"
+    },
+    {
+      "id": "study_reversed_roles",
+      "questions": [
+        "How did Luka Doncic play without LeBron James?",
+        "How did Trae Young play without Jalen Johnson?",
+        "How does Luka Doncic perform when LeBron James is out?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["unsupported", "availability"]},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "refusal"
+    },
+    {
+      "id": "study_coverage_pending",
+      "questions": [
+        "How did Jalen Brunson play without Josh Hart?",
+        "Jalen Brunson stats when Josh Hart is out",
+        "How does Jalen Brunson perform when Josh Hart is absent?"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "teammate_study", "outcome": "refuse"},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "refusal"
+    },
+    {
+      "id": "research_refusal_multiple_seasons",
+      "questions": [
+        "LeBron James without Luka Doncic in 2023-24 and 2024-25",
+        "Avery Example at home in 2023-24 and 2024-25",
+        "Research Avery Example's rebounds in 2023-24 and 2024-25"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["teammate_study", "research_breakdown", "unsupported"], "outcome": "refuse"},
+      "forbidden": {},
+      "category": "refusal"
+    },
+    {
+      "id": "research_refusal_study_phase",
+      "questions": [
+        "How did Jalen Johnson play without Trae Young in the playoffs?",
+        "Jalen Johnson playoff stats without Trae Young",
+        "Jalen Johnson without Trae Young in the 2025 playoffs"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "teammate_study", "outcome": "refuse"},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "refusal"
+    },
+    {
+      "id": "research_refusal_pilot_window",
+      "questions": [
+        "How did Jalen Johnson play without Trae Young for the full 2024-25 season?",
+        "Jalen Johnson without Trae Young across the whole 2024-25 season",
+        "Jalen Johnson without Trae Young from 2024-10-22 to 2025-04-13"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "teammate_study", "outcome": "refuse"},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "refusal"
+    },
+    {
+      "id": "research_refusal_study_filters",
+      "questions": [
+        "How did LeBron James play without Luka Doncic at home?",
+        "LeBron James without Luka Doncic on back-to-backs",
+        "LeBron James without Luka Doncic in away games"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": ["teammate_study", "unsupported"], "outcome": "refuse"},
+      "forbidden": {"ask_route.route": ["player_overview", "governed_metrics"]},
+      "category": "refusal"
+    }
+  ]
+}

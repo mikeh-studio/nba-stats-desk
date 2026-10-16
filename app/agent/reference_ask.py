@@ -618,7 +618,10 @@ def answer_reference(
     if store:
         if payload["status"] == "clarification_required":
             store.set_pending_clarification(
-                conversation_id, question=question, query_plan={"kind": kind}
+                conversation_id,
+                question=question,
+                query_plan={"kind": kind},
+                route=kind,
             )
         else:
             store.clear_pending_clarification(conversation_id)
@@ -628,6 +631,6 @@ def answer_reference(
                 question=original,
                 answer=payload["answer"],
                 max_turns=agent.settings.agent_conversation_max_turns,
-                context=payload["conversation_context"],
+                context=dict(payload["conversation_context"], route=kind),
             )
     return payload
