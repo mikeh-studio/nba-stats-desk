@@ -170,9 +170,7 @@ def main():
         type=int,
         help="Required hard call budget for --live, including both transports",
     )
-    p.add_argument(
-        "--provider", choices=["openai", "claude", "openrouter"]
-    )
+    p.add_argument("--provider", choices=["openai", "claude", "openrouter"])
     p.add_argument("--model")
     group = p.add_mutually_exclusive_group()
     group.add_argument("--record-cassettes", type=Path)

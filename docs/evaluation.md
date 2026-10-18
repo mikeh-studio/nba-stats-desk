@@ -690,3 +690,58 @@ strengthen this without silently rejecting existing v1 corpora.
 Critical risks list the selected case, one-based turn, expected assertion path and
 value, maximum tolerance, and missing assertions. Presence means the required
 assertion exists; actual endpoint passes and human approval remain separate.
+
+## Strict recorded-provider replay
+
+The endpoint runner also supports recording actual provider calls against frozen
+inputs and replaying them offline. Controlled planning remains the default.
+Recording consumes provider usage and requires explicit cases, model, attempted
+call budget, and an ISO semantic clock date. Use a fresh ignored directory:
+
+```bash
+python scripts/evaluate_ask.py --live --provider openai --model gpt-5.4-mini \
+  --case points_mean --max-model-calls 4 --clock 2026-10-18 \
+  --record-cassettes reports/ask-harness/my-capture/cassettes \
+  --output reports/ask-harness/my-capture/results
+python scripts/evaluate_ask.py \
+  --replay-cassettes reports/ask-harness/my-capture/cassettes \
+  --output reports/ask-harness/my-offline-replay
+```
+
+Replay resolves provider, model, selected cases and clock from the manifest;
+explicit conflicting arguments fail before server startup. It creates no provider
+client and spends no provider calls. The fixture server blocks all outbound socket
+connections, DNS lookups and datagram sends, including local proxies. The runner
+is a separate process that connects inbound to the loopback endpoints. Frozen
+repositories reject uncaptured reads; no warehouse fallback is available.
+
+Version 1 recordings bind each independent case/turn/JSON-or-SSE call sequence to
+its provider, model, complete semantic request hash, fixture settings, selected
+case contract, source, schema and fixed date. Transport timeouts/retries are saved
+separately; callbacks are replayed in their captured order. SDK output items, tool
+IDs/arguments, usage, finish and refusal fields are retained. Unsupported values
+fail serialization. Failed attempts remain failures, with safe error
+classifications instead of private error messages. No provider retry policy is
+changed in the production app.
+
+Missing, out-of-order, mismatched, extra and unused calls fail the terminal harness
+gate even when an optional application fallback produces a valid payload. Reports
+retain this gate separately from case assertion scores, with cassette hashes and
+attempt counts. Full corpus hashes remain comparability provenance; replay binds
+the individual selected case contracts so an unrelated case edit does not invalidate
+a recording. Application and adapter revisions are recorded as provenance; changed
+application code may replay when its requests and contracts still match.
+
+The clock seam affects semantic date defaults, scope checks, splits and overview
+periods only. Execution deadlines, source capture timestamps and history clocks
+remain real time. Replayed chunks establish callback ordering, not provider
+streaming latency or cancellation behavior. Each transport has its own recording;
+parity means both satisfy the same independent expectations, not identical prose.
+
+Keep raw captures private. Before copying synthetic recordings into
+`tests/fixtures/ask/recordings`, inspect requests, response text, evidence, IDs,
+paths, metadata and attachments for privacy. Record this agent privacy review
+separately from human expectation approval; pending cases stay pending. A replay
+pass establishes frozen response behavior, not current model quality, live
+warehouse accuracy or deployment readiness. Never regenerate expectations or
+repeat a paid capture automatically after a failure.

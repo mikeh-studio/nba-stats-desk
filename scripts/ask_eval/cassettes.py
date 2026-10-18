@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import json
 import sys
 from contextvars import ContextVar
@@ -325,23 +324,19 @@ class CassetteClient:
 
 
 def install_network_guard(on_failure):
-    """Process-local replay guard, including DNS and direct socket connections."""
+    """Replay server cannot initiate any network connection, even to a local proxy.
+
+    The independent runner connects inbound to the loopback server; bind/listen/
+    accept do not require an outbound exception in this server process.
+    """
 
     def audit(event, args):
-        if event not in (
+        if event in (
             "socket.connect",
             "socket.getaddrinfo",
             "socket.sendto",
             "socket.sendmsg",
         ):
-            return
-        target = args if event == "socket.getaddrinfo" else args[1]
-        host = target[0] if isinstance(target, tuple) else target
-        try:
-            permitted = ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            permitted = host == "localhost"
-        if not permitted:
             on_failure("replay_network_escape")
 
     sys.addaudithook(audit)

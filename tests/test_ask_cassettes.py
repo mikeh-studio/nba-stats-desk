@@ -243,12 +243,11 @@ def fail(reason):
  errors.append(reason)
  raise CassetteError(reason)
 install_network_guard(fail)
-for action in [lambda: socket.getaddrinfo("example.com",443),lambda: socket.socket().connect(("8.8.8.8",443))]:
+for action in [lambda: socket.getaddrinfo("example.com",443),lambda: socket.socket().connect(("8.8.8.8",443)),lambda: socket.socket().connect(("127.0.0.1",80)),lambda: socket.getaddrinfo("localhost",80),lambda: socket.socket(type=socket.SOCK_DGRAM).sendto(b"x",("8.8.8.8",53))]:
  try: action()
  except CassetteError: pass
  else: raise AssertionError("network escaped")
-assert len(errors)==2
-socket.getaddrinfo("127.0.0.1",80)
+assert len(errors)==5
 """
     subprocess.run([sys.executable, "-c", code], check=True)
 
@@ -322,9 +321,9 @@ def test_budget_exhaustion_is_sticky(tmp_path):
 
 
 def test_visualization_fallback_cannot_hide_miss(tmp_path):
+    from app.agent.execution import create_response
     from app.agent.visualization import VisualizationAgent, study_charts
     from tests.test_research_insights import presentation_study
-    from app.agent.execution import create_response
     from tests.test_semantic_migration import settings
 
     path = record(tmp_path)

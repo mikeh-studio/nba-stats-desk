@@ -284,8 +284,8 @@ def test_planner_current_month_end_clips_to_today_and_excludes_later_games(
         def today(cls):
             return cls(2026, 3, 15)
 
-    monkeypatch.setattr("app.agent.semantic_answer.date", ClockDate)
-    monkeypatch.setattr("app.agent.semantic_serving.date", ClockDate)
+    monkeypatch.setattr("app.agent.semantic_answer.semantic_today", ClockDate.today)
+    monkeypatch.setattr("app.agent.semantic_serving.semantic_today", ClockDate.today)
     source = BoundedWarehouse(evidence)
     source.rows = [
         {
