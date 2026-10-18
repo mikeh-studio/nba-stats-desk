@@ -43,6 +43,7 @@ from app.agent.history import (
     saved_context_question,
 )
 from app.agent.observability import LOGGER_NAME, AgentTrace
+from app.agent.private_traces import PrivateCapture
 from app.agent.service import AgentDisabledError, StatsAgent
 from app.config import (
     AGENT_MODEL_OPTIONS,
@@ -69,7 +70,7 @@ from app.seasons import (
     settings_for_season,
     validate_season,
 )
-from app.security import rate_limit_identity, require_local_history
+from app.security import is_direct_local, rate_limit_identity, require_local_history
 from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
@@ -513,6 +514,8 @@ def _agent_terminal_bytes(terminal: dict[str, Any], *, streaming: bool) -> bytes
 
 
 def _emit_agent_trace(trace: AgentTrace) -> None:
+    if trace.private_capture is not None:
+        trace.private_capture.finish(trace)
     # A logging sink failure must not change the response or strand a lease.
     try:
         trace.emit()
@@ -601,6 +604,21 @@ def _prepare_agent_request(
         model="unvalidated",
         conversation_id=conversation_id,
     )
+    if settings.agent_trace_enabled and is_direct_local(request):
+        try:
+            trace.private_capture = PrivateCapture(
+                settings_for_season(settings, current_season()),
+                trace,
+                provider=payload.provider,
+                transport="sse" if request.url.path.endswith("/stream") else "json",
+                static_version=STATIC_VERSION,
+                selected_player=_selected_player(payload),
+            )
+        except Exception:
+            try:
+                app_logger.warning("private_trace_init_failed")
+            except Exception:
+                pass
     try:
         trace.model = _selected_agent_model(payload, settings)
         question = _validate_agent_question(payload.question, settings)
@@ -1151,6 +1169,10 @@ async def _start_agent_execution(
             try:
                 # Restore only after admission; rejected work cannot alter state.
                 _restore_agent_context(payload, settings, conversation_id)
+                if trace.private_capture is not None:
+                    trace.private_capture.context(
+                        _season_conversation_store(current_season()), conversation_id
+                    )
                 agent = _build_stats_agent(settings, repo, agent_client)
                 from app.agent.overview_tracking import (
                     overview_events,
@@ -1170,6 +1192,8 @@ async def _start_agent_execution(
                     provider=payload.provider,
                     model=payload.model,
                 )
+                if trace.private_capture is not None:
+                    trace.private_capture.answer(answer)
                 answer["request_id"] = request_id
                 answer["season"] = current_season()
                 try:

@@ -63,6 +63,7 @@ class AgentTrace:
     outcome: str = "unknown"
     error_type: str | None = None
     overview_tracking: list[dict[str, Any]] = field(default_factory=list)
+    private_capture: Any = field(default=None, repr=False)
     start_time: float = field(default_factory=monotonic)
 
     def set_plan(self, *, route: str, confidence: float) -> None:

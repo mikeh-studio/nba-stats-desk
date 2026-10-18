@@ -179,3 +179,10 @@ be deliberately moved or untracked; ignore patterns only prevent future addition
 Removing a current file does not erase previous commits or public PR history.
 Documentation boundaries do not conceal algorithms or prompts already present in
 public source code. Changes to that code boundary require a separate review.
+
+Optional private Ask traces (`AGENT_TRACE_ENABLED`, false by default) use the
+same direct-local ingress predicate as history, but remote requests simply
+remain uncaptured. Keep this disabled in public deployments. Records include
+bounded, redacted local question/context projections and must remain private.
+See [private trace storage and deletion](operations.md#private-local-ask-traces).
+They are diagnostic projections, not complete replay captures or public logs.
