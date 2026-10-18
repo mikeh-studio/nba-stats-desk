@@ -51,7 +51,7 @@ The narrative distinguishes original descriptive, complete-case raw and adjusted
 estimates, all Out minus participated. It makes no validated significance or causal
 claim. Imported limitations remain visible; no live refitting or warehouse refresh
 is implied. Scope selection still requires correct model interpretation for requests
-without literal date/season guards; deterministic narration does not prove universal
+without literal date/season/phase guards; deterministic narration does not prove universal
 natural-language scope accuracy.
 
 The additive `study_claims` field (`teammate_study_claims/1`) binds each displayed
@@ -61,6 +61,31 @@ frozen estimates, not arithmetic recalculated by Ask. The exporter separately
 verifies its analysis inputs. The digest identifies content and does not certify
 source quality. Existing saved payloads need no new field to render. No changes
 are made to `league_baseline/2` or published similarity semantics.
+
+Only allowlisted scope fields are sent to the scope-selection model or returned
+in scope/claim metadata. Unknown scope keys are not exposed. Model-supplied extra
+answer fields are ignored defensively; normal provider responses contain scope
+selection only. Malformed configured artifacts fail closed for potential study
+questions, including natural-name absence questions, rather than falling through
+to compatibility narration. Invalid JSON shapes, noncanonical dates and nonfinite
+values are rejected before any provider call.
+
+Version 1 assumes the exporter contract: assists per game, reported Out with no
+appearance minus participated; adjusted estimates and counts use complete cases
+and OLS with pregame covariates and calendar-month effects. The checked exporter
+`export_teammate_study.py` enforces the fixed specification. Importers must preserve
+these invariants; Ask cannot reconstruct methodology from the compact artifact.
+Claims disclose `contrast_basis: declared` when `difference_direction` is present
+and validated, or `v1_default_assumed` when omitted for v1 compatibility. Units and
+method qualifiers come from this versioned contract, not independent fitting.
+
+The digest is SHA-256 of the parsed full artifact serialized using Python JSON
+with sorted keys, compact separators, `ensure_ascii=True`, and finite numbers.
+It identifies normalized content, not the original bytes: duplicate object keys
+collapse during parsing and equivalent float spellings normalize. Display rounding
+does not change the bound values. A point estimate rounding to zero is described
+as such, never proof of no association; nominal p-values below 0.001 display as
+`<0.001`.
 
 ## Two-player comparisons
 

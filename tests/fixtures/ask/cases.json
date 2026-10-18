@@ -4216,7 +4216,7 @@
       "review": {
         "status": "pending"
       },
-      "oracle_note": "Predeclared synthetic imported estimates: original and complete raw +2.00, adjusted +1.50 assists/game, Out minus participated; interval [-2,5], nominal p=0.4, sample 2 participated/3 Out. Exact narrative and table bind these values to Avery Example, Blair Sample, 2024-25 regular season, April 10\u201315. Controlled adversarial narration is deliberately ignored, not a recorded provider answer or model-fitted truth. Human review pending.",
+      "oracle_note": "Predeclared synthetic imported estimates: original and complete raw +2.00, adjusted +1.50 assists/game, Out minus participated; interval [-2,5], nominal p=0.4, sample 2 participated/3 Out. Exact narrative and table bind these values to Avery Example, Blair Sample, 2024-25 regular season, April 10\u201315. Controlled adversarial narration is deliberately ignored, not a recorded provider answer or model-fitted truth. Human review pending. These imported estimates are independent of and not derived from co-located box-score rows or availability evidence. All nine claim records and the independently calculated canonical artifact hash are literal expectations.",
       "turns": [
         {
           "question": "Review the teammate study in 2024-25 from 2025-04-10 to 2025-04-15",
@@ -4373,6 +4373,286 @@
                 "answer",
                 "tables.0.rows.2.1"
               ]
+            },
+            {
+              "path": "study_claims.evidence_id",
+              "equals": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87"
+            },
+            {
+              "path": "study_claims.claims.0",
+              "equals": {
+                "claim_id": "original_difference",
+                "source_path": "statistics.original_raw_difference",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "assists per game",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "original descriptive sample",
+                "origin": "imported_frozen_estimate",
+                "value": 2,
+                "display_paths": [
+                  "answer",
+                  "tables.0.rows.0.1"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.1",
+              "equals": {
+                "claim_id": "original_played_n",
+                "source_path": "statistics.original_played_n",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "games",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "original participated sample",
+                "origin": "imported_frozen_estimate",
+                "value": 2,
+                "display_paths": [
+                  "tables.0.rows.0.2"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.2",
+              "equals": {
+                "claim_id": "original_out_n",
+                "source_path": "statistics.original_out_n",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "games",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "original reported Out with no appearance sample",
+                "origin": "imported_frozen_estimate",
+                "value": 3,
+                "display_paths": [
+                  "tables.0.rows.0.2"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.3",
+              "equals": {
+                "claim_id": "complete_difference",
+                "source_path": "statistics.complete_case_raw_difference",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "assists per game",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "complete-case raw difference",
+                "origin": "imported_frozen_estimate",
+                "value": 2,
+                "display_paths": [
+                  "answer",
+                  "tables.0.rows.1.1"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.4",
+              "equals": {
+                "claim_id": "complete_played_n",
+                "source_path": "statistics.adjusted.played_n",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "games",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "complete-case participated sample",
+                "origin": "imported_frozen_estimate",
+                "value": 2,
+                "display_paths": [
+                  "tables.0.rows.1.2"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.5",
+              "equals": {
+                "claim_id": "complete_out_n",
+                "source_path": "statistics.adjusted.out_n",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "games",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "complete-case reported Out with no appearance sample",
+                "origin": "imported_frozen_estimate",
+                "value": 3,
+                "display_paths": [
+                  "tables.0.rows.1.2"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.6",
+              "equals": {
+                "claim_id": "adjusted_difference",
+                "source_path": "statistics.adjusted.difference",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "assists per game",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "exploratory adjusted association",
+                "origin": "imported_frozen_estimate",
+                "value": 1.5,
+                "display_paths": [
+                  "answer",
+                  "tables.0.rows.2.1"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.7",
+              "equals": {
+                "claim_id": "nominal_interval",
+                "source_path": "statistics.adjusted.nominal_cluster_95_ci",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "assists per game",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "nominal episode-cluster 95% interval; not validated uncertainty",
+                "origin": "imported_frozen_estimate",
+                "value": [
+                  -2,
+                  5
+                ],
+                "display_paths": [
+                  "tables.0.rows.3.1"
+                ]
+              }
+            },
+            {
+              "path": "study_claims.claims.8",
+              "equals": {
+                "claim_id": "nominal_p",
+                "source_path": "statistics.adjusted.nominal_p",
+                "study_id": "synthetic-assists-v1",
+                "evidence_id": "sha256:7f33eb06326ad884818f985d472affa838d25d33929215643b318c9dd316fb87",
+                "scope": {
+                  "focal_player_id": 101,
+                  "focal_player_name": "Avery Example",
+                  "teammate_id": 202,
+                  "teammate_name": "Blair Sample",
+                  "season": "2024-25",
+                  "phase": "Regular Season",
+                  "start": "2025-04-10",
+                  "end": "2025-04-15",
+                  "metric": "ast"
+                },
+                "metric": "ast",
+                "unit": "dimensionless",
+                "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "v1_default_assumed",
+                "qualifier": "nominal diagnostic; not a validated significance test or probability an effect is real",
+                "origin": "imported_frozen_estimate",
+                "value": 0.4,
+                "display_paths": [
+                  "tables.0.rows.4.1"
+                ]
+              }
             }
           ],
           "study_response": {

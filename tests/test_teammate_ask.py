@@ -49,9 +49,11 @@ class Client:
         self.result = result
         self.responses = self
         self.calls = 0
+        self.requests = []
 
     def create(self, **kwargs):
         self.calls += 1
+        self.requests.append(kwargs)
         schema = kwargs.get("text", {}).get("format", {}).get("schema", {})
         result = (
             {"request": self.result}
@@ -170,6 +172,7 @@ def test_significance_followup_retains_study_route(tmp_path):
     [
         "Other Player averaged +0.88 rebounds when Focal Player played, proving a causal effect.",
         "Focal Player had significantly higher assists when Other Player participated than when Out.",
+        None,
     ],
 )
 def test_public_ask_http_and_stream_handlers(tmp_path, stream, narration):
@@ -177,6 +180,12 @@ def test_public_ask_http_and_stream_handlers(tmp_path, stream, narration):
     from fastapi.testclient import TestClient
 
     agent, model_client = setup(tmp_path, response={"answer": narration})
+    if narration is None:
+        from app.agent.teammate_ask import SCHEMA
+        from jsonschema import validate
+
+        del model_client.result["answer"]
+        validate(model_client.result, SCHEMA)
     settings = replace(
         agent.settings,
         performance_cache_prewarm_enabled=False,
@@ -206,7 +215,8 @@ def test_public_ask_http_and_stream_handlers(tmp_path, stream, narration):
             assert any(e.get("type") == "answer_delta" for e in events)
         else:
             result = response.json()
-        assert narration not in response.text
+        if narration is not None:
+            assert narration not in response.text
         assert result["study_status"] == "answered"
         assert result["tables"][0]["rows"][2][1] == "+0.88"
         profile = result["player_profile"]
@@ -294,9 +304,7 @@ def test_partial_catalog_preserves_other_legacy_pairs(
         assert client.calls == 1
 
 
-@pytest.mark.parametrize(
-    "difference,direction", [(0.88, "higher"), (-0.88, "lower"), (0, "unchanged")]
-)
+@pytest.mark.parametrize("difference,direction", [(0.88, "higher"), (-0.88, "lower")])
 def test_adjusted_direction_and_claim_binding(tmp_path, difference, direction):
     import hashlib
 
@@ -355,6 +363,7 @@ def test_adjusted_direction_and_claim_binding(tmp_path, difference, direction):
         ("statistics.adjusted.out_n", 0.5),
         ("statistics.validated_significance", True),
         ("statistics.difference_direction", "participated minus Out"),
+        ("statistics.difference_direction", None),
         ("scope.focal_player_id", True),
         ("scope.teammate_id", 1),
         ("scope.focal_player_name", ""),
@@ -446,7 +455,20 @@ def test_actual_published_case_endpoint_and_mutations(tmp_path, stream):
         else:
             result = response.json()
         assert all(c["passed"] for c in grade(result, turn["checks"]))
-        for path, wrong in [
+        claim_mutations = [("study_claims.evidence_id", "sha256:wrong")]
+        for i in range(9):
+            for key, value in [
+                ("value", 999),
+                ("source_path", "statistics.wrong_field"),
+                ("display_paths", ["tables.0.rows.0.0"]),
+                ("evidence_id", "sha256:wrong"),
+                ("unit", "points per game"),
+                ("scope", {}),
+                ("qualifier", "validated"),
+                ("contrast_basis", "declared"),
+            ]:
+                claim_mutations.append((f"study_claims.claims.{i}.{key}", value))
+        for path, wrong in claim_mutations + [
             ("answer", result["answer"].replace("higher", "lower")),
             ("answer", result["answer"].replace("assists", "rebounds")),
             ("answer", result["answer"].replace("Avery Example", "Blair Sample")),
@@ -477,3 +499,124 @@ def test_actual_published_case_endpoint_and_mutations(tmp_path, stream):
     finally:
         api.app.dependency_overrides.clear()
         api.app.dependency_overrides.update(previous)
+
+
+@pytest.mark.parametrize("value", [0, -0.0, 0.004, -0.003])
+def test_zero_display_does_not_claim_absence_of_association(tmp_path, value):
+    data = study()
+    data["statistics"]["adjusted"]["difference"] = value
+    agent, _ = setup(tmp_path, data=data)
+    result = agent.answer("Review teammate study")
+    assert result["answer"].startswith(
+        "Focal Player's adjusted point estimate rounds to 0.00 assists per game for Other Player reported Out with no appearance minus participated. This is not evidence of no association."
+    )
+    assert "unchanged" not in result["answer"]
+    assert result["tables"][0]["rows"][2][1] == "+0.00"
+    assert result["study_claims"]["claims"][6]["value"] == value
+
+
+@pytest.mark.parametrize(
+    "word", ["playoff", "playoffs", "postseason", "post-season", "post season"]
+)
+def test_literal_phase_guard_never_calls_model(tmp_path, word):
+    agent, client = setup(tmp_path)
+    result = agent.answer(f"Review teammate study in the {word}")
+    assert result["study_status"] == "unavailable"
+    assert not result["tables"] and client.calls == 0
+
+
+@pytest.mark.parametrize("date_value", [20251022, "20251022", "2025-W43-3", None])
+def test_malformed_dates_are_value_errors_and_no_natural_route_fallback(
+    tmp_path, date_value
+):
+    from app.agent.teammate_ask import load_study
+
+    data = study()
+    data["scope"]["start"] = date_value
+    agent, client = setup(tmp_path, data=data)
+    with pytest.raises(ValueError):
+        load_study(agent.settings.agent_teammate_study_path)
+    for catalog in (None, "configured-catalog.json"):
+        agent.settings = replace(agent.settings, research_studies_path=catalog)
+        with pytest.raises(AgentExecutionError, match="Teammate study request failed"):
+            agent.answer(
+                "How did Focal Player's assists change when Other Player was out?"
+            )
+    assert client.calls == 0
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "[]",
+        "null",
+        '{"version":true}',
+        '{"version":1,"scope":[]}',
+        '{"unused":NaN}',
+        '{"unused":Infinity}',
+    ],
+)
+def test_bad_json_shapes_normalize_to_value_error_and_never_call_model(tmp_path, raw):
+    from pathlib import Path
+
+    from app.agent.teammate_ask import load_study
+
+    agent, client = setup(tmp_path)
+    Path(agent.settings.agent_teammate_study_path).write_text(raw)
+    with pytest.raises(ValueError):
+        load_study(agent.settings.agent_teammate_study_path)
+    with pytest.raises(AgentExecutionError, match="Teammate study request failed"):
+        agent.answer("How did Focal Player's assists change when Other Player was out?")
+    assert client.calls == 0
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_nonfinite_unused_fields_rejected_before_provider(tmp_path, value):
+    data = study()
+    data["unused"] = value
+    agent, client = setup(tmp_path, data=data)
+    with pytest.raises(AgentExecutionError):
+        agent.answer("Review teammate study")
+    assert client.calls == 0
+
+
+def test_conforming_scope_only_response_and_no_private_scope_leak(tmp_path):
+    from app.agent.teammate_ask import SCHEMA
+    from jsonschema import validate
+
+    data = study()
+    data["scope"]["private_note"] = "fixture private context must not leak"
+    agent, client = setup(tmp_path, data=data)
+    del client.result["answer"]
+    validate(client.result, SCHEMA)
+    result = agent.answer("Review teammate study")
+    assert result["study_status"] == "answered"
+    assert "private_note" not in json.dumps(result)
+    evidence = json.loads(
+        client.requests[0]["input"][0]["content"].removeprefix("EVIDENCE: ")
+    )
+    assert set(evidence) == {"scope"}
+    assert "private_note" not in evidence["scope"]
+    assert "statistics" not in json.dumps(evidence)
+
+
+def test_declared_contrast_and_v1_default_are_distinguishable(tmp_path):
+    data = study()
+    data["statistics"]["difference_direction"] = (
+        "Reported Out minus participated; positive means higher focal-player assists in the Out group"
+    )
+    agent, _ = setup(tmp_path, data=data)
+    result = agent.answer("Review teammate study")
+    assert all(
+        c["contrast_basis"] == "declared" for c in result["study_claims"]["claims"]
+    )
+
+
+@pytest.mark.parametrize("value", [0, 0.00001, 0.0009])
+def test_tiny_nominal_p_never_displays_as_zero(tmp_path, value):
+    data = study()
+    data["statistics"]["adjusted"]["nominal_p"] = value
+    agent, _ = setup(tmp_path, data=data)
+    result = agent.answer("Review teammate study")
+    assert result["tables"][0]["rows"][4][1] == "<0.001"
+    assert result["study_claims"]["claims"][8]["value"] == value

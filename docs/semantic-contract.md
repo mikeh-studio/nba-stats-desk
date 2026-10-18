@@ -286,5 +286,7 @@ raw and adjusted assists estimates as distinct claims. All differences are repor
 Out with no appearance minus participated, in assists per game. Nominal cluster
 intervals and p-values remain diagnostics, never validated significance or causal
 evidence. `teammate_study_claims/1` binds displayed imported values to their frozen
-source paths and scope; it does not recompute the offline model. See the
+source paths and scope; it does not recompute the offline model. Metric units and
+methodology are v1 exporter invariants. `contrast_basis` distinguishes an explicit
+validated source declaration from the assumed v1 contrast when omitted. See the
 [serving contract and remaining compatibility boundary](ask-workspace.md#factual-output-reachability).

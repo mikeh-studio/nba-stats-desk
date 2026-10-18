@@ -16,6 +16,19 @@ from app.agent.semantic_serving import (
 )
 from app.seasons import SEASONS, season_bounds
 
+SCOPE_KEYS = (
+    "focal_player_id",
+    "focal_player_name",
+    "teammate_id",
+    "teammate_name",
+    "season",
+    "phase",
+    "start",
+    "end",
+    "metric",
+)
+
+
 SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -59,8 +72,10 @@ def wants_study(question, path=None):
         return False
     try:
         scope = load_study(path)["scope"]
-    except (OSError, ValueError, KeyError):
-        return False
+    except (OSError, ValueError):
+        # A configured broken study is not permission to fall through to model
+        # narration for a potential study question. The handler fails safely.
+        return True
     return all(
         scope[key].casefold() in question.casefold()
         for key in ("focal_player_name", "teammate_name")
@@ -68,19 +83,35 @@ def wants_study(question, path=None):
 
 
 def load_study(path):
-    value = json.loads(Path(path).read_text())
-    if (
-        value.get("version") != 1
-        or value.get("claim_level") != "exploratory_adjusted_association"
-    ):
-        raise ValueError("Unsupported teammate study")
-    scope = value["scope"]
-    if scope["metric"] != "ast" or scope["phase"] != "Regular Season":
-        raise ValueError("Unsupported teammate study scope")
-    if value["statistics"]["validated_significance"] is not None:
-        raise ValueError("Study must not advertise validated significance")
-    validate_study(value)
-    return value
+    def reject_constant(value):
+        raise ValueError("Nonfinite JSON constant in study")
+
+    try:
+        value = json.loads(Path(path).read_text(), parse_constant=reject_constant)
+        if (
+            not isinstance(value, dict)
+            or type(value.get("version")) is not int
+            or value["version"] != 1
+        ):
+            raise ValueError("Unsupported teammate study")
+        if value.get("claim_level") != "exploratory_adjusted_association":
+            raise ValueError("Unsupported teammate study")
+        scope = value["scope"]
+        if scope["metric"] != "ast" or scope["phase"] != "Regular Season":
+            raise ValueError("Unsupported teammate study scope")
+        if value["statistics"]["validated_significance"] is not None:
+            raise ValueError("Study must not advertise validated significance")
+        validate_study(value)
+        # Also reject overflowed JSON numbers in otherwise unused fields before
+        # any provider call. The digest identifies the whole parsed artifact.
+        json.dumps(value, allow_nan=False)
+        return value
+    except (KeyError, TypeError, AttributeError, OverflowError) as exc:
+        raise ValueError("Malformed teammate study") from exc
+
+
+def public_scope(study):
+    return {key: study["scope"][key] for key in SCOPE_KEYS}
 
 
 def validate_study(study):
@@ -99,6 +130,11 @@ def validate_study(study):
     if scope["season"] not in SEASONS:
         raise ValueError("Unsupported study season")
     start, end = [date.fromisoformat(scope[key]) for key in ("start", "end")]
+    if any(
+        parsed.isoformat() != scope[key]
+        for parsed, key in ((start, "start"), (end, "end"))
+    ):
+        raise ValueError("Study dates must be canonical ISO dates")
     lower, upper = season_bounds(scope["season"])
     if not lower <= start <= end <= upper:
         raise ValueError("Invalid study dates")
@@ -132,7 +168,7 @@ def validate_study(study):
         if primary[complete] > stats[original]:
             raise ValueError("Complete cases exceed original sample")
     direction = stats.get("difference_direction")
-    if direction is not None and direction != (
+    if "difference_direction" in stats and direction != (
         "Reported Out minus participated; positive means higher focal-player assists in the Out group"
     ):
         raise ValueError("Unsupported study contrast")
@@ -228,10 +264,13 @@ def study_claims(study):
                 "source_path": path,
                 "study_id": study["study_id"],
                 "evidence_id": evidence_id,
-                "scope": dict(study["scope"]),
+                "scope": public_scope(study),
                 "metric": "ast",
                 "unit": unit,
                 "contrast": "reported_out_no_appearance_minus_participated",
+                "contrast_basis": "declared"
+                if "difference_direction" in study["statistics"]
+                else "v1_default_assumed",
                 "qualifier": qualifier,
                 "origin": "imported_frozen_estimate",
                 "value": value,
@@ -245,19 +284,31 @@ def study_claims(study):
     }
 
 
+def displayed_difference(value):
+    return f"{round(value, 2) + 0.0:+.2f}"
+
+
 def study_narrative(study):
-    s, stats = study["scope"], study["statistics"]
+    s, stats = public_scope(study), study["statistics"]
     difference = stats["adjusted"]["difference"]
-    direction = (
-        "higher" if difference > 0 else "lower" if difference < 0 else "unchanged"
-    )
-    return (
-        f"{s['focal_player_name']}'s adjusted assists were {direction} in the group where "
-        f"{s['teammate_name']} was reported Out with no appearance versus participated "
-        f"({difference:+.2f} assists per game, Out minus participated). "
+    shown = round(difference, 2) + 0.0
+    if shown:
+        direction = "higher" if shown > 0 else "lower"
+        opening = (
+            f"{s['focal_player_name']}'s adjusted assists were {direction} in the group where "
+            f"{s['teammate_name']} was reported Out with no appearance versus participated "
+            f"({displayed_difference(difference)} assists per game, Out minus participated). "
+        )
+    else:
+        opening = (
+            f"{s['focal_player_name']}'s adjusted point estimate rounds to 0.00 assists per game "
+            f"for {s['teammate_name']} reported Out with no appearance minus participated. "
+            "This is not evidence of no association. "
+        )
+    return opening + (
         "This is an exploratory adjusted association. "
-        f"The original descriptive difference was {stats['original_raw_difference']:+.2f} "
-        f"assists per game; the complete-case raw difference was {stats['complete_case_raw_difference']:+.2f}. "
+        f"The original descriptive difference was {displayed_difference(stats['original_raw_difference'])} "
+        f"assists per game; the complete-case raw difference was {displayed_difference(stats['complete_case_raw_difference'])}. "
         "Both use Out minus participated. The adjusted estimate uses the complete-case sample; "
         "sample exclusions and adjustment must not be conflated. "
         "Reported Out does not establish injury causation. Nominal uncertainty is diagnostic only; "
@@ -273,6 +324,9 @@ def legacy_study_has_replacement(legacy_path, catalog_path):
 
     try:
         scope = load_study(legacy_path)["scope"]
+    except (OSError, ValueError):
+        return False  # Invalid legacy evidence must fail in its own handler.
+    try:
         entries = catalog(catalog_path)
         return any(
             entry.get("scope")
@@ -288,7 +342,7 @@ def legacy_study_has_replacement(legacy_path, catalog_path):
 def unavailable(study=None, reason_code=None):
     message = "No reviewed teammate study is configured for this Ask instance."
     if study:
-        s = study["scope"]
+        s = public_scope(study)
         message = (
             f"The available teammate study covers {s['focal_player_name']}'s assists "
             f"when {s['teammate_name']} participated versus was reported Out with no appearance, "
@@ -321,7 +375,9 @@ def _answer_study(agent, question, provider, model, trace):
     if not path:
         return unavailable(reason_code="study_not_configured")
     study = load_study(path)
-    s = study["scope"]
+    s = public_scope(study)
+    if re.search(r"\b(?:playoffs?|post[ -]?season)\b", question, re.I):
+        return unavailable(study, reason_code="study_scope_mismatch")
     requested = requested_seasons(question, agent.settings.season)
     can_fallback = (
         not has_time_scope(question)
@@ -342,7 +398,7 @@ def _answer_study(agent, question, provider, model, trace):
         model=model,
         instructions=PROMPT,
         input_messages=[
-            {"role": "developer", "content": "EVIDENCE: " + json.dumps(study)},
+            {"role": "developer", "content": "EVIDENCE: " + json.dumps({"scope": s})},
             {"role": "user", "content": question},
         ],
         tools=None,
@@ -392,17 +448,17 @@ def _answer_study(agent, question, provider, model, trace):
         "rows": [
             [
                 "Raw difference, original sample (Out minus played)",
-                f"{stats['original_raw_difference']:+.2f}",
+                displayed_difference(stats["original_raw_difference"]),
                 f"{stats['original_played_n']} played / {stats['original_out_n']} reported Out",
             ],
             [
                 "Raw difference, complete cases (Out minus played)",
-                f"{stats['complete_case_raw_difference']:+.2f}",
+                displayed_difference(stats["complete_case_raw_difference"]),
                 f"{primary['played_n']} played / {primary['out_n']} reported Out",
             ],
             [
                 "Adjusted difference (Out minus played)",
-                f"{primary['difference']:+.2f}",
+                displayed_difference(primary["difference"]),
                 "Exploratory adjusted association",
             ],
             [
@@ -412,7 +468,9 @@ def _answer_study(agent, question, provider, model, trace):
             ],
             [
                 "Nominal p-value",
-                f"{primary['nominal_p']:.3f}",
+                "<0.001"
+                if primary["nominal_p"] < 0.001
+                else f"{primary['nominal_p']:.3f}",
                 "Not a validated significance test",
             ],
         ],
