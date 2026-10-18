@@ -279,3 +279,12 @@ and [request fidelity](overview-insights.md#request-fidelity-and-review-regressi
 for the shared contract. An unavailable explicitly requested cohort is partial,
 never an answered league substitute. Game spread and dated highs use the requested
 metric and full scoped sample; all displayed comparisons retain their reference.
+
+
+Frozen v1 teammate-study answers preserve imported original-sample, complete-case
+raw and adjusted assists estimates as distinct claims. All differences are reported
+Out with no appearance minus participated, in assists per game. Nominal cluster
+intervals and p-values remain diagnostics, never validated significance or causal
+evidence. `teammate_study_claims/1` binds displayed imported values to their frozen
+source paths and scope; it does not recompute the offline model. See the
+[serving contract and remaining compatibility boundary](ask-workspace.md#factual-output-reachability).

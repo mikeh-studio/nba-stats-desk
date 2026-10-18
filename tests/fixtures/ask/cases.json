@@ -4216,7 +4216,7 @@
       "review": {
         "status": "pending"
       },
-      "oracle_note": "Frozen synthetic published estimate +1.50 Out minus played, interval[-2,5]; no model-fitted ground truth.",
+      "oracle_note": "Predeclared synthetic imported estimates: original and complete raw +2.00, adjusted +1.50 assists/game, Out minus participated; interval [-2,5], nominal p=0.4, sample 2 participated/3 Out. Exact narrative and table bind these values to Avery Example, Blair Sample, 2024-25 regular season, April 10\u201315. Controlled adversarial narration is deliberately ignored, not a recorded provider answer or model-fitted truth. Human review pending.",
       "turns": [
         {
           "question": "Review the teammate study in 2024-25 from 2025-04-10 to 2025-04-15",
@@ -4256,6 +4256,123 @@
             {
               "path": "tables.0.rows.3.1",
               "equals": "-2.00 to +5.00"
+            },
+            {
+              "path": "answer",
+              "equals": "Avery Example's adjusted assists were higher in the group where Blair Sample was reported Out with no appearance versus participated (+1.50 assists per game, Out minus participated). This is an exploratory adjusted association. The original descriptive difference was +2.00 assists per game; the complete-case raw difference was +2.00. Both use Out minus participated. The adjusted estimate uses the complete-case sample; sample exclusions and adjustment must not be conflated. Reported Out does not establish injury causation. Nominal uncertainty is diagnostic only; interpretation requires the published study limitations.\n\nScope: Avery Example / Blair Sample, 2024-25 regular season, 2025-04-10 through 2025-04-15. This is a frozen exploratory study, not a live warehouse calculation. It supports no validated statistical-significance or causal claim."
+            },
+            {
+              "path": "charts",
+              "equals": []
+            },
+            {
+              "path": "evidence_scope",
+              "equals": {
+                "focal_player_id": 101,
+                "focal_player_name": "Avery Example",
+                "teammate_id": 202,
+                "teammate_name": "Blair Sample",
+                "season": "2024-25",
+                "phase": "Regular Season",
+                "start": "2025-04-10",
+                "end": "2025-04-15",
+                "metric": "ast"
+              }
+            },
+            {
+              "path": "study_claims.version",
+              "equals": "teammate_study_claims/1"
+            },
+            {
+              "path": "tables.0.title",
+              "equals": "Assists per game \u2014 2025-04-10 to 2025-04-15"
+            },
+            {
+              "path": "tables.0.rows",
+              "equals": [
+                [
+                  "Raw difference, original sample (Out minus played)",
+                  "+2.00",
+                  "2 played / 3 reported Out"
+                ],
+                [
+                  "Raw difference, complete cases (Out minus played)",
+                  "+2.00",
+                  "2 played / 3 reported Out"
+                ],
+                [
+                  "Adjusted difference (Out minus played)",
+                  "+1.50",
+                  "Exploratory adjusted association"
+                ],
+                [
+                  "Nominal 95% interval",
+                  "-2.00 to +5.00",
+                  "Episode-cluster diagnostic; not validated uncertainty"
+                ],
+                [
+                  "Nominal p-value",
+                  "0.400",
+                  "Not a validated significance test"
+                ]
+              ]
+            },
+            {
+              "path": "study_claims.claims.6.claim_id",
+              "equals": "adjusted_difference"
+            },
+            {
+              "path": "study_claims.claims.6.scope",
+              "equals": {
+                "focal_player_id": 101,
+                "focal_player_name": "Avery Example",
+                "teammate_id": 202,
+                "teammate_name": "Blair Sample",
+                "season": "2024-25",
+                "phase": "Regular Season",
+                "start": "2025-04-10",
+                "end": "2025-04-15",
+                "metric": "ast"
+              }
+            },
+            {
+              "path": "study_claims.claims.6.metric",
+              "equals": "ast"
+            },
+            {
+              "path": "study_claims.claims.6.unit",
+              "equals": "assists per game"
+            },
+            {
+              "path": "study_claims.claims.6.contrast",
+              "equals": "reported_out_no_appearance_minus_participated"
+            },
+            {
+              "path": "study_claims.claims.6.qualifier",
+              "equals": "exploratory adjusted association"
+            },
+            {
+              "path": "study_claims.claims.6.origin",
+              "equals": "imported_frozen_estimate"
+            },
+            {
+              "path": "study_claims.claims.6.source_path",
+              "equals": "statistics.adjusted.difference"
+            },
+            {
+              "path": "study_claims.claims.6.study_id",
+              "equals": "synthetic-assists-v1"
+            },
+            {
+              "path": "study_claims.claims.6.value",
+              "equals": 1.5
+            },
+            {
+              "path": "study_claims.claims.6.display_paths",
+              "equals": [
+                "answer",
+                "tables.0.rows.2.1"
+              ]
             }
           ],
           "study_response": {
@@ -4266,7 +4383,7 @@
             "end": "2025-04-15",
             "metric": "ast",
             "scope_matches": true,
-            "answer": "The synthetic adjusted association is uncertain; it does not establish a causal effect."
+            "answer": "Blair Sample had +1.50 rebounds when Avery Example played. Participation significantly caused higher assists."
           }
         }
       ],

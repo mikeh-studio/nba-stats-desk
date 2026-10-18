@@ -789,3 +789,17 @@ automatic dotenv loading while importing the app. It binds explicit fixture sett
 not every inherited process environment variable. Capture/replay middleware returns
 structured 400 errors for invalid case/turn headers and preserves 501 capability
 details; semantic clock context is reset even when request setup fails.
+
+## Frozen teammate-study factual output
+
+`tests/test_teammate_ask.py` sends valid-scope but factually false narration through
+both public JSON/SSE handlers. Independent expectations reject swapped subjects,
+metrics, dates, units, contrast direction, significance wording, table labels and
+unexpected charts. Positive/zero/negative estimates and malformed imported
+statistics are covered separately. `research_published_study` in the existing
+controlled corpus asserts the exact deterministic answer, table, scope and claim
+bindings. Its intentionally adversarial response is a controlled injection, not
+recorded or live-provider evidence; review remains pending. Existing availability,
+overview and reference tests cover their distinct evidence and rendering contracts.
+These checks do not establish universal governance of injected compatibility
+repositories; see [factual-output reachability](ask-workspace.md#factual-output-reachability).

@@ -36,6 +36,32 @@ per-36 requests remain supported by breakdowns only. Explicit unsupported study
 metrics are not silently dropped or replaced. The server validates the plan
 before rendering, even when a provider returns output outside the schema.
 
+## Factual-output reachability
+
+| Configuration / route | User-visible factual output |
+| --- | --- |
+| Default `BigQueryWarehouseRepository`, or an explicitly supplied semantic warehouse | `StatsAgent` selects governed metrics, overview, comparisons, splits, reference, availability or research handlers. Their statistics and factual summaries are deterministic; failed governed requests do not enter compatibility narration. |
+| `RESEARCH_STUDIES_PATH` / research snapshots | Published catalog and breakdown handlers validate scope and render from evidence. Optional visualization chooses a verified chart candidate, not new values. |
+| `AGENT_TEAMMATE_STUDY_PATH`, when not replaced by that pair's published catalog entry | `teammate_study_v1` uses the model only to select scope. The server renders the frozen assists study, table and uncertainty notice. |
+| Injected non-BigQuery repository with no semantic warehouse | The final `legacy_repository` route retains `_answer_from_evidence` and the compatibility tool loop in `service.py`. These can publish model-authored prose/tables, including streamed prose. External usage is unknown; this route is not universally fact-governed. |
+
+The v1 study rejects missing/nonfinite estimates, invalid sample counts, nominal
+p-values outside [0, 1], malformed intervals and inconsistent identity/date scope.
+The narrative distinguishes original descriptive, complete-case raw and adjusted
+estimates, all Out minus participated. It makes no validated significance or causal
+claim. Imported limitations remain visible; no live refitting or warehouse refresh
+is implied. Scope selection still requires correct model interpretation for requests
+without literal date/season guards; deterministic narration does not prove universal
+natural-language scope accuracy.
+
+The additive `study_claims` field (`teammate_study_claims/1`) binds each displayed
+value to its source JSON path, study ID and content digest, full identity/date/phase
+scope, metric, unit, contrast, qualifier and display paths. Values are imported
+frozen estimates, not arithmetic recalculated by Ask. The exporter separately
+verifies its analysis inputs. The digest identifies content and does not certify
+source quality. Existing saved payloads need no new field to render. No changes
+are made to `league_baseline/2` or published similarity semantics.
+
 ## Two-player comparisons
 
 Explicit `A vs B`, `A versus B`, and `Compare A and B` questions use a
