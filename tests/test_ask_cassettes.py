@@ -360,8 +360,8 @@ def test_visualization_fallback_cannot_hide_miss(tmp_path):
     assert replay.terminal()["errors"]
 
 
-def test_reviewed_provider_recording_detects_two_preserved_mismatches_offline(tmp_path):
-    """CI checks detection of recorded mismatches; it must never relabel accuracy 6/6."""
+def test_reviewed_recording_repairs_only_descriptive_kind_offline(tmp_path):
+    """Current behavior repairs research_home; historical capture remains immutable."""
     import json
     import os
     from pathlib import Path
@@ -393,10 +393,9 @@ def test_reviewed_provider_recording_detects_two_preserved_mismatches_offline(tm
     assert report["harness_passed"] and not report["cassette"]["errors"]
     assert report["runtime"]["model_calls"] == 0
     assert report["cassette"]["consumed"] == report["cassette"]["calls"] == 14
-    assert report["passed"] == 4 and report["total"] == 6
+    assert report["passed"] == 5 and report["total"] == 6
     assert {r["id"] for r in report["results"] if not r["passed"]} == {
         "date_range",
-        "research_home",
     }
     actual = {
         r["id"]: {
@@ -411,7 +410,18 @@ def test_reviewed_provider_recording_detects_two_preserved_mismatches_offline(tm
         }
         for r in report["results"]
     }
-    assert actual == json.loads((folder / "observed-outcomes.json").read_text())
+    historical = json.loads((folder / "observed-outcomes.json").read_text())
+    assert all(
+        not t["passed"] for turns in historical["research_home"].values() for t in turns
+    )
+    assert all(
+        t["passed"] and not t["failed_checks"]
+        for turns in actual["research_home"].values()
+        for t in turns
+    )
+    assert {k: v for k, v in actual.items() if k != "research_home"} == {
+        k: v for k, v in historical.items() if k != "research_home"
+    }
     assert report["human_reviewed"] is False
     import hashlib
 

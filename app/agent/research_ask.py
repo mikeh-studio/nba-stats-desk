@@ -38,6 +38,63 @@ PAIR_NAMES = (
 )
 
 
+# Deliberately bounded whole-question grammar; unfamiliar paraphrases stay with
+# the planner. The scope is derived independently before comparing model output.
+DESCRIPTIVE_METRICS = {
+    "points": "pts",
+    "rebounds": "reb",
+    "assists": "ast",
+    "steals": "stl",
+    "blocks": "blk",
+    "turnovers": "tov",
+    "minutes": "min",
+    "three pointers made": "fg3m",
+    "plus minus": "plus_minus",
+}
+
+
+def descriptive_venue_scope(question, evidence, season):
+    if evidence is None:
+        return None
+    text = " ".join(question.strip().split())
+    prefix = r"(?:research|show|summarize|break down) "
+    body = (
+        r"(?P<identity>.+?)(?:'s)? (?:average )?(?P<metric>"
+        + "|".join(re.escape(m) for m in DESCRIPTIVE_METRICS)
+        + r") (?P<venue>at home|away|on the road)"
+    )
+    season_token = re.escape(season)
+    match = re.fullmatch(
+        prefix + body + r" in " + season_token + r"[?.]?", text, re.I
+    ) or re.fullmatch(
+        r"in " + season_token + r",? " + prefix + body + r"[?.]?", text, re.I
+    )
+    if not match:
+        return None
+    name = match["identity"].casefold()
+    identities = {
+        p["player_id"]
+        for p in source_players(evidence)
+        if name in {str(n).casefold() for n in [p["player_name"], *p["aliases"]]}
+    }
+    if len(identities) != 1:
+        return None
+    return {
+        "season": season,
+        "phase": "Regular Season",
+        "player_ids": list(identities),
+        "metrics": [DESCRIPTIVE_METRICS[match["metric"].lower()]],
+        "aggregation": "average",
+        "start": None,
+        "end": None,
+        "opponent": None,
+        "home_away": "home" if match["venue"].lower() == "at home" else "away",
+        "rest": None,
+        "teammate_id": None,
+        "teammate_status": None,
+    }
+
+
 def mentioned_pairs(question):
     return [
         pair
@@ -349,6 +406,20 @@ For a breakdown, teammate_id and teammate_status are both null unless a specific
                 plan["message"] or "This research scope is unsupported.",
                 reason_code="planner_unsupported",
             )
+        if plan["kind"] == "study" and plan["pair_id"] is None and not previous:
+            descriptive = descriptive_venue_scope(question, evidence, seasons[0])
+            raw_scope = plan["query"]
+            if (
+                descriptive is not None
+                and raw_scope["phase"] in ("Both", "Regular Season")
+                and {**raw_scope, "phase": "Regular Season"} == descriptive
+            ):
+                # An unqualified breakdown uses ResearchQuery's regular-season
+                # default, not the study planner's Both default. All other scope
+                # must agree independently; model provenance remains intact.
+                plan["kind"] = "breakdown"
+                plan["query"] = descriptive
+                decision["reason_code"] = "descriptive_kind_normalized"
         decision["route"] = (
             "teammate_study" if plan["kind"] == "study" else "research_breakdown"
         )

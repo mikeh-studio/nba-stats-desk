@@ -765,13 +765,18 @@ repeat a paid capture automatically after a failure.
 
 The reviewed public recording in
 [`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
-contains 14 calls across six cases. Capture and replay both pass 4/6; the date-range
-aggregation expectation mismatch and research routing failure remain visible.
+contains 14 calls across six cases. The immutable capture and historical replay
+passed 4/6. Current replay passes 5/6 after bounded descriptive research kind/default
+correction; only `research_home` changes. Its original expectation independently
+requires Regular Season home averages (6 points over 3 appearances); the study
+planner's Both default must not carry over to this descriptive breakdown.
 The date-range wording is ambiguous about average versus total; the pending
 expectation mismatch is not a confirmed application defect. The offline pytest
-regression explicitly requires exit 1 and those exact failed assertions alongside
-zero replay provider calls and a passing harness terminal gate. It tests detection
-of mismatches, not six correct answers. No capture was repeated and no independent
+regression explicitly requires exit 1, the unchanged date-range failed assertions,
+the repaired research assertions, and all other original outcomes unchanged,
+alongside zero provider calls and a passing harness terminal gate. The historical
+`observed-outcomes.json` remains unchanged and still records both original failures.
+It does not claim six correct answers or human approval. No capture was repeated and no independent
 expectation was adjusted.
 
 Settings binding changes require explicit compatibility review. New diagnostic or

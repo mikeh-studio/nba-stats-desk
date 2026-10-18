@@ -907,3 +907,29 @@ and [request fidelity](overview-insights.md#request-fidelity-and-review-regressi
 for the shared contract. An unavailable explicitly requested cohort is partial,
 never an answered league substitute. Game spread and dated highs use the requested
 metric and full scoped sample; all displayed comparisons retain their reference.
+
+
+### Bounded descriptive research correction
+
+When a model labels an explicit descriptive venue request as a study, Ask can
+normalize it to a breakdown only after independently full-matching the entire
+question. Supported forms are `Research|Show|Summarize|Break down NAME [average]
+METRIC at home|away|on the road in YYYY-YY`, or the same form with `In YYYY-YY,`
+first. A possessive name and terminal question mark or period are optional.
+Names and aliases must resolve to exactly one identity in the loaded evidence.
+The bounded metric vocabulary is points, rebounds, assists, steals, blocks,
+turnovers, minutes, three pointers made, and plus minus.
+
+Only a study with no pair, teammate, or exposure status qualifies, with no prior
+research scope. Its raw identity, season, metric, average aggregation, venue,
+and every other filter must exactly match the independently recognized scope.
+The unqualified breakdown uses `ResearchQuery`'s Regular Season default; a raw
+study phase of Both is its inherited study default and is normalized with the
+kind. An already-Regular Season raw phase also qualifies; Playoffs does not.
+Explicit phase language, additional dates/opponents/rest filters, study or causal
+language, multiple metrics/players, unknown or ambiguous identities, and other
+prefixes/suffixes fall outside this correction. No model prompt or schema changes.
+The existing full query validation and deterministic computation still run.
+`ask_route.source` stays `model`, while `descriptive_kind_normalized` records the
+bounded correction. Other paraphrases continue through existing planning and may
+still fail; this is not a general language-accuracy guarantee.
