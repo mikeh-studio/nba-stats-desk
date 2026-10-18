@@ -1,10 +1,13 @@
 # Ask harness program results — 2026-10-18
 
-The unchanged controlled endpoint corpus passes **147/147 before and after**.
+The controlled endpoint inventory remains **147 cases** and passes **147/147
+before and after**; A and C strengthened independent assertions without changing
+the denominator.
 The one authorized provider capture used 14 calls across six fictional cases and
 passed **4/6**. Current offline replay passes **5/6**, repairing only
 `research_home`; all 16 original recording files and `observed-outcomes.json`
-remain immutable. No paid capture was repeated and no expectation was retuned.
+remain immutable. No paid capture was repeated and none of the six recorded-case expectations was
+retuned.
 The remaining `date_range` mismatch is ambiguous average-versus-total wording
 with an unreviewed oracle, not a confirmed application defect.
 
@@ -21,7 +24,7 @@ this program does not merge or deploy them.
 | --- | --- | --- |
 | [A — #81](https://github.com/mikeh-studio/nba-stats-desk/pull/81) | Explicit critical-risk coverage and independent raw-row oracle mutations; [tests](../tests/test_ask_coverage.py) | Coverage labels remain distinct from endpoint success and human approval; safe coverage reporting. |
 | [B — #84](https://github.com/mikeh-studio/nba-stats-desk/pull/84) | Strict provider recording/replay, immutable original bundle, fresh JSON/SSE context and Python outbound-read guard; [tests](../tests/test_ask_cassettes.py) | Request/manifest integrity, source isolation, response completion and timing boundaries; Python guard is not an OS sandbox. |
-| [C — #82](https://github.com/mikeh-studio/nba-stats-desk/pull/82) | Study prose/table/chart evidence consistency and scope controls; [endpoint tests](../tests/test_research_api.py) | Scope validation, displayed precision and contrast metadata; no universal binding claim. |
+| [C — #82](https://github.com/mikeh-studio/nba-stats-desk/pull/82) | Study prose/table/chart evidence consistency and scope controls; [endpoint tests](../tests/test_teammate_ask.py) | Scope validation, displayed precision and contrast metadata; no universal binding claim. |
 | [D — #83](https://github.com/mikeh-studio/nba-stats-desk/pull/83) | Opt-in private request-linked traces with bounded storage, access checks, redaction and retention; [tests](../tests/test_private_traces.py) | Admission bounds, retention locking and redaction; best-effort secret detection and limited code/config provenance remain explicit. |
 | [E — #85](https://github.com/mikeh-studio/nba-stats-desk/pull/85) | Reviewed failure-to-case drafts with source provenance and always-pending human approval; [tests](../tests/test_ask_trace_draft.py) | Private source copying, fictional reconstruction privacy, trace provenance and crash-safe output ordering. |
 | F — this change | Bounded descriptive study-kind correction with the existing breakdown default; [tests](../tests/test_descriptive_research.py) | Precise phase/dispatch scope, safe Unicode metric rejection, literal independent expected values, replay route assertions and in-sample disclosure. |
