@@ -565,3 +565,29 @@ test("invalid view records only bounded local reason counters", async ({
     code: "destination_mismatch",
   });
 });
+
+test("present malformed drawer summaries fail closed; null remains unavailable", async ({
+  page,
+}) => {
+  await setup(page);
+  const result = await page.evaluate(() => {
+    const t = claimTest,
+      s =
+        t.overview.semantic_evidence.metrics[0].distribution.among_players
+          .summary;
+    const outcomes = [];
+    for (const n of [-1, "3", null]) {
+      s.n = n;
+      outcomes.push(
+        paintClaim("drawer", { key: "pts", view: "among_players" }).status,
+      );
+    }
+    s.n = 3;
+    s.q1 = "bad";
+    outcomes.push(
+      paintClaim("drawer", { key: "pts", view: "among_players" }).status,
+    );
+    return outcomes;
+  });
+  expect(result).toEqual(["invalid", "invalid", "incomplete", "invalid"]);
+});

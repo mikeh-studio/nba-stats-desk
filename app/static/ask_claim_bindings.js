@@ -586,8 +586,11 @@ export function claimSchema(payload, component, options = {}) {
     add(".drawer-value strong", p.concat("value"), "drawer-value", c);
     if (Object.hasOwn(m, "percentile"))
       add(".drawer-value > span", p.concat("percentile"), "drawer-rank", c);
+    for (const key of ["q1", "q3", "median", "min", "max"])
+      if (Object.hasOwn(s, key) && s[key] !== null && !finite(s[key]))
+        throw Error("Malformed canonical distribution summary");
     const dp = p.concat("distribution", view, "summary");
-    if (finite(s.n) && s.n >= 0)
+    if (Object.hasOwn(s, "n") && s.n !== null)
       add(
         ".drawer-stats > div:nth-child(1) dd",
         dp.concat("n"),
