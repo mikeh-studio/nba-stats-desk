@@ -349,3 +349,189 @@ def test_visualization_fallback_cannot_hide_miss(tmp_path):
     )
     assert payload["visualization"]["selection"] == "fallback"
     assert replay.terminal()["errors"]
+
+
+def test_reviewed_provider_recording_detects_two_preserved_mismatches_offline(tmp_path):
+    """CI checks detection of recorded mismatches; it must never relabel accuracy 6/6."""
+    import json
+    import os
+    from pathlib import Path
+
+    folder = Path("tests/fixtures/ask/recordings/openai-mini-20261018")
+    output = tmp_path / "replay"
+    env = {
+        **os.environ,
+        "OPENAI_API_KEY": "",
+        "ANTHROPIC_API_KEY": "",
+        "OPENROUTER_API_KEY": "",
+    }
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/evaluate_ask.py",
+            "--replay-cassettes",
+            str(folder),
+            "--output",
+            str(output),
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads((output / "results.json").read_text())
+    assert report["harness_passed"] and not report["cassette"]["errors"]
+    assert report["runtime"]["model_calls"] == 0
+    assert report["cassette"]["consumed"] == report["cassette"]["calls"] == 14
+    assert report["passed"] == 4 and report["total"] == 6
+    assert {r["id"] for r in report["results"] if not r["passed"]} == {
+        "date_range",
+        "research_home",
+    }
+    actual = {
+        r["id"]: {
+            mode: [
+                {
+                    "passed": t["passed"],
+                    "failed_checks": [c for c in t["checks"] if not c["passed"]],
+                }
+                for t in turns
+            ]
+            for mode, turns in r["modes"].items()
+        }
+        for r in report["results"]
+    }
+    assert actual == json.loads((folder / "observed-outcomes.json").read_text())
+    assert report["human_reviewed"] is False
+    import stat
+
+    assert stat.S_IMODE(output.stat().st_mode) == 0o700
+    assert all(
+        stat.S_IMODE(p.stat().st_mode) == 0o600 for p in output.iterdir() if p.is_file()
+    )
+
+
+def test_synthetic_repository_rejects_uncaptured_mixed_seasons():
+    from app.agent.semantics import SemanticError
+    from scripts.ask_eval.fixtures import FrozenWarehouse
+
+    with pytest.raises(SemanticError, match="covers only"):
+        FrozenWarehouse({}, "complete").load(["2024-25", "2025-26"])
+
+
+@pytest.mark.parametrize(
+    "metadata,reason",
+    [
+        ({"status": "incomplete"}, "response_status:incomplete"),
+        ({"status": "failed"}, "response_status:failed"),
+        ({"status": "cancelled"}, "response_status:cancelled"),
+        ({"status": "queued"}, "response_status:queued"),
+        ({"status": "completed", "error": {"code": "server_error"}}, "response_error"),
+        (
+            {"incomplete_details": {"reason": "max_output_tokens"}},
+            "response_incomplete",
+        ),
+        ({"incomplete_details": {}}, "response_incomplete"),
+        ({}, None),
+        ({"status": None, "error": None, "incomplete_details": None}, None),
+        ({"status": "completed"}, None),
+    ],
+)
+def test_terminal_response_metadata_failure_survives_replay(tmp_path, metadata, reason):
+    response = SimpleNamespace(
+        output_text='{"answer":"usable fallback"}', output=[], **metadata
+    )
+    provider = SimpleNamespace(responses=SimpleNamespace(create=lambda **kw: response))
+    store = CassetteStore(tmp_path / "cassette", "record", BINDING)
+    assert (
+        CassetteClient(store, "openai", provider).responses.create(**REQUEST)
+        is response
+    )
+    summary = store.terminal()
+    assert summary["failed_attempts"] == int(reason is not None)
+    assert [x["reason"] for x in summary["unsuccessful_attempts"]] == (
+        [reason] if reason else []
+    )
+    # App accepting output_text cannot clear the terminal harness gate.
+    assert bool(not summary["errors"] and not summary["failed_attempts"]) == (
+        reason is None
+    )
+    replay = CassetteStore(store.directory, "replay", BINDING)
+    actual = CassetteClient(replay, "openai").responses.create(**REQUEST)
+    assert response_data(actual) == response_data(response)
+    assert replay.terminal()["failed_attempts"] == summary["failed_attempts"]
+
+
+def test_optional_visualization_fallback_retains_incomplete_attempt(tmp_path):
+    from app.agent.execution import create_response
+    from app.agent.visualization import VisualizationAgent, study_charts
+    from tests.test_research_insights import presentation_study
+    from tests.test_semantic_migration import settings
+
+    response = SimpleNamespace(
+        output_text="truncated JSON",
+        status="incomplete",
+        incomplete_details={"reason": "max_output_tokens"},
+    )
+    provider = SimpleNamespace(responses=SimpleNamespace(create=lambda **kw: response))
+    provider.with_options = lambda **kw: provider
+    store = CassetteStore(tmp_path / "cassette", "record", BINDING)
+
+    class Agent:
+        def _get_client(self, provider_name):
+            return CassetteClient(store, provider_name, provider)
+
+        def _request_timeout_seconds(self, provider_name):
+            return 30
+
+        def _create_response(self, **kwargs):
+            kwargs["input"] = kwargs.pop("input_messages")
+            return create_response(settings=settings(), **kwargs)
+
+    for mode in ("record", "replay"):
+        if mode == "replay":
+            store = CassetteStore(store.directory, "replay", BINDING)
+        payload = VisualizationAgent().enrich(
+            Agent(),
+            {
+                "_chart_candidates": study_charts(
+                    presentation_study(), {"pts", "ast"}, []
+                )
+            },
+            "assists without teammate",
+            "openai",
+            "test-model",
+        )
+        assert payload["visualization"]["selection"] == "fallback"
+        assert payload["charts"]
+        assert store.terminal()["failed_attempts"] == 1
+
+
+def test_private_capture_and_model_log_permissions_at_creation(tmp_path):
+    import os
+    import stat
+
+    from scripts.ask_eval.budget import CallBudget
+    from scripts.ask_eval.private_io import private_directory, private_write
+
+    previous = os.umask(0)
+    try:
+        root = tmp_path / "private" / "run"
+        private_directory(root)
+        store = CassetteStore(root / "cassette", "record", BINDING)
+        CassetteClient(store, "openai", Provider()).responses.create(**REQUEST)
+        store.terminal()
+        budget = CallBudget(2, root / "model-calls.jsonl")
+        budget.record({"call": 1})
+        budget.record({"call": 2})
+        private_write(root / "failure.json", '{"status":"failed"}')
+        for path in (tmp_path / "private", root, root / "cassette"):
+            assert stat.S_IMODE(path.stat().st_mode) == 0o700
+        for path in root.rglob("*"):
+            if path.is_file():
+                assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        with pytest.raises(FileExistsError):
+            private_write(root / "failure.json", "overwrite")
+    finally:
+        os.umask(previous)

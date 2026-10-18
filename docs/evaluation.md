@@ -745,3 +745,24 @@ separately from human expectation approval; pending cases stay pending. A replay
 pass establishes frozen response behavior, not current model quality, live
 warehouse accuracy or deployment readiness. Never regenerate expectations or
 repeat a paid capture automatically after a failure.
+
+The reviewed public recording in
+[`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
+contains 14 calls across six cases. Capture and replay both pass 4/6; the date-range
+aggregation expectation mismatch and research routing failure remain visible.
+The date-range wording is ambiguous about average versus total; the pending
+expectation mismatch is not a confirmed application defect. The offline pytest
+regression explicitly requires exit 1 and those exact failed assertions alongside
+zero replay provider calls and a passing harness terminal gate. It tests detection
+of mismatches, not six correct answers. No capture was repeated and no independent
+expectation was adjusted.
+
+Settings binding changes require explicit compatibility review. New diagnostic or
+storage-only settings should be excluded with tests when introduced; existing
+generation, scope and execution policy settings must remain bound. Never rewrite
+an existing capture's settings hash merely to make replay pass.
+
+New private recording/report directories are created with mode 0700 and raw files
+with mode 0600. Response terminal failure metadata also fails the harness gate,
+even if application fallback produces a usable payload; missing optional status
+fields on provider adapters are not themselves failures.

@@ -19,7 +19,7 @@ class FrozenWarehouse:
     def load(self, seasons):
         from app.agent.semantics import Evidence, SemanticError
 
-        if "2024-25" not in seasons:
+        if not seasons or not set(seasons).issubset({"2024-25"}):
             raise SemanticError(
                 "unsupported_coverage", "Frozen fixture covers only 2024-25."
             )

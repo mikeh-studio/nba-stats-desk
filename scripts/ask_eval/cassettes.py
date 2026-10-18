@@ -10,6 +10,8 @@ from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
 
+from scripts.ask_eval.private_io import private_directory, private_open
+
 VERSION = 1
 call_context: ContextVar[dict | None] = ContextVar(
     "cassette_call_context", default=None
@@ -109,6 +111,25 @@ def response_data(response):
     return result
 
 
+def unsuccessful_attempt(record):
+    """Classify terminal metadata without altering the preserved provider response.
+
+    Claude/OpenRouter adapters may omit optional Responses status fields. A
+    present non-success status or non-null error/incomplete detail is a failure,
+    even when the application accepts output_text or falls back successfully.
+    """
+    if record.get("error"):
+        return "raised_error"
+    response = record.get("response", {})
+    if response.get("status") not in (None, "completed"):
+        return "response_status:" + str(response["status"])
+    if response.get("error") is not None:
+        return "response_error"
+    if response.get("incomplete_details") is not None:
+        return "response_incomplete"
+    return None
+
+
 def settings_binding(settings):
     """Bind settings without secrets or volatile materialized attachment paths."""
     from dataclasses import asdict
@@ -138,7 +159,7 @@ class CassetteStore:
         self.consumed = set()
         self.records = {}
         if mode == "record":
-            self.directory.mkdir(parents=True, exist_ok=False)
+            private_directory(self.directory)
             self.manifest = {"schema_version": VERSION, **binding}
             self._write("manifest.json", self.manifest)
         else:
@@ -172,7 +193,7 @@ class CassetteStore:
                 raise CassetteError("recording_harness_errors")
 
     def _write(self, name, value):
-        with (self.directory / name).open("x") as stream:
+        with private_open(self.directory / name) as stream:
             stream.write(encoded(value) + "\n")
 
     def fail(self, reason):
@@ -239,8 +260,13 @@ class CassetteStore:
                 "calls": sum(self.counters.values()),
                 "consumed": len(self.consumed),
                 "failed_attempts": sum(
-                    bool(r.get("error")) for r in self.records.values()
+                    unsuccessful_attempt(r) is not None for r in self.records.values()
                 ),
+                "unsuccessful_attempts": [
+                    {"key": list(key), "reason": reason}
+                    for key, record in self.records.items()
+                    if (reason := unsuccessful_attempt(record)) is not None
+                ],
             }
             if (
                 self.mode == "record"

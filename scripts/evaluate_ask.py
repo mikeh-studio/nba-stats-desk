@@ -21,6 +21,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.ask_eval.fixtures import load_inputs  # noqa: E402
 from scripts.ask_eval.grading import canonical, grade  # noqa: E402
+from scripts.ask_eval.private_io import (  # noqa: E402
+    private_directory,
+    private_open,
+    private_write,
+)
 
 
 def digest(path):
@@ -291,7 +296,7 @@ def main():
         ):
             if replay_manifest.get(key) != binding[key]:
                 p.error("Cassette manifest mismatch: " + key)
-    args.output.mkdir(parents=True, exist_ok=False)
+    private_directory(args.output)
     proc = None
     try:
         with socket.socket() as sock:
@@ -325,7 +330,7 @@ def main():
                 ),
                 ASK_EVAL_BINDING=json.dumps(binding),
             )
-        log = (args.output / "server.log").open("w")
+        log = private_open(args.output / "server.log")
         proc = subprocess.Popen(
             [
                 sys.executable,
@@ -355,7 +360,7 @@ def main():
                 time.sleep(0.1)
         else:
             raise RuntimeError("Fixture server startup timed out")
-        with (args.output / "progress.jsonl").open("x") as progress:
+        with private_open(args.output / "progress.jsonl") as progress:
             results = evaluate(
                 url,
                 document,
@@ -429,6 +434,7 @@ def main():
                         "server.py",
                         "budget.py",
                         "cassettes.py",
+                        "private_io.py",
                     )
                 )
             ).hexdigest(),
@@ -471,7 +477,7 @@ def main():
                 "Baseline reference failures may indicate missing structured evidence contracts, not wrong narrative numbers.",
             ],
         }
-        (args.output / "results.json").write_text(json.dumps(report, indent=2) + "\n")
+        private_write(args.output / "results.json", json.dumps(report, indent=2) + "\n")
         print(
             f"{report['passed']}/{report['total']} cases passed; {args.output / 'results.json'}"
         )
@@ -479,7 +485,8 @@ def main():
             0 if report["passed"] == report["total"] and report["harness_passed"] else 1
         )
     except Exception as exc:
-        (args.output / "failure.json").write_text(
+        private_write(
+            args.output / "failure.json",
             json.dumps(
                 {
                     "status": "failed",
@@ -487,7 +494,7 @@ def main():
                     "label": args.label,
                 }
             )
-            + "\n"
+            + "\n",
         )
         raise
     finally:

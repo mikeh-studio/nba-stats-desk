@@ -1,0 +1,240 @@
+{
+  "points_mean": {
+    "json": [
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ],
+    "sse": [
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ]
+  },
+  "fg_pooled": {
+    "json": [
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ],
+    "sse": [
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ]
+  },
+  "fg_zero_denominator": {
+    "json": [
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ],
+    "sse": [
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ]
+  },
+  "date_range": {
+    "json": [
+      {
+        "passed": false,
+        "failed_checks": [
+          {
+            "path": "semantic_evidence.rows.0.value",
+            "equals": 4,
+            "absolute_tolerance": 1e-09,
+            "actual": 12.0,
+            "passed": false
+          },
+          {
+            "path": "tables.0.rows.0.1",
+            "equals": "4.0",
+            "actual": "12.0",
+            "passed": false
+          }
+        ]
+      }
+    ],
+    "sse": [
+      {
+        "passed": false,
+        "failed_checks": [
+          {
+            "path": "semantic_evidence.rows.0.value",
+            "equals": 4,
+            "absolute_tolerance": 1e-09,
+            "actual": 12.0,
+            "passed": false
+          },
+          {
+            "path": "tables.0.rows.0.1",
+            "equals": "4.0",
+            "actual": "12.0",
+            "passed": false
+          }
+        ]
+      }
+    ]
+  },
+  "follow_metric": {
+    "json": [
+      {
+        "passed": true,
+        "failed_checks": []
+      },
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ],
+    "sse": [
+      {
+        "passed": true,
+        "failed_checks": []
+      },
+      {
+        "passed": true,
+        "failed_checks": []
+      }
+    ]
+  },
+  "research_home": {
+    "json": [
+      {
+        "passed": false,
+        "failed_checks": [
+          {
+            "path": "research_scope.season",
+            "equals": "2024-25",
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.phase",
+            "equals": "Regular Season",
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.player_ids",
+            "equals": [
+              101
+            ],
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.metrics",
+            "equals": [
+              "pts"
+            ],
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.home_away",
+            "equals": "home",
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.start",
+            "equals": null,
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.end",
+            "equals": null,
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research.players.0.metrics.0.result.value",
+            "equals": 6,
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research.players.0.metrics.0.result.valid_games",
+            "equals": 3,
+            "missing": true,
+            "passed": false
+          }
+        ]
+      }
+    ],
+    "sse": [
+      {
+        "passed": false,
+        "failed_checks": [
+          {
+            "path": "research_scope.season",
+            "equals": "2024-25",
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.phase",
+            "equals": "Regular Season",
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.player_ids",
+            "equals": [
+              101
+            ],
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.metrics",
+            "equals": [
+              "pts"
+            ],
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.home_away",
+            "equals": "home",
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.start",
+            "equals": null,
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research_scope.end",
+            "equals": null,
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research.players.0.metrics.0.result.value",
+            "equals": 6,
+            "missing": true,
+            "passed": false
+          },
+          {
+            "path": "research.players.0.metrics.0.result.valid_games",
+            "equals": 3,
+            "missing": true,
+            "passed": false
+          }
+        ]
+      }
+    ]
+  }
+}
