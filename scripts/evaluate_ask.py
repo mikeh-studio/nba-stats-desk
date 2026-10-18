@@ -188,6 +188,9 @@ def main():
     )
     source, document = load_inputs(ROOT, args.input_dir)
     input_dir = args.input_dir or ROOT / "tests/fixtures/ask"
+    from scripts.ask_eval.coverage import summarize
+
+    corpus_summary = summarize(source, document)
     if args.case:
         document["cases"] = [c for c in document["cases"] if c["id"] in args.case]
         if len(document["cases"]) != len(set(args.case)):
@@ -303,6 +306,8 @@ def main():
             "provider": args.provider if args.live else "controlled",
             "model": args.model if args.live else "predeclared-plan",
             "human_reviewed": False,
+            "corpus_summary": corpus_summary,
+            "selection_summary": summarize(source, document),
             "source_kind": source.get("source_kind", "synthetic"),
             "source_description": source.get("description", "Synthetic evidence"),
             "runtime": runtime,
