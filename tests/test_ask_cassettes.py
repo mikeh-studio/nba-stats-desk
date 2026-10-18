@@ -16,6 +16,7 @@ from scripts.ask_eval.cassettes import (
     call_context,
     encoded,
     response_data,
+    sha,
 )
 
 BINDING = dict(
@@ -265,7 +266,7 @@ def test_semantic_clock_does_not_replace_real_date():
     assert today() == date.today()
 
 
-def test_endpoint_record_then_offline_replay_and_swallowed_miss(tmp_path):
+def test_endpoint_record_then_offline_replay_with_strict_semantic_clock(tmp_path):
     # Mechanism-only controlled recording generated within the test. It is never
     # published or described as a real provider capture.
     code = r"""
@@ -280,6 +281,14 @@ case=next(c for c in doc["cases"] if c["id"]=="points_mean")
 binding=dict(provider="openai",model="gpt-5.4-mini",clock="2026-10-18",cases={case["id"]:sha(case)},source_sha256=sha(source),schema_sha256="test",adapter_revision="test",corpus_sha256=sha(doc))
 os.environ.update(ASK_EVAL_CASSETTE_MODE="record",ASK_EVAL_CASSETTE_DIR=os.environ["TEST_CASSETTE_DIR"],ASK_EVAL_BINDING=json.dumps(binding),ASK_EVAL_MAX_CALLS="24",ASK_EVAL_CLOCK="2026-10-18",ASK_EVAL_LIVE="0")
 from scripts.ask_eval import server
+from app.agent import clock
+class MissingContextDate:
+ @staticmethod
+ def today(): raise RuntimeError("semantic clock context lost")
+clock.date=MissingContextDate
+try: clock.today()
+except RuntimeError: pass
+else: raise AssertionError("missing semantic clock context was not detected")
 server._get_client=lambda self,provider: ControlledModel(case["turns"][call_context.get()["turn"]])
 def run(client, suffix):
  for transport in ("json","sse"):
@@ -404,6 +413,15 @@ def test_reviewed_provider_recording_detects_two_preserved_mismatches_offline(tm
     }
     assert actual == json.loads((folder / "observed-outcomes.json").read_text())
     assert report["human_reviewed"] is False
+    import hashlib
+
+    from scripts.ask_eval.legacy_recording import CASSETTE_SHA256, RAW_SHA256
+
+    assert report["cassette_sha256"] == CASSETTE_SHA256
+    assert all(
+        hashlib.sha256((folder / name).read_bytes()).hexdigest() == value
+        for name, value in RAW_SHA256.items()
+    )
     import stat
 
     assert stat.S_IMODE(output.stat().st_mode) == 0o700
@@ -535,3 +553,260 @@ def test_private_capture_and_model_log_permissions_at_creation(tmp_path):
             private_write(root / "failure.json", "overwrite")
     finally:
         os.umask(previous)
+
+
+def test_semantic_clock_ast_inventory():
+    import ast
+    from pathlib import Path
+
+    # These clocks record real metadata/history or execute deadlines, not scope.
+    allow = {"clock.py", "history.py", "semantic_source.py"}
+    paths = [*Path("app/agent").glob("*.py"), Path("app/seasons.py")]
+    for path in paths:
+        if path.name in allow:
+            continue
+        tree = ast.parse(path.read_text())
+        assert not [
+            n.lineno
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Attribute)
+            and n.func.attr in {"today", "now"}
+        ], path
+
+
+def test_uncaptured_reads_are_sticky_for_both_repositories():
+    from app.agent.semantic_source import snapshot_digest
+    from scripts.ask_eval.fixtures import frozen_repository
+    from scripts.ask_eval.production import production_repository
+    from scripts.ask_eval.source_guard import failures
+    from tests.test_ask_harness import SOURCE, settings
+
+    snapshot = {
+        "rows": SOURCE["rows"],
+        "sources": ["synthetic"],
+        "coverage": [
+            {
+                "season": "2024-25",
+                "phase": phase,
+                "rows": sum(r["season_type"] == phase for r in SOURCE["rows"]),
+                "data_through": max(
+                    r["game_date"] for r in SOURCE["rows"] if r["season_type"] == phase
+                ),
+            }
+            for phase in ("Regular Season", "Playoffs")
+        ],
+    }
+    snapshot["sha256"] = snapshot_digest(snapshot)
+    before = len(failures())
+    for repo in (
+        frozen_repository(settings(), SOURCE, "complete"),
+        production_repository(settings(), {"snapshot": snapshot, "details": {}}),
+    ):
+        try:
+            repo._query("uncaptured")
+        except RuntimeError:
+            pass  # App fallback still cannot erase the source-side evidence.
+    assert [x["repository"] for x in failures()[before:]] == [
+        "synthetic",
+        "production_snapshot",
+    ]
+    from scripts.evaluate_ask import harness_passed
+
+    assert not harness_passed(
+        {"uncaptured_reads": failures()[before:]}, {"errors": [], "failed_attempts": 0}
+    )
+
+
+@pytest.mark.parametrize(
+    "mutation", ["request", "model", "chunks", "both", "neither", "error_kind"]
+)
+def test_shape_and_request_integrity_rejects_rehashed_tampering(tmp_path, mutation):
+    import json
+
+    path = record(tmp_path)
+    call = path / "call-0000.json"
+    data = json.loads(call.read_text())
+    if mutation == "request":
+        data["request"]["instructions"] = "tampered"
+    elif mutation == "model":
+        data["match"]["model"] = "other"
+    elif mutation == "chunks":
+        data["chunks"] = None
+    elif mutation == "both":
+        data["error"] = {"kind": "provider", "type": "Error", "status_code": None}
+    elif mutation == "neither":
+        del data["response"]
+    else:
+        del data["response"]
+        data["error"] = {
+            "kind": "arbitrary_class",
+            "type": "Error",
+            "status_code": None,
+        }
+    call.write_text(encoded(data))
+    terminal = json.loads((path / "terminal.json").read_text())
+    terminal["files"][call.name] = sha(data)
+    (path / "terminal.json").write_text(encoded(terminal))
+    with pytest.raises(CassetteError, match="invalid_record"):
+        CassetteStore(path, "replay", BINDING)
+
+
+def test_manifest_integrity_and_untrusted_legacy(tmp_path):
+    import json
+
+    path = record(tmp_path)
+    manifest = json.loads((path / "manifest.json").read_text())
+    manifest["clock"] = "2020-01-01"
+    (path / "manifest.json").write_text(encoded(manifest))
+    with pytest.raises(CassetteError, match="manifest_integrity"):
+        CassetteStore(path, "replay", {**BINDING, "clock": "2020-01-01"})
+    manifest["schema_version"] = 1
+    (path / "manifest.json").write_text(encoded(manifest))
+    with pytest.raises(CassetteError, match="untrusted_legacy"):
+        CassetteStore(path, "replay", {**BINDING, "clock": "2020-01-01"})
+
+
+def test_unsaved_claim_fails_terminal(tmp_path):
+    store = CassetteStore(tmp_path / "cassette", "record", BINDING)
+    store.claim("openai", REQUEST, {})
+    assert "unsaved_claimed_calls" in store.terminal()["errors"]
+
+
+def test_execution_failure_preserves_code_and_marks_capture_unsuccessful(tmp_path):
+    from app.agent.execution import ExecutionFailure
+    from scripts.ask_eval.cassettes import failure_data, replay_failure
+
+    failure = ExecutionFailure("request_timeout")
+    assert replay_failure(failure_data(failure)).code == "request_timeout"
+
+    def fail(**kwargs):
+        raise failure
+
+    store = CassetteStore(tmp_path / "cassette", "record", BINDING)
+    client = CassetteClient(
+        store, "openai", SimpleNamespace(responses=SimpleNamespace(create=fail))
+    )
+    with pytest.raises(ExecutionFailure):
+        client.responses.create(**REQUEST)
+    terminal = store.terminal()
+    assert terminal["failed_attempts"] == 1
+    assert "execution_failure_during_capture:request_timeout" in terminal["errors"]
+
+
+def test_successful_return_over_execution_bound_is_unsuccessful(tmp_path, monkeypatch):
+    from scripts.ask_eval import cassettes
+
+    times = iter([10.0, 12.0])
+    monkeypatch.setattr(cassettes, "monotonic", lambda: next(times))
+    store = CassetteStore(tmp_path / "cassette", "record", BINDING)
+    client = CassetteClient(store, "openai", Provider(), {"timeout": 1})
+    assert client.responses.create(**REQUEST).output_text == "answer"
+    assert store.terminal()["failed_attempts"] == 1
+    assert store.records[("example", 0, "json", 0)]["execution"]["latency_ms"] == 2000
+
+
+@pytest.mark.parametrize(
+    "reason", ["max_tokens", "refusal", "pause_turn", "end_turn", "tool_use", None]
+)
+def test_claude_adapter_preserves_and_classifies_finish_reason(reason):
+    from app.agent.claude_client import _AdapterResponse
+    from scripts.ask_eval.cassettes import unsuccessful_attempt
+
+    response = _AdapterResponse(
+        SimpleNamespace(content=[], usage=None, stop_reason=reason)
+    )
+    data = response_data(response)
+    assert data["stop_reason"] == reason
+    assert bool(unsuccessful_attempt({"response": data})) == (
+        reason in {"max_tokens", "refusal", "pause_turn"}
+    )
+
+
+def test_credential_loader_ignores_noncredential_settings(tmp_path, monkeypatch):
+    from scripts.ask_eval.environment import load_provider_credentials
+
+    for key in (
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENROUTER_API_KEY",
+        "OPENAI_AGENT_MODEL",
+    ):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "existing-synthetic")
+    path = tmp_path / ".env"
+    path.write_text(
+        "OPENAI_API_KEY=other-synthetic\nANTHROPIC_API_KEY=fake-synthetic\nOPENAI_AGENT_MODEL=changed\n"
+    )
+    load_provider_credentials(path)
+    import os
+
+    assert os.environ["OPENAI_API_KEY"] == "existing-synthetic"
+    assert os.environ["ANTHROPIC_API_KEY"] == "fake-synthetic"
+    assert "OPENAI_AGENT_MODEL" not in os.environ
+
+
+def test_dns_and_process_escapes_are_guarded():
+    code = """import os,socket,subprocess,sys
+from scripts.ask_eval.cassettes import install_network_guard, CassetteError
+errors=[]
+def fail(reason):
+ errors.append(reason)
+ raise CassetteError(reason)
+install_network_guard(fail)
+actions=[lambda: socket.gethostbyname("example.com"),lambda: socket.gethostbyname_ex("example.com"),lambda: socket.gethostbyaddr("8.8.8.8"),lambda: subprocess.Popen([sys.executable,"-c","pass"]),lambda: os.system("true"),lambda: os.execv(sys.executable,[sys.executable,"-c","raise SystemExit(73)"])]
+if hasattr(os,"posix_spawn"): actions.append(lambda: os.posix_spawn(sys.executable,[sys.executable,"-c","pass"],os.environ))
+for action in actions:
+ try: action()
+ except CassetteError: pass
+ else: raise AssertionError("escape allowed")
+assert len(errors)==len(actions)
+"""
+    subprocess.run([sys.executable, "-c", code], check=True)
+
+
+def test_cassette_middleware_errors_are_structured_and_reset_clock(tmp_path):
+    import os
+
+    code = r"""
+import os,json,asyncio
+from pathlib import Path
+from fastapi import Request
+from fastapi.testclient import TestClient
+from scripts.ask_eval.fixtures import load_inputs, FixtureCapabilityError
+from scripts.ask_eval.cassettes import sha
+source,document=load_inputs(Path.cwd())
+case=next(c for c in document["cases"] if c["id"]=="points_mean")
+binding=dict(provider="openai",model="gpt-5.4-mini",clock="2026-10-18",cases={case["id"]:sha(case)})
+os.environ.update(ASK_EVAL_CASSETTE_MODE="record",ASK_EVAL_CASSETTE_DIR=os.environ["TEST_CASSETTE_DIR"],ASK_EVAL_BINDING=json.dumps(binding),ASK_EVAL_MAX_CALLS="1",ASK_EVAL_CLOCK="2026-10-18",ASK_EVAL_LIVE="0")
+from scripts.ask_eval import server
+from app.agent.clock import semantic_date
+def unavailable(base,attachments):
+ if attachments: raise FixtureCapabilityError("study","application_setting_missing")
+ return base
+server.lookup["points_mean"]["attachments"]=["study"]
+server._attachments.configure=unavailable
+with TestClient(server.app) as client:
+ for suffix in ("","/stream"):
+  endpoint="/api/agent/ask"+suffix
+  assert client.post(endpoint,json={},headers={"X-Evaluation-Case":"unknown","X-Evaluation-Turn":"0"}).status_code==400
+  assert client.post(endpoint,json={},headers={"X-Evaluation-Case":"points_mean"}).status_code==400
+  response=client.post(endpoint,json={},headers={"X-Evaluation-Case":"points_mean","X-Evaluation-Turn":"0"})
+  assert response.status_code==501,response.text
+  assert response.json()["detail"]["code"]=="evaluation_fixture_capability_unavailable"
+ assert client.get("/__eval/metadata").json()["fixture_capability_failures"]
+async def check_reset():
+ assert semantic_date.get() is None
+ request=Request({"type":"http","path":"/api/agent/ask","headers":[(b"x-evaluation-case",b"points_mean"),(b"x-evaluation-turn",b"0")]})
+ async def next_call(request): raise AssertionError("must fail setup")
+ result=await server.evaluation_context(request,next_call)
+ assert result.status_code==501
+ assert semantic_date.get() is None
+asyncio.run(check_reset())
+"""
+    subprocess.run(
+        [sys.executable, "-c", code],
+        env={**os.environ, "TEST_CASSETTE_DIR": str(tmp_path / "cassette")},
+        check=True,
+        timeout=60,
+    )

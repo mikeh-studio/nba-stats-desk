@@ -710,17 +710,29 @@ python scripts/evaluate_ask.py \
 
 Replay resolves provider, model, selected cases and clock from the manifest;
 explicit conflicting arguments fail before server startup. It creates no provider
-client and spends no provider calls. The fixture server blocks all outbound socket
-connections, DNS lookups and datagram sends, including local proxies. The runner
-is a separate process that connects inbound to the loopback endpoints. Frozen
-repositories reject uncaptured reads; no warehouse fallback is available.
+client and spends no provider calls. The fixture server blocks Python-audited
+outbound socket/DNS operations and process spawns, including local proxies, and
+runs the asyncio event loop. This is a Python-level guard, not OS isolation of
+native extensions. The runner is a separate process connecting inbound to loopback.
+Frozen repositories reject uncaptured reads and retain sticky failure evidence
+independently of application fallback; no warehouse fallback is available.
+Zero-call evidence combines blocked real client construction, consumed recordings,
+and the Python guard, rather than relying on the unused live-call counter alone.
 
-Version 1 recordings bind each independent case/turn/JSON-or-SSE call sequence to
+Version 2 recordings bind each independent case/turn/JSON-or-SSE call sequence to
 its provider, model, complete semantic request hash, fixture settings, selected
-case contract, source, schema and fixed date. Transport timeouts/retries are saved
+case contract, source, schema and fixed date. Version 2 binds the manifest hash
+in the terminal record and validates stored request/match hashes and record shape.
+The sole supported v1 bundle is the original reviewed capture, pinned by raw-file
+hashes and canonical cassette hash; arbitrary unverified v1 bundles are rejected.
+Transport timeouts/retries are saved
 separately; callbacks are replayed in their captured order. SDK output items, tool
-IDs/arguments, usage, finish and refusal fields are retained. Unsupported values
-fail serialization. Failed attempts remain failures, with safe error
+IDs/arguments, usage and available finish/refusal fields at the app's adapted
+Responses boundary are retained; this is not a complete provider wire capture.
+Claude stop reasons are retained and truncation/refusal/pause stops fail the gate.
+OpenRouter rejects incomplete/filtered/refused results and retains accepted finish
+reasons. Unsupported values fail serialization. Failed attempts remain failures,
+with safe error
 classifications instead of private error messages. No provider retry policy is
 changed in the production app.
 
@@ -734,8 +746,13 @@ application code may replay when its requests and contracts still match.
 
 The clock seam affects semantic date defaults, scope checks, splits and overview
 periods only. Execution deadlines, source capture timestamps and history clocks
-remain real time. Replayed chunks establish callback ordering, not provider
-streaming latency or cancellation behavior. Each transport has its own recording;
+remain real time. New recordings include elapsed time and available timeout/
+remaining-deadline bounds. Bound overruns and execution failures during provider
+calls make capture unsuccessful. ExecutionFailure codes remain distinguishable.
+Replayed chunks establish callback ordering, not provider streaming latency,
+cancellation, deadline effects or post-call scheduling. Replay does not freeze or
+reproduce those execution clocks; changes after the captured boundary can still
+change the application's timing-sensitive outcome. Each transport has its own recording;
 parity means both satisfy the same independent expectations, not identical prose.
 
 Keep raw captures private. Before copying synthetic recordings into
@@ -766,3 +783,9 @@ New private recording/report directories are created with mode 0700 and raw file
 with mode 0600. Response terminal failure metadata also fails the harness gate,
 even if application fallback produces a usable payload; missing optional status
 fields on provider adapters are not themselves failures.
+
+The evaluator loads only three provider credential keys from `.env` and suppresses
+automatic dotenv loading while importing the app. It binds explicit fixture settings,
+not every inherited process environment variable. Capture/replay middleware returns
+structured 400 errors for invalid case/turn headers and preserves 501 capability
+details; semantic clock context is reset even when request setup fails.

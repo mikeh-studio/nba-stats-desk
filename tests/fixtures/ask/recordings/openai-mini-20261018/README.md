@@ -35,3 +35,15 @@ python scripts/evaluate_ask.py \
 ```
 
 Exit 1 is expected for the two preserved mismatches.
+
+Provider retention disclosure: the fictional research-scope calls (0012 and 0013)
+omitted `store`, and their provider responses report `store: true`. The semantic
+planner calls sent `store: false`. Standardizing retention across production routes
+is a separate gap; this replay feature does not change those original requests or
+claim to delete provider-held data. All captured content remains fictional/public
+fixture material as described above.
+
+This v1 bundle is accepted only with the pinned original 16 raw-file hashes and
+canonical cassette hash. New captures use version 2 with manifest binding. Replay
+covers the app's adapted provider boundary and does not reproduce provider timing,
+post-call scheduling, or native-extension network behavior.

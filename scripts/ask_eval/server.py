@@ -7,21 +7,25 @@ import tempfile
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 # Select baseline/candidate app code before any app import. Runner code stays fixed.
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.environ.get("ASK_EVAL_CODE_ROOT", str(ROOT)))
 if os.environ.get("ASK_EVAL_LIVE") == "1":
-    from dotenv import load_dotenv
+    from scripts.ask_eval.environment import load_provider_credentials
 
-    # Archived app code may not discover the working checkout's local config.
-    # Load here without copying credentials into the archive or run artifacts.
-    load_dotenv(ROOT / ".env")
+    load_provider_credentials(ROOT / ".env")
 
-from app.config import Settings  # noqa: E402
-from app.main import app, get_agent_client, get_repository, get_settings  # noqa: E402
+# This evaluation-only import scope prevents app.config's automatic .env load
+# from bypassing the credential-only loader (including on older dotenv versions).
+with patch("dotenv.load_dotenv", return_value=False):
+    from app.config import Settings
+    from app.main import app, get_agent_client, get_repository, get_settings
+
 from fastapi import HTTPException, Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from scripts.ask_eval.fixtures import (  # noqa: E402
     ControlledModel,
     FixtureAttachments,
@@ -29,6 +33,7 @@ from scripts.ask_eval.fixtures import (  # noqa: E402
     frozen_repository,
     load_inputs,
 )
+from scripts.ask_eval.source_guard import failures as source_failures  # noqa: E402
 
 source, document = load_inputs(
     ROOT,
@@ -120,23 +125,36 @@ async def evaluation_context(request, call_next):
         return await call_next(request)
     clock_token = None
     context_token = None
-    if os.environ.get("ASK_EVAL_CLOCK"):
-        from app.agent.clock import semantic_date
-
-        clock_token = semantic_date.set(
-            date.fromisoformat(os.environ["ASK_EVAL_CLOCK"])
-        )
-    if cassette:
-        context_token = call_context.set(
-            {
-                "case": case_for(request)["id"],
-                "turn": int(request.headers["X-Evaluation-Turn"]),
-                "transport": "sse" if request.url.path.endswith("/stream") else "json",
-                "settings_sha256": settings_binding(settings(request)),
-            }
-        )
     try:
+        if os.environ.get("ASK_EVAL_CLOCK"):
+            from app.agent.clock import semantic_date
+
+            clock_token = semantic_date.set(
+                date.fromisoformat(os.environ["ASK_EVAL_CLOCK"])
+            )
+        if cassette:
+            case = case_for(request)
+            try:
+                turn = int(request.headers["X-Evaluation-Turn"])
+                if not 0 <= turn < len(case["turns"]):
+                    raise ValueError()
+            except (KeyError, ValueError):
+                raise HTTPException(
+                    status_code=400, detail="Valid X-Evaluation-Turn is required"
+                )
+            context_token = call_context.set(
+                {
+                    "case": case["id"],
+                    "turn": turn,
+                    "transport": "sse"
+                    if request.url.path.endswith("/stream")
+                    else "json",
+                    "settings_sha256": settings_binding(settings(request)),
+                }
+            )
         return await call_next(request)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
     finally:
         if context_token is not None:
             call_context.reset(context_token)
@@ -171,6 +189,7 @@ def evaluation_metadata():
     return {
         "cassette_errors": list(cassette.errors) if cassette else [],
         "fixture_capability_failures": dict(_capability_failures),
+        "uncaptured_reads": source_failures(),
         "model_calls": budget.calls,
         "source_kind": source.get("source_kind", "synthetic"),
         "model_usage": budget.records,
@@ -194,7 +213,13 @@ def reset_conversations():
 
 
 def case_for(request):
-    cid = request.headers.get("X-Evaluation-Case", next(iter(lookup)))
+    cid = request.headers.get(
+        "X-Evaluation-Case", None if cassette else next(iter(lookup))
+    )
+    if cid not in lookup:
+        raise HTTPException(
+            status_code=400, detail="Valid X-Evaluation-Case is required"
+        )
     return lookup[cid]
 
 

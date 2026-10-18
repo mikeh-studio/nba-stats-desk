@@ -8,11 +8,13 @@ import sys
 from contextvars import ContextVar
 from pathlib import Path
 from threading import Lock
+from time import monotonic
 from types import SimpleNamespace
 
 from scripts.ask_eval.private_io import private_directory, private_open
 
-VERSION = 1
+VERSION = 2
+SUPPORTED_VERSIONS = (1, VERSION)
 call_context: ContextVar[dict | None] = ContextVar(
     "cassette_call_context", default=None
 )
@@ -35,6 +37,15 @@ class RecordedProviderValidationError(ValueError):
 
 
 def failure_data(exc):
+    from app.agent.execution import ExecutionFailure
+
+    if isinstance(exc, ExecutionFailure):
+        return {
+            "type": "ExecutionFailure",
+            "kind": "execution",
+            "code": exc.code,
+            "status_code": None,
+        }
     return {
         "type": type(exc).__name__,
         "kind": "timeout"
@@ -49,6 +60,10 @@ def failure_data(exc):
 
 
 def replay_failure(data):
+    if data["kind"] == "execution":
+        from app.agent.execution import ExecutionFailure
+
+        return ExecutionFailure(data["code"])
     cls = {
         "timeout": RecordedProviderTimeout,
         "validation": RecordedProviderValidationError,
@@ -120,7 +135,13 @@ def unsuccessful_attempt(record):
     """
     if record.get("error"):
         return "raised_error"
+    if record.get("execution", {}).get("bound_overrun"):
+        return "execution_bound_overrun"
     response = record.get("response", {})
+    if response.get("stop_reason") in ("max_tokens", "refusal", "pause_turn"):
+        return "provider_stop:" + response["stop_reason"]
+    if response.get("finish_reason") not in (None, "stop", "tool_calls"):
+        return "provider_finish:" + str(response["finish_reason"])
     if response.get("status") not in (None, "completed"):
         return "response_status:" + str(response["status"])
     if response.get("error") is not None:
@@ -148,6 +169,74 @@ def settings_binding(settings):
     return sha(values)
 
 
+def _require(condition):
+    if not condition:
+        raise ValueError("Invalid recording invariant")
+
+
+def validate_record(record, binding):
+    try:
+        _require(
+            set(record)
+            == {
+                "key",
+                "match",
+                "request",
+                "execution",
+                "chunks",
+                "response" if "response" in record else "error",
+            }
+        )
+        key = record["key"]
+        _require(isinstance(key, list) and len(key) == 4)
+        _require(key[0] in binding["cases"] and type(key[1]) is int and (key[1] >= 0))
+        _require(key[2] in ("json", "sse") and type(key[3]) is int and (key[3] >= 0))
+        _require(
+            isinstance(record["chunks"], list)
+            and all((isinstance(c, str) for c in record["chunks"]))
+        )
+        _require(isinstance(record["execution"], dict))
+        _require(("response" in record) != ("error" in record))
+        request, match = record["request"], record["match"]
+        _require(isinstance(request, dict) and isinstance(match, dict))
+        _require(
+            set(match) == {"provider", "model", "request_sha256", "settings_sha256"}
+        )
+        _require(sha(request) == match["request_sha256"])
+        _require(match["provider"] == binding["provider"])
+        _require(request["model"] == match["model"] == binding["model"])
+        _require(isinstance(match["settings_sha256"], str))
+        if "response" in record:
+            _require(isinstance(record["response"], dict))
+        else:
+            error = record["error"]
+            _require(isinstance(error, dict) and isinstance(error["type"], str))
+            _require(
+                error["kind"] in ("timeout", "validation", "provider", "execution")
+            )
+            _require(error["status_code"] is None or type(error["status_code"]) is int)
+            if error["kind"] == "execution":
+                _require(isinstance(error["code"], str) and error["code"])
+    except (AssertionError, KeyError, TypeError, ValueError) as exc:
+        raise CassetteError("invalid_record_shape_or_binding") from exc
+
+
+def verify_legacy(directory):
+    from scripts.ask_eval.legacy_recording import RAW_SHA256
+
+    try:
+        _require(
+            all(
+                (
+                    hashlib.sha256((directory / name).read_bytes()).hexdigest() == value
+                    for name, value in RAW_SHA256.items()
+                )
+            )
+        )
+    except (ValueError, OSError) as exc:
+        raise CassetteError("untrusted_legacy_recording") from exc
+
+
 class CassetteStore:
     def __init__(self, directory, mode, binding):
         self.directory = Path(directory)
@@ -164,8 +253,11 @@ class CassetteStore:
             self._write("manifest.json", self.manifest)
         else:
             self.manifest = json.loads((self.directory / "manifest.json").read_text())
-            if self.manifest.get("schema_version") != VERSION:
+            version = self.manifest.get("schema_version")
+            if version not in SUPPORTED_VERSIONS:
                 raise CassetteError("unsupported_schema")
+            if version == 1:
+                verify_legacy(self.directory)
             # Adapter/code revisions are provenance, not replay compatibility gates.
             for key, value in binding.items():
                 if (
@@ -174,6 +266,10 @@ class CassetteStore:
                 ):
                     raise CassetteError("manifest_mismatch:" + key)
             terminal = json.loads((self.directory / "terminal.json").read_text())
+            if version == VERSION and terminal.get("manifest_sha256") != sha(
+                self.manifest
+            ):
+                raise CassetteError("manifest_integrity_mismatch")
             for name, expected in terminal["files"].items():
                 path = self.directory / name
                 if path.name != name or not name.startswith("call-"):
@@ -181,6 +277,7 @@ class CassetteStore:
                 record = json.loads(path.read_text())
                 if sha(record) != expected:
                     raise CassetteError("corrupt_call:" + name)
+                validate_record(record, self.manifest)
                 key = tuple(record["key"])
                 if key in self.records:
                     raise CassetteError("duplicate_call")
@@ -191,6 +288,8 @@ class CassetteStore:
                 raise CassetteError("unexpected_call_files")
             if terminal.get("errors"):
                 raise CassetteError("recording_harness_errors")
+            if terminal.get("calls") != len(self.records):
+                raise CassetteError("recording_call_accounting_mismatch")
 
     def _write(self, name, value):
         with private_open(self.directory / name) as stream:
@@ -240,6 +339,7 @@ class CassetteStore:
 
     def save(self, key, record):
         with self.lock:
+            validate_record(record, self.binding)
             self._write(f"call-{len(self.records):04d}.json", record)
             self.records[key] = record
 
@@ -250,12 +350,17 @@ class CassetteStore:
                 errors.extend(
                     "unused_call:" + str(k) for k in self.records.keys() - self.consumed
                 )
+            if self.mode == "record" and sum(self.counters.values()) != len(
+                self.records
+            ):
+                errors.append("unsaved_claimed_calls")
             files = {
                 p.name: sha(json.loads(p.read_text()))
                 for p in sorted(self.directory.glob("call-*.json"))
             }
             result = {
                 "errors": errors,
+                "manifest_sha256": sha(self.manifest),
                 "files": files,
                 "calls": sum(self.counters.values()),
                 "consumed": len(self.consumed),
@@ -331,16 +436,40 @@ class CassetteClient:
 
             kwargs["on_output_text_delta"] = capture
         record["chunks"] = chunks
+        from app.agent.execution import CURRENT, ExecutionFailure
+
+        policy = CURRENT.get()
+        if policy is not None:
+            record["execution"]["remaining_seconds"] = max(
+                0, policy.deadline - monotonic()
+            )
+        started = monotonic()
+
+        def finish_timing():
+            elapsed = monotonic() - started
+            record["execution"]["latency_ms"] = elapsed * 1000
+            bounds = [
+                record["execution"].get(k) for k in ("timeout", "remaining_seconds")
+            ]
+            bounds = [b for b in bounds if isinstance(b, (int, float))]
+            record["execution"]["bound_overrun"] = bool(
+                bounds and elapsed >= min(bounds)
+            )
+
         try:
             result = self.inner.responses.create(**kwargs)
         except Exception as exc:
+            finish_timing()
             record["error"] = failure_data(exc)
             self.store.save(key, record)
             from scripts.ask_eval.budget import BudgetExceeded
 
+            if isinstance(exc, ExecutionFailure):
+                self.store.errors.append("execution_failure_during_capture:" + exc.code)
             if isinstance(exc, BudgetExceeded):
                 self.store.fail("model_call_budget_exhausted")
             raise
+        finish_timing()
         try:
             record["response"] = response_data(result)
             self.store.save(key, record)
@@ -360,6 +489,12 @@ def install_network_guard(on_failure):
         if event in (
             "socket.connect",
             "socket.getaddrinfo",
+            "socket.gethostbyname",
+            "socket.gethostbyaddr",
+            "subprocess.Popen",
+            "os.system",
+            "os.exec",
+            "os.posix_spawn",
             "socket.sendto",
             "socket.sendmsg",
         ):

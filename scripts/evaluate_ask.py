@@ -32,6 +32,17 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def harness_passed(runtime, cassette_status):
+    return not any(
+        (
+            cassette_status.get("errors"),
+            cassette_status.get("failed_attempts"),
+            runtime.get("fixture_capability_failures"),
+            runtime.get("uncaptured_reads"),
+        )
+    )
+
+
 def evaluate(
     url,
     document,
@@ -195,7 +206,9 @@ def main():
         replay_manifest = json.loads(
             (args.replay_cassettes / "manifest.json").read_text()
         )
-        if replay_manifest.get("schema_version") != 1:
+        from scripts.ask_eval.cassettes import SUPPORTED_VERSIONS
+
+        if replay_manifest.get("schema_version") not in SUPPORTED_VERSIONS:
             p.error("Unsupported cassette schema")
         for name in ("model", "clock"):
             supplied = getattr(args, name)
@@ -342,6 +355,8 @@ def main():
                 "--port",
                 str(port),
                 "--no-proxy-headers",
+                "--loop",
+                "asyncio",
             ],
             cwd=ROOT,
             env=env,
@@ -403,9 +418,7 @@ def main():
             "schema_sha256": binding["schema_sha256"],
             "cassette": cassette_status,
             "cassette_sha256": cassette_status.get("cassette_sha256"),
-            "harness_passed": not cassette_status.get("errors")
-            and not cassette_status.get("failed_attempts")
-            and not runtime.get("fixture_capability_failures"),
+            "harness_passed": harness_passed(runtime, cassette_status),
             "execution_mode": "recorded_provider_replay_http"
             if args.replay_cassettes
             else "recorded_provider_capture_http"
@@ -435,6 +448,9 @@ def main():
                         "budget.py",
                         "cassettes.py",
                         "private_io.py",
+                        "source_guard.py",
+                        "environment.py",
+                        "legacy_recording.py",
                     )
                 )
             ).hexdigest(),

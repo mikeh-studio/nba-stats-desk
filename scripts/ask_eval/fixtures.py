@@ -63,7 +63,9 @@ def frozen_repository(settings, source, variant):
             self._governed_warehouse = FrozenWarehouse(source, variant)
 
         def _query(self, *args, **kwargs):
-            raise RuntimeError("Uncaptured repository read: no live warehouse fallback")
+            from scripts.ask_eval.source_guard import uncaptured_read
+
+            uncaptured_read("synthetic")
 
         def get_health(self):
             return {
