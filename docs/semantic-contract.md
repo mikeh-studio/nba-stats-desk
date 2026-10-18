@@ -359,3 +359,12 @@ source paths and scope; it does not recompute the offline model. Metric units an
 methodology are v1 exporter invariants. `contrast_basis` distinguishes an explicit
 validated source declaration from the assumed v1 contrast when omitted. See the
 [serving contract and remaining compatibility boundary](ask-workspace.md#factual-output-reachability).
+
+## Presentation provenance
+
+[Exact presentation bindings](ask-claim-bindings.md) preserve raw aggregate values
+and declare scale/rounding separately. A recorded zero is a valid observation;
+null is missing, and games played remains independent of metric completeness.
+Two played games with 0 and 10 points average 5; a null and 10 points average 10
+over one valid game out of two observed games. Zero field-goal attempts do not
+imply zero points. Pooled zero attempts produce unavailable shooting efficiency.

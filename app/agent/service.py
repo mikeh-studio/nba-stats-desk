@@ -1454,11 +1454,14 @@ class StatsAgent:
             if provider_name == "claude"
             else self.settings.openai_agent_model
         )
+        from app.agent.claims import finalize
         from app.agent.payload import complete_payload
 
-        return complete_payload(
-            VisualizationAgent().enrich(
-                self, payload, question, provider_name, selected_model, trace
+        return finalize(
+            complete_payload(
+                VisualizationAgent().enrich(
+                    self, payload, question, provider_name, selected_model, trace
+                )
             )
         )
 

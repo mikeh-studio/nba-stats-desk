@@ -206,6 +206,9 @@ def add_leaderboard_reference(payload, result, evidence, players, player_id):
         "Gaps use unrounded averages; displayed rounded values may differ by 0.1."
     )
     payload["answer"] = "\n\n".join(lines)
+    from app.agent.claim_renderers import leaderboard_reference
+
+    leaderboard_reference(payload)
 
 
 def _payload(message: str, status: str) -> dict[str, Any]:
@@ -446,6 +449,9 @@ def render_answer(
         player = next((p for p in players if p["player_id"] in ids), None)
         if player:
             payload["player_profile"] = identity_profile(player, [])
+    from app.agent.claim_renderers import metric_tables
+
+    metric_tables(payload, players)
     return payload
 
 

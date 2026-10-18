@@ -510,4 +510,7 @@ def _answer_study(agent, question, provider, model, trace):
             "requested": agent.settings.season,
             "used": s["season"],
         }
+    from app.agent.claim_renderers import frozen_study_table
+
+    frozen_study_table(payload, study)
     return payload

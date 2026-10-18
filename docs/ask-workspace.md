@@ -949,3 +949,10 @@ retain prior player/exposure identities; new identities require recognized names
 Per-36 units require an explicit cue or an unchanged inherited metric scope. Controlled JSON/SSE tests establish fixture behavior, not
 live model quality. Old planner prompt/schema recordings are incompatible with
 this version and cannot establish its accuracy.
+
+## Exact presentation bindings
+
+See [claim bindings and surface inventory](ask-claim-bindings.md) for the additive
+`ask_claim_bindings/1` envelope. Structured cells and selected scope/sample prose
+link exact sources to exact destinations. Contradictions are withheld after
+visualization enrichment; unbound surfaces remain explicitly incomplete.

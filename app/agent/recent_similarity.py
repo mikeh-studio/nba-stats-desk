@@ -181,4 +181,7 @@ def render_recent_similarity(evidence, player):
     payload["followups"] = [
         f"Who is similar to {player['player_name']} in points over the last {scope['n']} games in {scope['season']} {scope['season_type'].lower()}?"
     ]
+    from app.agent.claim_renderers import reference_tables
+
+    reference_tables(payload, player)
     return payload

@@ -282,7 +282,7 @@ def answer_payload(result: dict[str, Any]) -> dict[str, Any]:
                 ]
             )
     scope = result["scope"]
-    return {
+    payload = {
         "answer": f"Research breakdown for {', '.join(p['player_name'] for p in result['players'])}: {scope['season']} {scope['phase']}, {scope['start'] or 'season start'} through {scope['end'] or 'latest source date'}. The table uses the selected filters and shows each metric's valid sample.",
         "tables": [
             {
@@ -319,7 +319,7 @@ def answer_payload(result: dict[str, Any]) -> dict[str, Any]:
         "followups": [],
         "tool_calls": [],
         "clarification_options": [],
-        "assumptions": result["limitations"],
+        "assumptions": list(result["limitations"]),
         "research": result,
         "research_scope": scope,
         "player_profile": (
@@ -330,3 +330,7 @@ def answer_payload(result: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
     }
+    from app.agent.claim_renderers import research_table
+
+    research_table(payload)
+    return payload
