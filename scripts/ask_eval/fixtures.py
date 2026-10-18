@@ -62,6 +62,9 @@ def frozen_repository(settings, source, variant):
             super().__init__(settings, client=SimpleNamespace())
             self._governed_warehouse = FrozenWarehouse(source, variant)
 
+        def _query(self, *args, **kwargs):
+            raise RuntimeError("Uncaptured repository read: no live warehouse fallback")
+
         def get_health(self):
             return {
                 "season": "2024-25",

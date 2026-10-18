@@ -13,6 +13,7 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any, Callable, Mapping, Sequence
 
+from app.agent.clock import today as semantic_today
 from app.agent.execution import create_response, timed
 from app.agent.semantics import (
     Evidence,
@@ -180,7 +181,7 @@ def explicit_scope(question: str) -> dict[str, Any]:
             )
         )
         standalone_calendar = bool(has_calendar) and not complex_calendar
-        anchor = date.today()
+        anchor = semantic_today()
         as_of = re.search(r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I)
         if standalone_calendar and as_of:
             try:
@@ -189,7 +190,7 @@ def explicit_scope(question: str) -> dict[str, Any]:
                 raise SemanticError(
                     "clarification_required", "Please provide a valid as-of date."
                 ) from exc
-            if anchor > date.today():
+            if anchor > semantic_today():
                 raise SemanticError(
                     "clarification_required",
                     "Please choose an as-of date no later than today.",

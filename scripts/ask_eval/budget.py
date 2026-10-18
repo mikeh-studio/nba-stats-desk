@@ -7,6 +7,10 @@ from time import monotonic
 from types import SimpleNamespace
 
 
+class BudgetExceeded(RuntimeError):
+    """The evaluation attempted to exceed its authorized provider-call limit."""
+
+
 class CallBudget:
     def __init__(self, maximum, log_path=None):
         self.maximum = maximum
@@ -18,7 +22,7 @@ class CallBudget:
     def claim(self):
         with self.lock:
             if self.calls >= self.maximum:
-                raise RuntimeError("Evaluation model-call budget exhausted")
+                raise BudgetExceeded("Evaluation model-call budget exhausted")
             self.calls += 1
             return self.calls
 
