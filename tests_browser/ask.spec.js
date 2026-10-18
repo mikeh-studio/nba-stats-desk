@@ -504,12 +504,13 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example perform in April 2025?');
     let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
+    await page.locator('[data-chart-key="ast"]').first().click();
     const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
     const trigger=page.getByRole('button',{name:/^PTS distribution:/}).first();
     await expect(trigger).toHaveAccessibleName(/PTS distribution: \d+(?:st|nd|rd|th) percentile/);
     await trigger.click();
     const drawer=page.getByRole('dialog');
-    await expect(drawer).toBeVisible();await expect(drawer).toContainText('Among players');await expect(drawer).toContainText('League median');
+    await expect(drawer).toBeVisible();expect(await drawer.evaluate(d=>d.uiClaimReport.status)).toBe('incomplete');await expect(drawer).toContainText('Among players');await expect(drawer).toContainText('League median');
     const activeBackground=await drawer.getByRole('button',{name:'Among players',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor);
     expect(activeBackground).not.toBe(await drawer.getByRole('button',{name:'Across games',exact:true}).evaluate(el=>getComputedStyle(el).backgroundColor));
     await page.screenshot({path:`reports/ask-harness/browser-artifacts/drawer-${width}-among.png`});

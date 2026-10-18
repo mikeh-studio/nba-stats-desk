@@ -277,9 +277,35 @@ test("actual endpoint multi-answer and multi-tab history survives real browser s
   expect(before.counts).toEqual([2, 2, 2]);
   expect(before.tabs).toBe(3);
   expect(before.bytes).toBeLessThan(4 * 1024 * 1024);
+  // Restore genuinely older saved shapes: no G metadata or newer presentation policy.
+  await page.evaluate(() => {
+    const history = JSON.parse(localStorage.getItem("askChatHistory:v1"));
+    for (const conversation of history.conversations)
+      for (const turn of conversation.turns) {
+        delete turn.payload.claim_bindings;
+        delete turn.payload.claim_validation;
+        delete turn.payload.semantic_evidence.presentation;
+        delete turn.payload.semantic_evidence.summary_paragraphs;
+      }
+    localStorage.setItem("askChatHistory:v1", JSON.stringify(history));
+  });
   await page.reload();
   await expect(page.locator("[data-chat-tabs] [role=tab]")).toHaveCount(3);
   await expect(page.locator("[data-agent-tables]").last()).toContainText("PTS");
+  expect(
+    await page.evaluate(() =>
+      [...document.querySelectorAll("*")]
+        .filter((n) => n.uiClaimReport)
+        .map((n) => n.uiClaimReport.status),
+    ),
+  ).not.toContain("invalid");
+  expect(
+    await page.evaluate(() =>
+      [...document.querySelectorAll("*")].some(
+        (n) => n.uiClaimReport?.checked > 0,
+      ),
+    ),
+  ).toBe(true);
   const after = await page.evaluate(() =>
     JSON.parse(localStorage.getItem("askChatHistory:v1")).conversations.map(
       (c) => c.turns.length,
@@ -423,4 +449,119 @@ test("qualification opportunities preserve canonical attempt threshold and zero 
   expect(result.report.errors).toEqual([]);
   expect(result.text).toContain("0 attempts; 100 required");
   expect(result.invalid).toBe("invalid");
+});
+
+test("legacy optional drawer fields preserve known values and controls", async ({
+  page,
+}) => {
+  await setup(page);
+  const result = await page.evaluate(() => {
+    const t = claimTest,
+      m = t.overview.semantic_evidence.metrics[0];
+    delete m.distribution.among_players.summary.n;
+    delete m.distribution.among_players.summary.q1;
+    delete m.distribution.among_players.summary.q3;
+    const among = paintClaim("drawer", { key: "pts", view: "among_players" });
+    const known = t.root.querySelector(".drawer-value strong").textContent;
+    delete m.distribution.across_games.summary.q1;
+    delete m.distribution.across_games.summary.q3;
+    const across = paintClaim("drawer", { key: "pts", view: "across_games" });
+    return {
+      among: among.status,
+      across: across.status,
+      known,
+      html: t.root.innerHTML,
+    };
+  });
+  expect(result.among).toBe("incomplete");
+  expect(result.across).toBe("incomplete");
+  expect(result.known).toBe("5.0");
+  expect(result.html).not.toContain("NaN");
+  await expect(page.locator("[data-game-select] option")).toHaveCount(3);
+});
+
+test("multiple peers and additional sections bind independent stable indices", async ({
+  page,
+}) => {
+  await setup(page);
+  const result = await page.evaluate(() => {
+    const t = claimTest;
+    t.overview.semantic_evidence.metrics[1].peer_comparison = structuredClone(
+      t.overview.semantic_evidence.metrics[0].peer_comparison,
+    );
+    const section = structuredClone(
+      t.comparison.semantic_evidence.comparison_sections[0],
+    );
+    section.key = "second";
+    section.title = "Second";
+    t.comparison.semantic_evidence.comparison_sections.push(section);
+    const overview = paintClaim("overview").status;
+    const comparison = paintClaim("comparison").status;
+    t.root.querySelector('[data-comparison-section-index="1"] td').textContent =
+      "999";
+    return {
+      overview,
+      comparison,
+      mutated: t.a.validateRenderedClaims(
+        t.root,
+        t.payload,
+        t.root.uiClaimSession,
+      ).status,
+    };
+  });
+  expect(result).toEqual({
+    overview: "incomplete",
+    comparison: "incomplete",
+    mutated: "invalid",
+  });
+});
+
+test("en-GB Los Angeles dates and pre-G JSON shapes retain valid bindings", async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    locale: "en-GB",
+    timezoneId: "America/Los_Angeles",
+  });
+  const page = await context.newPage();
+  await setup(page);
+  const result = await page.evaluate(() => {
+    const t = claimTest;
+    t.overview = JSON.parse(JSON.stringify(t.overview));
+    t.comparison = JSON.parse(JSON.stringify(t.comparison));
+    const statuses = ["overview", "comparison"].map(
+      (kind) => paintClaim(kind).status,
+    );
+    statuses.push(
+      paintClaim("drawer", { key: "pts", view: "among_players" }).status,
+    );
+    return {
+      statuses,
+      scope: t.root.querySelector(".drawer-scope").textContent,
+    };
+  });
+  expect(result.statuses).toEqual(["incomplete", "incomplete", "incomplete"]);
+  expect(result.scope).toContain("Jan 1, 2025");
+  await context.close();
+});
+
+test("invalid view records only bounded local reason counters", async ({
+  page,
+}) => {
+  await setup(page);
+  const result = await page.evaluate(() => {
+    paintClaim();
+    const t = claimTest;
+    t.root.querySelector("[data-ui-claim]").textContent = "999";
+    t.a.enforceRenderedClaims(t.root, t.payload);
+    return {
+      counts: document.uiClaimFailureCounts,
+      code: t.root.querySelector("[data-claim-failure-code]").dataset
+        .claimFailureCode,
+    };
+  });
+  expect(result).toEqual({
+    counts: { destination_mismatch: 1 },
+    code: "destination_mismatch",
+  });
 });

@@ -1,5 +1,5 @@
 import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261018-claim-bindings-v1";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20260912-v3";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261018-claim-bindings-v1";
 
 const esc = (v) =>
   String(v ?? "")
@@ -98,7 +98,7 @@ export function comparisonTables(view) {
 }
 
 function comparisonAdditionalTables(view) {
-  return view.sections.map((section) => `<section class="comparison-additional" data-comparison-section="${esc(section.key)}"><h2>${esc(section.title)}</h2><p class="meta">${esc(section.description)}</p><div class="table-scroll comparison-scroll" tabindex="0" role="region" aria-label="${esc(section.title)} comparison"><table class="overview-table comparison-detail-table"><caption class="sr-only">${esc(section.title)} in the same dates and phases</caption><thead><tr><th scope="col">Metric</th><th scope="col">${esc(view.names[0])}</th><th scope="col">${esc(view.names[1])}</th><th scope="col">Comparison</th></tr></thead><tbody>${section.metrics.map((m) => `<tr><th scope="row">${esc(m.label)}<small>${esc(m.unit)}</small></th>${[m.left, m.right].map(side => `<td>${num(side.value)}${m.unit === "percent" && Number.isFinite(side.value) ? "%" : ""}<small>${side.valid_games} of ${side.observed_games} games${side.missing_component_games ? " · partial inputs" : ""}</small>${m.unit === "percent" ? `<small>${Object.entries(side.components || {}).filter(([key]) => ["fga", "fg3a", "fta"].includes(key)).map(([key, value]) => `${num(value, 0)} ${key === "fg3a" ? "3PA" : key.toUpperCase()}`).join(" · ")}</small>` : ""}</td>`).join("")}<td>${esc(m.comparison)}</td></tr>`).join("")}</tbody></table></div></section>`).join("");
+  return view.sections.map((section, sectionIndex) => `<section data-comparison-section-index="${sectionIndex}" class="comparison-additional" data-comparison-section="${esc(section.key)}"><h2>${esc(section.title)}</h2><p class="meta">${esc(section.description)}</p><div class="table-scroll comparison-scroll" tabindex="0" role="region" aria-label="${esc(section.title)} comparison"><table class="overview-table comparison-detail-table"><caption class="sr-only">${esc(section.title)} in the same dates and phases</caption><thead><tr><th scope="col">Metric</th><th scope="col">${esc(view.names[0])}</th><th scope="col">${esc(view.names[1])}</th><th scope="col">Comparison</th></tr></thead><tbody>${section.metrics.map((m) => `<tr><th scope="row">${esc(m.label)}<small>${esc(m.unit)}</small></th>${[m.left, m.right].map(side => `<td>${num(side.value)}${m.unit === "percent" && Number.isFinite(side.value) ? "%" : ""}<small>${side.valid_games} of ${side.observed_games} games${side.missing_component_games ? " · partial inputs" : ""}</small>${m.unit === "percent" ? `<small>${Object.entries(side.components || {}).filter(([key]) => ["fga", "fg3a", "fta"].includes(key)).map(([key, value]) => `${num(value, 0)} ${key === "fg3a" ? "3PA" : key.toUpperCase()}`).join(" · ")}</small>` : ""}</td>`).join("")}<td>${esc(m.comparison)}</td></tr>`).join("")}</tbody></table></div></section>`).join("");
 }
 
 function comparisonImpactTable(view) {

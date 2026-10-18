@@ -488,7 +488,7 @@ export function claimSchema(payload, component, options = {}) {
     (e.comparison_sections || []).forEach((section, si) =>
       section.metrics.forEach((m, i) => {
         const p = base.concat("comparison_sections", si, "metrics", i),
-          r = `.comparison-additional:nth-of-type(${si + 1}) tbody tr:nth-child(${i + 1})`;
+          r = `[data-comparison-section-index="${si}"] tbody tr:nth-child(${i + 1})`;
         add(`${r} > th`, p.concat("label"), "detail-label", {
           unit: m.unit,
           metricKey: m.key,
@@ -587,24 +587,27 @@ export function claimSchema(payload, component, options = {}) {
     if (Object.hasOwn(m, "percentile"))
       add(".drawer-value > span", p.concat("percentile"), "drawer-rank", c);
     const dp = p.concat("distribution", view, "summary");
-    add(
-      ".drawer-stats > div:nth-child(1) dd",
-      dp.concat("n"),
-      "drawer-count",
-      c,
-    );
-    add(
-      ".drawer-stats > div:nth-child(2) dd",
-      dp.concat("median"),
-      "drawer-value",
-      c,
-    );
-    add(
-      ".drawer-stats > div:nth-child(3) dd",
-      dp.concat("q1"),
-      "drawer-quartiles",
-      c,
-    );
+    if (finite(s.n) && s.n >= 0)
+      add(
+        ".drawer-stats > div:nth-child(1) dd",
+        dp.concat("n"),
+        "drawer-count",
+        c,
+      );
+    if (Object.hasOwn(s, "median"))
+      add(
+        ".drawer-stats > div:nth-child(2) dd",
+        dp.concat("median"),
+        "drawer-value",
+        c,
+      );
+    if (Object.hasOwn(s, "q1") && Object.hasOwn(s, "q3"))
+      add(
+        ".drawer-stats > div:nth-child(3) dd",
+        dp.concat("q1"),
+        "drawer-quartiles",
+        c,
+      );
     if (
       view === "across_games" &&
       ["observed_games", "missing_games", "zero_denominator_games"].every(
@@ -669,20 +672,22 @@ export function claimSchema(payload, component, options = {}) {
         );
       }
       if (view === "across_games") {
-        add(
-          ".distribution-chart > rect:first-of-type",
-          dp.concat("q1"),
-          "drawer-position",
-          geometry,
-          "x",
-        );
-        add(
-          ".distribution-chart > rect:first-of-type",
-          dp.concat("q1"),
-          "drawer-position",
-          { ...geometry, q3: s.q3, coordinate: "width" },
-          "width",
-        );
+        if (finite(s.q1) && finite(s.q3)) {
+          add(
+            ".distribution-chart > rect:first-of-type",
+            dp.concat("q1"),
+            "drawer-position",
+            geometry,
+            "x",
+          );
+          add(
+            ".distribution-chart > rect:first-of-type",
+            dp.concat("q1"),
+            "drawer-position",
+            { ...geometry, q3: s.q3, coordinate: "width" },
+            "width",
+          );
+        }
         const points = (d.points || [])
           .map((point, index) => ({ point, index }))
           .filter(({ point }) => finite(point.value));
@@ -737,7 +742,7 @@ export function claimSchema(payload, component, options = {}) {
       }
       bins.forEach(({ b, i }, bi) => {
         const bp = p.concat("distribution", view, "bins", i),
-          sel = `.distribution-chart > rect:nth-of-type(${bi + 1 + (view === "across_games" ? 1 : 0)})`;
+          sel = `.distribution-chart > rect:nth-of-type(${bi + 1 + (view === "across_games" && finite(s.q1) && finite(s.q3) ? 1 : 0)})`;
         add(`${sel} > title`, bp, "bin-title", c);
         ["x", "y", "width", "height"].forEach((coordinate) =>
           add(
@@ -758,7 +763,7 @@ export function claimSchema(payload, component, options = {}) {
       if (!p?.mode || p.mode === "withheld") return;
       displayed++;
       const pp = base.concat("metrics", i, "peer_comparison"),
-        r = `[data-peer-details] .peer-comparison:nth-of-type(${displayed})`,
+        r = `[data-peer-details] [data-peer-index="${displayed - 1}"]`,
         c = { metricKey: m.key, label: m.label };
       add(`${r} > h4`, pp, "peer-heading", c);
       add(`${r} > p:not(.meta)`, pp, "peer-standing", c);
@@ -1013,8 +1018,25 @@ export function enforceRenderedClaims(
   if (report.status === "invalid") {
     const warning = root.ownerDocument.createElement("p");
     warning.className = "meta";
+    // Local-only bounded diagnostics: no values, identities, source paths or telemetry.
+    const counts = (root.ownerDocument.uiClaimFailureCounts ||= {});
+    const code = report.errors.some(
+      (e) => e.reason === "Canonical identity/metric/scope/source changed",
+    )
+      ? "source_changed"
+      : report.errors.some(
+            (e) =>
+              e.reason ===
+              "Rendered destination contradicts canonical evidence",
+          )
+        ? "destination_mismatch"
+        : "binding_structure";
+    counts[code] = Math.min(1000000, (counts[code] || 0) + 1);
+    warning.dataset.claimFailureCode = code;
     warning.textContent =
-      "This factual view could not be verified. Ask again to refresh the evidence.";
+      "This factual view could not be verified. Refresh the page to reload its evidence. If this continues, report code: " +
+      code +
+      ".";
     root.replaceChildren(warning);
     if (root.tagName === "DIALOG") {
       const close = root.ownerDocument.createElement("button");

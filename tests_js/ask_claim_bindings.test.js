@@ -134,3 +134,17 @@ test("point descriptors scale linearly without embedding metric/source objects",
     assert.equal(d.context.evidence, undefined);
   }
 });
+
+test("nested presentation import tracks application STATIC_VERSION", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const main = await readFile(
+    new URL("../app/main.py", import.meta.url),
+    "utf8",
+  );
+  const version = main.match(/STATIC_VERSION = "([^"]+)"/)[1];
+  const comparison = await readFile(
+    new URL("../app/static/ask_comparison.js", import.meta.url),
+    "utf8",
+  );
+  assert.ok(comparison.includes("ask_presentation.js?v=" + version));
+});
