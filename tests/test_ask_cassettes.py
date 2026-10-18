@@ -410,6 +410,13 @@ def test_reviewed_recording_repairs_only_descriptive_kind_offline(tmp_path):
         }
         for r in report["results"]
     }
+    repaired = next(r for r in report["results"] if r["id"] == "research_home")
+    for transport in ("json", "sse"):
+        assert repaired["modes"][transport][0]["payload"]["ask_route"] == {
+            "route": "research_breakdown",
+            "source": "model",
+            "reason_code": "descriptive_kind_normalized",
+        }
     historical = json.loads((folder / "observed-outcomes.json").read_text())
     assert all(
         not t["passed"] for turns in historical["research_home"].values() for t in turns

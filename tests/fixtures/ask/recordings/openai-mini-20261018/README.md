@@ -51,3 +51,9 @@ This v1 bundle is accepted only with the pinned original 16 raw-file hashes and
 canonical cassette hash. New captures use version 2 with manifest binding. Replay
 covers the app's adapted provider boundary and does not reproduce provider timing,
 post-call scheduling, or native-extension network behavior.
+
+
+The current 5/6 recorded result is an in-sample regression repair against the same
+capture that exposed the defect. It is not held-out generalization or live model
+accuracy. Alternate fictional endpoint cases establish only the bounded scope
+and refusal behavior they exercise.

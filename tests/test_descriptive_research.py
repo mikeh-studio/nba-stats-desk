@@ -41,6 +41,13 @@ def setup(monkeypatch):
             },
         ]
     )
+    # Every positive player/venue has a conspicuous playoff decoy.
+    source.rows.extend(
+        [
+            {**r, "game_id": "playoff-away", "home_away": "away"}
+            for r in source.rows[-2:]
+        ]
+    )
     source.data_through[("2025-26", "Playoffs")] = "2025-11-07"
     from dataclasses import replace
 
@@ -101,17 +108,83 @@ def plan(**updates):
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
 @pytest.mark.parametrize(
-    "pid,name,metric,word,venue,phrase,prefix,leading",
+    "pid,name,metric,word,venue,phrase,prefix,leading,expected_value,expected_games",
     [
-        (1, "Morgan Fiction", "pts", "points", "home", "at home", "Research", False),
-        (2, "Taylor Invented", "ast", "assists", "away", "on the road", "Show", True),
-        (1, "Morgan Fiction", "reb", "rebounds", "away", "away", "Research", False),
-        (2, "Taylor Invented", "pts", "points", "home", "at home", "Summarize", True),
-        (1, "Morgan Fiction", "ast", "assists", "home", "at home", "Break down", False),
+        (
+            1,
+            "Morgan Fiction",
+            "pts",
+            "points",
+            "home",
+            "at home",
+            "Research",
+            False,
+            4,
+            2,
+        ),
+        (
+            2,
+            "Taylor Invented",
+            "ast",
+            "assists",
+            "away",
+            "on the road",
+            "Show",
+            True,
+            8,
+            2,
+        ),
+        (
+            1,
+            "Morgan Fiction",
+            "reb",
+            "rebounds",
+            "away",
+            "away",
+            "Research",
+            False,
+            6,
+            2,
+        ),
+        (
+            2,
+            "Taylor Invented",
+            "pts",
+            "points",
+            "home",
+            "at home",
+            "Summarize",
+            True,
+            8,
+            2,
+        ),
+        (
+            1,
+            "Morgan Fiction",
+            "ast",
+            "assists",
+            "home",
+            "at home",
+            "Break down",
+            False,
+            6,
+            2,
+        ),
     ],
 )
 def test_alternate_scope_independent_arithmetic(
-    setup, transport, pid, name, metric, word, venue, phrase, prefix, leading
+    setup,
+    transport,
+    pid,
+    name,
+    metric,
+    word,
+    venue,
+    phrase,
+    prefix,
+    leading,
+    expected_value,
+    expected_games,
 ):
     client, planner, source, _ = setup
     planner.result = plan(player_ids=[pid], metrics=[metric], home_away=venue)
@@ -125,16 +198,11 @@ def test_alternate_scope_independent_arithmetic(
         reason_code="descriptive_kind_normalized",
     )
     assert payload["research_scope"] == {**original["query"], "phase": "Regular Season"}
-    rows = [
-        r
-        for r in source.rows
-        if r["player_id"] == pid
-        and r["home_away"] == venue
-        and r["season_type"] == "Regular Season"
-    ]
+    # Hand-derived: home days 1/7 and away days 2/4; player 2 doubles
+    # points, assists add 2, rebounds add 3. Each selected venue has two games.
     result = payload["research"]["players"][0]["metrics"][0]["result"]
-    assert result["value"] == pytest.approx(sum(r[metric] for r in rows) / len(rows))
-    assert result["valid_games"] == len(rows)
+    assert result["value"] == expected_value
+    assert result["valid_games"] == expected_games
     assert planner.result == original
 
 
@@ -320,3 +388,38 @@ def test_nonnull_pair_never_normalizes(setup, monkeypatch, transport):
     assert payload["research_status"] == "unsupported"
     assert payload["ask_route"]["reason_code"] != "descriptive_kind_normalized"
     assert not payload.get("research")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_unicode_metric_variant_does_not_normalize_fragment(setup, transport):
+    client, planner, _, _ = setup
+    planner.result = plan()
+    payload = request(
+        client, "Research Morgan Fiction pointſ at home in 2025-26", transport
+    )
+    assert payload["research_status"] == "unsupported"
+    assert payload["ask_route"]["reason_code"] == "study_roles_mismatch"
+    assert payload.get("research_error_code") != "invalid_research_plan"
+    assert not payload.get("research")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_show_bare_away_does_not_expand_research_dispatch(
+    setup, monkeypatch, transport
+):
+    client, planner, _, _ = setup
+    question = "Show Morgan Fiction points away in 2025-26"
+    assert not research_ask.wants_research(question)
+
+    def unexpected(*args):
+        raise AssertionError("Bare away with Show must not enter research correction")
+
+    monkeypatch.setattr(research_ask, "descriptive_venue_scope", unexpected)
+    planner.result = {
+        "status": "unsupported",
+        "queries": [],
+        "message": "Unsupported fixture scope",
+    }
+    payload = request(client, question, transport)
+    assert payload["ask_route"]["route"] != "research_breakdown"
+    assert payload["ask_route"]["reason_code"] != "descriptive_kind_normalized"

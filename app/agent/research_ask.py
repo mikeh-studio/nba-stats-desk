@@ -71,6 +71,10 @@ def descriptive_venue_scope(question, evidence, season):
     )
     if not match:
         return None
+    # IGNORECASE accepts some Unicode variants absent from this bounded vocabulary.
+    metric = DESCRIPTIVE_METRICS.get(match["metric"].lower())
+    if metric is None:
+        return None
     name = match["identity"].casefold()
     identities = {
         p["player_id"]
@@ -83,7 +87,7 @@ def descriptive_venue_scope(question, evidence, season):
         "season": season,
         "phase": "Regular Season",
         "player_ids": list(identities),
-        "metrics": [DESCRIPTIVE_METRICS[match["metric"].lower()]],
+        "metrics": [metric],
         "aggregation": "average",
         "start": None,
         "end": None,

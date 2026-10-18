@@ -916,6 +916,9 @@ normalize it to a breakdown only after independently full-matching the entire
 question. Supported forms are `Research|Show|Summarize|Break down NAME [average]
 METRIC at home|away|on the road in YYYY-YY`, or the same form with `In YYYY-YY,`
 first. A possessive name and terminal question mark or period are optional.
+These are recognizer forms after research dispatch: bare `away` reaches this
+path with `Research`; `Show`, `Summarize`, and `Break down` use `at home` or
+`on the road`. Other existing routes are unchanged.
 Names and aliases must resolve to exactly one identity in the loaded evidence.
 The bounded metric vocabulary is points, rebounds, assists, steals, blocks,
 turnovers, minutes, three pointers made, and plus minus.

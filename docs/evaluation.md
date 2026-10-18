@@ -862,3 +862,9 @@ cloud-sync boundary. Trace code hashes describe D's first-capture on-disk Python
 fingerprint, not executed code or dependency versions. Config hashes cover only
 D's allowlisted diagnostic settings. A differing current application fingerprint
 is recorded as a reproduction limitation, never silently treated as replay proof.
+
+
+The current 5/6 recorded result is an in-sample regression repair against the same
+capture that exposed the defect. It is not held-out generalization or live model
+accuracy. Alternate fictional endpoint cases establish only the bounded scope
+and refusal behavior they exercise.
