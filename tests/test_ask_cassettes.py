@@ -810,3 +810,69 @@ asyncio.run(check_reset())
         check=True,
         timeout=60,
     )
+
+
+def test_trace_only_settings_do_not_change_binding_or_replay(tmp_path):
+    from dataclasses import replace
+
+    from scripts.ask_eval.cassettes import settings_binding
+    from tests.test_api import _test_settings
+
+    base = _test_settings()
+    traced = replace(
+        base,
+        agent_trace_enabled=True,
+        agent_trace_directory=str(tmp_path / "private"),
+        agent_trace_max_bytes=2048,
+        agent_trace_max_records=1,
+        agent_trace_retention_days=1,
+    )
+    assert settings_binding(base) == settings_binding(traced)
+    token = call_context.set(
+        dict(
+            case="example",
+            turn=0,
+            transport="json",
+            settings_sha256=settings_binding(base),
+        )
+    )
+    try:
+        directory = record(tmp_path)
+        call_context.set(
+            dict(
+                case="example",
+                turn=0,
+                transport="json",
+                settings_sha256=settings_binding(traced),
+            )
+        )
+        replay = CassetteStore(directory, "replay", BINDING)
+        response = CassetteClient(replay, "openai").responses.create(**REQUEST)
+        assert response.output_text == "answer"
+        assert replay.terminal()["calls"] == 1
+    finally:
+        call_context.reset(token)
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"openai_agent_model": "different-model"},
+        {"agent_planner_enabled": False},
+        {"agent_max_tool_calls": 7},
+        {"season": "2024-25"},
+        {"agent_request_deadline_seconds": 121.0},
+        {"agent_max_concurrent_requests": 2},
+        {"agent_stream_buffer_bytes": 2000},
+        {"agent_conversation_max_turns": 4},
+        {"openai_agent_max_retries": 3},
+    ],
+)
+def test_generation_scope_execution_settings_remain_bound(changes):
+    from dataclasses import replace
+
+    from scripts.ask_eval.cassettes import settings_binding
+    from tests.test_api import _test_settings
+
+    base = _test_settings()
+    assert settings_binding(base) != settings_binding(replace(base, **changes))
