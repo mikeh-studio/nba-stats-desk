@@ -13,6 +13,7 @@ import stat
 import time
 from functools import lru_cache
 from pathlib import Path
+from threading import BoundedSemaphore
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,9 +24,25 @@ logger = logging.getLogger("app.agent")
 FIELDS = frozenset(
     "question context query_plan semantic_plan semantic_evidence reference_evidence award_evidence study_claims conversation_context sections queries contract_version operation date_range season_type opponent_abbr home_away last_plan route source reason_code player_id player_name player_ids players resolved_players unresolved_players team_abbr team_id season seasons phase start end date_start date_end time_window metrics metric aggregation filters limit needs_clarification clarification_question clarification_options candidates confidence status scope evidence evidence_id study_id source_id content_sha256 evidence_sha256 sources id version reporting_mode reporting_cutoff previous_start previous_end teammate_id selected_player last_player_id last_player_name last_query_plan last_route turns pending ask_route".split()
 )
+# Prefix boundaries preserve ordinary diagnostic IDs and HTTPS URL paths.
 SECRET = re.compile(
-    r"(?i)(?:bearer\s+\S+|/(?:Users|home|private|tmp|var)/[^\s\"<>]+|[A-Z]:\\(?:Users|Documents and Settings)\\[^\r\n\"<>]+|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:sk|ghp|github_pat|AIza)[-_a-zA-Z0-9]{8,}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:api[_ -]?key|token|password|secret|user[_ -]?id)\s*[:=]\s*[^\s,;]+)"
+    r"(?i:\b(?:bearer|basic)\s+[^\s,;]+)"
+    r"|(?<![\w])(?:sk-|sk_(?:live|test)_|ghp_|github_pat_|AIza)[A-Za-z0-9_-]{8,}"
+    r"|\bAKIA[A-Z0-9]{16}\b|\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}"
+    r"|(?i:[\"']?(?:api[_ -]?key|token|password|secret|user[_ -]?id)[\"']?\s*[:=]\s*(?:\"[^\"]*\"|'[^']*'|[^\s,;]+))"
+    r"|(?<![\w.:/])(?:file://)?(?:\"(?:/(?:Users|home|private|tmp|var|root|Volumes)/|~/|[A-Za-z]:\\|\\\\)[^\"]*\"|'(?:/(?:Users|home|private|tmp|var|root|Volumes)/|~/|[A-Za-z]:\\|\\\\)[^']*'|(?:/(?:Users|home|private|tmp|var|root|Volumes)/|~/|[A-Za-z]:\\|\\\\)[^\s\"<>]+)"
 )
+_WRITER = BoundedSemaphore(1)
+
+
+def diagnostic(code: str) -> None:
+    try:
+        logger.warning(code)
+    except Exception:
+        pass
+
+
 NAME = re.compile(r"[0-9a-f]{32}\.json\Z")
 CONFIG_FIELDS = (
     "season",
@@ -51,13 +68,18 @@ def digest(value: Any) -> str:
 
 
 @lru_cache(maxsize=1)
-def code_digest() -> str:
-    root = Path(__file__).resolve().parents[1]
-    hashed = hashlib.sha256()
-    for path in sorted(root.rglob("*.py")):
-        hashed.update(str(path.relative_to(root)).encode())
-        hashed.update(path.read_bytes())
-    return hashed.hexdigest()
+def code_digest() -> str | None:
+    # A first-capture on-disk Python snapshot, including cached failure. This is
+    # not a claim about loaded code, dependencies, assets, or replay compatibility.
+    try:
+        root = Path(__file__).resolve().parents[1]
+        hashed = hashlib.sha256()
+        for path in sorted(root.rglob("*.py")):
+            hashed.update(str(path.relative_to(root)).encode())
+            hashed.update(path.read_bytes())
+        return hashed.hexdigest()
+    except Exception:
+        return None
 
 
 class Projection:
@@ -195,7 +217,7 @@ def write_record(settings: Settings, record: dict[str, Any]) -> None:
         os.unlink(temporary, dir_fd=directory)
         records = []
         for candidate in os.listdir(directory):
-            if not NAME.fullmatch(candidate):
+            if candidate == name or not NAME.fullmatch(candidate):
                 continue
             info = os.stat(candidate, dir_fd=directory, follow_symlinks=False)
             if (
@@ -210,17 +232,21 @@ def write_record(settings: Settings, record: dict[str, Any]) -> None:
         for index, (mtime, candidate) in enumerate(records):
             if (
                 mtime < cutoff
-                or index < len(records) - settings.agent_trace_max_records
+                or index < len(records) - settings.agent_trace_max_records + 1
             ):
                 os.unlink(candidate, dir_fd=directory)
     finally:
         try:
-            os.unlink(temporary, dir_fd=directory)
-        except FileNotFoundError:
-            pass
-        if lock >= 0:
-            os.close(lock)
-        os.close(directory)
+            try:
+                os.unlink(temporary, dir_fd=directory)
+            except FileNotFoundError:
+                pass
+        finally:
+            try:
+                if lock >= 0:
+                    os.close(lock)
+            finally:
+                os.close(directory)
 
 
 class PrivateCapture:
@@ -309,6 +335,9 @@ class PrivateCapture:
         if self.done:
             return
         self.done = True
+        if not _WRITER.acquire(blocking=False):
+            diagnostic("private_trace_busy")
+            return
         try:
             self.record.update(
                 model=self.projection.text(trace.model),
@@ -322,10 +351,11 @@ class PrivateCapture:
             self.record["tool_scope"] = [
                 self.projection.project(tool.get("args")) for tool in trace.tools[:20]
             ]
+            if self.record["code"]["source_sha256"] is None:
+                self.projection.reasons.add("code_digest_unavailable")
             self.record["incomplete_reasons"] = sorted(self.projection.reasons)
             write_record(self.settings, self.record)
         except Exception:
-            try:
-                logger.warning("private_trace_write_failed")
-            except Exception:
-                pass
+            diagnostic("private_trace_write_failed")
+        finally:
+            _WRITER.release()

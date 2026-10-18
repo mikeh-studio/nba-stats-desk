@@ -236,12 +236,11 @@ def get_settings() -> Settings:
         research_studies_path=os.getenv("RESEARCH_STUDIES_PATH") or None,
         research_availability_path=os.getenv("RESEARCH_AVAILABILITY_PATH") or None,
         agent_trace_enabled=_env_bool("AGENT_TRACE_ENABLED", False),
-        agent_trace_directory=os.getenv(
-            "AGENT_TRACE_DIRECTORY", "local_notes/ask_traces"
-        ),
-        agent_trace_max_bytes=int(os.getenv("AGENT_TRACE_MAX_BYTES", "65536")),
-        agent_trace_max_records=int(os.getenv("AGENT_TRACE_MAX_RECORDS", "100")),
-        agent_trace_retention_days=int(os.getenv("AGENT_TRACE_RETENTION_DAYS", "7")),
+        agent_trace_directory=os.getenv("AGENT_TRACE_DIRECTORY")
+        or "local_notes/ask_traces",
+        agent_trace_max_bytes=int(os.getenv("AGENT_TRACE_MAX_BYTES") or "65536"),
+        agent_trace_max_records=int(os.getenv("AGENT_TRACE_MAX_RECORDS") or "100"),
+        agent_trace_retention_days=int(os.getenv("AGENT_TRACE_RETENTION_DAYS") or "7"),
         agent_history_enabled=_env_bool("AGENT_HISTORY_ENABLED", False),
         agent_history_path=os.getenv(
             "AGENT_HISTORY_PATH",

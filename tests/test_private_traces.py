@@ -14,6 +14,29 @@ from fastapi.testclient import TestClient
 from tests.test_api import _test_settings, build_client
 
 
+@pytest.fixture(autouse=True)
+def workers(monkeypatch):
+    from threading import Thread
+
+    active = []
+
+    class TrackedThread(Thread):
+        def start(self):
+            active.append(self)
+            return super().start()
+
+    monkeypatch.setattr("app.main.Thread", TrackedThread)
+
+    def join():
+        for thread in active:
+            if thread.ident is not None:
+                thread.join(5)
+                assert not thread.is_alive(), "private trace worker did not finish"
+
+    yield join
+    join()
+
+
 def settings(tmp_path, **overrides):
     return _test_settings(
         agent_trace_enabled=True,
@@ -39,7 +62,9 @@ def record():
 
 @pytest.mark.parametrize("stream", [False, True])
 @pytest.mark.parametrize("fail", [False, True])
-def test_actual_endpoints_capture_success_failure(tmp_path, monkeypatch, stream, fail):
+def test_actual_endpoints_capture_success_failure(
+    tmp_path, monkeypatch, stream, fail, workers
+):
     config = settings(tmp_path)
     build_client(settings=config)
 
@@ -69,10 +94,7 @@ def test_actual_endpoints_capture_success_failure(tmp_path, monkeypatch, stream,
     )
     assert response.status_code == (502 if fail and not stream else 200)
     path = tmp_path / "traces" / (response.headers["x-request-id"] + ".json")
-    for _ in range(100):
-        if path.exists():
-            break
-        time.sleep(0.01)
+    workers()
     trace = json.loads(path.read_text())
     assert trace["transport"] == ("sse" if stream else "json")
     assert trace["outcome"] == ("error" if fail else "answered")
@@ -191,6 +213,7 @@ def test_symlink_and_untrusted_directory_refused(tmp_path):
     assert not list(real.iterdir())
     (tmp_path / "traces").unlink()
     (tmp_path / "traces").mkdir(mode=0o755)
+    (tmp_path / "traces").chmod(0o755)
     with pytest.raises(ValueError):
         write_record(settings(tmp_path), record())
 
@@ -266,7 +289,10 @@ def test_rejections_record_safe_outcome(tmp_path, monkeypatch, stream, failure):
 
 
 @pytest.mark.parametrize("stream", [False, True])
-def test_success_unchanged_on_storage_failure(tmp_path, monkeypatch, stream):
+def test_success_unchanged_on_storage_failure(tmp_path, monkeypatch, stream, workers):
+    from threading import Event
+
+    attempted = Event()
     build_client(settings=settings(tmp_path))
 
     def answer(question, **kwargs):
@@ -274,6 +300,7 @@ def test_success_unchanged_on_storage_failure(tmp_path, monkeypatch, stream):
         return {"answer": "stable synthetic answer"}
 
     def fail(*args):
+        attempted.set()
         raise OSError("private storage detail")
 
     monkeypatch.setattr(
@@ -285,6 +312,8 @@ def test_success_unchanged_on_storage_failure(tmp_path, monkeypatch, stream):
         "/api/agent/ask" + ("/stream" if stream else ""), json={"question": "stats"}
     )
     assert response.status_code == 200
+    workers()
+    assert attempted.is_set()
     assert "stable synthetic answer" in response.text
     assert "private storage detail" not in response.text
     assert not (tmp_path / "traces").exists()
@@ -380,6 +409,7 @@ def test_slow_persistence_does_not_hold_admission(tmp_path, monkeypatch, stream)
     from app.main import admission
 
     entered, release = Event(), Event()
+    writes = []
     build_client(settings=settings(tmp_path, agent_max_concurrent_requests=1))
 
     def answer(question, **kwargs):
@@ -387,6 +417,7 @@ def test_slow_persistence_does_not_hold_admission(tmp_path, monkeypatch, stream)
         return {"answer": "synthetic"}
 
     def slow(*args):
+        writes.append(1)
         entered.set()
         assert release.wait(5)
 
@@ -411,7 +442,198 @@ def test_slow_persistence_does_not_hold_admission(tmp_path, monkeypatch, stream)
             },
         )
         assert second.status_code == 200
+        assert len(writes) == 1
         lease = admission.acquire("2025-26", "same-local-conversation", 1)
         lease.release()
     finally:
         release.set()
+
+
+@pytest.mark.parametrize("rollback", [False, True])
+def test_newest_record_survives_equal_or_rollback_mtime(
+    tmp_path, monkeypatch, rollback
+):
+    config = settings(tmp_path, agent_trace_max_records=1)
+    first = record()
+    first["request_id"] = "f" * 32
+    write_record(config, first)
+    original_link = os.link
+
+    def link(*args, **kwargs):
+        original_link(*args, **kwargs)
+        os.utime(args[1], (100, 100), dir_fd=kwargs["dst_dir_fd"])
+
+    monkeypatch.setattr("app.agent.private_traces.os.link", link)
+    os.utime(
+        tmp_path / "traces" / (first["request_id"] + ".json"),
+        (200 if rollback else 100,) * 2,
+    )
+    newest = record()
+    newest["request_id"] = "0" * 32
+    write_record(config, newest)
+    assert [p.name for p in (tmp_path / "traces").glob("*.json")] == [
+        newest["request_id"] + ".json"
+    ]
+
+
+def test_cleanup_error_closes_lock_and_directory(tmp_path, monkeypatch):
+    config = settings(tmp_path)
+    real_open, real_unlink = os.open, os.unlink
+    fds = []
+
+    def opened(*args, **kwargs):
+        fd = real_open(*args, **kwargs)
+        fds.append(fd)
+        return fd
+
+    def unlink(path, *args, **kwargs):
+        if str(path).endswith(".tmp"):
+            raise PermissionError("private cleanup path")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr("app.agent.private_traces.os.open", opened)
+    monkeypatch.setattr("app.agent.private_traces.os.unlink", unlink)
+    with pytest.raises(PermissionError):
+        write_record(config, record())
+    for fd in set(fds):
+        with pytest.raises(OSError):
+            os.fstat(fd)
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "ask_question_layout",
+        "task_bundle_v1",
+        "basketball_reference",
+        "risk_adjusted_score",
+        "https://example.test/users/123",
+        "https://example.test/Users/person/private.json",
+    ],
+)
+def test_redaction_preserves_identifiers_and_urls(identifier):
+    projection = Projection()
+    assert projection.text(identifier) == identifier
+    assert "redacted" not in projection.reasons
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        '"api_key": "synthetic credential"',
+        "Authorization: Basic c3ludGhldGlj",
+        "~/private/file",
+        '"/Users/example person/private file.json"',
+        "sk-" + "x" * 24,
+        "ghp_" + "x" * 24,
+    ],
+)
+def test_redaction_recognizes_additional_secrets_and_paths(text):
+    projection = Projection()
+    assert "[REDACTED]" in projection.text(text)
+    assert "redacted" in projection.reasons
+
+
+def test_empty_trace_environment_uses_defaults(monkeypatch):
+    from app.config import get_settings
+
+    for key in ("DIRECTORY", "MAX_BYTES", "MAX_RECORDS", "RETENTION_DAYS"):
+        monkeypatch.setenv("AGENT_TRACE_" + key, "")
+    monkeypatch.setenv("AGENT_TRACE_ENABLED", "false")
+    config = get_settings()
+    assert config.agent_trace_directory == "local_notes/ask_traces"
+    assert (
+        config.agent_trace_max_bytes,
+        config.agent_trace_max_records,
+        config.agent_trace_retention_days,
+    ) == (65536, 100, 7)
+
+
+def test_code_digest_failure_is_cached(monkeypatch):
+    from pathlib import Path
+
+    from app.agent.private_traces import code_digest
+
+    calls = []
+
+    def broken(*args):
+        calls.append(1)
+        raise OSError("private path")
+
+    code_digest.cache_clear()
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(Path, "read_bytes", broken)
+            assert code_digest() is None
+            assert code_digest() is None
+            assert len(calls) == 1
+    finally:
+        code_digest.cache_clear()
+
+
+def test_context_capture_readers_do_not_mutate_store(tmp_path):
+    from app.agent.conversation import InMemoryConversationStore
+
+    store = InMemoryConversationStore()
+    store.append_turn("id", question="synthetic", answer="synthetic", max_turns=2)
+    store.set_pending_clarification("id", question="which", query_plan={"player_id": 7})
+    import copy
+
+    before = copy.deepcopy(store._conversations)
+    store.get_turns("id", max_turns=2)
+    store.get_pending_clarification("id")
+    assert store._conversations == before
+
+
+def test_process_writer_limit_bounds_concurrent_captures(tmp_path, monkeypatch):
+    from threading import Barrier, Event, Lock, Thread
+
+    from app.agent.observability import AgentTrace
+    from app.agent.private_traces import PrivateCapture
+
+    entrants = 12
+    start = Barrier(entrants)
+    entered, dropped, release = Event(), Event(), Event()
+    guard = Lock()
+    writes = []
+    skips = []
+
+    def slow(*args):
+        writes.append(1)
+        entered.set()
+        assert release.wait(5)
+
+    def diagnostic(code):
+        if code == "private_trace_busy":
+            with guard:
+                skips.append(1)
+                if len(skips) == entrants - 1:
+                    dropped.set()
+
+    monkeypatch.setattr("app.agent.private_traces.write_record", slow)
+    monkeypatch.setattr("app.agent.private_traces.diagnostic", diagnostic)
+
+    def run():
+        trace = AgentTrace(uuid4().hex, "synthetic", "model")
+        capture = PrivateCapture(
+            settings(tmp_path),
+            trace,
+            provider="openai",
+            transport="json",
+            static_version="test",
+        )
+        start.wait(5)
+        capture.finish(trace)
+
+    threads = [Thread(target=run) for _ in range(entrants)]
+    try:
+        for thread in threads:
+            thread.start()
+        assert entered.wait(5)
+        assert dropped.wait(5)
+        assert len(writes) == 1
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(5)
+            assert not thread.is_alive()

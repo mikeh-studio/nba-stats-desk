@@ -61,6 +61,7 @@ def settings(request: Request = None):
         agent_rate_limit_per_minute=0,
         agent_rate_limit_daily=0,
         agent_history_enabled=False,
+        agent_trace_enabled=False,
         performance_cache_prewarm_enabled=False,
     )
     if os.environ.get("ASK_EVAL_LIVE") == "1":

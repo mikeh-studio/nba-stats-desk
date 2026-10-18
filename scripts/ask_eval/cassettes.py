@@ -151,6 +151,17 @@ def unsuccessful_attempt(record):
     return None
 
 
+TRACE_ONLY_FIELDS = frozenset(
+    {
+        "agent_trace_enabled",
+        "agent_trace_directory",
+        "agent_trace_max_bytes",
+        "agent_trace_max_records",
+        "agent_trace_retention_days",
+    }
+)
+
+
 def settings_binding(settings):
     """Bind settings without secrets or volatile materialized attachment paths."""
     from dataclasses import asdict
@@ -160,13 +171,7 @@ def settings_binding(settings):
     # Diagnostic storage cannot affect generation or scope. Explicit names keep
     # every present/future execution setting bound by default, and preserve
     # recordings made before these trace-only fields existed.
-    for key in (
-        "agent_trace_enabled",
-        "agent_trace_directory",
-        "agent_trace_max_bytes",
-        "agent_trace_max_records",
-        "agent_trace_retention_days",
-    ):
+    for key in TRACE_ONLY_FIELDS:
         values.pop(key, None)
     for key in list(values):
         if isinstance(values[key], date):

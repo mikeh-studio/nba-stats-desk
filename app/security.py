@@ -52,12 +52,21 @@ def is_direct_local(request: Request) -> bool:
         local_peer = False
     local_host = request.url.hostname in {"localhost", "127.0.0.1", "::1"}
     forwarded = any(
-        name == "forwarded" or name.startswith("x-forwarded-") or name == "x-real-ip"
+        name
+        in {
+            "forwarded",
+            "x-real-ip",
+            "via",
+            "true-client-ip",
+            "cf-connecting-ip",
+            "x-client-ip",
+        }
+        or name.startswith(("x-forwarded-", "x-original-forwarded-"))
         for name in request.headers
     )
     origin = request.headers.get("origin")
     same_origin = len(request.headers.getlist("origin")) <= 1 and (
-        not origin or origin == f"{request.url.scheme}://{request.url.netloc}"
+        origin is None or origin == f"{request.url.scheme}://{request.url.netloc}"
     )
     local_host = local_host and len(request.headers.getlist("host")) == 1
     return local_peer and local_host and not forwarded and same_origin

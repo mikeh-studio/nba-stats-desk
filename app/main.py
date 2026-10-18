@@ -513,14 +513,14 @@ def _agent_terminal_bytes(terminal: dict[str, Any], *, streaming: bool) -> bytes
     return bytes(JSONResponse(content).body)
 
 
-def _emit_agent_trace(trace: AgentTrace) -> None:
-    if trace.private_capture is not None:
-        trace.private_capture.finish(trace)
+def _emit_agent_trace(trace: AgentTrace, *, private: bool = True) -> None:
     # A logging sink failure must not change the response or strand a lease.
     try:
         trace.emit()
     except Exception:
         pass
+    if private and trace.private_capture is not None:
+        trace.private_capture.finish(trace)
 
 
 async def _emit_agent_trace_off_loop(trace: AgentTrace) -> None:
@@ -1253,12 +1253,13 @@ async def _start_agent_execution(
                         wire = _agent_terminal_bytes(terminal, streaming=streaming)
                     # A reserved single terminal result bypasses interim quotas.
                     delivery.finish(wire, status)
-                    # Persistence cannot retain admission after work is delivered.
-                    lease.complete(worker=True)
-                    # Operational logging must not strand the response or lease.
-                    _emit_agent_trace(trace)
+                    # Normal telemetry remains inside worker admission.
+                    _emit_agent_trace(trace, private=False)
                 finally:
                     lease.complete(worker=True)
+                # Only private persistence may outlive admission; globally bounded.
+                if trace.private_capture is not None:
+                    trace.private_capture.finish(trace)
 
         Thread(target=request_context.run, args=(worker,), daemon=True).start()
     except BaseException as exc:

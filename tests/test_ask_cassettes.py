@@ -876,3 +876,14 @@ def test_generation_scope_execution_settings_remain_bound(changes):
 
     base = _test_settings()
     assert settings_binding(base) != settings_binding(replace(base, **changes))
+
+
+def test_trace_only_field_set_requires_review_when_settings_expand():
+    from dataclasses import fields
+
+    from app.config import Settings
+    from scripts.ask_eval.cassettes import TRACE_ONLY_FIELDS
+
+    assert {
+        f.name for f in fields(Settings) if f.name.startswith("agent_trace_")
+    } == TRACE_ONLY_FIELDS
