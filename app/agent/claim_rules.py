@@ -412,7 +412,12 @@ def metric_assumption_contracts(payload):
     e = payload.get("semantic_evidence") or {}
     if not ("metric" in e or "current" in e) or e.get("kind"):
         return {}
-    result, index = {}, 0
+    # Canonical policy, never rendered text, determines the leading disclosure.
+    # The disclosure itself remains an explicit unbound policy-label surface.
+    result, index = (
+        {},
+        int(bool((payload.get("query_plan") or {}).get("aggregation_policy"))),
+    )
     sections = (
         [("current", e["current"]), ("baseline", e["baseline"])]
         if "current" in e
