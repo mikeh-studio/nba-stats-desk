@@ -158,6 +158,12 @@ def test_raw_rows_independently_bind_metric_oracles():
     # No application aggregator or renderer participates in expected arithmetic.
     rows = [r for r in SOURCE["rows"] if r["season_type"] == "Regular Season"]
     focal = [r for r in rows if r["player_id"] == 101]
+    assert SOURCE["rows"][0] is focal[0]
+    assert (focal[0]["player_id"], focal[0]["game_id"], focal[0]["pts"]) == (
+        101,
+        "g0",
+        0,
+    )
     assert [r["pts"] for r in focal] == [0, 2, 4, 6, 8, 10]
     assert sum(r["fgm"] for r in focal) == 3
     assert sum(r["fga"] for r in focal) == 30
@@ -274,7 +280,7 @@ def test_inventory_keeps_schema_valid_nonstring_labels_as_raw_assertions():
     from scripts.ask_eval.coverage import summarize
 
     document = copy.deepcopy(DOCUMENT)
-    turn = document["cases"][0]["turns"][0]
+    turn = next(c for c in document["cases"] if c["id"] == "points_mean")["turns"][0]
     for check in turn["checks"]:
         if check["path"] == "status":
             check["equals"] = ["ok"]
@@ -365,3 +371,137 @@ def test_requested_season_list_cannot_be_dropped():
     assert all(c["passed"] for c in grade(payload, checks))
     del payload["semantic_evidence"]["scope"]["seasons"]
     assert not grade(payload, checks)[0]["passed"]
+
+
+@pytest.mark.parametrize(
+    "value,display,failed",
+    [
+        (0.5, "10.0%", ["semantic_evidence.rows.0.value"]),
+        (0.1, "50.0%", ["tables.0.rows.0.1"]),
+        (0.5, "50.0%", ["semantic_evidence.rows.0.value", "tables.0.rows.0.1"]),
+    ],
+)
+def test_mean_of_game_ratios_mutation_is_rejected_independently(value, display, failed):
+    payload = {
+        "status": "ok",
+        "semantic_evidence": {
+            "rows": [{"player_id": 101, "value": 0.1}],
+            "metric": {"key": "fg_pct"},
+            "scope": {"season": "2024-25", "season_type": "Regular Season"},
+        },
+        "agent_plan": {"route": "governed_metrics"},
+        "tables": [{"rows": [["Avery Example", "10.0%"]]}],
+    }
+    checks = next(c for c in DOCUMENT["cases"] if c["id"] == "fg_pooled")["turns"][0][
+        "checks"
+    ]
+    assert all(c["passed"] for c in grade(payload, checks))
+    payload["semantic_evidence"]["rows"][0]["value"] = value
+    payload["tables"][0]["rows"][0][1] = display
+    assert [c["path"] for c in grade(payload, checks) if not c["passed"]] == failed
+
+
+def test_raw_oracle_tolerances_and_difference_operands_are_bound():
+    expected = [
+        ("fg_pooled", "semantic_evidence.rows.0.value", 3 / 30),
+        ("baseline_points", "semantic_evidence.player.value", 5),
+        ("baseline_points", "semantic_evidence.baseline.value", 35 / 3),
+        ("baseline_points", "semantic_evidence.difference", 5 - 35 / 3),
+        ("null_metric", "semantic_evidence.rows.0.value", 6),
+        ("baseline_ratio", "semantic_evidence.player.value", 0.1),
+        ("baseline_ratio", "semantic_evidence.baseline.value", 0.1),
+    ]
+    for cid, path, expected_value in expected:
+        case = next(c for c in DOCUMENT["cases"] if c["id"] == cid)
+        check = next(c for c in case["turns"][0]["checks"] if c["path"] == path)
+        assert check["equals"] == expected_value
+        assert 0 <= check.get("absolute_tolerance", 0) <= 1e-9
+
+
+@pytest.mark.parametrize("swap", [False, True])
+def test_reference_points_sign_and_swapped_operands_fail(swap):
+    payload = {
+        "status": "ok",
+        "semantic_evidence": {
+            "player_id": 101,
+            "scope": {"season_type": "Regular Season", "season": "2024-25"},
+            "player": {"value": 5},
+            "baseline": {"value": 35 / 3, "observed_games": 18},
+            "difference": 5 - 35 / 3,
+        },
+        "agent_plan": {"route": "league_baseline"},
+        "tables": [{"rows": [[], ["League", "11.7 per game"]]}],
+        "charts": [{"series": [{"points": [{}, {"y": 11.7}]}]}],
+    }
+    checks = next(c for c in DOCUMENT["cases"] if c["id"] == "baseline_points")[
+        "turns"
+    ][0]["checks"]
+    assert all(c["passed"] for c in grade(payload, checks))
+    if swap:
+        payload["semantic_evidence"]["player"]["value"] = 35 / 3
+        payload["semantic_evidence"]["baseline"]["value"] = 5
+        expected = [
+            "semantic_evidence.player.value",
+            "semantic_evidence.baseline.value",
+        ]
+    else:
+        payload["semantic_evidence"]["difference"] = 35 / 3 - 5
+        expected = ["semantic_evidence.difference"]
+    assert [c["path"] for c in grade(payload, checks) if not c["passed"]] == expected
+
+
+def test_every_critical_risk_requires_its_assertions_not_just_case_ids():
+    from scripts.ask_eval.coverage import CRITICAL, summarize
+
+    summary = summarize(SOURCE, DOCUMENT)
+    assert all(
+        not risk["missing_assertions"] for risk in summary["critical_risks"].values()
+    )
+    for risk, selections in CRITICAL.items():
+        for cid in selections:
+            document = copy.deepcopy(DOCUMENT)
+            case = next(c for c in document["cases"] if c["id"] == cid)
+            for turn in case["turns"]:
+                turn["checks"] = [{"path": "status", "equals": "ok"}]
+            assert summarize(SOURCE, document)["critical_risks"][risk][
+                "missing_assertions"
+            ][cid]
+
+
+@pytest.mark.parametrize(
+    "equals,tolerance", [(True, 0), (202.0, 0), (202, 1), (202, float("nan"))]
+)
+def test_invariant_matching_rejects_wrong_types_and_unsafe_tolerances(
+    equals, tolerance
+):
+    from scripts.ask_eval.coverage import invariant_results
+
+    inventory = {
+        "case": {
+            "assertions": [
+                {
+                    "turn": 1,
+                    "path": "player",
+                    "equals": equals,
+                    "absolute_tolerance": tolerance,
+                }
+            ]
+        }
+    }
+    assert not invariant_results(inventory, "case", [(1, "player", 202)])[0][
+        "assertion_present"
+    ]
+
+
+def test_summary_is_detached_and_approval_is_only_declared():
+    from scripts.ask_eval.coverage import summarize
+
+    document = copy.deepcopy(DOCUMENT)
+    summary = summarize(SOURCE, document)
+    document["cases"][0]["review"]["status"] = "approved"
+    document["cases"][0]["turns"][0]["checks"][0]["equals"] = "mutated"
+    assert summary["cases"][document["cases"][0]["id"]]["review"]["status"] == "pending"
+    assert (
+        summary["cases"][document["cases"][0]["id"]]["assertions"][0]["equals"] == "ok"
+    )
+    assert "Unverified declarations" in summary["approval_verification"]

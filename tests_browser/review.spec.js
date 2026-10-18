@@ -158,3 +158,27 @@ test('oracle provenance stays separate from browser approval and pass rate', asy
   await panel.locator('summary').click();
   await expect(panel.locator('pre')).toContainText('"reviewer": null');
 });
+
+
+for (const malformed of [false, true]) {
+  test(`optional provenance remains safe and usable: malformed=${malformed}`, async ({ page }) => {
+    const malicious = '<img src=x onerror="window.provenanceInjected=true">';
+    const expanded = { ...run, execution_mode: malicious,
+      corpus_summary: {counts:{cases:malicious}},
+      selection_summary: malformed ? {} : {counts:{cases:malicious,source_rows:malicious},review_states:{pending:2}},
+    };
+    const body=fs.readFileSync('scripts/ask_eval/review.html','utf8').replace('/*__DATA__*/',JSON.stringify({baseline:expanded,candidate:expanded,source:{}}).replaceAll('<','\\u003c'));
+    await page.route('**/__unsafe-provenance',route=>route.fulfill({contentType:'text/html',body}));
+    await page.goto('/__unsafe-provenance');
+    const panel=page.getByRole('region',{name:'Oracle provenance'});
+    if(malformed) await expect(panel).toContainText('Oracle provenance unavailable');
+    else {await expect(panel).toContainText(malicious);await expect(panel.locator('img')).toHaveCount(0);}
+    expect(await page.evaluate(()=>window.provenanceInjected)).toBeUndefined();
+    await page.locator('#decision').selectOption('revise');
+    await page.locator('#save').click();
+    await expect(page.locator('#review-save-state')).toContainText('Saved locally');
+    const downloaded=page.waitForEvent('download');await page.locator('#export').click();
+    const data=JSON.parse(fs.readFileSync(await (await downloaded).path(),'utf8'));
+    expect(data.decisions.first.decision).toBe('revise');
+  });
+}

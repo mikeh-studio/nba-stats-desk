@@ -676,3 +676,17 @@ missing games, tiny samples, and peaks outside the chart point cap. Re-run
 JavaScript suite and populated mobile/desktop charts after rendering changes.
 Frozen-source runs and synthetic position-group tests establish different things;
 real position comparisons require separately verified season membership.
+
+
+### Schema-v1 review provenance limitation
+
+The coverage inventory reports declared review states without verifying reviewer
+identity or approval binding. Schema v1 intentionally permits an omitted reviewer
+and does not bind approval to a hash of the expectations. Even an `approved`
+declaration therefore does not establish human-reviewed rubric credit. Browser
+review decisions are separate records. A future versioned provenance contract may
+strengthen this without silently rejecting existing v1 corpora.
+
+Critical risks list the selected case, one-based turn, expected assertion path and
+value, maximum tolerance, and missing assertions. Presence means the required
+assertion exists; actual endpoint passes and human approval remain separate.
