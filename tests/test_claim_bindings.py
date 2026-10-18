@@ -622,3 +622,11 @@ def test_supported_single_rank_plan_size_and_roundtrip():
     assert len(json.dumps(payload).encode()) < 150_000
     assert len(json.dumps(payload["claim_bindings"]).encode()) < 100_000
     assert validate(json.loads(json.dumps(payload)))["errors"] == []
+
+
+def test_transform_registry_preserves_exact_scalar_types():
+    payload = maximum_rank_payload(single_query=True)
+    manifest = payload["claim_bindings"]
+    numeric = next(spec for spec in manifest["transforms"] if "digits" in spec)
+    numeric["digits"] = float(numeric["digits"])
+    assert validate(payload)["status"] == "invalid"

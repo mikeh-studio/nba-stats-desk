@@ -508,7 +508,9 @@ def validate(payload: dict) -> dict:
                 raise ValueError("Incomplete evidence digests")
             from app.agent.claim_rules import mapping, transformation
 
-            if claim["transform"] != transformation(payload, destination):
+            if json.dumps(claim["transform"], sort_keys=True) != json.dumps(
+                transformation(payload, destination), sort_keys=True
+            ):
                 raise ValueError("Transform contradicts presentation contract")
             if (
                 claim["sources"],
