@@ -78,7 +78,7 @@ def endpoint():
     try:
         with TestClient(app) as client:
 
-            def ask(question=QUESTION, transport="json", **query):
+            def ask(question=QUESTION, transport="json", conversation_id=None, **query):
                 model.responses.create = lambda **kwargs: SimpleNamespace(
                     output_text=json.dumps(raw_plan(**query))
                 )
@@ -86,7 +86,14 @@ def endpoint():
                     "/api/agent/ask"
                     + ("/stream" if transport == "sse" else "")
                     + "?season=2024-25",
-                    json={"question": question},
+                    json={
+                        "question": question,
+                        **(
+                            {"conversation_id": conversation_id}
+                            if conversation_id
+                            else {}
+                        ),
+                    },
                 )
                 assert response.status_code == 200, response.text
                 if transport == "json":
@@ -183,6 +190,7 @@ def test_new_complete_request_overrides_prior_total_context():
     "change",
     [
         {"metric": "ast"},
+        {"operation": "game_log"},
         {"season": "2023-24"},
         {"season_type": "Playoffs"},
         {"start_date": "2025-04-10"},
@@ -190,7 +198,6 @@ def test_new_complete_request_overrides_prior_total_context():
         {"window": "season_to_date"},
         {"home_away": "HOME"},
         {"opponent_abbr": "AAA"},
-        {"operation": "game_log"},
     ],
 )
 def test_raw_mismatches_fail_before_literal_scope_can_overwrite(change):
@@ -316,3 +323,201 @@ def test_sparse_plan_inherits_literal_scope_but_explicit_null_does_not():
     ]
     with pytest.raises(SemanticError):
         planned(start_date=None)
+
+
+@pytest.mark.parametrize(
+    "question,overrides",
+    [
+        (
+            QUESTION.replace("points", "total points against AAA"),
+            {"opponent_abbr": "AAA"},
+        ),
+        (QUESTION.replace("points", "total points") + " season", {}),
+        (
+            QUESTION.replace("points", "fantasy points"),
+            {"metric": "fantasy_proxy_weighted", "aggregation": "average"},
+        ),
+        (
+            "Blair Sample points per game from March 2025 through April 2025 in 2024-25",
+            {
+                "aggregation": "average",
+                "start_date": "2025-03-01",
+                "as_of": "2025-04-30",
+            },
+        ),
+        (
+            QUESTION.replace("points", "points per game")
+            + " regular-season and playoffs combined",
+            {"aggregation": "average", "season_type": "Both"},
+        ),
+        (QUESTION.replace("points", "points a game"), {"aggregation": "average"}),
+        (QUESTION.replace("points", "points game log"), {"operation": "game_log"}),
+        (QUESTION.replace("points", "assists"), {"metric": "ast"}),
+    ],
+)
+def test_excluded_tasks_preserve_the_entire_planner_query(question, overrides):
+    from app.agent.semantic_planner import explicit_scope
+
+    raw = raw_plan(**overrides)
+    plan = plan_question(
+        client_for(copy.deepcopy(raw)),
+        model="test",
+        question=question,
+        selected_season="2024-25",
+        players=PLAYERS,
+    )
+    assert "aggregation_policy" not in plan
+    assert plan["queries"] == [
+        {**raw["queries"][0], "player_name": "Blair Sample", **explicit_scope(question)}
+    ]
+
+
+@pytest.fixture
+def conversation():
+    from app.agent.conversation import InMemoryConversationStore
+    from app.agent.semantic_answer import SemanticAsk
+    from scripts.ask_eval.fixtures import FrozenWarehouse
+
+    source = copy.deepcopy(SOURCE)
+    store = InMemoryConversationStore()
+    service = SemanticAsk(settings(), FrozenWarehouse(source, "complete"), store)
+
+    def ask(question, selected_player=None, **query):
+        return service.answer(
+            question,
+            client=client_for(raw_plan(**query)),
+            model="test",
+            conversation_id="dated-policy",
+            selected_player=selected_player,
+        )
+
+    return ask, store, source
+
+
+def test_conversation_complete_new_summary_after_total_uses_default(conversation):
+    ask, store, _ = conversation
+    total = ask(QUESTION.replace("points", "total points"))
+    assert total["semantic_evidence"]["rows"][0]["value"] == 36
+    current = ask(QUESTION)
+    assert current["semantic_evidence"]["rows"][0]["value"] == 12
+    assert (
+        current["query_plan"]["aggregation_policy"]["original_aggregation"] == "total"
+    )
+    assert store.get_pending_clarification("dated-policy") is None
+
+
+@pytest.mark.parametrize("query", [{"as_of": "2025-04-14"}, {"aggregation": "average"}])
+def test_conversation_planner_error_never_creates_pending_loop(conversation, query):
+    ask, store, _ = conversation
+    question = (
+        QUESTION.replace("points", "total points")
+        if "aggregation" in query
+        else QUESTION
+    )
+    bad = ask(question, **query)
+    assert bad["status"] == "invalid_plan", bad
+    assert store.get_pending_clarification("dated-policy") is None
+    good = ask(question)
+    assert good["status"] == "ok", good
+    assert good["semantic_evidence"]["rows"][0]["value"] == (
+        36 if "aggregation" in query else 12
+    )
+
+
+def test_conversation_selected_player_resume_preserves_existing_average(conversation):
+    ask, store, source = conversation
+    for row in source["rows"]:
+        if row["player_id"] == 101:
+            row["player_name"] = "Blair Sample"
+    ambiguous = ask(QUESTION, aggregation="average")
+    assert ambiguous["status"] == "clarification_required"
+    selected = ask(
+        "Blair Sample",
+        selected_player={"player_id": 202, "player_name": "Blair Sample"},
+        aggregation="average",
+    )
+    assert selected["status"] == "ok", selected
+    assert selected["semantic_evidence"]["rows"][0]["value"] == 12
+    assert "aggregation_policy" not in selected["query_plan"]
+    assert store.get_pending_clarification("dated-policy") is None
+
+
+def test_conversation_month_year_resume_preserves_existing_average(conversation):
+    ask, store, _ = conversation
+    # Existing saved clarification state must remain resumable even though new
+    # bare-month requests can now receive a disclosed current-year default.
+    store.set_pending_clarification(
+        "dated-policy", question="Blair Sample points in April", query_plan=None
+    )
+    second = ask(
+        "2025", aggregation="average", start_date="2025-04-01", as_of="2025-04-30"
+    )
+    assert second["status"] == "ok", second
+    assert second["semantic_evidence"]["rows"][0]["value"] == 12.5
+    assert "aggregation_policy" not in second["query_plan"]
+
+
+@pytest.mark.parametrize("with_context", [True, False])
+def test_conversation_pronoun_followup_preserves_existing_average(
+    conversation, with_context
+):
+    ask, store, _ = conversation
+    if with_context:
+        ask(QUESTION.replace("points", "total points"))
+    else:
+        store.append_turn(
+            "dated-policy", question=QUESTION, answer="Prior response", max_turns=4
+        )
+    result = ask(QUESTION.replace("Blair Sample", "his"), aggregation="average")
+    assert result["status"] == "ok", result
+    assert result["semantic_evidence"]["rows"][0]["value"] == 12
+    assert "aggregation_policy" not in result["query_plan"]
+
+
+def test_conversation_relative_calendar_is_eligible(conversation):
+    from datetime import date
+
+    from app.agent.clock import semantic_date
+
+    ask, _, _ = conversation
+    token = semantic_date.set(date(2025, 4, 14))
+    try:
+        payload = ask(
+            "Blair Sample points last week in 2024-25",
+            start_date="2025-04-07",
+            as_of="2025-04-13",
+        )
+    finally:
+        semantic_date.reset(token)
+    assert payload["status"] == "ok", payload
+    assert payload["semantic_evidence"]["rows"][0]["value"] == 11.5
+    assert (
+        payload["query_plan"]["aggregation_policy"]["chosen_aggregation"] == "average"
+    )
+
+
+def test_user_supplied_wrapper_text_cannot_disable_policy_validation(conversation):
+    ask, _, _ = conversation
+    payload = ask(QUESTION + "\nSelected player: Blair Sample")
+    assert payload["status"] == "clarification_required"
+    assert "without additional unsupported conditions" in payload["answer"]
+
+
+def test_polite_may_and_harmless_scored_season_words():
+    assert planned("May I see " + QUESTION + " season")["aggregation_policy"]
+    assert planned(QUESTION.replace("points", "points scored"))["aggregation_policy"]
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_endpoint_two_turn_restatement_after_bad_plan(endpoint, transport):
+    from uuid import uuid4
+
+    conversation_id = str(uuid4())
+    bad = endpoint(
+        transport=transport, conversation_id=conversation_id, as_of="2025-04-14"
+    )
+    assert bad["status"] == "invalid_plan"
+    good = endpoint(transport=transport, conversation_id=conversation_id)
+    assert good["status"] == "ok", good
+    assert good["semantic_evidence"]["rows"][0]["value"] == 3.5
+    assert good["query_plan"]["aggregation_policy"]["chosen_aggregation"] == "average"

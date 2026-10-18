@@ -24,9 +24,17 @@ def dated_points_default(
     """
     if plan["status"] != "query":
         return None
+    query = plan["queries"][0]
     text = " ".join(question.casefold().split())
     if not re.search(r"\b(?:points|pts)\b", text):
         return None
+    replacements = {
+        name: handle
+        for name, handle in replacements.items()
+        if re.search(
+            r"(?<!\w)" + re.escape(" ".join(name.casefold().split())) + r"(?!\w)", text
+        )
+    }
     handles = set(replacements.values())
     if len(handles) != 1:
         return None  # No implicit identity inheritance under this policy.
@@ -37,13 +45,35 @@ def dated_points_default(
             " ",
             text,
         )
-    date_expressions = re.findall(
-        r"\bfrom\s+\d{4}-\d{2}-\d{2}\s+(?:through|to)\s+\d{4}-\d{2}-\d{2}\b"
-        r"|\bweek (?:of|starting|beginning)\s+\d{4}-\d{2}-\d{2}\b"
-        r"|\b(?:this|last|previous|past) (?:month|week)\b|" + MONTH_PATTERN,
+    # Other tasks keep their established routes; never normalize them to summaries.
+    if re.search(
+        r"\b(?:average|averaging|mean|ppg|per[ -]game|a game|game[ -]logs?|game[ -]by[ -]game|"
+        r"rank\w*|leaders?|top|percentile|compare|versus|vs|"
+        r"fantasy|box[ -]score[ -]index|bsi|rebounds?|assists?|steals?|blocks?|minutes?|turnovers?|"
+        r"games played|reb|ast|stl|blk|tov|ratio)\b",
         text,
+    ):
+        return None
+    if re.search(r"\b(?:total|totals|sum)\b", text):
+        if query.get("aggregation") != "total":
+            raise SemanticError(
+                "invalid_plan",
+                "The planned aggregation does not match the requested points total.",
+            )
+        return None
+    # A polite modal is not the calendar month May.
+    text = re.sub(r"^may i (?:see|have|get)\s+", "", text)
+    date_expressions = list(
+        re.finditer(
+            r"\bfrom\s+\d{4}-\d{2}-\d{2}\s+(?:through|to)\s+\d{4}-\d{2}-\d{2}\b"
+            r"|\bweek (?:of|starting|beginning)\s+\d{4}-\d{2}-\d{2}\b"
+            r"|\b(?:this|last|previous|past) (?:month|week)\b|" + MONTH_PATTERN,
+            text,
+        )
     )
-    if scope.get("window") != "date_range" and len(date_expressions) < 2:
+    if not date_expressions or (
+        scope.get("window") != "date_range" and len(date_expressions) < 2
+    ):
         return None
     home = bool(re.search(r"\bat home\b|\bhome games\b", text))
     away = bool(re.search(r"\bon the road\b|\baway games\b", text))
@@ -63,16 +93,6 @@ def dated_points_default(
             "clarification_required",
             "A dated points summary cannot answer predictions, rolling or cumulative calculations.",
         )
-    # Other tasks keep their established routes; never normalize them to summaries.
-    if re.search(
-        r"\b(?:average|averaging|mean|ppg|per[ -]game|game[ -]logs?|game[ -]by[ -]game|"
-        r"rank\w*|leaders?|top|percentile|compare|versus|vs|"
-        r"rebounds?|assists?|steals?|blocks?|minutes?|turnovers?|"
-        r"games played|reb|ast|stl|blk|tov|ratio)\b",
-        text,
-    ):
-        return None
-    explicit_total = bool(re.search(r"\b(?:total|totals|sum)\b", text))
     # Dates must not masquerade as season declarations.
     text = re.sub(
         r"\bfrom\s+\d{4}-\d{2}-\d{2}\s+(?:through|to)\s+\d{4}-\d{2}-\d{2}\b", " ", text
@@ -86,10 +106,8 @@ def dated_points_default(
         a + "-" + b[-2:] for a, b in re.findall(r"\b(20\d{2})-(\d{4}|\d{2})\b", text)
     }
     text = re.sub(r"\b20\d{2}-(?:\d{4}|\d{2})\b", " ", text)
-    text = re.sub(MONTH_PATTERN + r"\s+20\d{2}\b", " ", text)
-    text = re.sub(r"\bweek (?:of|starting|beginning)\s+\d{4}-\d{2}-\d{2}\b", " ", text)
+    text = re.sub(MONTH_PATTERN + r"(?:\s+20\d{2}\b)?", " ", text)
     text = re.sub(r"\b(?:this|last|previous|past) (?:month|week)\b", " ", text)
-    text = re.sub(r"\bas[ -]of\s+\d{4}-\d{2}-\d{2}\b", " ", text)
     phase = (
         "Both"
         if scope.get("season_type") == "Both"
@@ -106,7 +124,7 @@ def dated_points_default(
     )
     text = re.sub(r"['’]s\b", " ", text)
     text = re.sub(
-        r"\b(?:what|are|is|were|was|show|me|please|give|tell|summarize|summary|of|for|the|in|during|points|pts|both|combined|combine|including|and|total|totals|sum)\b",
+        r"\b(?:what|are|is|were|was|show|me|please|give|tell|summarize|summary|of|for|the|in|during|points|pts|season|scored|both|combined|combine|including|and|total|totals|sum)\b",
         " ",
         text,
     )
@@ -115,7 +133,7 @@ def dated_points_default(
             "clarification_required",
             "Please state the player, date period and points summary without additional unsupported conditions.",
         )
-    query = plan["queries"][0]
+    default_phase = load_contract().default_phase
     expected = {
         **scope,
         "season": next(iter(seasons)) if len(seasons) == 1 else selected_season,
@@ -128,7 +146,7 @@ def dated_points_default(
         or any(
             query.get(
                 k,
-                load_contract().default_phase
+                default_phase
                 if k == "season_type"
                 else scope.get(k)
                 if k in {"window", "start_date", "as_of", "n"}
@@ -145,20 +163,13 @@ def dated_points_default(
         or query.get("home_away") != scope.get("home_away")
     ):
         raise SemanticError(
-            "clarification_required",
+            "invalid_plan",
             "The planned points summary does not match the requested player, dates or scope. Please restate the request.",
         )
     original = query.get("aggregation")
-    if explicit_total:
-        if original != "total":
-            raise SemanticError(
-                "clarification_required",
-                "The planned aggregation does not match the requested points total.",
-            )
-        return None
     if original not in {"total", "average"}:
         raise SemanticError(
-            "clarification_required", "The planned points aggregation is unsupported."
+            "invalid_plan", "The planned points aggregation is unsupported."
         )
     query["aggregation"] = "average"
     return {

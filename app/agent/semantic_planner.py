@@ -239,6 +239,8 @@ def plan_question(
     teams: Sequence[str] = (),
     usage_callback: Callable[[Any], None] | None = None,
     conversation_context: Mapping[str, Any] | None = None,
+    dated_points_eligible: bool = True,
+    dated_points_question: str | None = None,
 ) -> dict[str, Any]:
     validate_season(selected_season)
     if not question.strip() or len(question) > 2000:
@@ -453,8 +455,20 @@ def plan_question(
             query["player_name"] = references[handle]
     from app.agent.dated_points_policy import dated_points_default
 
-    policy = dated_points_default(
-        question, plan, scope, replacements, references, selected_season
+    policy_question = (
+        question if dated_points_question is None else dated_points_question
+    )
+    policy = (
+        dated_points_default(
+            policy_question,
+            plan,
+            scope,
+            replacements,
+            references,
+            selected_season,
+        )
+        if dated_points_eligible
+        else None
     )
     if policy:
         plan["aggregation_policy"] = policy

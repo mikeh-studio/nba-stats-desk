@@ -878,8 +878,5 @@ new contract evidence requires separately versioned evaluation.
 
 The dated-points default regression uses independent JSON/SSE endpoint holdouts,
 including zero and missing values, explicit-total contradictions and unmatched
-conditions. Current replay of the original 14-call recording now passes 6/6
-cases after the descriptive-route and explicitly approved per-game default
-repairs. This is in-sample replay evidence; historical observed outcomes remain
-4/6, and the recording, public case expectations and frozen source are unchanged.
-It does not establish live-provider or warehouse accuracy.
+conditions. The original recording is incompatible with the new planner contract;
+controlled endpoint tests do not establish live-provider or warehouse accuracy.

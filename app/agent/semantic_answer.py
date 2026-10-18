@@ -537,6 +537,9 @@ class SemanticAsk:
             # A fully restated comparison replaces a scope clarification rather
             # than remaining trapped behind the unsupported original scope.
             pending = None
+        dated_points_eligible = not (
+            pending or resumed_overview or selected_player or award_request
+        )
         if pending:
             if selected_player:
                 question = pending.question
@@ -546,6 +549,7 @@ class SemanticAsk:
             if turns and re.search(
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
             ):
+                dated_points_eligible = False
                 question = f"Previous question: {turns[-1].question}\nCurrent question: {question}"
         if context.get("split_question") and not pending:
             from app.agent.player_splits import split_followup
@@ -919,6 +923,8 @@ class SemanticAsk:
                     client,
                     model=model,
                     question=question,
+                    dated_points_eligible=dated_points_eligible,
+                    dated_points_question=original,
                     selected_season=seasons[0]
                     if len(seasons) == 1
                     else self.settings.season,
