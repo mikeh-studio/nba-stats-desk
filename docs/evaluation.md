@@ -829,9 +829,12 @@ and checks separately; text substitution is not a sufficient reconstruction.
 An unchanged source copy is rejected in reconstruction mode; differing bytes or
 content alone do not prove anonymization.
 
-The bundle freezes source copies, pending cases, and private provenance containing
-the trace reference/hash, application/config hashes, reviewed explanation and
-reproduction limitations. It does not modify the trace or overwrite a prior bundle.
+The bundle freezes the authored source, pending cases, and private provenance containing
+the trace reference/hash and failure signature, application/config hashes, reviewed explanation and
+reproduction limitations. Reconstruction retains only an original-source path/hash
+reference, never a copy of the private original. It does not modify the trace or
+overwrite a prior bundle. Provenance is written first and cases last; incomplete
+writes are rejected and cleaned up when possible.
 Missing controlled planner responses or attachments are listed as limitations;
 they must be supplied in a new reviewed draft before claiming complete replay.
 Trace projections alone cannot reconstruct warehouse rows or model responses.
@@ -845,3 +848,12 @@ questions, source rows, generated outputs, provenance and attachments before any
 separate public promotion. Credential/contact-pattern checks are limited safeguards,
 not a comprehensive privacy review. Corrections require a fresh output directory;
 keep all run artifacts and the original trace private.
+
+Inputs are limited to 8 MiB per file. Symlinked path components are rejected,
+including macOS `/tmp` and `/var` aliases; use their actual resolved paths. Existing
+owned parent directories may retain 0755 permissions; new bundles remain 0700.
+Ignored files may still be backed up or synced: Git-ignore is not an access or
+cloud-sync boundary. Trace code hashes describe D's first-capture on-disk Python
+fingerprint, not executed code or dependency versions. Config hashes cover only
+D's allowlisted diagnostic settings. A differing current application fingerprint
+is recorded as a reproduction limitation, never silently treated as replay proof.

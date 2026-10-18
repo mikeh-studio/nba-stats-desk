@@ -126,7 +126,7 @@ def test_pending_compatible_immutable_independent(inputs):
 )
 def test_invalid_rejected_before_output(inputs, key, change):
     edit(inputs, key, change)
-    with pytest.raises((module.DraftError, ValidationError, ValueError)):
+    with pytest.raises((module.DraftError, ValidationError)):
         module.draft(**inputs)
     assert not inputs["output"].exists()
 
@@ -344,3 +344,243 @@ def test_safe_existing_0755_parent(inputs):
         import shutil
 
         shutil.rmtree(parent)
+
+
+def reconstruction(inputs):
+    original = inputs["source"].read_bytes()
+    inputs["original_source"] = inputs["source"].with_name("original.json")
+    inputs["original_source"].write_bytes(original)
+    edit(
+        inputs,
+        "review",
+        lambda value: value.update(
+            mode="fictional_reconstruction",
+            reconstruction_note="Separately authored fictional test source and case.",
+            separately_authored_fictional_inputs=True,
+            original_source_sha256=value["source_sha256"],
+        ),
+    )
+    edit(
+        inputs,
+        "source",
+        lambda value: value.update(
+            description="Separately authored fictional counterpart."
+        ),
+    )
+    return original
+
+
+@pytest.mark.parametrize(
+    "fault", ["original_hash", "attestation", "nonsynthetic", "original_metadata"]
+)
+def test_reconstruction_contract_negatives(inputs, fault):
+    reconstruction(inputs)
+    if fault == "original_hash":
+        edit(
+            inputs,
+            "review",
+            lambda value: value.update(original_source_sha256="0" * 64),
+        )
+    elif fault == "attestation":
+        edit(
+            inputs,
+            "review",
+            lambda value: value.update(separately_authored_fictional_inputs=False),
+        )
+    elif fault == "nonsynthetic":
+        edit(inputs, "source", lambda value: value.update(kind="unreviewed"))
+    else:
+        original = json.loads(inputs["original_source"].read_text())
+        original["provider_recordings"] = []
+        inputs["original_source"].write_text(json.dumps(original))
+        edit(
+            inputs,
+            "review",
+            lambda value: value.update(
+                original_source_sha256=hashlib.sha256(
+                    inputs["original_source"].read_bytes()
+                ).hexdigest()
+            ),
+        )
+    with pytest.raises(module.DraftError):
+        module.draft(**inputs)
+    assert not inputs["output"].exists()
+
+
+def test_original_reconstruction_is_reference_only(inputs):
+    original = reconstruction(inputs)
+    result = module.draft(**inputs)
+    assert not (inputs["output"] / "original-source.json").exists()
+    assert inputs["original_source"].read_bytes() == original
+    assert (
+        result["input_hashes"]["original_source"]
+        == hashlib.sha256(original).hexdigest()
+    )
+    assert set(result["frozen_file_sha256"]) == {"source.json", "cases.json"}
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "OPENAI_API_KEY=" + "fictional",
+        "db_password=" + "fictional",
+        "auth_token: " + "fictional",
+        {"token": "fictional"},
+        r"C:\Users\Example\private.txt",
+    ],
+)
+def test_authored_nested_secret_safeguards(inputs, value):
+    edit(
+        inputs,
+        "source",
+        lambda source: source.update(details={"101": {"metadata": value}}),
+    )
+    with pytest.raises(module.DraftError, match="Potential"):
+        module.draft(**inputs)
+
+
+def test_preserve_ordinary_identifiers_and_urls(inputs):
+    edit(
+        inputs,
+        "source",
+        lambda source: source.update(
+            description="risk_adjusted_case https://example.org/Users/Example"
+        ),
+    )
+    module.draft(**inputs)
+
+
+def test_review_metadata_allowlist(inputs):
+    edit(
+        inputs,
+        "review",
+        lambda review: review.update(raw_recording={"text": "fictional"}),
+    )
+    with pytest.raises(module.DraftError, match="review metadata"):
+        module.draft(**inputs)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("config_sha256", None),
+        ("code", {"source_sha256": "bad"}),
+        ("incomplete_reasons", [{}]),
+    ],
+)
+def test_trace_hash_and_reason_shapes(inputs, field, value):
+    edit(inputs, "trace", lambda trace: trace.update({field: value}))
+    with pytest.raises(module.DraftError, match="trace"):
+        module.draft(**inputs)
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda case: case["turns"][0].update(planner_response=None),
+        lambda case: case["turns"][0]["checks"][0].update(path=[]),
+        lambda case: case.pop("id"),
+        lambda case: case.update(attachments=[{}]),
+        lambda case: case["turns"][0]["checks"][1].update(equals=[]),
+        lambda case: case["turns"][0]["planner_response"].update(queries=None),
+    ],
+)
+def test_malformed_cases_safe_before_output(inputs, change):
+    edit(inputs, "cases", lambda value: change(value["cases"][0]))
+    with pytest.raises((module.DraftError, ValidationError)):
+        module.draft(**inputs)
+    assert not inputs["output"].exists()
+
+
+def test_trace_provenance_and_fingerprint_limit(inputs, monkeypatch):
+    monkeypatch.setattr(module, "code_digest", lambda: "f" * 64)
+    result = module.draft(**inputs)
+    trace = json.loads(inputs["trace"].read_text())
+    for key in ("request_id", "time", "transport", "outcome", "error_type"):
+        assert result["trace"][key] == trace[key]
+    assert (
+        "current_application_fingerprint_differs_from_trace" in result["deficiencies"]
+    )
+    assert result["drafting"]["case_schema_sha256"]
+
+
+def test_publication_order_and_pre_cases_failure(inputs, monkeypatch):
+    original_open = module.os.open
+    names = []
+
+    def fail_cases(path, flags, *args, **kwargs):
+        if (
+            isinstance(path, str)
+            and path.endswith(".json")
+            and flags & module.os.O_CREAT
+        ):
+            names.append(path)
+            if path == "cases.json":
+                assert (inputs["output"] / "provenance.json").exists()
+                with pytest.raises(FileNotFoundError):
+                    load_inputs(ROOT, inputs["output"])
+                raise OSError("injected before cases")
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(module.os, "open", fail_cases)
+    with pytest.raises(OSError, match="injected"):
+        module.draft(**inputs)
+    assert names == ["provenance.json", "source.json", "cases.json"]
+    assert not inputs["output"].exists()
+
+
+def test_cli_success_and_safe_error(inputs):
+    import subprocess
+    import sys
+
+    args = [sys.executable, "-m", "scripts.ask_eval.draft"]
+    for key, value in inputs.items():
+        args.extend(["--" + key.replace("_", "-"), str(value)])
+    success = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
+    assert success.returncode == 0, success.stderr
+    assert "pending human review" in success.stdout
+    secret = "password=" + "fictional-private-marker"
+    inputs["trace"].write_text(secret)
+    rejected = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
+    assert rejected.returncode == 2
+    assert secret not in rejected.stderr
+    assert "Traceback" not in rejected.stderr
+
+
+def test_study_identities_from_attachment(inputs):
+    _, corpus = load_inputs(ROOT)
+    case = next(
+        case for case in corpus["cases"] if case["id"] == "research_published_study"
+    )
+    edit(inputs, "cases", lambda value: value.update(cases=[case]))
+    edit(
+        inputs,
+        "source",
+        lambda source: source.update(
+            rows=[row for row in source["rows"] if row["player_id"] == 303]
+        ),
+    )
+    module.draft(**inputs)
+
+
+def test_production_attachment_deficiency(inputs):
+    from app.agent.semantic_source import snapshot_digest
+
+    source = json.loads(inputs["source"].read_text())
+    snapshot = source["availability"]["stats"]
+    snapshot["sha256"] = snapshot_digest(snapshot)
+    production = {
+        "source_kind": "production_snapshot",
+        "season": "2024-25",
+        "snapshot": snapshot,
+        "details": {},
+        "availability": source["availability"],
+    }
+    edit(inputs, "source", lambda value: (value.clear(), value.update(production)))
+    edit(
+        inputs,
+        "cases",
+        lambda value: value["cases"][0].update(attachments=["availability"]),
+    )
+    result = module.draft(**inputs)
+    assert "frozen_attachment_missing:availability" in result["deficiencies"]

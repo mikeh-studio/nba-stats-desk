@@ -17,14 +17,39 @@ import subprocess
 from pathlib import Path
 from uuid import UUID
 
-from app.agent.private_traces import SECRET
+from app.agent.private_traces import SECRET, code_digest
 from scripts.ask_eval.fixtures import FrozenWarehouse, validate_cases
 
 ROOT = Path(__file__).resolve().parents[2]
 MAX_BYTES = 8 * 1024 * 1024
-AUTHORED_SECRET = re.compile(
-    r"(?<![A-Za-z0-9_])(?:" + SECRET.pattern.removeprefix("(?i)") + ")", re.I
-)
+SOURCE_FIELDS = {
+    "schema_version",
+    "kind",
+    "description",
+    "rows",
+    "neighbors",
+    "availability",
+    "study",
+    "source_kind",
+    "snapshot",
+    "season",
+    "details",
+}
+REVIEW_FIELDS = {
+    "schema",
+    "status",
+    "reviewer_kind",
+    "reviewer",
+    "failure_explanation",
+    "expectations_independent_of_observed_answer",
+    "mode",
+    "trace_sha256",
+    "source_sha256",
+    "cases_sha256",
+    "original_source_sha256",
+    "reconstruction_note",
+    "separately_authored_fictional_inputs",
+}
 
 
 class DraftError(ValueError):
@@ -102,7 +127,31 @@ def required_text(value):
     return isinstance(value, str) and bool(value.strip())
 
 
+def check_authored_content(value):
+    """Limited pattern safeguard; never a claim of complete privacy review."""
+    if isinstance(value, str):
+        if SECRET.search(value):
+            raise DraftError(
+                "Potential credential or private contact/path in authored input"
+            )
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            check_authored_content(key)
+            if SECRET.search(
+                f"{key}: {item if isinstance(item, (str, int, float)) else '[structured]'}"
+            ):
+                raise DraftError(
+                    "Potential credential or private contact/path in authored input"
+                )
+            check_authored_content(item)
+    elif isinstance(value, list):
+        for item in value:
+            check_authored_content(item)
+
+
 def validate_source(source):
+    if set(source) - SOURCE_FIELDS:
+        raise DraftError("Unsupported frozen source metadata")
     if source.get("source_kind") == "production_snapshot":
         from scripts.ask_eval.production import validate_production_source
 
@@ -112,27 +161,57 @@ def validate_source(source):
         source.get("neighbors"), dict
     ):
         raise DraftError("Frozen source must use a supported source format")
-    _, evidence = FrozenWarehouse(source, "complete").load(["2024-25"])
-    if not evidence.rows:
+    if not isinstance(source.get("rows"), list) or not source["rows"]:
         raise DraftError("Frozen source has no rows")
+    try:
+        _, evidence = FrozenWarehouse(source, "complete").load(["2024-25"])
+        for row in evidence.rows:
+            if type(row["player_id"]) is not int or not isinstance(
+                row["player_name"], str
+            ):
+                raise ValueError()
+    except (KeyError, TypeError, ValueError) as exc:
+        raise DraftError("Malformed frozen source rows or coverage") from exc
     return evidence.rows
 
 
 def validate_plan_scope(plan, identities, seasons, names):
     if not isinstance(plan, dict):
         raise DraftError("Controlled plan scope must be an object")
-    if plan.get("season") is not None and plan["season"] not in seasons:
-        raise DraftError("Controlled plan season is absent from frozen source")
-    if plan.get("player_name") is not None and plan["player_name"] not in names:
-        raise DraftError("Controlled plan identity is absent from frozen source")
-    ids = list(plan.get("player_ids", []))
-    ids += [
+    for field, allowed in (("season", seasons), ("player_name", names)):
+        value = plan.get(field)
+        if value is not None and (not isinstance(value, str) or value not in allowed):
+            raise DraftError(
+                "Controlled plan season or identity is absent from frozen source"
+            )
+    ids = plan.get("player_ids", [])
+    if not isinstance(ids, list):
+        raise DraftError("Controlled plan identities must be an array")
+    ids = ids + [
         plan[key]
         for key in ("player_id", "focal_player_id", "teammate_id")
         if plan.get(key) is not None
     ]
-    if any(identity not in identities for identity in ids):
+    if any(type(identity) is not int or identity not in identities for identity in ids):
         raise DraftError("Controlled plan identity is absent from frozen source")
+
+
+def study_scope(source):
+    scope = source.get("study", {}).get("scope", {})
+    if not isinstance(scope, dict):
+        raise DraftError("Study attachment scope must be an object")
+    identities = {
+        scope[key]
+        for key in ("focal_player_id", "teammate_id")
+        if type(scope.get(key)) is int
+    }
+    names = {
+        scope[key]
+        for key in ("focal_player_name", "teammate_name")
+        if isinstance(scope.get(key), str)
+    }
+    seasons = {scope["season"]} if isinstance(scope.get("season"), str) else set()
+    return identities, seasons, names
 
 
 def valid_trace_identity(value):
@@ -186,6 +265,8 @@ def draft(*, trace, source, cases, review, output, original_source=None):
         raise DraftError(
             "A hash-bound confirmed review and independent oracle attestation are required"
         )
+    if set(reviewed) - REVIEW_FIELDS:
+        raise DraftError("Unsupported failure review metadata")
     mode = reviewed.get("mode")
     original_hash = source_hash
     original = source_value
@@ -213,23 +294,6 @@ def draft(*, trace, source, cases, review, output, original_source=None):
             )
     elif mode != "private_reproduction":
         raise DraftError("Choose private_reproduction or fictional_reconstruction")
-    # Never preserve recordings or arbitrary metadata in the authored corpus.
-    # Schema rejects recordings in cases; source top-level fields are allowlisted.
-    allowed = {
-        "schema_version",
-        "kind",
-        "description",
-        "rows",
-        "neighbors",
-        "availability",
-        "study",
-        "source_kind",
-        "snapshot",
-        "season",
-        "details",
-    }
-    if set(source_value) - allowed:
-        raise DraftError("Unsupported frozen source metadata")
     for value in (
         source_value,
         original,
@@ -237,13 +301,17 @@ def draft(*, trace, source, cases, review, output, original_source=None):
         reviewed,
         trace_value.get("code", {}),
     ):
-        if AUTHORED_SECRET.search(json.dumps(value)):
-            raise DraftError(
-                "Potential credential or private contact/path in authored input"
-            )
+        check_authored_content(value)
     rows = validate_source(source_value)
     document = copy.deepcopy(document)
     document["human_reviewed"] = False
+    for case in (
+        document.get("cases", []) if isinstance(document.get("cases"), list) else []
+    ):
+        if isinstance(case, dict):
+            case["review"] = {"status": "pending", "reviewer": None}
+    schema_path = ROOT / "tests/fixtures/ask/schema.json"
+    validate_cases(document, json.loads(schema_path.read_text()))
     deficiencies = [
         "human_review_pending",
         "trace_projection_is_not_complete_replay",
@@ -254,8 +322,12 @@ def draft(*, trace, source, cases, review, output, original_source=None):
     names = {r["player_name"] for r in rows} | {
         f"resolved_player_{identity}" for identity in identities
     }
-    for case in document.get("cases", []):
-        case["review"] = {"status": "pending", "reviewer": None}
+    for case in document["cases"]:
+        study_ids, study_seasons, study_names = (
+            study_scope(source_value)
+            if "study" in case.get("attachments", [])
+            else (set(), set(), set())
+        )
         if not required_text(case.get("oracle_note")):
             raise DraftError("Each case requires an independently authored oracle_note")
         for turn in case.get("turns", []):
@@ -264,30 +336,53 @@ def draft(*, trace, source, cases, review, output, original_source=None):
                 for key in ("planner_response", "research_response", "study_response")
             ):
                 deficiencies.append("controlled_planner_response_missing:" + case["id"])
-            plans = list(turn.get("planner_response", {}).get("queries", []))
+            planner = turn.get("planner_response", {})
+            plans = planner.get("queries", [])
+            if not isinstance(plans, list):
+                raise DraftError("Controlled semantic queries must be an array")
+            plans = list(plans)
+            # Actual semantic planner nests queries; each query uses flat scope.
+            if planner and "queries" not in planner:
+                deficiencies.append("controlled_semantic_queries_missing:" + case["id"])
+            validate_plan_scope(planner, identities, seasons, names)
             if turn.get("research_response", {}).get("query") is not None:
                 plans.append(turn["research_response"]["query"])
             if turn.get("study_response"):
-                plans.append(turn["study_response"])
+                if not study_ids:
+                    deficiencies.append("frozen_study_scope_missing:" + case["id"])
+                else:
+                    validate_plan_scope(
+                        turn["study_response"], study_ids, study_seasons, study_names
+                    )
             for plan in plans:
                 validate_plan_scope(plan, identities, seasons, names)
             for check in turn.get("checks", []):
                 if (
                     check.get("path", "").endswith("player_id")
                     and check.get("equals") is not None
-                    and check.get("equals") not in identities
+                    and (
+                        type(check["equals"]) is not int
+                        or check["equals"] not in identities | study_ids
+                    )
                 ):
                     raise DraftError("Expected identity is absent from frozen source")
         for attachment in case.get("attachments", []):
-            if attachment not in source_value:
+            if (
+                source_value.get("source_kind") == "production_snapshot"
+                or attachment not in source_value
+            ):
                 deficiencies.append("frozen_attachment_missing:" + attachment)
-    validate_cases(
-        document, json.loads((ROOT / "tests/fixtures/ask/schema.json").read_text())
-    )
+    current_code = code_digest()
+    if current_code != trace_value["code"]["source_sha256"]:
+        deficiencies.append("current_application_fingerprint_differs_from_trace")
     provenance = {
         "schema": "ask_regression_draft/1",
         "status": "pending_human_review",
         "trace": {
+            **{
+                key: trace_value[key]
+                for key in ("request_id", "time", "transport", "outcome", "error_type")
+            },
             "path": str(Path(trace).absolute()),
             "sha256": trace_hash,
             "code": {
@@ -305,15 +400,29 @@ def draft(*, trace, source, cases, review, output, original_source=None):
             "cases": cases_hash,
             "review": review_hash,
         },
+        "fingerprint_meanings": {
+            "trace_source_sha256": "First-capture on-disk Python fingerprint; not executed code, dependencies, assets or replay compatibility",
+            "trace_config_sha256": "Hash of D allowlisted effective diagnostic settings; not full environment or replay configuration",
+        },
+        "drafting": {
+            "current_application_fingerprint": current_code,
+            "tool_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+            "case_schema_sha256": hashlib.sha256(schema_path.read_bytes()).hexdigest(),
+        },
         "failure_review": reviewed,
         "deficiencies": sorted(
-            set(deficiencies + trace_value.get("incomplete_reasons", []))
+            set(
+                deficiencies
+                + [
+                    "trace:" + reason
+                    for reason in trace_value.get("incomplete_reasons", [])
+                ]
+            )
         ),
         "publication_authorized": False,
     }
     frozen = {
         "source.json": source_value,
-        "original-source.json": original,
         "cases.json": document,
     }
     encoded = {
@@ -356,7 +465,8 @@ def draft(*, trace, source, cases, review, output, original_source=None):
             output.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=parent_fd
         )
         try:
-            for name, data in encoded.items():
+            for name in ("provenance.json", "source.json", "cases.json"):
+                data = encoded[name]
                 fd = os.open(
                     name,
                     os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
@@ -364,20 +474,45 @@ def draft(*, trace, source, cases, review, output, original_source=None):
                     dir_fd=out_fd,
                 )
                 written.append(name)
-                with os.fdopen(fd, "wb") as stream:
+                try:
+                    stream = os.fdopen(fd, "wb")
+                except BaseException:
+                    os.close(fd)
+                    raise
+                with stream:
                     stream.write(data)
                     stream.flush()
                     os.fsync(stream.fileno())
+            os.fsync(out_fd)
+            os.fsync(parent_fd)
             completed = True
         finally:
-            if not completed:
-                for name in written:
-                    os.unlink(name, dir_fd=out_fd)
-            os.close(out_fd)
+            try:
+                if not completed:
+                    # Remove the evaluator entry point first even if another unlink fails.
+                    cleanup_failed = False
+                    for name in reversed(written):
+                        try:
+                            os.unlink(name, dir_fd=out_fd)
+                        except OSError:
+                            cleanup_failed = True
+                    if cleanup_failed:
+                        raise DraftError(
+                            "Draft write failed; incomplete private directory retained; do not evaluate it"
+                        )
+            finally:
+                os.close(out_fd)
     finally:
-        if created and not completed:
-            os.rmdir(output.name, dir_fd=parent_fd)
-        os.close(parent_fd)
+        try:
+            if created and not completed:
+                try:
+                    os.rmdir(output.name, dir_fd=parent_fd)
+                except OSError:
+                    raise DraftError(
+                        "Draft write failed; incomplete private directory retained; do not evaluate it"
+                    ) from None
+        finally:
+            os.close(parent_fd)
     return provenance
 
 
