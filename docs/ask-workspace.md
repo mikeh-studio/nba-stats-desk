@@ -953,6 +953,6 @@ this version and cannot establish its accuracy.
 ## Exact presentation bindings
 
 See [claim bindings and surface inventory](ask-claim-bindings.md) for the additive
-`ask_claim_bindings/1` envelope. Structured cells and selected scope/sample prose
+`ask_claim_bindings/2` envelope. Structured cells and selected scope/sample prose
 link exact sources to exact destinations. Contradictions are withheld after
 visualization enrichment; unbound surfaces remain explicitly incomplete.

@@ -87,7 +87,8 @@ selection; they do not establish a claim. Construction indexes are not serialize
 The conservative two-ranking renderer stress (not a supported planner comparison),
 100-rows-per-table regression serializes to 241,380
 bytes, including 144,333 binding bytes with ordinary JSON encoding (previously
-1,516,865 binding bytes). The supported single 100-row rank through `execute_plan` uses 124,293 total /
+1,516,865 binding bytes). The ordinary points summary through `StatsAgent` uses 8,248 total / 2,869
+binding bytes. The supported single 100-row rank through `execute_plan` uses 124,293 total /
 72,175 binding bytes. The two-player summary fixture uses 2,352 binding bytes.
 Regression bounds are 500,000 total/400,000 binding bytes for ranking and 3,000
 binding bytes for summary. These are regression bounds, not production truncation
