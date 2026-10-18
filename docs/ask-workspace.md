@@ -889,6 +889,15 @@ the explicit request anchor and disclosed; explicit user future ranges still
 require clarification. Windows beyond the newest supported archive retain source
 coverage warnings and do not establish complete coverage of later seasons.
 
+For a named player's dated points summary within the bounded supported
+single-period grammar, omitted aggregation means points per game. The visible assumptions disclose this choice; `query_plan.aggregation_policy`
+records its deterministic provenance and the model's original aggregation.
+Explicit totals stay totals, and explicit per-game requests are not labeled as
+implicit defaults. Player, dates, season and phase must match the validated
+request; unsupported extra conditions are not silently dropped. Zero points
+count as an observation; missing points do not become zero. See the
+[semantic contract](semantic-contract.md) for scope and sample semantics.
+
 Distribution buttons announce both the percentile or qualification status and
 the descriptive qualification note. Focused prose uses full statistic names such
 as three-pointers made and turnovers; metric tables keep their abbreviations.

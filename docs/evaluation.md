@@ -875,3 +875,11 @@ v2 capture exposed the provenance-label refusals summarized in the public
 is controlled testing, pending a fresh versioned provider measurement. Historical recordings,
 expected checks, source bytes and private measurement ledgers remain unchanged;
 new contract evidence requires separately versioned evaluation.
+
+The dated-points default regression uses independent JSON/SSE endpoint holdouts,
+including zero and missing values, explicit-total contradictions and unmatched
+conditions. Current replay of the original 14-call recording now passes 6/6
+cases after the descriptive-route and explicitly approved per-game default
+repairs. This is in-sample replay evidence; historical observed outcomes remain
+4/6, and the recording, public case expectations and frozen source are unchanged.
+It does not establish live-provider or warehouse accuracy.

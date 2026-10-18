@@ -451,6 +451,13 @@ def plan_question(
                     "invalid_plan", "Planner selected an unresolved player reference"
                 )
             query["player_name"] = references[handle]
+    from app.agent.dated_points_policy import dated_points_default
+
+    policy = dated_points_default(
+        question, plan, scope, replacements, references, selected_season
+    )
+    if policy:
+        plan["aggregation_policy"] = policy
     if plan["status"] in ("query", "compare"):
         if plan["status"] == "compare" and scope:
             ranges = re.findall(
@@ -553,4 +560,9 @@ def execute_plan(
         "status": result["status"],
         "resolved_queries": [asdict(q) for q in queries],
         "evidence": result,
+        **(
+            {"aggregation_policy": plan["aggregation_policy"]}
+            if "aggregation_policy" in plan
+            else {}
+        ),
     }

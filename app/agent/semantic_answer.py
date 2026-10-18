@@ -232,6 +232,11 @@ def render_answer(
         "route": "governed_metrics",
         "queries": result["resolved_queries"],
     }
+    if policy := result.get("aggregation_policy"):
+        payload["query_plan"]["aggregation_policy"] = policy
+        payload["assumptions"].append(
+            "Aggregation was not specified; using points per game (average over games with valid points)."
+        )
     names = {p["player_id"]: p["player_name"] for p in players}
     sections = (
         [("Current", evidence["current"]), ("Baseline", evidence["baseline"])]

@@ -207,6 +207,26 @@ not establish shooting ranking eligibility or statistical precision. See
 [Ask overview sample policy](pages.md#ask-overview-metrics-and-samples).
 
 
+Within a bounded supported single-period grammar, an explicitly named player's
+dated points summary defaults to **points per game** when aggregation is omitted.
+This policy accepts literal date
+ranges and supported calendar windows with compatible season, phase and venue.
+The decoded plan must match the requested identity, metric and scope before any
+literal-scope replacement. Absent optional date fields may inherit independently
+resolved literal scope; explicitly supplied conflicts or null dates are withheld.
+`derived_scope_fields` records inherited fields (including the contract phase
+default when absent). Unknown modifiers require clarification; explicit
+totals remain totals, and a contradictory planned average is withheld. Explicit
+averages, other metrics and other operations do not acquire this default.
+Missing identity/date follow-ups retain their existing interpretation.
+
+The unchanged arithmetic divides summed valid points by valid recorded
+appearances: zero is valid, missing points are excluded, and valid/observed game
+counts remain visible. Answers disclose the per-game default and publish
+`query_plan.aggregation_policy` with the policy version, deterministic source,
+reason, original/chosen aggregation, unit and request scope. Fully restated dated
+summaries use this policy even when the preceding request asked for totals.
+
 Broad overview windows up to 31 inclusive days use game-date chart buckets; longer
 windows use monthly averages. Grain is explicit in scope, charts and metric trend
 evidence. Named month/year and dated week scopes resolve deterministically; a
