@@ -926,6 +926,8 @@ and every other filter must exactly match the independently recognized scope.
 The unqualified breakdown uses `ResearchQuery`'s Regular Season default; a raw
 study phase of Both is its inherited study default and is normalized with the
 kind. An already-Regular Season raw phase also qualifies; Playoffs does not.
+Already-correct breakdown plans are untouched, including a model-authored Both
+phase; this correction does not normalize every research plan.
 Explicit phase language, additional dates/opponents/rest filters, study or causal
 language, multiple metrics/players, unknown or ambiguous identities, and other
 prefixes/suffixes fall outside this correction. No model prompt or schema changes.

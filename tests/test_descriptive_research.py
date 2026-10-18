@@ -284,3 +284,39 @@ def test_explicit_phase_or_study_language_stays_outside_grammar(
     )
     assert not payload.get("research")
     assert payload["ask_route"]["reason_code"] != "descriptive_kind_normalized"
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_missing_evidence_never_normalizes(setup, monkeypatch, transport):
+    from app.agent.semantics import SemanticError
+
+    client, planner, _, _ = setup
+    planner.result = plan()
+
+    def unavailable(*args):
+        raise SemanticError("unsupported_coverage", "No fixture coverage")
+
+    monkeypatch.setattr(research_ask, "load_research_evidence", unavailable)
+    payload = request(
+        client, "Research Morgan Fiction points at home in 2025-26", transport
+    )
+    assert payload["research_status"] == "unsupported"
+    assert payload["ask_route"]["reason_code"] != "descriptive_kind_normalized"
+    assert not payload.get("research")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_nonnull_pair_never_normalizes(setup, monkeypatch, transport):
+    client, planner, _, _ = setup
+    planner.result = {**plan(), "pair_id": "lebron-luka"}
+
+    def unexpected(*args):
+        raise AssertionError("A named pair must never enter descriptive normalization")
+
+    monkeypatch.setattr(research_ask, "descriptive_venue_scope", unexpected)
+    payload = request(
+        client, "Research Morgan Fiction points at home in 2025-26", transport
+    )
+    assert payload["research_status"] == "unsupported"
+    assert payload["ask_route"]["reason_code"] != "descriptive_kind_normalized"
+    assert not payload.get("research")
