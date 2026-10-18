@@ -298,3 +298,129 @@ test("actual endpoint multi-answer and multi-tab history survives real browser s
   ).toEqual([2, 2, 2]);
   await second.close();
 });
+
+test("drawer axes, point glyphs, opportunities and selection text reject independent mutations", async ({
+  page,
+}) => {
+  await setup(page);
+  const outcomes = await page.evaluate(() => {
+    const t = claimTest,
+      options = { key: "pts", view: "across_games" },
+      bad = [];
+    const reset = () => paintClaim("drawer", options),
+      verify = () =>
+        t.a.validateRenderedClaims(t.root, t.payload, t.root.uiClaimSession)
+          .status;
+    reset();
+    t.root.querySelector(".distribution-chart > text").textContent = "999";
+    bad.push(verify());
+    reset();
+    t.root
+      .querySelector(".distribution-chart > line:last-of-type")
+      .setAttribute("x1", "999");
+    bad.push(verify());
+    reset();
+    t.root
+      .querySelector(".distribution-chart > rect")
+      .setAttribute("width", "999");
+    bad.push(verify());
+    reset();
+    t.root.querySelector("circle").setAttribute("cx", "999");
+    bad.push(verify());
+    reset();
+    t.root
+      .querySelector("circle")
+      .setAttribute("aria-label", "2025-01-01: 999 points");
+    bad.push(verify());
+    reset();
+    t.root.querySelector("circle title").textContent = "wrong point";
+    bad.push(verify());
+    reset();
+    t.root.querySelector(".drawer-note").textContent = "0 observations";
+    bad.push(verify());
+    reset();
+    t.root.querySelector("circle").setAttribute("data-game-index", "1");
+    bad.push(verify());
+    return bad;
+  });
+  expect(outcomes).toEqual(Array(8).fill("invalid"));
+  await page.evaluate(() => {
+    paintClaim();
+    const t = claimTest;
+    t.d.bindMetricDrawer(t.root, t.p.overviewPresentation(t.overview));
+  });
+  await page.locator('[data-metric-distribution="pts"]').click();
+  const d = page.locator("dialog");
+  await d.locator('[data-distribution-view="across_games"]').click();
+  await d.locator("circle").first().focus();
+  expect(await d.evaluate((d) => d.uiClaimReport.errors)).toEqual([]);
+  await expect(d.locator("[data-game-point-info]")).toContainText("0.0");
+  const invalid = await d.evaluate(async (d) => {
+    d.querySelector("[data-game-point-info]").textContent = "999";
+    return claimTest.a.validateRenderedClaims(
+      d,
+      claimTest.overview,
+      d.uiClaimSession,
+    ).status;
+  });
+  expect(invalid).toBe("invalid");
+});
+test("game-variation point positions, labels and peak emphasis are evidence-bound", async ({
+  page,
+}) => {
+  await setup(page);
+  const outcomes = await page.evaluate(() => {
+    const t = claimTest,
+      bad = [];
+    for (const attr of ["cx", "cy", "r", "fill"]) {
+      paintClaim();
+      t.root
+        .querySelector("[data-game-variation] circle")
+        .setAttribute(attr, attr === "fill" ? "red" : "999");
+      bad.push(
+        t.a.validateRenderedClaims(t.root, t.payload, t.root.uiClaimSession)
+          .status,
+      );
+    }
+    paintClaim();
+    t.root.querySelector("[data-game-variation] circle title").textContent =
+      "Wrong date and points";
+    bad.push(
+      t.a.validateRenderedClaims(t.root, t.payload, t.root.uiClaimSession)
+        .status,
+    );
+    return bad;
+  });
+  expect(outcomes).toEqual(Array(5).fill("invalid"));
+});
+test("qualification opportunities preserve canonical attempt threshold and zero count", async ({
+  page,
+}) => {
+  await setup(page);
+  const result = await page.evaluate(() => {
+    const t = claimTest,
+      m = t.overview.semantic_evidence.metrics[0];
+    m.percentile_label = "Low attempts";
+    m.percentile_policy = { attempt_field: "fga", min_attempts: 100 };
+    m.components = { fga: 0 };
+    m.distribution.among_players.focal_in_cohort = false;
+    const report = paintClaim("drawer", { key: "pts", view: "among_players" });
+    const text = t.root.querySelector(".drawer-warning").textContent;
+    t.root.querySelector(".drawer-warning").textContent = text.replace(
+      "0 attempts",
+      "100 attempts",
+    );
+    return {
+      report,
+      text,
+      invalid: t.a.validateRenderedClaims(
+        t.root,
+        t.payload,
+        t.root.uiClaimSession,
+      ).status,
+    };
+  });
+  expect(result.report.errors).toEqual([]);
+  expect(result.text).toContain("0 attempts; 100 required");
+  expect(result.invalid).toBe("invalid");
+});

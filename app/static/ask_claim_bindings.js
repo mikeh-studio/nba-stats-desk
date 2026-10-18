@@ -75,11 +75,11 @@ export function prepareClaimEvidence(payload) {
 export const UI_CLAIM_GAPS = {
   overview: [
     "Generated prose and takeaways",
-    "Game-variation point geometry/tooltips, overview time-series, profiles, sample prose",
+    "Overview time-series, profiles, generated sample prose",
   ],
   comparison: ["Generated prose, profile cards, methodology prose"],
   drawer: [
-    "Histogram axis labels and marker/quartile geometry; point tooltips and selection detail; qualification/attempt prose; sample-note prose",
+    "Freeform percentile methodology note and legacy missing sample-count fields; data-source truth and statistical methodology remain separate from presentation fidelity",
   ],
   legacy: [
     "Other routes, generic charts/tables, comparison explorer, standalone Research",
@@ -227,7 +227,9 @@ export function formatClaim(v, f, c = {}) {
     case "drawer-value":
       return fmt(v, m.unit);
     case "drawer-count":
-      return String(finite(v) && v >= 0 ? v : 0);
+      if (!finite(v) || v < 0)
+        throw Error("Unavailable canonical sample count");
+      return String(v);
     case "drawer-quartiles":
       return finite(v)
         ? `${fmt(v, m.unit)} – ${fmt(c.summary.q3, m.unit)}`
@@ -238,6 +240,59 @@ export function formatClaim(v, f, c = {}) {
         : finite(v)
           ? `${ordinal(v)} percentile`
           : m.percentile_label || "Not ranked";
+    case "drawer-axis":
+      return c.coordinate === "count"
+        ? String(c.max)
+        : fmt(c.coordinate === "lo" ? c.lo : c.hi, m.unit);
+    case "drawer-chart-label":
+      return `${m.display_label || m.label} ${c.view === "among_players" ? "distribution of qualified player values" : "individual game values; shaded middle 50 percent"}`;
+    case "drawer-position": {
+      if (!finite(v) || (c.coordinate === "width" && !finite(c.q3)))
+        throw Error("Unavailable canonical chart position");
+      const x = (n) => 24 + ((n - c.lo) / (c.hi - c.lo)) * 312;
+      return String(
+        c.coordinate === "width" ? Math.max(1, x(c.q3) - x(v)) : x(v),
+      );
+    }
+    case "point-index":
+      return String(c.index);
+    case "drawer-point-y":
+      return String(183 + (c.index % 3) * 4);
+    case "drawer-point-label": {
+      const opportunity =
+        m.key === "ts_pct" &&
+        v.components &&
+        finite(v.components.fga) &&
+        finite(v.components.fta)
+          ? `${v.components.fga} FGA, ${v.components.fta} FTA`
+          : finite(v.attempts)
+            ? `${v.attempts} ${{ fga: "FGA", fta: "FTA", fg3a: "3PA" }[v.attempt_field] || v.attempt_field || "attempts"}`
+            : "";
+      return `${v.date}${c.separator === "title" ? " · " : ": "}${fmt(v.value, m.unit)}${opportunity ? (c.separator === "title" ? " · " : ", ") + opportunity : ""}`;
+    }
+    case "drawer-option":
+      return `${v.date} · ${fmt(v.value, m.unit)}`;
+    case "drawer-sample": {
+      const count = (n) => (finite(n) && n >= 0 ? n : 0);
+      return `${count(v.observed_games)} observed appearances; ${count(v.missing_games)} with missing components; ${count(v.zero_denominator_games)} with zero denominators omitted.${v.points_truncated ? " Showing the latest " + count(v.displayed_games) + " dots; summaries use all valid games." : ""} ${m.unit === "percent" ? "Game percentage medians differ from the pooled period percentage. Hover or focus a dot for its attempts." : "Zero-event games remain observations."}`;
+    }
+    case "drawer-qualification": {
+      const policy = v.percentile_policy || {},
+        attempts = policy.attempt_field
+          ? v.components?.[policy.attempt_field]
+          : null;
+      return `${v.percentile_label || "Not qualified"}${finite(attempts) && policy.min_attempts ? " · " + attempts + " attempts; " + policy.min_attempts + " required" : ""}. ${finite(v.value) && v.distribution?.among_players?.summary?.n ? "Not included in the qualified cohort; the dashed marker shows your recorded value without a rank." : "The period value or qualified cohort is unavailable; no marker comparison is shown."}`;
+    }
+    case "variation-point-label":
+      return `${v.date}${v.opponent ? " vs " + v.opponent : ""}: ${v.value} ${formatClaim(c.metricKey, "abbreviation", { metric: { label: c.label } })}`;
+    case "variation-point-x":
+      return String(
+        28 + (440 * (Date.parse(v) - c.low)) / (c.high - c.low || 1),
+      );
+    case "variation-point-radius":
+      return String(v === c.max ? 4 : 2.5);
+    case "variation-point-color":
+      return v === c.max ? "#e7b45b" : "currentColor";
     case "bin-title":
       return `${fmt(v.start, m.unit)} to ${fmt(v.end, m.unit)}: ${v.count} ${c.view === "among_players" ? "qualified players" : "valid games"}`;
     case "bin-geometry": {
@@ -550,6 +605,20 @@ export function claimSchema(payload, component, options = {}) {
       "drawer-quartiles",
       c,
     );
+    if (
+      view === "across_games" &&
+      ["observed_games", "missing_games", "zero_denominator_games"].every(
+        (k) => finite(d[k]) && d[k] >= 0,
+      ) &&
+      (!d.points_truncated ||
+        (finite(d.displayed_games) && d.displayed_games >= 0))
+    )
+      add(".drawer-note", p.concat("distribution", view), "drawer-sample", c);
+    else if (
+      view !== "across_games" &&
+      !m.distribution?.among_players?.focal_in_cohort
+    )
+      add(".drawer-warning", p, "drawer-qualification", c);
     const bins = (d.bins || [])
       .map((b, i) => ({ b, i }))
       .filter(
@@ -569,6 +638,102 @@ export function claimSchema(payload, component, options = {}) {
       if (hi === lo) {
         lo -= 0.5;
         hi += 0.5;
+      }
+      const geometry = { ...c, lo, hi, max };
+      add(
+        ".distribution-chart",
+        p.concat("label"),
+        "drawer-chart-label",
+        c,
+        "aria-label",
+      );
+      ["count", "lo", "hi"].forEach((coordinate, axis) =>
+        add(
+          `.distribution-chart > text:nth-of-type(${axis + 1})`,
+          dp,
+          "drawer-axis",
+          { ...geometry, coordinate },
+        ),
+      );
+      if (finite(marker)) {
+        const mp =
+          view === "among_players" ? p.concat("value") : dp.concat("median");
+        ["x1", "x2"].forEach((attribute) =>
+          add(
+            ".distribution-chart > line:last-of-type",
+            mp,
+            "drawer-position",
+            geometry,
+            attribute,
+          ),
+        );
+      }
+      if (view === "across_games") {
+        add(
+          ".distribution-chart > rect:first-of-type",
+          dp.concat("q1"),
+          "drawer-position",
+          geometry,
+          "x",
+        );
+        add(
+          ".distribution-chart > rect:first-of-type",
+          dp.concat("q1"),
+          "drawer-position",
+          { ...geometry, q3: s.q3, coordinate: "width" },
+          "width",
+        );
+        const points = (d.points || [])
+          .map((point, index) => ({ point, index }))
+          .filter(({ point }) => finite(point.value));
+        points.forEach(({ point, index }, shown) => {
+          const pp = p.concat("distribution", view, "points", index),
+            selector = `.distribution-chart > circle:nth-of-type(${shown + 1})`;
+          add(selector, pp.concat("value"), "drawer-position", geometry, "cx");
+          add(
+            selector,
+            pp,
+            "point-index",
+            { ...c, index: shown },
+            "data-game-index",
+          );
+          add(
+            `[data-game-select] > option:nth-child(${shown + 2})`,
+            pp,
+            "point-index",
+            { ...c, index: shown },
+            "value",
+          );
+          add(
+            selector,
+            pp.concat("value"),
+            "drawer-point-y",
+            { ...c, index: shown },
+            "cy",
+          );
+          add(
+            selector,
+            pp,
+            "drawer-point-label",
+            { ...c, separator: "aria" },
+            "aria-label",
+          );
+          add(`${selector} > title`, pp, "drawer-point-label", {
+            ...c,
+            separator: "title",
+          });
+          add(
+            `[data-game-select] > option:nth-child(${shown + 2})`,
+            pp,
+            "drawer-option",
+            c,
+          );
+          if (options.selectedPoint === shown)
+            add("[data-game-point-info]", pp, "drawer-point-label", {
+              ...c,
+              separator: "aria",
+            });
+        });
       }
       bins.forEach(({ b, i }, bi) => {
         const bp = p.concat("distribution", view, "bins", i),
@@ -632,6 +797,59 @@ export function claimSchema(payload, component, options = {}) {
         const sp = base.concat("insights", vi, "game_variation", "summary"),
           r = "[data-game-variation]",
           c = { min: stats.min, max: stats.max, q3: stats.q3 };
+        const points = games.points
+            .map((point, index) => ({ point, index }))
+            .filter(
+              ({ point }) =>
+                finite(point.value) && Number.isFinite(Date.parse(point.date)),
+            ),
+          times = points.map(({ point }) => Date.parse(point.date)),
+          low = Math.min(...times),
+          high = Math.max(...times);
+        points.forEach(({ point, index }, shown) => {
+          const pp = base.concat(
+              "metrics",
+              mi,
+              "distribution",
+              "across_games",
+              "points",
+              index,
+            ),
+            sel = `${r} svg > circle:nth-of-type(${shown + 1})`,
+            context = { ...c, low, high, metricKey: m.key, label: m.label };
+          add(`${sel} > title`, pp, "variation-point-label", context);
+          add(sel, pp.concat("date"), "variation-point-x", context, "cx");
+          add(
+            sel,
+            pp.concat("value"),
+            "variation-geometry",
+            { ...context, coordinate: "y" },
+            "cy",
+          );
+          add(sel, pp.concat("value"), "variation-point-radius", context, "r");
+          add(
+            sel,
+            pp.concat("value"),
+            "variation-point-color",
+            context,
+            "fill",
+          );
+        });
+        [0, points.length - 1].forEach((shown, label) =>
+          add(
+            `${r} svg > text:nth-of-type(${label + 1})`,
+            base.concat(
+              "metrics",
+              mi,
+              "distribution",
+              "across_games",
+              "points",
+              points[shown].index,
+              "date",
+            ),
+            "text",
+          ),
+        );
         add(`${r} svg > text:nth-of-type(3)`, sp.concat("max"), "text");
         add(`${r} svg > text:nth-of-type(4)`, sp.concat("min"), "text");
         add(
@@ -678,6 +896,12 @@ export function expectedClaim(payload, record) {
       (p) => p.player.player_name,
     );
   return formatClaim(claimSource(payload, record.source), record.format, c);
+}
+// One pass over targets; duplicate detection must not scan all IDs for each claim.
+export function claimTargetCounts(ids) {
+  const counts = new Map();
+  for (const id of ids) counts.set(id, (counts.get(id) || 0) + 1);
+  return counts;
 }
 export function validateRenderedClaims(root, payload, session) {
   const errors = [];
@@ -729,11 +953,12 @@ export function validateRenderedClaims(root, payload, session) {
       n.getAttribute("data-ui-claim").split(" "),
     ),
     wanted = new Set(schema.map((r) => r.id));
-  for (const id of ids)
+  const counts = claimTargetCounts(ids);
+  for (const id of counts.keys())
     if (!wanted.has(id))
       errors.push({ id, reason: "Unexpected claim destination" });
   for (const id of wanted)
-    if (ids.filter((x) => x === id).length !== 1)
+    if (counts.get(id) !== 1)
       errors.push({ id, reason: "Missing or duplicate claim destination" });
   return {
     version: UI_CLAIM_VERSION,

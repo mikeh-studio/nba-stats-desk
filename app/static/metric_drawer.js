@@ -61,7 +61,10 @@ export function bindMetricDrawer(root, overview) {
         if (overview.claimPayload && bindRenderedClaims(dialog,overview.claimPayload,"drawer",{key:metric.key,view},overview.claimEvidence).status === "invalid") return;
         dialog.querySelector('[data-drawer-close]').addEventListener('click',()=>dialog.close());
         dialog.querySelectorAll('[data-game-point]').forEach(point=>{
-          const reveal=()=>{ dialog.querySelector('[data-game-point-info]').textContent=point.getAttribute('aria-label'); };
+          const reveal=()=>{
+            dialog.querySelector('[data-game-point-info]').textContent=point.getAttribute('aria-label');
+            if(overview.claimPayload)bindRenderedClaims(dialog,overview.claimPayload,"drawer",{key:metric.key,view,selectedPoint:Number(point.dataset.gameIndex)},overview.claimEvidence);
+          };
           ['mouseenter','focus','click'].forEach(event=>point.addEventListener(event,reveal));
         });
         dialog.querySelector('[data-game-select]')?.addEventListener('change',event=>{
