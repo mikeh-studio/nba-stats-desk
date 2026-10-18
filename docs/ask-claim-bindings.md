@@ -33,8 +33,8 @@ structured destinations, not every surface in that route.
 | league_baseline | `reference_ask.render_reference` | Player/league values and sample counts mapped with distinct identities and scopes; narrative difference and scope assumptions remain gaps |
 | award | `semantic_answer.SemanticAsk.answer`, `award_lookup` | Composes award identity with governed metric/overview results; child mappings retained, award intro/catalog-year text remains gap |
 | player_split | `player_splits.answer_split` | Phase, venue, recent/prior, before/after values and differences mapped; side headers, metric labels, coverage pairs and scope assumptions mapped; main narrative remains a gap |
-| player_comparison | `player_comparison.build_comparison`, `comparison_detail` | Core/additional scorecards, impact, profile, narrative and chart UI; canonical aggregates exist, DOM binding work tracked separately |
-| overview | `performance_overview.build_overview`, `overview_*` helpers | Current/prior metrics, shooting/per-36, percentile/peer position, monthly/daily charts, variation, insights and profiles; canonical aggregates exist, DOM binding work tracked separately |
+| player_comparison | `player_comparison.build_comparison`, `comparison_detail` | Core/additional scorecard values, percentiles, differences and comparison chart labels/geometry mapped to final DOM; generated prose, profile cards and methodology prose remain gaps |
+| overview | `performance_overview.build_overview`, `overview_*` helpers | Primary/additional values, changes, percentile/peer position, cohort summaries and variation mapped to final DOM; generated prose/takeaways, time-series, profiles and generated sample prose remain gaps |
 | metrics | `semantic_answer.render_answer`, `add_leaderboard_reference` | Summary/rank/percentile/current-baseline table values/identities/counts mapped; game-log date/game/team/phase/value and chart x/y mapped; contextual reference cells/gaps and exact scope/cohort/provenance/missing-sample/numerator-denominator assumptions mapped; table metric/date/phase titles and game-log chart identity/axis/series labels mapped; main narrative remains a gap |
 | legacy_repository | `service._answer_from_evidence`, `_generate_answer`, compatibility tool loop | Preserved; arbitrary model-authored prose/tables are unbound. Allowlisted tools alone do not establish exact presentation support |
 
@@ -57,6 +57,22 @@ A browser that reads a canonical aggregate directly still needs an independently
 checked source-to-DOM mapping. A source JSON path mapped to itself is not such a
 mapping. Canonical prose copied into a paragraph can establish transport fidelity
 but cannot independently establish the statistical semantics of its numbers.
+
+The separate `ask_ui_claim_bindings/1` DOM contract links canonical snapshots to
+exact leaf text and attributes. Overview/comparison tables and comparison chart
+labels/geometry are mapped. Metric drawers map distribution summaries, point/bin
+geometry, tooltips, axes and available sample counts; variation point/summary
+geometry and peak details are mapped. Missing legacy sample fields and freeform
+methodology notes remain gaps. DOM validation rejects missing/duplicate targets,
+wrong source/metric/identity/scope and changed presentation, withholding the
+contradicted surface. It always reports remaining gaps rather than universal
+verification. Snapshots/descriptors are transient DOM-session data, not extra
+persisted response metadata. Generic charts/tables and research explorer still
+have no DOM contract, even where backend table cells have exact bindings.
+
+The approved omitted-aggregation policy disclosure remains an unbound policy
+label. Its canonical query-plan policy determines the offset of following exact
+scope/sample assumptions; JSON/SSE regressions check this combined behavior.
 
 ## Limits
 

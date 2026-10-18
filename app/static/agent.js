@@ -7,7 +7,7 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261015-overview-recovery-v7";
+} from "./ask_comparison.js?v=20261018-claim-bindings-v1";
 import {
   normalizeTabs,
   openTab,
@@ -21,8 +21,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261015-overview-recovery-v7";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261015-overview-recovery-v7";
+} from "./ask_presentation.js?v=20261018-claim-bindings-v1";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261018-claim-bindings-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
