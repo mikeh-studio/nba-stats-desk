@@ -555,10 +555,12 @@ def frozen_study_table(payload, study):
 
 
 def leaderboard_reference(payload):
+    from app.agent.claims import expand_path
+
     payload["claim_bindings"]["claims"] = [
         c
         for c in payload["claim_bindings"]["claims"]
-        if c["destination"] != ["tables", 0, "title"]
+        if expand_path(payload["claim_bindings"], c["d"]) != ["tables", 0, "title"]
     ]
     e, ref = payload["semantic_evidence"], payload["reference_evidence"]
     base = ["reference_evidence"]

@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from app.agent.claims import finalize, transform, validate
+from app.agent.claims import expand_path, finalize, transform, validate
 from app.agent.service import StatsAgent
 from app.research import answer_payload
 from tests.test_semantic_migration import Model, Warehouse, settings
@@ -51,7 +51,7 @@ def value_claim(payload):
     return next(
         c
         for c in payload["claim_bindings"]["claims"]
-        if c["destination"] == ["tables", 0, "rows", 0, 2]
+        if expand_path(payload["claim_bindings"], c["d"]) == ["tables", 0, "rows", 0, 2]
     )
 
 
@@ -98,9 +98,16 @@ def test_independent_mutations_fail_at_a_specific_destination(mutation):
     elif mutation == "same_value_identity_swap":
         p["tables"][0]["rows"].reverse()
     elif mutation == "same_value_source_swap":
-        c["sources"][0][2] = 1
+        c["s"] = next(
+            other["s"]
+            for other in p["claim_bindings"]["claims"]
+            if expand_path(p["claim_bindings"], other["d"])
+            == ["tables", 0, "rows", 1, 2]
+        )
     elif mutation in ("metric", "unit"):
-        c[mutation] = "ast" if mutation == "metric" else "percent"
+        p["claim_bindings"]["descriptors"][c["m"]][0 if mutation == "metric" else 1] = (
+            "ast" if mutation == "metric" else "percent"
+        )
     elif mutation in ("scope", "phase"):
         p["research"]["scope"]["end" if mutation == "scope" else "phase"] = (
             "2024-11-03" if mutation == "scope" else "Playoffs"
@@ -108,22 +115,27 @@ def test_independent_mutations_fail_at_a_specific_destination(mutation):
     elif mutation == "source":
         p["research"]["players"][0]["metrics"][0]["result"]["value"] = 99
     elif mutation == "hash":
-        c["evidence_sha256"]["research"] = "0" * 64
+        p["claim_bindings"]["evidence_sha256"]["research"] = "0" * 64
     elif mutation == "missing_hash":
-        c["evidence_sha256"].clear()
+        p["claim_bindings"]["evidence_sha256"].clear()
     elif mutation == "transform":
-        c["transform"] = {"op": "template", "template": "5.0"}
+        p["claim_bindings"]["transforms"][c["t"]] = {
+            "op": "template",
+            "template": "5.0",
+        }
     elif mutation == "duplicate":
         p["claim_bindings"]["claims"].append(copy.deepcopy(c))
     elif mutation == "unsafe_path":
-        c["sources"][0] = ["research", "__class__"]
+        p["claim_bindings"]["paths"][c["s"][0]][1] = "__class__"
     elif mutation == "wrong_type":
         p["tables"][0]["rows"][0][7] = False
     elif mutation == "label":
         p["tables"][0]["rows"][0][1] = "AST"
     report = validate(p)
     assert report["status"] == "invalid"
-    assert report["errors"] and all(e["destination"] for e in report["errors"])
+    assert report["errors"]
+    if mutation not in {"scope", "phase", "source", "hash", "unsafe_path"}:
+        assert any(e["destination"] for e in report["errors"])
     safe = finalize(p)
     assert safe["status"] == "error" and not safe["tables"]
 
@@ -429,7 +441,7 @@ def test_appearance_prose_dates_names_and_counts_bind_without_numeric_search():
         )
 
 
-def maximum_rank_payload():
+def maximum_rank_payload(*, single_query=False):
     from dataclasses import asdict
 
     from app.agent.semantic_answer import render_answer
@@ -464,6 +476,30 @@ def maximum_rank_payload():
         {("2024-25", "Regular Season"): "2024-11-05"},
         complete=True,
     )
+    if single_query:
+        from app.agent.semantic_planner import execute_plan
+
+        executed = execute_plan(
+            {
+                "status": "query",
+                "message": "",
+                "queries": [
+                    {
+                        "metric": "pts",
+                        "season": "2024-25",
+                        "aggregation": "average",
+                        "operation": "rank",
+                        "limit": 100,
+                        "player_name": None,
+                    }
+                ],
+            },
+            evidence,
+            players,
+        )
+        assert executed["status"] == "ok"
+        return finalize(render_answer(executed, players))
+    # Conservative renderer stress only: planner comparison rejects two ranks.
     queries = [
         Query(metric, "2024-25", "average", operation="rank", limit=100)
         for metric in ("pts", "ast")
@@ -498,7 +534,7 @@ def test_maximum_rank_payload_size_terminal_delivery_and_local_history(tmp_path)
     serialized = json.dumps(p, ensure_ascii=False).encode()
     metadata = json.dumps(p["claim_bindings"], ensure_ascii=False).encode()
     # A regression budget, not a new production truncation or request limit.
-    assert len(serialized) < 2_000_000 and len(metadata) < 1_700_000
+    assert len(serialized) < 500_000 and len(metadata) < 400_000
 
     async def deliver():
         delivery = Delivery(max_bytes=1650, max_events=24)
@@ -521,3 +557,68 @@ def test_maximum_rank_payload_size_terminal_delivery_and_local_history(tmp_path)
     restored = read_history(path)["conversations"][0]["turns"][0]["payload"]
     assert restored == json.loads(serialized)
     assert validate(restored)["errors"] == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        "boolean_ref",
+        "dangling_ref",
+        "cycle",
+        "forward_parent",
+        "boolean_parent",
+        "duplicate_path",
+        "duplicate_descriptor",
+        "duplicate_transform",
+        "extra_registry",
+        "malformed_claim",
+        "boolean_token",
+    ],
+)
+def test_compact_registry_mutations_fail_after_json_roundtrip(mutation):
+    payload = json.loads(json.dumps(literal_breakdown()))
+    assert validate(payload)["errors"] == []
+    manifest = payload["claim_bindings"]
+    claim = value_claim(payload)
+    if mutation == "boolean_ref":
+        claim["i"] = False
+    elif mutation == "dangling_ref":
+        claim["m"] = len(manifest["descriptors"])
+    elif mutation == "cycle":
+        manifest["paths"][0][0] = 0
+    elif mutation == "forward_parent":
+        manifest["paths"][0][0] = 1
+    elif mutation == "boolean_parent":
+        manifest["paths"][1][0] = False
+    elif mutation == "boolean_token":
+        manifest["paths"][0][1] = False
+    elif mutation.startswith("duplicate_"):
+        registry = {
+            "duplicate_path": "paths",
+            "duplicate_descriptor": "descriptors",
+            "duplicate_transform": "transforms",
+        }[mutation]
+        manifest[registry].append(copy.deepcopy(manifest[registry][0]))
+    elif mutation == "extra_registry":
+        manifest["unknown"] = []
+    elif mutation == "malformed_claim":
+        claim["expected_display"] = 5.0
+    assert validate(payload)["status"] == "invalid"
+    assert finalize(payload)["status"] == "error"
+
+
+def test_small_summary_compact_metadata_budget():
+    payload = literal_breakdown()
+    assert len(json.dumps(payload["claim_bindings"]).encode()) < 3000
+    restored = json.loads(json.dumps(payload))
+    assert validate(restored)["errors"] == []
+
+
+def test_supported_single_rank_plan_size_and_roundtrip():
+    payload = maximum_rank_payload(single_query=True)
+    assert payload["status"] == "ok"
+    assert len(payload["tables"]) == 1
+    assert len(payload["tables"][0]["rows"]) == 100
+    assert len(json.dumps(payload).encode()) < 150_000
+    assert len(json.dumps(payload["claim_bindings"]).encode()) < 100_000
+    assert validate(json.loads(json.dumps(payload)))["errors"] == []

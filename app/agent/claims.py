@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from copy import deepcopy
 from typing import Any
 
-VERSION = "ask_claim_bindings/1"
+VERSION = "ask_claim_bindings/2"
 EVIDENCE_ROOTS = {
     "semantic_evidence",
     "reference_evidence",
@@ -254,6 +254,96 @@ def descriptor(payload, sources, context):
     raise ValueError("No semantic definition for source field")
 
 
+class _Manifest(dict):
+    """Construction-only indexes are attributes, never serialized proof fields."""
+
+    def __init__(self):
+        super().__init__(
+            version=VERSION,
+            claims=[],
+            paths=[],
+            descriptors=[],
+            transforms=[],
+            evidence_sha256={},
+        )
+        self.indexes: dict[str, dict[str, int]] = {}
+
+
+def intern(manifest, registry, value):
+    entries = manifest[registry]
+    if isinstance(manifest, _Manifest):
+        index = manifest.indexes.setdefault(registry, {})
+        key = json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        if key in index:
+            return index[key]
+        index[key] = len(entries)
+    else:
+        # Rehydrated manifests are ordinary JSON dictionaries.
+        try:
+            return entries.index(value)
+        except ValueError:
+            pass
+    entries.append(deepcopy(value))
+    return len(entries) - 1
+
+
+def path_ref(manifest, path):
+    parent = -1
+    for key in path:
+        parent = intern(manifest, "paths", [parent, key])
+    return parent
+
+
+def dereference(entries, reference):
+    if type(reference) is not int or not 0 <= reference < len(entries):
+        raise ValueError("Invalid registry reference")
+    return entries[reference]
+
+
+def expand_path(manifest, reference):
+    result = []
+    while True:
+        parent, key = dereference(manifest["paths"], reference)
+        result.append(key)
+        if len(result) > 32:
+            raise ValueError("Path too deep")
+        if type(parent) is not int or parent < -1 or parent >= reference:
+            raise ValueError("Invalid path parent")
+        if parent == -1:
+            return list(reversed(result))
+        reference = parent
+
+
+def expand_claim(manifest, claim):
+    """Inspectable expanded declaration; no renderer or expected value is called."""
+    if not isinstance(claim, dict) or set(claim) != {
+        "d",
+        "s",
+        "i",
+        "q",
+        "c",
+        "t",
+        "m",
+        "o",
+    }:
+        raise ValueError("Invalid claim fields")
+    for field in ("s", "c", "o"):
+        if not isinstance(claim[field], list) or len(claim[field]) > 64:
+            raise ValueError("Invalid reference list")
+    metric, unit = dereference(manifest["descriptors"], claim["m"])
+    return {
+        "destination": expand_path(manifest, claim["d"]),
+        "sources": [expand_path(manifest, ref) for ref in claim["s"]],
+        "identity": expand_path(manifest, claim["i"]),
+        "scope": expand_path(manifest, claim["q"]),
+        "context": [expand_path(manifest, ref) for ref in claim["c"]],
+        "transform": dereference(manifest["transforms"], claim["t"]),
+        "metric": metric,
+        "unit": unit,
+        "operands": [dereference(manifest["descriptors"], ref) for ref in claim["o"]],
+    }
+
+
 def bind(
     payload: dict,
     *,
@@ -266,40 +356,95 @@ def bind(
     spec: dict | None = None,
     context: Sequence[list] = (),
 ) -> None:
-    """Register a relationship known at the renderer, before final enrichment."""
-    for path in [*sources, identity, scope, *context]:
+    """Intern exact source coordinates and canonical anchors once per payload."""
+    paths = [*sources, identity, scope, *context]
+    for path in paths:
         if path[0] not in EVIDENCE_ROOTS:
             raise ValueError("Not public route evidence")
-    metric, unit = descriptor(payload, sources, context)
-    manifest = payload.setdefault("claim_bindings", {"version": VERSION, "claims": []})
-    paths = [*sources, identity, scope, *context]
-    roots = {p[0] for p in paths}
-    hashes = manifest.setdefault("evidence_sha256", {})
-    for root in roots:
-        if root not in hashes:
-            hashes[root] = digest(payload[root])
+    manifest = payload.setdefault("claim_bindings", _Manifest())
+    for root in {path[0] for path in paths}:
+        if root not in manifest["evidence_sha256"]:
+            manifest["evidence_sha256"][root] = digest(payload[root])
     manifest["claims"].append(
         {
-            "sources": deepcopy(sources),
-            "destination": list(destination),
-            "metric": metric,
-            "unit": unit,
-            "operands": [
-                dict(zip(("metric", "unit"), descriptor(payload, [path], context)))
+            "d": path_ref(manifest, destination),
+            "s": [path_ref(manifest, path) for path in sources],
+            "i": path_ref(manifest, identity),
+            "q": path_ref(manifest, scope),
+            "c": [path_ref(manifest, path) for path in context],
+            "t": intern(manifest, "transforms", spec or {"op": "identity"}),
+            "m": intern(
+                manifest, "descriptors", list(descriptor(payload, sources, context))
+            ),
+            "o": [
+                intern(
+                    manifest, "descriptors", list(descriptor(payload, [path], context))
+                )
                 for path in sources
             ],
-            "identity": {
-                "path": identity,
-                "value": deepcopy(resolve(payload, identity)),
-            },
-            "scope": {"path": scope, "value": deepcopy(resolve(payload, scope))},
-            "context": [
-                {"path": p, "sha256": digest(resolve(payload, p))} for p in context
-            ],
-            "evidence_sha256": {root: hashes[root] for root in roots},
-            "transform": spec or {"op": "identity"},
         }
     )
+
+
+def validate_registries(manifest):
+    if not isinstance(manifest, dict) or set(manifest) != {
+        "version",
+        "claims",
+        "paths",
+        "descriptors",
+        "transforms",
+        "evidence_sha256",
+    }:
+        raise ValueError("Malformed manifest")
+    if manifest["version"] != VERSION:
+        raise ValueError("Unsupported version")
+    if not isinstance(manifest["evidence_sha256"], dict):
+        raise ValueError("Invalid evidence digest registry")
+    for registry in ("paths", "descriptors", "transforms", "claims"):
+        entries = manifest[registry]
+        if not isinstance(entries, list) or len(entries) > 100_000:
+            raise ValueError("Invalid registry")
+        if registry != "claims" and len(
+            {json.dumps(item, sort_keys=True, allow_nan=False) for item in entries}
+        ) != len(entries):
+            raise ValueError("Duplicate registry entries")
+    for i, node in enumerate(manifest["paths"]):
+        if not isinstance(node, list) or len(node) != 2:
+            raise ValueError("Invalid path node")
+        parent, key = node
+        if type(parent) is not int or not -1 <= parent < i:
+            raise ValueError("Invalid path parent")
+        if not (
+            (type(key) is int and key >= 0)
+            or (
+                type(key) is str and key and not key.startswith("_") and len(key) <= 256
+            )
+        ):
+            raise ValueError("Invalid path component")
+        expand_path(manifest, i)
+    for item in manifest["descriptors"]:
+        if (
+            not isinstance(item, list)
+            or len(item) != 2
+            or not all(type(v) is str and 0 < len(v) <= 256 for v in item)
+        ):
+            raise ValueError("Invalid descriptor")
+    for item in manifest["transforms"]:
+        if not isinstance(item, dict) or not set(item) <= {
+            "op",
+            "template",
+            "formats",
+            "null",
+            "scale",
+            "digits",
+            "round",
+            "signed",
+            "normalize_zero",
+            "unsigned_zero",
+            "string",
+            "suffix",
+        }:
+            raise ValueError("Invalid transform registry")
 
 
 def leaves(value: Any, path: list):
@@ -320,82 +465,69 @@ def validate(payload: dict) -> dict:
     gap scanner reports all visible scalar fields, including identity labels;
     it never infers evidence links from equal numbers or strings.
     """
-    manifest = payload.get("claim_bindings", {})
+    manifest: Any = payload.get("claim_bindings")
     errors, covered = [], set()
-    if isinstance(manifest, dict) and manifest and manifest.get("version") != VERSION:
-        errors.append({"destination": [], "reason": "unsupported_version"})
-    if not isinstance(manifest, dict) or not isinstance(
-        manifest.get("claims", []), list
-    ):
-        return {
-            "version": VERSION,
-            "status": "invalid",
-            "errors": [{"destination": [], "reason": "malformed_manifest"}],
-            "unbound": [],
-            "bound_destinations": 0,
-        }
-    if manifest and set(manifest) != {"version", "claims", "evidence_sha256"}:
-        errors.append({"destination": [], "reason": "malformed_manifest_fields"})
-    hashes = {}
-    for claim in manifest.get("claims", []):
-        if not isinstance(claim, dict):
-            errors.append({"destination": [], "reason": "malformed_claim"})
-            continue
-        destination = claim.get("destination", [])
+    roots, claims = set(), []
+    if manifest is not None:
         try:
-            required = {
-                "sources",
-                "destination",
-                "metric",
-                "unit",
-                "identity",
-                "scope",
-                "context",
-                "evidence_sha256",
-                "transform",
-                "operands",
-            }
-            if set(claim) != required:
-                raise ValueError("Invalid claim fields")
+            validate_registries(manifest)
+            claims = manifest["claims"]
+            for root, expected in manifest["evidence_sha256"].items():
+                if (
+                    root not in EVIDENCE_ROOTS
+                    or type(expected) is not str
+                    or not re.fullmatch("[0-9a-f]{64}", expected)
+                ):
+                    raise ValueError("Invalid evidence digest")
+                if digest(payload[root]) != expected:
+                    raise ValueError("Evidence digest changed")
+        except (
+            ValueError,
+            TypeError,
+            KeyError,
+            IndexError,
+            OverflowError,
+            AttributeError,
+        ) as exc:
+            errors.append({"destination": [], "reason": str(exc)})
+            claims = []
+    for record in claims:
+        destination = []
+        try:
+            claim = expand_claim(manifest, record)
+            destination = claim["destination"]
             paths = [
                 *claim["sources"],
-                claim["identity"]["path"],
-                claim["scope"]["path"],
-                *[c["path"] for c in claim["context"]],
+                claim["identity"],
+                claim["scope"],
+                *claim["context"],
             ]
-            if set(claim["evidence_sha256"]) != {p[0] for p in paths}:
+            claim_roots = {path[0] for path in paths}
+            roots.update(claim_roots)
+            if not claim_roots <= set(manifest["evidence_sha256"]):
                 raise ValueError("Incomplete evidence digests")
             from app.agent.claim_rules import mapping, transformation
 
             if claim["transform"] != transformation(payload, destination):
                 raise ValueError("Transform contradicts presentation contract")
-            expected_mapping = mapping(payload, destination)
-            declared_mapping = (
+            if (
                 claim["sources"],
-                claim["identity"]["path"],
-                claim["scope"]["path"],
-                [c["path"] for c in claim["context"]],
-            )
-            if declared_mapping != expected_mapping:
+                claim["identity"],
+                claim["scope"],
+                claim["context"],
+            ) != mapping(payload, destination):
                 raise ValueError(
                     "Source path does not match presentation identity/metric/scope"
                 )
-            if descriptor(
-                payload, claim["sources"], [c["path"] for c in claim["context"]]
-            ) != (claim["metric"], claim["unit"]):
+            if descriptor(payload, claim["sources"], claim["context"]) != (
+                claim["metric"],
+                claim["unit"],
+            ):
                 raise ValueError("Metric/unit contradicts evidence")
-            expected_operands = [
-                dict(
-                    zip(
-                        ("metric", "unit"),
-                        descriptor(
-                            payload, [path], [c["path"] for c in claim["context"]]
-                        ),
-                    )
-                )
+            if claim["operands"] != [
+                list(descriptor(payload, [path], claim["context"]))
                 for path in claim["sources"]
-            ]
-            if claim["operands"] != expected_operands:
+            ]:
                 raise ValueError("Operand metric/unit contradicts evidence")
             key = tuple(destination)
             if key in covered:
@@ -405,25 +537,13 @@ def validate(payload: dict) -> dict:
                 and destination[0] != "semantic_evidence"
             ):
                 raise ValueError("Not a presentation destination")
-            for root, expected in claim["evidence_sha256"].items():
-                if manifest.get("evidence_sha256", {}).get(root) != expected:
-                    raise ValueError("Manifest evidence digest mismatch")
-                if root not in EVIDENCE_ROOTS:
-                    raise ValueError("Invalid evidence root")
-                if root not in hashes:
-                    hashes[root] = digest(payload[root])
-                if hashes[root] != expected:
-                    raise ValueError("Evidence digest changed")
-            for item in claim["context"]:
-                if digest(resolve(payload, item["path"])) != item["sha256"]:
-                    raise ValueError("Context changed")
-            for item in [claim["identity"], claim["scope"]]:
-                if resolve(payload, item["path"]) != item["value"]:
-                    raise ValueError("Identity/scope/context changed")
-            if not claim["metric"] or not claim["unit"]:
-                raise ValueError("Missing metric/unit")
+            # Anchors are exact coordinates into the hashed canonical root; no
+            # duplicate identity/scope snapshot or per-claim digest is necessary.
+            for path in [claim["identity"], claim["scope"], *claim["context"]]:
+                resolve(payload, path)
             expected = transform(
-                [resolve(payload, p) for p in claim["sources"]], claim["transform"]
+                [resolve(payload, path) for path in claim["sources"]],
+                claim["transform"],
             )
             actual = resolve(payload, destination)
             if actual != expected or type(actual) is not type(expected):
@@ -438,6 +558,10 @@ def validate(payload: dict) -> dict:
             AttributeError,
         ) as exc:
             errors.append({"destination": destination, "reason": str(exc)})
+    if claims and roots != set(manifest["evidence_sha256"]):
+        errors.append(
+            {"destination": [], "reason": "Surplus or missing evidence digests"}
+        )
     from app.agent.claim_contexts import guards
 
     for path, expected_label in guards(payload).items():
@@ -470,7 +594,11 @@ def validate(payload: dict) -> dict:
             )
     return {
         "version": VERSION,
-        "status": "invalid" if errors else "incomplete" if unbound else "complete",
+        "status": "invalid"
+        if errors
+        else "incomplete"
+        if unbound or not claims
+        else "complete",
         "bound_destinations": len(covered),
         "errors": errors,
         "unbound": unbound,

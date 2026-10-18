@@ -1,6 +1,6 @@
 # Ask evidence and presentation bindings
 
-The additive `ask_claim_bindings/1` contract names exact public evidence paths,
+The additive `ask_claim_bindings/2` contract names exact public evidence paths,
 identity, metric, unit, scope and presentation destinations. Fixed transformations
 render those sources; matching equal numbers is never a binding operation.
 Evidence digests identify content, not independent source accuracy. Existing
@@ -76,14 +76,23 @@ as statistical evidence. Appearance prose binds its entire deterministic templat
 to identities, counts, season, phase and date operands. Availability audit rows
 retain exact sorted source paths; imported labels are never matched by value.
 
-The synthetic two-ranking, 100-rows-per-table regression serializes to 1,613,912
-bytes, including 1,516,865 bytes of binding metadata using ordinary JSON encoding.
-The larger-than-supported research stress fixture (100 players, two metrics; the
-API accepts at most two players) uses 1,148,988 binding bytes. Tests cap the ranking
-fixture at 2,000,000 total bytes and 1,700,000 binding bytes to detect growth. These
-are regression bounds, not new production truncation limits. The existing SSE
-1,650-byte incremental queue budget is unchanged: its complete terminal event is
-separate and is delivered without truncation. Local JSONL history roundtrips the
-full payload with valid bindings. Browser storage remains subject to its existing
-quota and eviction policy; large metadata can consume that quota sooner. No
-claim is made that browser quota or terminal-response size is universally bounded.
+The v2 manifest interns paths as a prefix trie, metric/unit descriptors and
+fixed transforms. Claims reference exact destination/source paths and shared
+identity/scope/context anchors; each evidence root has one digest. Validation
+expands these references and applies the independent route rules. It rejects
+Boolean indexes, forward/cyclic or dangling references, duplicate registry entries,
+unsafe paths and extra fields. Valid unused prefix nodes may remain after chart
+selection; they do not establish a claim. Construction indexes are not serialized.
+
+The conservative two-ranking renderer stress (not a supported planner comparison),
+100-rows-per-table regression serializes to 241,380
+bytes, including 144,333 binding bytes with ordinary JSON encoding (previously
+1,516,865 binding bytes). The supported single 100-row rank through `execute_plan` uses 124,293 total /
+72,175 binding bytes. The two-player summary fixture uses 2,352 binding bytes.
+Regression bounds are 500,000 total/400,000 binding bytes for ranking and 3,000
+binding bytes for summary. These are regression bounds, not production truncation
+limits. The existing SSE 1,650-byte incremental queue budget is unchanged: its
+complete terminal event is separate and delivered without truncation. Local JSONL
+history roundtrips the full payload with valid bindings. Browser storage remains
+subject to its existing quota and eviction policy; no universal terminal-response
+size or browser quota guarantee is claimed.
