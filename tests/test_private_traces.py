@@ -604,11 +604,8 @@ def test_process_writer_limit_bounds_concurrent_captures(tmp_path, monkeypatch):
         assert release.wait(5)
 
     def diagnostic(code):
-        if code == "private_trace_busy":
-            with guard:
-                skips.append(1)
-                if len(skips) == entrants - 1:
-                    dropped.set()
+        # A stalled diagnostic sink must never be reached by dropped captures.
+        assert release.wait(5)
 
     monkeypatch.setattr("app.agent.private_traces.write_record", slow)
     monkeypatch.setattr("app.agent.private_traces.diagnostic", diagnostic)
@@ -624,6 +621,10 @@ def test_process_writer_limit_bounds_concurrent_captures(tmp_path, monkeypatch):
         )
         start.wait(5)
         capture.finish(trace)
+        with guard:
+            skips.append(1)
+            if len(skips) == entrants - 1:
+                dropped.set()
 
     threads = [Thread(target=run) for _ in range(entrants)]
     try:

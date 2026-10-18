@@ -336,7 +336,7 @@ class PrivateCapture:
             return
         self.done = True
         if not _WRITER.acquire(blocking=False):
-            diagnostic("private_trace_busy")
+            # No logging or I/O here: even a blocked sink must not strand drops.
             return
         try:
             self.record.update(
