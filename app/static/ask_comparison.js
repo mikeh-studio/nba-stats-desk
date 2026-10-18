@@ -1,3 +1,4 @@
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261018-claim-bindings-v1";
 import { dateLabel, ordinal } from "./ask_presentation.js?v=20260912-v3";
 
 const esc = (v) =>
@@ -42,6 +43,8 @@ export function comparisonPresentation(payload) {
       .join("; ");
   return {
     ...evidence,
+    claimEvidence:prepareClaimEvidence(payload),
+    claimPayload:payload,
     impact: (Array.isArray(evidence.impact) ? evidence.impact : []).filter(
       (m) => Number.isFinite(m.left) && Number.isFinite(m.right),
     ),

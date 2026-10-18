@@ -1,3 +1,4 @@
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261018-claim-bindings-v1";
 // Governed values, explicit display policy and server-authored balanced takeaways.
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 const escape = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -79,7 +80,7 @@ export function overviewPresentation(payload) {
   const keys=policy?.primary_keys;
   const visible=Array.isArray(keys) ? keys.map(k=>metrics.find(m=>m.key===k)).filter(Boolean) : metrics;
   const insights=Array.isArray(policy?.takeaways) ? policy.takeaways : [{area:'Sample',icon:'chart-bar',title:'Recorded observations',text:`${payload.player_profile?.player?.games_sampled || 0} recorded appearances. See each metric's evidence; box scores do not establish overall defensive impact.`}];
-  return {paragraphs, summaryContext:evidence.summary_context || "", insights, playerName:name, metrics:visible, allMetrics:metrics,
+  return {claimEvidence:prepareClaimEvidence(payload), claimPayload:payload, paragraphs, summaryContext:evidence.summary_context || "", insights, playerName:name, metrics:visible, allMetrics:metrics,
     gameVariation:evidence.insights?.find(f=>f.game_variation)?.game_variation || null,
     additionalMetrics:Array.isArray(keys) ? metrics.filter(m=>!keys.includes(m.key)) : [],
     range:`${dateLabel(scope.start)} – ${dateLabel(scope.end)}`,

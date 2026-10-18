@@ -1,3 +1,4 @@
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261018-claim-bindings-v1";
 // Render server-owned distributions; no client-side statistical estimates.
 const esc = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const ordinal = n => {const v=Math.round(n), rem=v%100; return v + (rem>=11 && rem<=13 ? 'th' : ({1:'st',2:'nd',3:'rd'})[v%10] || 'th');};
@@ -57,6 +58,7 @@ export function bindMetricDrawer(root, overview) {
       trigger=button;
       const paint=view=>{
         dialog.innerHTML=drawerContent(metric,overview,view);
+        if (overview.claimPayload && bindRenderedClaims(dialog,overview.claimPayload,"drawer",{key:metric.key,view},overview.claimEvidence).status === "invalid") return;
         dialog.querySelector('[data-drawer-close]').addEventListener('click',()=>dialog.close());
         dialog.querySelectorAll('[data-game-point]').forEach(point=>{
           const reveal=()=>{ dialog.querySelector('[data-game-point-info]').textContent=point.getAttribute('aria-label'); };
@@ -67,11 +69,11 @@ export function bindMetricDrawer(root, overview) {
           if(event.target.value === '') return;
           dialog.querySelector(`[data-game-index="${index}"]`)?.focus({preventScroll:true});
         });
-        dialog.querySelectorAll('[data-distribution-view]').forEach(b=>b.addEventListener('click',()=>{paint(b.dataset.distributionView);dialog.querySelector(`[data-distribution-view="${b.dataset.distributionView}"]`).focus();}));
+        dialog.querySelectorAll('[data-distribution-view]').forEach(b=>b.addEventListener('click',()=>{paint(b.dataset.distributionView);dialog.querySelector(`[data-distribution-view="${b.dataset.distributionView}"]`)?.focus();}));
       };
       paint('among_players');
       if (!dialog.open) dialog.showModal();
-      dialog.querySelector('[data-drawer-close]').focus();
+      dialog.querySelector('[data-drawer-close]')?.focus();
     });
   });
 }

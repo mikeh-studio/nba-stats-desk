@@ -1,3 +1,4 @@
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261018-claim-bindings-v1";
 import { seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -1059,9 +1060,11 @@ function renderAuxiliaryPayload(
   if (comparison) {
     tableCard.hidden = false;
     tableEl.innerHTML = comparisonTables(comparison);
+    bindRenderedClaims(tableEl, payload, "comparison", {}, comparison.claimEvidence);
     chartCard.hidden = false;
     const paint = (key = "pts") => {
       chartEl.innerHTML = comparisonChart(comparison, key);
+      bindRenderedClaims(chartEl, payload, "comparison-chart", {key}, comparison.claimEvidence);
       chartEl.querySelectorAll("[data-comparison-metric]").forEach((button) =>
         button.addEventListener("click", () => {
           paint(button.dataset.comparisonMetric);
@@ -1110,7 +1113,7 @@ function renderAuxiliaryPayload(
 
   const charts = asArray(payload.charts);
   chartCard.hidden = charts.length === 0;
-  if (overview) { bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }
+  if (overview) { bindRenderedClaims(tableEl, payload, "overview", {}, overview.claimEvidence); bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }
   if (overview && charts.length)
     renderOverviewCharts(payload, overview.preferredMetric, root);
   else chartEl.innerHTML = charts.map(renderChart).join("") + renderComparisonExplorer(payload);
