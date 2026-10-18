@@ -11,7 +11,7 @@ identity/scope contexts, units and presentation values. Finalization runs after
 visualization enrichment in `StatsAgent.answer`, before governed JSON/SSE answers
 are delivered. Contradicted bindings produce a safe error response. Missing
 bindings produce an explicit `incomplete` report and preserve compatibility.
-This is not universal claim verification: unbound leaves are listed, including
+This is not universal claim verification: unbound leaves are counted exactly with bounded representative paths, including
 labels, identity and dates, rather than excluded to increase coverage. Formatting
 constants, contract versions, game IDs and dates remain distinguishable by their
 field paths; the report does not count every numeric token as a statistic.
@@ -100,16 +100,39 @@ Boolean indexes, forward/cyclic or dangling references, duplicate registry entri
 unsafe paths and extra fields. Valid unused prefix nodes may remain after chart
 selection; they do not establish a claim. Construction indexes are not serialized.
 
-The conservative two-ranking renderer stress (not a supported planner comparison),
-100-rows-per-table regression serializes to 241,380
-bytes, including 144,333 binding bytes with ordinary JSON encoding (previously
-1,516,865 binding bytes). The ordinary points summary through `StatsAgent` uses 8,248 total / 2,869
-binding bytes. The supported single 100-row rank through `execute_plan` uses 124,293 total /
-72,175 binding bytes. The two-player summary fixture uses 2,352 binding bytes.
-Regression bounds are 500,000 total/400,000 binding bytes for ranking and 3,000
-binding bytes for summary. These are regression bounds, not production truncation
-limits. The existing SSE 1,650-byte incremental queue budget is unchanged: its
-complete terminal event is separate and delivered without truncation. Local JSONL
-history roundtrips the full payload with valid bindings. Browser storage remains
-subject to its existing quota and eviction policy; no universal terminal-response
-size or browser quota guarantee is claimed.
+The post-review conservative two-ranking renderer stress (not a supported planner
+comparison), 100 rows per table, serializes to 241,364 bytes, including 144,356
+binding bytes (originally 1,516,865). The supported single 100-row rank through
+`execute_plan` uses 124,500 total / 72,198 binding bytes. These measurements differ
+slightly from the earlier compact checkpoint because chart selection is now an
+explicit registry field. Regression bounds remain 500,000 total / 400,000 binding
+bytes for the stress fixture and 3,000 binding bytes for the small descriptive
+summary fixture.
+
+Gap reporting traverses every rendered field but stores at most 32 representative
+unbound paths, exact per-root/total counts and an explicit truncation flag. Errors
+similarly retain exact counts and at most 16 details. The controlled populated
+overview endpoint uses 83,844 total bytes, including a 1,432-byte report counting
+2,598 unbound leaves (formerly 261,251 total bytes before bounded reporting).
+Overview, comparison and explorer regression shapes each count 30,000 leaves while
+keeping their report under 4 KB. Samples are never represented as an exhaustive
+list. Followups, period options and clarification options are included as unbound
+rendered families.
+
+These are fixture regression bounds, not production truncation limits. The
+existing SSE 1,650-byte incremental queue budget is unchanged: its complete
+terminal event is separate and delivered without truncation. Local JSONL history
+roundtrips the full payload. Browser storage retains its quota and eviction policy.
+No universal terminal-response size or browser quota guarantee is claimed.
+
+Date/datetime and finite Decimal evidence normalize at the JSON boundary; nonfinite
+or unsupported binding sources produce a governed mismatch response. Safe route,
+query and conversation context survives that response; unsafe context is omitted.
+Canonical descriptors are derived from evidence. Fixed route formatting rules,
+not renderer-supplied unit hints, check displayed units and scaling. Aggregation is
+bound through canonical scope/context; generic metric table headers do not always
+display average-versus-total, and unbound narrative/policy labels are not thereby
+certified. Python proof hashes are not a cross-language numeric canonicalization
+standard: JavaScript may rewrite 5.0 as 5. Client-restored backend proof is retained
+for inspection, not revalidated by a server history endpoint. The separate DOM
+contract validates restored presentation against its canonical snapshot.

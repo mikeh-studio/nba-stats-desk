@@ -150,6 +150,7 @@ def add_leaderboard_reference(payload, result, evidence, players, player_id):
     payload["reference_player"] = {
         "player": {"player_id": player_id, "player_name": name}
     }
+    reference["identity"] = {"player_id": player_id, "player_name": name}
     if not row or not row["eligible"]:
         payload["answer"] += (
             f"\n\n{name} has insufficient eligible data in this scope; gaps are unavailable."

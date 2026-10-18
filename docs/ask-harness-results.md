@@ -18,6 +18,8 @@ receipts remain unchanged. No new provider capture or model-accuracy score is
 claimed. See [evaluation boundaries](evaluation.md) and the
 [current research contract](ask-workspace.md#research-intent-contract).
 
+See also the [historical continuation assessment](ask-harness-continuation-results.md).
+
 The controlled endpoint inventory remains **147 cases** and passes **147/147
 before and after**; A and C strengthened independent assertions without changing
 the denominator.

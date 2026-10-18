@@ -12,6 +12,8 @@ import math
 import re
 from collections.abc import Sequence
 from copy import deepcopy
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 VERSION = "ask_claim_bindings/2"
@@ -34,7 +36,27 @@ VISIBLE_ROOTS = (
     "research_highlights",
     "comparison_explorer",
     "metric_definitions",
+    "followups",
+    "period_options",
+    "clarification_options",
 )
+
+
+def canonical_source(value):
+    """Match the JSON boundary for supported warehouse scalar types; reject NaN."""
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("Nonfinite evidence")
+        return int(value) if value.as_tuple().exponent >= 0 else float(value)
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("Nonfinite evidence")
+    if isinstance(value, dict):
+        return {k: canonical_source(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [canonical_source(v) for v in value]
+    return value
 
 
 def digest(value: Any) -> str:
@@ -265,6 +287,7 @@ class _Manifest(dict):
             descriptors=[],
             transforms=[],
             evidence_sha256={},
+            chart_selection=[],
         )
         self.indexes: dict[str, dict[str, int]] = {}
 
@@ -344,7 +367,7 @@ def expand_claim(manifest, claim):
     }
 
 
-def bind(
+def _bind(
     payload: dict,
     *,
     sources: list[list],
@@ -356,7 +379,12 @@ def bind(
     spec: dict | None = None,
     context: Sequence[list] = (),
 ) -> None:
-    """Intern exact source coordinates and canonical anchors once per payload."""
+    """Intern exact source coordinates and canonical anchors once per payload.
+
+    metric/unit are renderer hints retained at adapter call sites for readability;
+    canonical descriptors are derived here, not trusted from those hints. Exact
+    displayed unit/format checks come from the independent route transformation.
+    """
     paths = [*sources, identity, scope, *context]
     for path in paths:
         if path[0] not in EVIDENCE_ROOTS:
@@ -364,6 +392,7 @@ def bind(
     manifest = payload.setdefault("claim_bindings", _Manifest())
     for root in {path[0] for path in paths}:
         if root not in manifest["evidence_sha256"]:
+            payload[root] = canonical_source(payload[root])
             manifest["evidence_sha256"][root] = digest(payload[root])
     manifest["claims"].append(
         {
@@ -386,6 +415,60 @@ def bind(
     )
 
 
+def bind(payload, **kwargs):
+    # Renderer-owned bindings must not turn malformed source scalars into a 500.
+    # Finalization discards the invalid source and rolls back deferred state.
+    try:
+        _bind(payload, **kwargs)
+    except (ValueError, TypeError, KeyError, IndexError, OverflowError):
+        payload["_claim_binding_error"] = True
+
+
+def chart_sections(payload):
+    """Canonical chart candidates, in original construction order, never labels."""
+    e = payload.get("semantic_evidence") or {}
+    sections = (
+        [("current", e["current"]), ("baseline", e["baseline"])]
+        if "current" in e
+        else [(None, e)]
+    )
+    return [
+        (side, section)
+        for side, section in sections
+        if section.get("scope", {}).get("operation") == "game_log"
+        and section.get("rows")
+        and all(row.get("value") is not None for row in section["rows"])
+    ]
+
+
+def selected_chart_section(payload, chart_index):
+    selection = payload["claim_bindings"]["chart_selection"]
+    candidate = dereference(selection, chart_index)
+    if type(candidate) is not int:
+        raise ValueError("Invalid chart candidate")
+    return dereference(chart_sections(payload), candidate)
+
+
+def select_bound_chart(payload, selected):
+    """Move original exact mappings when the selector chooses a verified chart."""
+    manifest = payload.get("claim_bindings")
+    if not manifest or not manifest.get("chart_selection"):
+        return
+    candidate = dereference(manifest["chart_selection"], selected)
+    retained = []
+    for claim in manifest["claims"]:
+        destination = expand_path(manifest, claim["d"])
+        if destination[0] == "charts":
+            if destination[1] != selected:
+                continue
+            destination[1] = 0
+            claim["d"] = path_ref(manifest, destination)
+        retained.append(claim)
+    manifest["claims"] = retained
+    manifest["chart_selection"] = [candidate]
+    payload.setdefault("visualization", {})["chart_id"] = str(candidate)
+
+
 def validate_registries(manifest):
     if not isinstance(manifest, dict) or set(manifest) != {
         "version",
@@ -394,8 +477,16 @@ def validate_registries(manifest):
         "descriptors",
         "transforms",
         "evidence_sha256",
+        "chart_selection",
     }:
         raise ValueError("Malformed manifest")
+    selection = manifest["chart_selection"]
+    if (
+        not isinstance(selection, list)
+        or any(type(i) is not int or i < 0 for i in selection)
+        or len(set(selection)) != len(selection)
+    ):
+        raise ValueError("Invalid chart selection")
     if manifest["version"] != VERSION:
         raise ValueError("Unsupported version")
     if not isinstance(manifest["evidence_sha256"], dict):
@@ -467,11 +558,23 @@ def validate(payload: dict) -> dict:
     """
     manifest: Any = payload.get("claim_bindings")
     errors, covered = [], set()
+    if payload.get("_claim_binding_error"):
+        errors.append({"destination": [], "reason": "Invalid binding source"})
+    cache: dict[str, Any] = {}
     roots, claims = set(), []
     if manifest is not None:
         try:
             validate_registries(manifest)
             claims = manifest["claims"]
+            if manifest["chart_selection"]:
+                candidates = chart_sections(payload)
+                expected_selection = list(range(len(candidates)))
+                if payload.get("visualization"):
+                    selected = int(payload["visualization"]["chart_id"])
+                    dereference(candidates, selected)
+                    expected_selection = [selected]
+                if manifest["chart_selection"] != expected_selection:
+                    raise ValueError("Chart selection contradicts candidate provenance")
             for root, expected in manifest["evidence_sha256"].items():
                 if (
                     root not in EVIDENCE_ROOTS
@@ -509,7 +612,7 @@ def validate(payload: dict) -> dict:
             from app.agent.claim_rules import mapping, transformation
 
             if json.dumps(claim["transform"], sort_keys=True) != json.dumps(
-                transformation(payload, destination), sort_keys=True
+                transformation(payload, destination, cache=cache), sort_keys=True
             ):
                 raise ValueError("Transform contradicts presentation contract")
             if (
@@ -517,7 +620,7 @@ def validate(payload: dict) -> dict:
                 claim["identity"],
                 claim["scope"],
                 claim["context"],
-            ) != mapping(payload, destination):
+            ) != mapping(payload, destination, cache=cache):
                 raise ValueError(
                     "Source path does not match presentation identity/metric/scope"
                 )
@@ -534,10 +637,7 @@ def validate(payload: dict) -> dict:
             key = tuple(destination)
             if key in covered:
                 raise ValueError("Duplicate destination")
-            if (
-                destination[0] not in VISIBLE_ROOTS
-                and destination[0] != "semantic_evidence"
-            ):
+            if destination[0] not in VISIBLE_ROOTS:
                 raise ValueError("Not a presentation destination")
             # Anchors are exact coordinates into the hashed canonical root; no
             # duplicate identity/scope snapshot or per-claim digest is necessary.
@@ -566,20 +666,34 @@ def validate(payload: dict) -> dict:
         )
     from app.agent.claim_contexts import guards
 
-    for path, expected_label in guards(payload).items():
+    if claims:
         try:
-            if resolve(payload, list(path)) != expected_label:
-                raise ValueError("Presentation label contradicts renderer contract")
-        except (ValueError, TypeError, KeyError, IndexError) as exc:
-            errors.append({"destination": list(path), "reason": str(exc)})
-    unbound = [
-        path
-        for root in VISIBLE_ROOTS
-        for path, value in leaves(payload.get(root), [root])
-        if value not in (None, "") and tuple(path) not in covered
-    ]
-    # These UI renderers consume evidence directly. Until instrumented upstream,
-    # their fields remain gaps, never self-authenticating claim destinations.
+            for path, expected_label in guards(payload).items():
+                if resolve(payload, list(path)) != expected_label:
+                    errors.append(
+                        {
+                            "destination": list(path),
+                            "reason": "Presentation label contradicts renderer contract",
+                        }
+                    )
+        except (ValueError, TypeError, KeyError, IndexError, AttributeError):
+            errors.append(
+                {"destination": [], "reason": "Malformed bound route context"}
+            )
+    # Traverse every leaf, but serialize only bounded samples and exact counts.
+    unbound: list[list] = []
+    counts: dict[str, int] = {}
+
+    def inventory(value, path):
+        for leaf, scalar in leaves(value, path):
+            if scalar is not None and scalar != "" and tuple(leaf) not in covered:
+                key = ".".join(str(v) for v in path)
+                counts[key] = counts.get(key, 0) + 1
+                if len(unbound) < 32:
+                    unbound.append(leaf)
+
+    for root in VISIBLE_ROOTS:
+        inventory(payload.get(root), [root])
     evidence = payload.get("semantic_evidence") or {}
     for root in (
         "metrics",
@@ -589,11 +703,8 @@ def validate(payload: dict) -> dict:
         "summary_paragraphs",
     ):
         if root in evidence:
-            unbound.extend(
-                path
-                for path, value in leaves(evidence[root], ["semantic_evidence", root])
-                if value not in (None, "") and tuple(path) not in covered
-            )
+            inventory(evidence[root], ["semantic_evidence", root])
+    unbound_count = sum(counts.values())
     return {
         "version": VERSION,
         "status": "invalid"
@@ -602,12 +713,34 @@ def validate(payload: dict) -> dict:
         if unbound or not claims
         else "complete",
         "bound_destinations": len(covered),
-        "errors": errors,
+        "errors": errors[:16],
+        "error_count": len(errors),
+        "errors_truncated": len(errors) > 16,
         "unbound": unbound,
+        "unbound_count": unbound_count,
+        "unbound_counts": counts,
+        "unbound_truncated": unbound_count > len(unbound),
     }
 
 
+def safe_context(payload):
+    context = {}
+    for key in ("conversation_id", "ask_route", "query_plan", "agent_plan"):
+        if key in payload:
+            try:
+                value = canonical_source(payload[key])
+                json.dumps(value, allow_nan=False)
+                context[key] = value
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return context
+
+
 def finalize(payload: dict) -> dict:
+    try:
+        payload = canonical_source(payload)
+    except (ValueError, TypeError, OverflowError):
+        payload["_claim_binding_error"] = True
     result = validate(payload)
     if result["errors"]:
         from app.agent.execution import CURRENT
@@ -626,6 +759,7 @@ def finalize(payload: dict) -> dict:
             status="error",
             claim_validation=result,
             reason_code="claim_binding_mismatch",
+            **safe_context(payload),
         )
     payload["claim_validation"] = result
     return payload

@@ -207,9 +207,21 @@ def contracts(payload):
                 scope,
                 [mp],
             )
-            if payload.get("charts"):
+            from app.agent.claims import chart_sections
+
+            candidate_index = next(
+                (
+                    i
+                    for i, (candidate_side, _) in enumerate(chart_sections(payload))
+                    if candidate_side == side
+                ),
+                None,
+            )
+            selection = (payload.get("claim_bindings") or {}).get("chart_selection", [])
+            if candidate_index in selection:
+                chart_index = selection.index(candidate_index)
                 add(
-                    ["charts", 0, "title"],
+                    ["charts", chart_index, "title"],
                     [name, mp + ["label"]],
                     identity,
                     scope,
@@ -217,7 +229,7 @@ def contracts(payload):
                     "{0}: {1} by appearance",
                 )
                 add(
-                    ["charts", 0, "y_label"],
+                    ["charts", chart_index, "y_label"],
                     [mp + ["label"]],
                     identity,
                     scope,
@@ -225,7 +237,7 @@ def contracts(payload):
                     "{0}" + (" (%)" if section["metric"]["unit"] == "ratio" else ""),
                 )
                 add(
-                    ["charts", 0, "series", 0, "label"],
+                    ["charts", chart_index, "series", 0, "label"],
                     [name],
                     identity,
                     scope,
@@ -233,7 +245,7 @@ def contracts(payload):
                     "{0}",
                 )
                 add(
-                    ["charts", 0, "series", 0, "key"],
+                    ["charts", chart_index, "series", 0, "key"],
                     [mp + ["key"]],
                     identity,
                     scope,
@@ -280,6 +292,11 @@ def guards(payload):
                 if payload.get("reference_evidence") and ci == 1:
                     continue
                 result[("tables", ti, "columns", ci, "label")] = label
+    if (
+        payload.get("reference_evidence")
+        and payload.get("tables", [{}])[0].get("reference_row_index") is not None
+    ):
+        result[("tables", 0, "rows", len(e["rows"]), 6)] = "0.0"
     return result
 
 

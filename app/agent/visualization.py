@@ -245,6 +245,10 @@ class VisualizationAgent:
                     "Visualization selection fallback: %s", type(exc).__name__
                 )
                 selection = "fallback"
+        from app.agent.claims import select_bound_chart
+
+        if (payload.get("claim_bindings") or {}).get("chart_selection"):
+            select_bound_chart(payload, int(chosen["id"]))
         payload["charts"] = [{k: v for k, v in chosen.items() if k != "id"}]
         payload["visualization"] = {
             "selection": selection,

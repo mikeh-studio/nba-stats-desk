@@ -6,17 +6,20 @@ operand from another identity, metric, or scope.
 """
 
 
-def mapping(payload, destination):
+def mapping(payload, destination, *, cache=None):
     from app.agent.claim_contexts import contracts
 
-    contextual = contracts(payload).get(tuple(destination))
+    cache = {} if cache is None else cache
+    if "contexts" not in cache:
+        cache["contexts"] = contracts(payload)
+    contextual = cache["contexts"].get(tuple(destination))
     if contextual is not None:
         return contextual[:4]
     if (payload.get("claim_evidence") or {}).get("frozen_study"):
         return frozen_contracts()[tuple(destination)][:4]
     root, *rest = destination
     if root == "assumptions" and len(rest) == 1:
-        return metric_assumption_contracts(payload)[rest[0]][:4]
+        return cached_assumptions(payload, cache)[rest[0]][:4]
     e = payload.get("semantic_evidence") or {}
     if root == "tables" and len(rest) == 4 and rest[1] == "rows":
         ti, _, ri, ci = rest
@@ -27,11 +30,7 @@ def mapping(payload, destination):
         ):
             base = ["reference_evidence"]
             rp = base + ["rows", 0]
-            ip = [
-                "claim_evidence",
-                "identities",
-                str(payload["reference_evidence"]["rows"][0]["player_id"]),
-            ]
+            ip = ["reference_evidence", "identity"]
             if ri < len(e["rows"]):
                 return (
                     [["semantic_evidence", "rows", ri, "value"], rp + ["value"]],
@@ -99,29 +98,27 @@ def mapping(payload, destination):
                     [rp + ["current", "metric"]],
                 )
         if "research" in payload:
-            index = 0
-            for pi, p in enumerate(payload["research"]["players"]):
-                for mi, m in enumerate(p["metrics"]):
-                    if index == ri and ti == 0:
-                        pp = ["research", "players", pi]
-                        mp = pp + ["metrics", mi]
-                        sources = [
-                            pp + ["player_name"],
-                            mp + ["label"],
-                            mp + ["result", "value"],
-                            mp + ["unit"],
-                            mp + ["aggregation"],
-                            mp + ["result", "valid_games"],
-                            mp + ["result", "observed_games"],
-                            pp + ["filter_missing_games"],
-                        ]
-                        return (
-                            [sources[ci]],
-                            pp + ["player_id"],
-                            ["research", "scope"],
-                            [mp],
-                        )
-                    index += 1
+            if "research_rows" not in cache:
+                cache["research_rows"] = [
+                    (pi, mi)
+                    for pi, player in enumerate(payload["research"]["players"])
+                    for mi, _ in enumerate(player["metrics"])
+                ]
+            if ti == 0:
+                pi, mi = cache["research_rows"][ri]
+                pp = ["research", "players", pi]
+                mp = pp + ["metrics", mi]
+                sources = [
+                    pp + ["player_name"],
+                    mp + ["label"],
+                    mp + ["result", "value"],
+                    mp + ["unit"],
+                    mp + ["aggregation"],
+                    mp + ["result", "valid_games"],
+                    mp + ["result", "observed_games"],
+                    pp + ["filter_missing_games"],
+                ]
+                return [sources[ci]], pp + ["player_id"], ["research", "scope"], [mp]
         if "appearance_evidence" in payload and ti == 0:
             base = ["appearance_evidence", ri]
             pid = payload["appearance_evidence"][ri]["rows"][0]["player_id"]
@@ -246,29 +243,38 @@ def mapping(payload, destination):
                     ]
                 )
             return [source], ip, base + ["scope"], [base + ["metric"]]
-    if (
-        root == "charts"
-        and len(rest) == 6
-        and rest[:3] == [0, "series", 0]
-        and rest[3] == "points"
-    ):
+    if root == "charts" and len(rest) == 6 and rest[1:4] == ["series", 0, "points"]:
+        from app.agent.claims import selected_chart_section
+
+        side, section = selected_chart_section(payload, rest[0])
+        base = ["semantic_evidence"] + ([side] if side else [])
         ri, field = rest[4:]
-        rp = ["semantic_evidence", "rows", ri]
-        pid = e["scope"]["player_id"]
+        rp = base + ["rows", ri]
+        pid = section["scope"]["player_id"]
+        ip = (
+            ["claim_evidence", "identities", str(pid)]
+            if str(pid) in payload["claim_evidence"]["identities"]
+            else rp + ["player_id"]
+            if "player_id" in section["rows"][ri]
+            else base + ["scope", "player_id"]
+        )
         return (
             [rp + [{"x": "game_date", "y": "value"}[field]]],
-            ["claim_evidence", "identities", str(pid)],
-            ["semantic_evidence", "scope"],
-            [["semantic_evidence", "metric"], rp + ["game_id"]],
+            ip,
+            base + ["scope"],
+            [base + ["metric"], rp + ["game_id"]],
         )
     raise ValueError("Unregistered presentation destination")
 
 
-def transformation(payload, destination):
+def transformation(payload, destination, *, cache=None):
     """Registered formatting contract; declarations cannot choose easier formats."""
     from app.agent.claim_contexts import contracts
 
-    contextual = contracts(payload).get(tuple(destination))
+    cache = {} if cache is None else cache
+    if "contexts" not in cache:
+        cache["contexts"] = contracts(payload)
+    contextual = cache["contexts"].get(tuple(destination))
     if contextual is not None:
         return contextual[4]
     from app.agent.claims import resolve
@@ -276,8 +282,8 @@ def transformation(payload, destination):
     if (payload.get("claim_evidence") or {}).get("frozen_study"):
         return frozen_contracts()[tuple(destination)][4]
     if destination[0] == "assumptions":
-        return metric_assumption_contracts(payload)[destination[1]][4]
-    sources, _, _, contexts = mapping(payload, destination)
+        return cached_assumptions(payload, cache)[destination[1]][4]
+    sources, _, _, contexts = mapping(payload, destination, cache=cache)
     field = sources[0][-1]
     e = payload.get("semantic_evidence") or {}
     ci = destination[-1]
@@ -295,7 +301,7 @@ def transformation(payload, destination):
             }
         return {
             0: {"op": "identity"},
-            1: {"digits": 1},
+            1: {"digits": 1, "scale": 100 if e["metric"]["unit"] == "ratio" else 1},
             2: {"string": True},
             3: {"string": True},
             4: {"string": True},
@@ -306,7 +312,10 @@ def transformation(payload, destination):
         return (
             {"string": True}
             if ci == "x"
-            else {"scale": 100 if e["metric"]["unit"] == "ratio" else 1, "round": 1}
+            else {
+                "scale": 100 if resolve(payload, contexts[0])["unit"] == "ratio" else 1,
+                "round": 1,
+            }
         )
     if "research" in payload:
         metric = resolve(payload, contexts[0])
@@ -562,3 +571,9 @@ def frozen_contracts():
         ("tables", 0, "rows", ri, ci): (sources, identity, scope, [], spec)
         for (ri, ci), (sources, spec) in specs.items()
     }
+
+
+def cached_assumptions(payload, cache):
+    if "assumptions" not in cache:
+        cache["assumptions"] = metric_assumption_contracts(payload)
+    return cache["assumptions"]

@@ -25,9 +25,23 @@ def metric_tables(payload, players):
     for query in payload.get("query_plan", {}).get("queries", []):
         used_ids.update(query.get("excluded_player_ids") or [])
     identities(payload, [p for p in players if p["player_id"] in used_ids])
+    from app.agent.claims import _Manifest, chart_sections
+
+    chart_candidates = chart_sections(payload)
+    payload.setdefault("claim_bindings", _Manifest())["chart_selection"] = list(
+        range(len(chart_candidates))
+    )
     for ti, (side, section) in enumerate(sections):
         base = ["semantic_evidence"] + ([side] if side else [])
         scope = base + ["scope"]
+        chart_index = next(
+            (
+                i
+                for i, (candidate_side, _) in enumerate(chart_candidates)
+                if candidate_side == side
+            ),
+            None,
+        )
         metric = section["metric"]
         ratio = metric["unit"] == "ratio"
         for ri, row in enumerate(section["rows"]):
@@ -83,9 +97,7 @@ def metric_tables(payload, players):
                     },
                 )
                 # All-or-nothing chart policy preserves point-row correspondence.
-                if payload["charts"] and len(
-                    payload["charts"][0]["series"][0]["points"]
-                ) == len(section["rows"]):
+                if chart_index is not None:
                     for field, source, spec in (
                         ("y", "value", {"scale": 100 if ratio else 1, "round": 1}),
                         ("x", "game_date", {"string": True}),
@@ -93,7 +105,15 @@ def metric_tables(payload, players):
                         bind(
                             payload,
                             sources=[rp + [source]],
-                            destination=["charts", 0, "series", 0, "points", ri, field],
+                            destination=[
+                                "charts",
+                                chart_index,
+                                "series",
+                                0,
+                                "points",
+                                ri,
+                                field,
+                            ],
                             metric=metric["key"],
                             unit=metric["unit"],
                             identity=ip,
@@ -565,7 +585,7 @@ def leaderboard_reference(payload):
     e, ref = payload["semantic_evidence"], payload["reference_evidence"]
     base = ["reference_evidence"]
     rp = base + ["rows", 0]
-    ip = ["claim_evidence", "identities", str(ref["rows"][0]["player_id"])]
+    ip = ["reference_evidence", "identity"]
     context = [["semantic_evidence", "metric"], base + ["metric"], base + ["scope"]]
     scope = ["semantic_evidence", "scope"]
     ratio = ref["metric"]["unit"] == "ratio"
@@ -589,7 +609,7 @@ def leaderboard_reference(payload):
     i = len(e["rows"])
     for ci, field, spec in (
         (0, "player_name", None),
-        (1, "value", {"digits": 1}),
+        (1, "value", {"digits": 1, "scale": 100 if ratio else 1}),
         (2, "observed_games", {"string": True}),
         (3, "valid_games", {"string": True}),
         (4, "rank", {"string": True}),
@@ -606,14 +626,3 @@ def leaderboard_reference(payload):
             context=[base + ["metric"]],
             spec=spec,
         )
-    bind(
-        payload,
-        sources=[rp + ["value"], rp + ["value"]],
-        destination=["tables", 0, "rows", i, 6],
-        metric=ref["metric"]["key"],
-        unit=ref["metric"]["unit"],
-        identity=ip,
-        scope=base + ["scope"],
-        context=[base + ["metric"]],
-        spec={"op": "difference", "digits": 1},
-    )

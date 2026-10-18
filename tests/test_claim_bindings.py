@@ -276,7 +276,7 @@ def test_hundred_rows_multimetric_hashes_evidence_once_per_stage(monkeypatch):
     original, root_calls = claims.digest, []
 
     def counted(value):
-        if value is result:
+        if isinstance(value, dict) and len(value.get("players", [])) == 100:
             root_calls.append(1)
         return original(value)
 
