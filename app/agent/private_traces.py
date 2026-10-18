@@ -24,7 +24,7 @@ FIELDS = frozenset(
     "question context query_plan semantic_plan semantic_evidence reference_evidence award_evidence study_claims conversation_context sections queries contract_version operation date_range season_type opponent_abbr home_away last_plan route source reason_code player_id player_name player_ids players resolved_players unresolved_players team_abbr team_id season seasons phase start end date_start date_end time_window metrics metric aggregation filters limit needs_clarification clarification_question clarification_options candidates confidence status scope evidence evidence_id study_id source_id content_sha256 evidence_sha256 sources id version reporting_mode reporting_cutoff previous_start previous_end teammate_id selected_player last_player_id last_player_name last_query_plan last_route turns pending ask_route".split()
 )
 SECRET = re.compile(
-    r"(?i)(?:bearer\s+\S+|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:sk|ghp|github_pat|AIza)[-_a-zA-Z0-9]{8,}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:api[_ -]?key|token|password|secret|user[_ -]?id)\s*[:=]\s*[^\s,;]+)"
+    r"(?i)(?:bearer\s+\S+|/(?:Users|home|private|tmp|var)/[^\s\"<>]+|[A-Z]:\\(?:Users|Documents and Settings)\\[^\r\n\"<>]+|AKIA[A-Z0-9]{16}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|(?:sk|ghp|github_pat|AIza)[-_a-zA-Z0-9]{8,}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|(?:api[_ -]?key|token|password|secret|user[_ -]?id)\s*[:=]\s*[^\s,;]+)"
 )
 NAME = re.compile(r"[0-9a-f]{32}\.json\Z")
 CONFIG_FIELDS = (
@@ -167,7 +167,7 @@ def write_record(settings: Settings, record: dict[str, Any]) -> None:
             or stat.S_IMODE(info.st_mode) != 0o600
         ):
             raise ValueError("untrusted trace lock")
-        fcntl.flock(lock, fcntl.LOCK_EX)
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Fail duplicate writes before retention changes; never replace a record.
         try:
             os.stat(name, dir_fd=directory, follow_symlinks=False)
@@ -175,26 +175,6 @@ def write_record(settings: Settings, record: dict[str, Any]) -> None:
             pass
         else:
             raise FileExistsError("duplicate trace")
-        records = []
-        for candidate in os.listdir(directory):
-            if not NAME.fullmatch(candidate):
-                continue
-            info = os.stat(candidate, dir_fd=directory, follow_symlinks=False)
-            if (
-                stat.S_ISREG(info.st_mode)
-                and info.st_uid == os.getuid()
-                and info.st_nlink == 1
-                and stat.S_IMODE(info.st_mode) == 0o600
-            ):
-                records.append((info.st_mtime, candidate))
-        records.sort()
-        cutoff = time.time() - settings.agent_trace_retention_days * 86400
-        for index, (mtime, candidate) in enumerate(records):
-            if (
-                mtime < cutoff
-                or index < len(records) - settings.agent_trace_max_records + 1
-            ):
-                os.unlink(candidate, dir_fd=directory)
         file_fd = os.open(
             temporary,
             os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
@@ -212,6 +192,27 @@ def write_record(settings: Settings, record: dict[str, Any]) -> None:
             dst_dir_fd=directory,
             follow_symlinks=False,
         )
+        os.unlink(temporary, dir_fd=directory)
+        records = []
+        for candidate in os.listdir(directory):
+            if not NAME.fullmatch(candidate):
+                continue
+            info = os.stat(candidate, dir_fd=directory, follow_symlinks=False)
+            if (
+                stat.S_ISREG(info.st_mode)
+                and info.st_uid == os.getuid()
+                and info.st_nlink == 1
+                and stat.S_IMODE(info.st_mode) == 0o600
+            ):
+                records.append((info.st_mtime, candidate))
+        records.sort()
+        cutoff = time.time() - settings.agent_trace_retention_days * 86400
+        for index, (mtime, candidate) in enumerate(records):
+            if (
+                mtime < cutoff
+                or index < len(records) - settings.agent_trace_max_records
+            ):
+                os.unlink(candidate, dir_fd=directory)
     finally:
         try:
             os.unlink(temporary, dir_fd=directory)

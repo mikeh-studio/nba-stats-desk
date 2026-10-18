@@ -1253,6 +1253,8 @@ async def _start_agent_execution(
                         wire = _agent_terminal_bytes(terminal, streaming=streaming)
                     # A reserved single terminal result bypasses interim quotas.
                     delivery.finish(wire, status)
+                    # Persistence cannot retain admission after work is delivered.
+                    lease.complete(worker=True)
                     # Operational logging must not strand the response or lease.
                     _emit_agent_trace(trace)
                 finally:

@@ -959,7 +959,7 @@ def test_logging_thread_exhaustion_cannot_mask_safe_capacity_failure(
             held.release()
 
 
-def test_response_may_finish_before_worker_logging_and_release_is_synchronized(
+def test_admission_releases_before_worker_logging_and_thread_finish_is_synchronized(
     controlled, monkeypatch
 ):
     from app.agent.observability import AgentTrace
@@ -981,7 +981,7 @@ def test_response_may_finish_before_worker_logging_and_release_is_synchronized(
         await asyncio.wait_for(request.run(), 5)
         assert request.status == 502
         assert await asyncio.to_thread(log_started.wait, 5)
-        assert controlled["main"].admission._active
+        assert not controlled["main"].admission._active
         waiting = asyncio.create_task(wait_workers(controlled))
         await asyncio.sleep(0)
         assert not waiting.done()

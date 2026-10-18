@@ -705,14 +705,17 @@ Server history retains its stricter remote-request rejection when enabled.
 `AGENT_TRACE_DIRECTORY` defaults to ignored `local_notes/ask_traces`. Each
 server-generated request ID gets a unique JSON file. The final directory must
 be owned by the current user and mode 0700; files are 0600. Symlink paths and
-untrusted targets are refused. Storage errors emit only a constant diagnostic
+untrusted targets are refused. Lock contention skips capture immediately; optional
+persistence does not retain the request admission slot after delivery. Storage
+errors emit only a constant diagnostic
 code and do not change the response. Do not configure a tracked/public directory
 or publish these records as attachments. Ignore rules are not access control.
 
 Limits are `AGENT_TRACE_MAX_BYTES` (2048–1048576, default 65536),
 `AGENT_TRACE_MAX_RECORDS` (1–10000, default 100), and
 `AGENT_TRACE_RETENTION_DAYS` (1–365, default 7). Retention runs on writes under
-an exclusive file lock, removing expired/oldest recognized private trace files;
+an exclusive file lock after a new record is successfully published, removing
+expired/oldest recognized private trace files;
 it is not a background deletion guarantee. Stop the server and delete the local
 trace directory to purge it, including backups under your own retention policy.
 
@@ -722,7 +725,8 @@ outcome, source-code digest/static version and an allowlisted config fingerprint
 Conversation IDs are hashed. Provider prompts, raw responses, error bodies,
 headers and credentials are excluded. Nested values, text, records and counts
 are bounded; recognizable secrets/email/user-ID assignments are redacted.
-Redaction is best effort, so treat all records as private. Omitted fields,
+Recognizable local user-file paths are also redacted. Redaction is best effort,
+so treat all records as private. Omitted fields,
 truncation, redaction and unavailable evidence are recorded as incomplete reasons.
 Hashes identify projected content; these records are not complete replay inputs.
 Request-schema rejection before endpoint execution is outside this capture path.

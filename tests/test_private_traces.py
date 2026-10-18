@@ -321,3 +321,97 @@ def test_context_is_allowlisted_and_secrets_redacted(tmp_path):
     assert (
         json.loads(payload)["context_before"]["pending"]["query_plan"]["player_id"] == 7
     )
+
+
+def test_held_storage_lock_drops_capture_without_waiting(tmp_path):
+    import fcntl
+
+    from app.agent.observability import AgentTrace
+    from app.agent.private_traces import PrivateCapture
+
+    config = settings(tmp_path)
+    write_record(config, record())
+    with (tmp_path / "traces" / ".lock").open("rb") as locked:
+        fcntl.flock(locked, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        trace = AgentTrace(uuid4().hex, "synthetic", "model")
+        capture = PrivateCapture(
+            config, trace, provider="openai", transport="json", static_version="test"
+        )
+        start = time.monotonic()
+        capture.finish(trace)
+        assert time.monotonic() - start < 1
+    assert len(list((tmp_path / "traces").glob("*.json"))) == 1
+
+
+def test_failed_publication_preserves_prior_records(tmp_path, monkeypatch):
+    config = settings(tmp_path, agent_trace_max_records=1)
+    first = record()
+    write_record(config, first)
+    path = tmp_path / "traces" / (first["request_id"] + ".json")
+    os.utime(path, (0, 0))
+    original = path.read_bytes()
+
+    def broken(*args, **kwargs):
+        raise OSError("disk failure")
+
+    monkeypatch.setattr("app.agent.private_traces.os.fsync", broken)
+    with pytest.raises(OSError):
+        write_record(config, record())
+    assert path.read_bytes() == original
+    assert not list(path.parent.glob("*.tmp"))
+
+
+def test_recognizable_local_paths_are_redacted():
+    p = Projection()
+    value = p.project(
+        {
+            "source": "/Users/example/privatefile.json",
+            "evidence_id": r"C:\Users\example\privatefile.json",
+        }
+    )
+    assert value == {"source": "[REDACTED]", "evidence_id": "[REDACTED]"}
+    assert "redacted" in p.reasons
+
+
+@pytest.mark.parametrize("stream", [False, True])
+def test_slow_persistence_does_not_hold_admission(tmp_path, monkeypatch, stream):
+    from threading import Event
+
+    from app.main import admission
+
+    entered, release = Event(), Event()
+    build_client(settings=settings(tmp_path, agent_max_concurrent_requests=1))
+
+    def answer(question, **kwargs):
+        kwargs["trace"].outcome = "answered"
+        return {"answer": "synthetic"}
+
+    def slow(*args):
+        entered.set()
+        assert release.wait(5)
+
+    monkeypatch.setattr(
+        "app.main._build_stats_agent", lambda *args: SimpleNamespace(answer=answer)
+    )
+    monkeypatch.setattr("app.agent.private_traces.write_record", slow)
+    client = TestClient(app, base_url="http://localhost", client=("127.0.0.1", 50000))
+    endpoint = "/api/agent/ask" + ("/stream" if stream else "")
+    try:
+        first = client.post(
+            endpoint,
+            json={"question": "stats", "conversation_id": "same-local-conversation"},
+        )
+        assert first.status_code == 200
+        assert entered.wait(1)
+        second = client.post(
+            endpoint,
+            json={
+                "question": "stats again",
+                "conversation_id": "same-local-conversation",
+            },
+        )
+        assert second.status_code == 200
+        lease = admission.acquire("2025-26", "same-local-conversation", 1)
+        lease.release()
+    finally:
+        release.set()
