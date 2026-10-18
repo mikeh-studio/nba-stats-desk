@@ -350,3 +350,174 @@ def test_verified_dnp_unknown_and_metric_samples_stay_distinct(tmp_path):
         e["destination"] == ["tables", 0, "rows", 0, 6]
         for e in validate(payload)["errors"]
     )
+
+
+@pytest.mark.parametrize("surface", ["metric", "season", "phase", "column_unit"])
+def test_unchanged_numeric_values_do_not_validate_changed_metric_scope_labels(surface):
+    p = StatsAgent(
+        settings(),
+        SimpleNamespace(),
+        client=Model("fg_pct"),
+        semantic_warehouse=Warehouse(),
+    ).answer("Small Sample FG% this season")
+    assert validate(p)["errors"] == []
+    before = copy.deepcopy(p["tables"][0]["rows"])
+    if surface == "column_unit":
+        p["tables"][0]["columns"][1]["label"] = "Assists per game"
+        destination = ["tables", 0, "columns", 1, "label"]
+    else:
+        old, new = {
+            "metric": ("FG%", "AST"),
+            "season": ("2024-25", "2023-24"),
+            "phase": ("Regular Season", "Playoffs"),
+        }[surface]
+        assert old in p["tables"][0]["title"]
+        p["tables"][0]["title"] = p["tables"][0]["title"].replace(old, new)
+        destination = ["tables", 0, "title"]
+    assert p["tables"][0]["rows"] == before
+    assert any(error["destination"] == destination for error in validate(p)["errors"])
+
+
+def test_split_sides_scope_and_sample_labels_are_independently_bound():
+    from app.agent.player_splits import answer_split
+    from app.agent.semantic_serving import source_players
+    from tests.test_player_splits import source
+
+    evidence = source.__wrapped__()
+    p = answer_split(
+        "Compare Avery Example points home vs away 2024-25",
+        evidence,
+        source_players(evidence),
+        "2024-25",
+    )
+    assert validate(p)["errors"] == []
+    assert [c["label"] for c in p["tables"][0]["columns"]][1:3] == ["Away", "Home"]
+    for path, wrong in [
+        (["tables", 0, "columns", 1, "label"], "Home"),
+        (["tables", 0, "rows", 0, 0], "AST per game"),
+        (["tables", 0, "rows", 0, 4], "999 of 999"),
+        (["assumptions", 0], "2023-24; wrong scope"),
+    ]:
+        changed = copy.deepcopy(p)
+        target = changed
+        for part in path[:-1]:
+            target = target[part]
+        target[path[-1]] = wrong
+        assert any(
+            error["destination"] == path for error in validate(changed)["errors"]
+        )
+
+
+def test_appearance_prose_dates_names_and_counts_bind_without_numeric_search():
+    from tests.test_ask_harness import agent
+
+    p = agent().answer(
+        "How many games did Avery Example and Blair Sample play in 2024-25?"
+    )
+    assert validate(p)["errors"] == []
+    assert "Avery Example: 6 games played" in p["answer"]
+    for old, new in [
+        ("2024-25", "2023-24"),
+        ("regular season", "playoffs"),
+        ("Avery Example", "Blair Sample"),
+        ("6 games", "7 games"),
+    ]:
+        changed = copy.deepcopy(p)
+        changed["answer"] = changed["answer"].replace(old, new)
+        assert any(
+            error["destination"] == ["answer"] for error in validate(changed)["errors"]
+        )
+
+
+def maximum_rank_payload():
+    from dataclasses import asdict
+
+    from app.agent.semantic_answer import render_answer
+    from app.agent.semantics import COMPONENTS, Evidence, Query, run_query
+
+    players = [
+        {"player_id": i, "player_name": f"Synthetic Player {i}"} for i in range(1, 101)
+    ]
+    rows = [
+        {
+            **dict.fromkeys(COMPONENTS, 0),
+            **p,
+            "season": "2024-25",
+            "season_type": "Regular Season",
+            "game_id": f"g{day}",
+            "game_date": f"2024-11-0{day}",
+            "team_abbr": "AAA",
+            "opponent_abbr": "BBB",
+            "home_away": "home",
+            "min": 30,
+            "pts": p["player_id"],
+            "ast": p["player_id"] / 10,
+        }
+        for p in players
+        for day in range(1, 6)
+    ]
+    evidence = Evidence(
+        rows,
+        frozenset({("2024-25", "Regular Season")}),
+        "synthetic",
+        "max-ranks",
+        {("2024-25", "Regular Season"): "2024-11-05"},
+        complete=True,
+    )
+    queries = [
+        Query(metric, "2024-25", "average", operation="rank", limit=100)
+        for metric in ("pts", "ast")
+    ]
+    results = [run_query(evidence, q) for q in queries]
+    return finalize(
+        render_answer(
+            {
+                "status": "ok",
+                "resolved_queries": [asdict(q) for q in queries],
+                "evidence": {
+                    "current": results[0],
+                    "baseline": results[1],
+                    "difference": None,
+                    "overlapping_game_ids": [],
+                },
+            },
+            players,
+        )
+    )
+
+
+def test_maximum_rank_payload_size_terminal_delivery_and_local_history(tmp_path):
+    import asyncio
+
+    from app.agent.capacity import Delivery
+    from app.agent.history import append_history_turn, read_history
+
+    p = maximum_rank_payload()
+    assert p["status"] == "ok" and not p["claim_validation"]["errors"]
+    assert [len(table["rows"]) for table in p["tables"]] == [100, 100]
+    serialized = json.dumps(p, ensure_ascii=False).encode()
+    metadata = json.dumps(p["claim_bindings"], ensure_ascii=False).encode()
+    # A regression budget, not a new production truncation or request limit.
+    assert len(serialized) < 2_000_000 and len(metadata) < 1_700_000
+
+    async def deliver():
+        delivery = Delivery(max_bytes=1650, max_events=24)
+        delivery.finish(serialized)
+        assert await delivery.next() == (serialized, 200)
+        assert await delivery.next() is None
+        assert delivery.peak_bytes == 0
+
+    asyncio.run(deliver())
+    path = tmp_path / "history.jsonl"
+    append_history_turn(
+        path,
+        conversation_id="maximum",
+        request_id="maximum",
+        question="Synthetic maximum ranks",
+        provider="fixture",
+        model="none",
+        payload=p,
+    )
+    restored = read_history(path)["conversations"][0]["turns"][0]["payload"]
+    assert restored == json.loads(serialized)
+    assert validate(restored)["errors"] == []

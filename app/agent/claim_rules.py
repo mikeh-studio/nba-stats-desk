@@ -7,6 +7,11 @@ operand from another identity, metric, or scope.
 
 
 def mapping(payload, destination):
+    from app.agent.claim_contexts import contracts
+
+    contextual = contracts(payload).get(tuple(destination))
+    if contextual is not None:
+        return contextual[:4]
     if (payload.get("claim_evidence") or {}).get("frozen_study"):
         return frozen_contracts()[tuple(destination)][:4]
     root, *rest = destination
@@ -261,6 +266,11 @@ def mapping(payload, destination):
 
 def transformation(payload, destination):
     """Registered formatting contract; declarations cannot choose easier formats."""
+    from app.agent.claim_contexts import contracts
+
+    contextual = contracts(payload).get(tuple(destination))
+    if contextual is not None:
+        return contextual[4]
     from app.agent.claims import resolve
 
     if (payload.get("claim_evidence") or {}).get("frozen_study"):

@@ -148,6 +148,9 @@ def metric_tables(payload, players):
             context=context,
             spec=spec,
         )
+    from app.agent.claim_contexts import bind_contexts
+
+    bind_contexts(payload)
 
 
 def reference_tables(payload, player):
@@ -304,7 +307,10 @@ def research_table(payload):
             ri += 1
 
 
-def appearance_table(payload, players):
+def appearance_table(payload, players, prior_availability=False):
+    payload.setdefault("claim_evidence", {})["appearance_request"] = {
+        "prior_availability": prior_availability
+    }
     identities(payload, players)
     for i, result in enumerate(payload["appearance_evidence"]):
         rp = ["appearance_evidence", i]
@@ -323,6 +329,9 @@ def appearance_table(payload, players):
                 identity=ip,
                 scope=rp + ["scope"],
             )
+    from app.agent.claim_contexts import bind_contexts
+
+    bind_contexts(payload)
 
 
 def availability_table(payload):
@@ -371,6 +380,9 @@ def availability_table(payload):
                 context=[mp, base + ["request", "teammate_id"]],
                 spec={"op": "template", "template": "{0} of {1}"},
             )
+    from app.agent.claim_contexts import bind_contexts
+
+    bind_contexts(payload)
 
 
 def split_table(payload):
@@ -415,6 +427,9 @@ def split_table(payload):
                 "null": "Unavailable",
             },
         )
+    from app.agent.claim_contexts import bind_contexts
+
+    bind_contexts(payload)
 
 
 def published_study_table(payload, study, selected):
@@ -540,6 +555,11 @@ def frozen_study_table(payload, study):
 
 
 def leaderboard_reference(payload):
+    payload["claim_bindings"]["claims"] = [
+        c
+        for c in payload["claim_bindings"]["claims"]
+        if c["destination"] != ["tables", 0, "title"]
+    ]
     e, ref = payload["semantic_evidence"], payload["reference_evidence"]
     base = ["reference_evidence"]
     rp = base + ["rows", 0]

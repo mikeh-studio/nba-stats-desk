@@ -50,7 +50,11 @@ def resolve(document: Any, path: list) -> Any:
         raise ValueError("Invalid claim path")
     value = document
     for key in path:
-        if isinstance(value, list) and type(key) is int and 0 <= key < len(value):
+        if (
+            isinstance(value, (list, tuple))
+            and type(key) is int
+            and 0 <= key < len(value)
+        ):
             value = value[key]
         elif (
             isinstance(value, dict)
@@ -90,12 +94,27 @@ def transform(values: list, spec: dict) -> Any:
             raise ValueError("Numeric template literals are not evidence")
         formats = spec.get("formats", ["identity"] * len(values))
         if len(formats) != len(values) or any(
-            f not in ("identity", "join_comma", "signed2") for f in formats
+            f
+            not in (
+                "identity",
+                "join_comma",
+                "signed2",
+                "phase_lower",
+                "words",
+                "warnings",
+            )
+            for f in formats
         ):
             raise ValueError("Invalid operand format")
         values = [
             ", ".join(v)
             if f == "join_comma" and isinstance(v, list)
+            else ("regular season and playoffs" if v == "Both" else v.lower())
+            if f == "phase_lower"
+            else v.replace("_", " ")
+            if f == "words"
+            else ("; ".join(v) or "—")
+            if f == "warnings"
             else f"{v:+.2f}"
             if f == "signed2"
             else v
@@ -173,8 +192,17 @@ def descriptor(payload, sources, context):
         )
     fixed = {
         "season": ("season", "season"),
+        "start": ("start", "date"),
+        "end": ("end", "date"),
+        "key": ("metric_key", "label"),
         "seasons": ("seasons", "season"),
         "as_of": ("as_of", "date"),
+        "window_start": ("window_start", "date"),
+        "opponent": ("opponent", "label"),
+        "participation": ("participation", "label"),
+        "reason": ("reason", "label"),
+        "report_status": ("report_status", "label"),
+        "warnings": ("warnings", "label"),
         "window": ("window", "label"),
         "home_away": ("home_away", "label"),
         "size": ("cohort_size", "players"),
@@ -206,6 +234,8 @@ def descriptor(payload, sources, context):
         "unit": ("unit", "label"),
         "aggregation": ("aggregation", "label"),
     }
+    if type(field) is int and "groups" in sources[0]:
+        return "group_label", "label"
     if field in fixed:
         return fixed[field]
     for path in context:
@@ -408,6 +438,14 @@ def validate(payload: dict) -> dict:
             AttributeError,
         ) as exc:
             errors.append({"destination": destination, "reason": str(exc)})
+    from app.agent.claim_contexts import guards
+
+    for path, expected_label in guards(payload).items():
+        try:
+            if resolve(payload, list(path)) != expected_label:
+                raise ValueError("Presentation label contradicts renderer contract")
+        except (ValueError, TypeError, KeyError, IndexError) as exc:
+            errors.append({"destination": list(path), "reason": str(exc)})
     unbound = [
         path
         for root in VISIBLE_ROOTS

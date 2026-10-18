@@ -25,17 +25,17 @@ structured destinations, not every surface in that route.
 | Registry route | Actual construction owner / supported subtypes | Current explicit bindings and gaps |
 | --- | --- | --- |
 | unsupported_round | `service._answer`, scope refusal | No statistics returned; refusal text remains unbound |
-| appearances | `appearance_ask.answer_appearances` | Table identities and counts mapped to scoped appearance query results; prose dates/profile/assumptions remain gaps |
-| availability | `availability_ask.render_answer` | Main table labels, values and valid/observed sample pairs mapped to exact focal/exposure request and group metrics; audit table, chart, prose, inclusion counts and profile remain gaps |
+| appearances | `appearance_ask.answer_appearances` | Table identities/counts and the deterministic full narrative identity/count/date/phase scope mapped; profile and source assumptions remain gaps |
+| availability | `availability_ask.render_answer` | Main table labels, values and valid/observed sample pairs mapped to exact focal/exposure request and group metrics; audit date/opponent/participation/reported status/exclusion reason/warnings mapped; minutes-baseline audit prose, chart, inclusion-count narrative and profile remain gaps |
 | research | `research.answer_payload`, `research_studies.study_answer` | Descriptive table identity, metric, values, units, aggregation and sample counts mapped; published-study descriptive table values/labels/units mapped; explorer fields remain gaps; prose/profile/filter explanations remain gaps |
 | teammate_study | `teammate_ask.answer_study`, `study_claims` | Existing nine frozen mappings preserved and adapted to seven exact cells (two sample pairs and the interval combine operands); v1 narrative remains a gap |
 | similarity | `reference_ask.render_reference`, `recent_similarity.render_recent_similarity` | Published score/name table; recent profile values, samples, dates, scores and identities mapped; prose, model-method constants, assumptions remain gaps |
 | league_baseline | `reference_ask.render_reference` | Player/league values and sample counts mapped with distinct identities and scopes; narrative difference and scope assumptions remain gaps |
 | award | `semantic_answer.SemanticAsk.answer`, `award_lookup` | Composes award identity with governed metric/overview results; child mappings retained, award intro/catalog-year text remains gap |
-| player_split | `player_splits.answer_split` | Phase, venue, recent/prior, before/after values and differences mapped; table headers, coverage pairs and narrative remain gaps |
+| player_split | `player_splits.answer_split` | Phase, venue, recent/prior, before/after values and differences mapped; side headers, metric labels, coverage pairs and scope assumptions mapped; main narrative remains a gap |
 | player_comparison | `player_comparison.build_comparison`, `comparison_detail` | Core/additional scorecards, impact, profile, narrative and chart UI; canonical aggregates exist, DOM binding work tracked separately |
 | overview | `performance_overview.build_overview`, `overview_*` helpers | Current/prior metrics, shooting/per-36, percentile/peer position, monthly/daily charts, variation, insights and profiles; canonical aggregates exist, DOM binding work tracked separately |
-| metrics | `semantic_answer.render_answer`, `add_leaderboard_reference` | Summary/rank/percentile/current-baseline table values/identities/counts mapped; game-log date/game/team/phase/value and chart x/y mapped; contextual reference cells/gaps and exact scope/cohort/provenance/missing-sample/numerator-denominator assumptions mapped; main narrative remains a gap |
+| metrics | `semantic_answer.render_answer`, `add_leaderboard_reference` | Summary/rank/percentile/current-baseline table values/identities/counts mapped; game-log date/game/team/phase/value and chart x/y mapped; contextual reference cells/gaps and exact scope/cohort/provenance/missing-sample/numerator-denominator assumptions mapped; table metric/date/phase titles and game-log chart identity/axis/series labels mapped; main narrative remains a gap |
 | legacy_repository | `service._answer_from_evidence`, `_generate_answer`, compatibility tool loop | Preserved; arbitrary model-authored prose/tables are unbound. Allowlisted tools alone do not establish exact presentation support |
 
 `service._answer` additionally handles reviewed event nonparticipation through
@@ -66,3 +66,24 @@ identity records. No paid provider calls are required. Legacy Claude compatibili
 may emit prose deltas before finalization; the governed fail-closed guarantee does
 not apply to that unbound legacy stream. No universal rubric point or human review
 approval follows from these mappings.
+
+## Context and payload-size checks
+
+Metric/split surrounding labels are checked independently of numeric cells.
+Evidence-derived titles, side labels and scope prose have exact source operands.
+Static column labels have fixed renderer-contract guards; they are not presented
+as statistical evidence. Appearance prose binds its entire deterministic template
+to identities, counts, season, phase and date operands. Availability audit rows
+retain exact sorted source paths; imported labels are never matched by value.
+
+The synthetic two-ranking, 100-rows-per-table regression serializes to 1,613,912
+bytes, including 1,516,865 bytes of binding metadata using ordinary JSON encoding.
+The larger-than-supported research stress fixture (100 players, two metrics; the
+API accepts at most two players) uses 1,148,988 binding bytes. Tests cap the ranking
+fixture at 2,000,000 total bytes and 1,700,000 binding bytes to detect growth. These
+are regression bounds, not new production truncation limits. The existing SSE
+1,650-byte incremental queue budget is unchanged: its complete terminal event is
+separate and is delivered without truncation. Local JSONL history roundtrips the
+full payload with valid bindings. Browser storage remains subject to its existing
+quota and eviction policy; large metadata can consume that quota sooner. No
+claim is made that browser quota or terminal-response size is universally bounded.
