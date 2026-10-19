@@ -1,5 +1,34 @@
 # Ask harness continuation assessment — 2026-10-18
 
+**Historical assessment:** The counts, scores, whole-corpus hashes, review history
+and stack status below describe the earlier planner contracts. They are preserved
+as a checkpoint, not asserted as the current integrated result.
+
+## Current compatibility rework boundary
+
+The stack now uses `research_intent/2` and `semantic_intent/2`. Controlled planner
+inputs have migrated while expected checks and fictional source bytes remain
+unchanged. The original human approval remains evidence for the previously
+selected 26 unchanged critical expectations and their source; it does not approve
+new whole-case input hashes or all 147 cases.
+Historical approval receipts and private ledgers remain unchanged.
+
+The original 14-call recording remains immutable, but current replay rejects its
+incompatible case binding before request matching. Its historical 6/6 result is
+not current strict-provider replay success. Current evidence consists of frozen
+recording integrity and controlled endpoint checks; no new capture or live model
+accuracy is claimed. The historical conditional 9.0 ceiling is not a new award
+for this rework, and missing current provider replay evidence is not replaced by
+synthetic tests.
+
+At this rework checkpoint, A/B/C/D/E (#81/#84/#82/#83/#85) are merged;
+F/I/G (#86/#87/#88) remain open. PR88 is reconnected for compatibility only.
+Its binding surface inventory and rollout scope are unchanged; local checks do
+not establish pushed-head CI, merge readiness or deployment. Fresh compatibility
+validation is recorded separately from the historical counts below.
+
+## Historical continuation assessment
+
 This continues the [historical A–F assessment](ask-harness-results.md). The
 controlled inventory remains **147 cases**, with unchanged expectations and
 fictional source data. Mike H directly approved the **26 selected critical
@@ -54,11 +83,12 @@ truth of the upstream data or statistical methodology. See the
 | --- | ---: | --- |
 | Original capture | 4/6 | The one authorized provider capture; 14 calls |
 | Historical F | 5/6 | Descriptive-route correction repaired `research_home` |
-| I and current G checkpoint | 6/6 | Approved dated-points default repaired `date_range` |
+| Historical I and G checkpoint | 6/6 | Approved dated-points default repaired `date_range` |
 
 All runs use the original recorded request/response bytes and unchanged
-expectations. No new provider capture was made. Current replay consumes all 14
-recorded calls, passes integrity/isolation gates and makes no provider calls.
+expectations. No new provider capture was made. At that historical checkpoint,
+replay consumed all 14 recorded calls, passed integrity/isolation gates and made
+no provider calls.
 The repairs are **in-sample regression evidence**, not held-out generalization,
 current live-provider accuracy or streaming-timing evidence.
 
