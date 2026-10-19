@@ -954,5 +954,8 @@ this version and cannot establish its accuracy.
 
 See [claim bindings and surface inventory](ask-claim-bindings.md) for the additive
 `ask_claim_bindings/2` envelope. Structured cells and selected scope/sample prose
-link exact sources to exact destinations. Contradictions are withheld after
-visualization enrichment; unbound surfaces remain explicitly incomplete.
+link exact sources to exact destinations. After visualization enrichment,
+`ASK_CLAIM_ENFORCEMENT=enforce` withholds contradicted bindings; default `log`
+records invalid reports while preserving content. See the [observation rollout](ask-claim-bindings.md#observation-rollout)
+for activation and loss boundaries. Unbound surfaces remain explicitly incomplete;
+existing non-binding safeguards remain enforced in both modes.

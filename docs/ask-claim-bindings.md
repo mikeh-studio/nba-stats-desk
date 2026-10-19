@@ -9,7 +9,7 @@ payload consumers remain compatible.
 The independent validator checks destination-to-source schemas, evidence hashes,
 identity/scope contexts, units and presentation values. Finalization runs after
 visualization enrichment in `StatsAgent.answer`, before governed JSON/SSE answers
-are delivered. Contradicted bindings produce a safe error response. Missing
+are delivered. In enforcement mode, contradicted bindings produce a safe error response. Missing
 bindings produce an explicit `incomplete` report and preserve compatibility.
 This is not universal claim verification: unbound leaves are counted exactly with bounded representative paths, including
 labels, identity and dates, rather than excluded to increase coverage. Formatting
@@ -65,7 +65,7 @@ geometry, tooltips, axes and available sample counts; variation point/summary
 geometry and peak details are mapped. Missing legacy sample fields and freeform
 methodology notes remain gaps. DOM validation rejects missing/duplicate targets,
 wrong source/metric/identity/scope and changed presentation, withholding the
-contradicted surface. It always reports remaining gaps rather than universal
+contradicted surface in enforcement mode. It always reports remaining gaps rather than universal
 verification. Snapshots/descriptors are transient DOM-session data, not extra
 persisted response metadata. Generic charts/tables and research explorer still
 have no DOM contract, even where backend table cells have exact bindings.
@@ -136,3 +136,74 @@ certified. Python proof hashes are not a cross-language numeric canonicalization
 standard: JavaScript may rewrite 5.0 as 5. Client-restored backend proof is retained
 for inspection, not revalidated by a server history endpoint. The separate DOM
 contract validates restored presentation against its canonical snapshot.
+
+## Observation rollout
+
+`ASK_CLAIM_ENFORCEMENT` accepts `log` (default) or `enforce`; any other explicit
+value fails configuration. Both modes validate mapped bindings. Log preserves a
+known contradicted response/surface and normal conversation effects, while attaching
+an invalid report. This is a temporary observation choice, not verification.
+Enforce withholds contradicted surfaces and cancels pending successful conversation
+effects. Missing legacy bindings remain incomplete in both modes. Existing
+identity/date/phase, unsupported-intent, read-only and JSON-serialization safeguards
+remain enforced; serialization failures return a safe error in both modes.
+
+The server renders the current mode into the Ask page. A module snapshots that
+configuration before answer rendering; saved payload mode never overrides it.
+History restoration under enforce also withholds a saved backend-invalid answer,
+including generic tables without DOM mappings. This does not revalidate or trust
+JavaScript-mutated backend proof. Mode changes require process/deployment restart and page reload; editing the
+environment alone does not update a running process. Already
+open pages retain their snapshot. Browser reports from a stale mode receive a
+bounded rejection rather than being relabeled with the new mode. Rollback selects
+log, restarts/redeploys the process, and reloads the current app; older safeguards stay active.
+
+Private `ask_claim_observation` logs use an independent strict field projector:
+origin-specific finite route/surface/status/reason/version/mode enums and bounded
+assessed/invalid counts. Bound and unbound counts remain in validation reports,
+not telemetry: their backend and browser units differ. Route labels come only
+from canonical payload routes; absent or unrecognized routes are unknown.
+They contain no request/conversation IDs, names, questions, answers, values, paths,
+source or query scope, or arbitrary error messages. Backend emits one assessment
+per finalized response. Browser emits one assessment per displayed surface and at
+most one later first-invalid transition. Repeated hover/redraw does not add an
+assessment or repeat a mismatch; changing drawer metric/view or restoring a new
+answer creates a new consecutive display instance. A→B→A counts three instances;
+repeated toggling does not establish independent activation evidence. Transition events have assessed=0 and must not be used
+as additional denominators. They record only the first failure category per view.
+
+The browser buffer is capped at16 events, sent in batches without retries. The
+same-origin-only endpoint requires Fetch Metadata and compares an optional Origin
+against the public Host authority, accepting HTTP/HTTPS without trusting forwarded
+headers. This supports TLS termination with an internal HTTP ASGI connection;
+malformed or duplicate origins are rejected. It accepts JSON only, limits actual
+streamed bodies to8192 bytes and batches to16, admits at most120 requests/minute
+per process, and permits four concurrent body readers with a two-second timeout.
+Absent Fetch Metadata is rejected. There is no client identity map, query API,
+new database or file store. Logging failures do not affect Ask or UI behavior.
+Browser events are untrusted and best-effort: queue overflow, stale-page rejection,
+network/admission limits, offline pages and navigation can lose observations.
+Counts are received assessments, not a complete traffic denominator or an overall
+failure rate. Existing private deployment log retention and IAM policies apply.
+
+Activation requires representative assessed response and rendered-view volume for
+each mapped route/surface, including legacy/history paths, separate complete,
+incomplete and invalid counts, investigation of mismatches and delivery losses,
+and an explicit operator decision. Zero mismatches without denominators is not an
+activation gate. This rollout measures mapped binding consistency, not warehouse
+truth, complete claim correctness or provider accuracy.
+
+DOM assessments currently cover mapped overview/comparison tables, comparison
+charts and metric drawers only. Generic/unmapped views and known-backend-invalid
+answers suppressed on restoration do not emit DOM assessments. Their displayed
+volume is not established by this telemetry. The bounded local drop counter is
+session-only and includes overflow, failed/rejected delivery and projection errors;
+it is not delivered as a reliable server loss denominator. At most one browser
+batch is in flight, with a two-second abort, no response-body read and no retries.
+
+The local, bounded UI failure counter counts every invalid validation attempt in
+both modes; it is separate from deduplicated observations and is not a view denominator.
+Strict JSON preflight rejects unsupported or recursive values in both modes before
+claim traversal. Unsafe payloads receive a constant invalid report with inventory
+unavailable, and the backend retains only independently serializable context fields
+of at most8192 UTF-8 bytes each. Internal binding markers never leave finalization.

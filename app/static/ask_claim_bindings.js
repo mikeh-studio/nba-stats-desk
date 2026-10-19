@@ -1,3 +1,4 @@
+import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261019-claim-rollout-v1";
 // Exact canonical evidence -> final DOM relationships; rendered text is never an oracle.
 export const UI_CLAIM_VERSION = "ask_ui_claim_bindings/1";
 const finite = Number.isFinite,
@@ -1018,12 +1019,7 @@ export function enforceRenderedClaims(
 ) {
   const report = validateRenderedClaims(root, payload, session);
   root.uiClaimReport = report;
-  if (report.status === "invalid") {
-    const warning = root.ownerDocument.createElement("p");
-    warning.className = "meta";
-    // Local-only bounded diagnostics: no values, identities, source paths or telemetry.
-    const counts = (root.ownerDocument.uiClaimFailureCounts ||= {});
-    const code = report.errors.some(
+  const code = report.errors.some(
       (e) => e.reason === "Canonical identity/metric/scope/source changed",
     )
       ? "source_changed"
@@ -1034,10 +1030,18 @@ export function enforceRenderedClaims(
           )
         ? "destination_mismatch"
         : "binding_structure";
+  observeClaims(root, payload, session, report, code);
+  if (report.status === "invalid") {
+    // Local validation-attempt count, separate from deduplicated observations.
+    const counts = (root.ownerDocument.uiClaimFailureCounts ||= {});
     counts[code] = Math.min(1000000, (counts[code] || 0) + 1);
+  }
+  if (report.status === "invalid" && claimMode() === "enforce") {
+    const warning = root.ownerDocument.createElement("p");
+    warning.className = "meta";
     warning.dataset.claimFailureCode = code;
     warning.textContent =
-      "This factual view could not be verified. Refresh the page to reload its evidence. If this continues, report code: " +
+      "This factual view could not be verified. Diagnostic code: " +
       code +
       ".";
     root.replaceChildren(warning);

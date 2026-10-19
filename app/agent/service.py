@@ -1462,7 +1462,8 @@ class StatsAgent:
                 VisualizationAgent().enrich(
                     self, payload, question, provider_name, selected_model, trace
                 )
-            )
+            ),
+            mode=self.settings.ask_claim_enforcement,
         )
 
     def _answer(

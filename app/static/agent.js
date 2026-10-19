@@ -1,4 +1,5 @@
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261018-claim-bindings-v1";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261019-claim-rollout-v1";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261019-claim-rollout-v1";
 import { seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -7,7 +8,7 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261018-claim-bindings-v1";
+} from "./ask_comparison.js?v=20261019-claim-rollout-v1";
 import {
   normalizeTabs,
   openTab,
@@ -21,8 +22,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261018-claim-bindings-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261018-claim-bindings-v1";
+} from "./ask_presentation.js?v=20261019-claim-rollout-v1";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261019-claim-rollout-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1023,6 +1024,10 @@ function renderScopeAssumptions(payload, targetEl) {
 
 function renderAnswerPayload(payload, targetEl) {
   if (!targetEl) return;
+  if (withholdKnownInvalid(payload)) {
+    targetEl.textContent = "This answer could not be verified. Diagnostic code: claim_binding_mismatch.";
+    return;
+  }
   const comparison = comparisonPresentation(payload);
   if (comparison) {
     targetEl.innerHTML = comparisonAnswer(comparison);
@@ -1045,6 +1050,7 @@ function renderAuxiliaryPayload(
   root = document,
   updateComposer = true,
 ) {
+  if (withholdKnownInvalid(payload)) payload = withheldClaimPayload(payload);
   viewedPayload = payload;
   const tableCard = root.querySelector("[data-agent-table-card]");
   const tableEl = root.querySelector("[data-agent-tables]");

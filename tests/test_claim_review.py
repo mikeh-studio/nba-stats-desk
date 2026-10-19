@@ -59,7 +59,7 @@ def test_unbound_legacy_shape_never_runs_bound_route_guards():
     )
     payload = literal_breakdown()
     payload["semantic_evidence"] = {"metric": {}}
-    assert finalize(payload)["status"] == "error"
+    assert finalize(payload, mode="enforce")["status"] == "error"
 
 
 def test_supported_date_decimal_boundary_and_nonfinite_safe_error():

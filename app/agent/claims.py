@@ -729,20 +729,49 @@ def safe_context(payload):
         if key in payload:
             try:
                 value = canonical_source(payload[key])
-                json.dumps(value, allow_nan=False)
-                context[key] = value
-            except (ValueError, TypeError, OverflowError):
+                encoded = json.dumps(value, allow_nan=False)
+                if len(encoded.encode("utf-8")) <= 8192:
+                    context[key] = value
+            except (ValueError, TypeError, OverflowError, RecursionError):
                 pass
     return context
 
 
-def finalize(payload: dict) -> dict:
+def finalize(payload: dict, *, mode: str = "log") -> dict:
+    from app.agent.claim_rollout import backend_event, emit_event
+
+    if mode not in {"log", "enforce"}:
+        raise ValueError("Invalid claim rollout mode")
+    serialization_error = False
     try:
         payload = canonical_source(payload)
-    except (ValueError, TypeError, OverflowError):
-        payload["_claim_binding_error"] = True
-    result = validate(payload)
-    if result["errors"]:
+        json.dumps(payload, allow_nan=False)
+    except (ValueError, TypeError, OverflowError, RecursionError):
+        serialization_error = True
+    if serialization_error:
+        # Do not traverse an unsafe or recursive source to build diagnostics.
+        result = {
+            "version": VERSION,
+            "status": "invalid",
+            "bound_destinations": 0,
+            "errors": [{"destination": [], "reason": "Unsafe JSON source"}],
+            "error_count": 1,
+            "errors_truncated": False,
+            "unbound": [],
+            "unbound_count": 0,
+            "unbound_counts": {},
+            "unbound_truncated": True,
+            "inventory_available": False,
+        }
+    else:
+        result = validate(payload)
+    result["mode"] = mode
+    result["rollout_version"] = "ask_claim_rollout/1"
+    try:
+        emit_event(backend_event(payload, result, mode, serialization_error))
+    except Exception:
+        pass  # Projection and logging are both best-effort, never delivery gates.
+    if serialization_error or (result["errors"] and mode == "enforce"):
         from app.agent.execution import CURRENT
         from app.agent.payload import answer_payload
 
@@ -755,11 +784,12 @@ def finalize(payload: dict) -> dict:
                 policy.trace.error_type = "claim_binding_mismatch"
 
         return answer_payload(
-            "The evidence-to-answer checks failed. Please retry this request.",
+            "This answer could not be verified. Diagnostic code: claim_binding_mismatch.",
             status="error",
             claim_validation=result,
             reason_code="claim_binding_mismatch",
             **safe_context(payload),
         )
+    payload.pop("_claim_binding_error", None)
     payload["claim_validation"] = result
     return payload

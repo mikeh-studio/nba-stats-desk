@@ -1,7 +1,9 @@
 """Independent hand-derived values and adversarial evidence/presentation changes."""
 
 import copy
+import io
 import json
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +11,19 @@ from app.agent.claims import expand_path, finalize, transform, validate
 from app.agent.service import StatsAgent
 from app.research import answer_payload
 from tests.test_semantic_migration import Model, Warehouse, settings
+
+
+@pytest.fixture
+def observation_stream():
+    from app.agent.claim_rollout import logger
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    logger.addHandler(handler)
+    try:
+        yield stream
+    finally:
+        logger.removeHandler(handler)
 
 
 def literal_breakdown():
@@ -136,7 +151,7 @@ def test_independent_mutations_fail_at_a_specific_destination(mutation):
     assert report["errors"]
     if mutation not in {"scope", "phase", "source", "hash", "unsafe_path"}:
         assert any(e["destination"] for e in report["errors"])
-    safe = finalize(p)
+    safe = finalize(p, mode="enforce")
     assert safe["status"] == "error" and not safe["tables"]
 
 
@@ -150,9 +165,16 @@ def test_templates_cannot_hide_numeric_literals_or_omit_operands(template, value
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize("mode", ["log", "enforce"])
+@pytest.mark.parametrize(
+    "scenario",
+    ["mismatch", "incomplete", "refusal", "bytes", "set", "object", "recursive"],
+)
 def test_actual_endpoint_withholds_contradicted_bound_claim_before_stream(
-    monkeypatch, transport
+    monkeypatch, transport, mode, scenario, observation_stream
 ):
+    from dataclasses import replace
+
     from app.agent.visualization import VisualizationAgent
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
@@ -164,14 +186,22 @@ def test_actual_endpoint_withholds_contradicted_bound_claim_before_stream(
 
     def corrupt(self, *args, **kwargs):
         payload = original(self, *args, **kwargs)
-        payload["tables"][0]["rows"][0][1] = "99999.0%"
+        if scenario == "mismatch":
+            payload["tables"][0]["rows"][0][1] = "99999.0%"
+        elif scenario in {"bytes", "set", "object", "recursive"}:
+            payload["unsafe"] = {
+                "bytes": b"private",
+                "set": {1},
+                "object": object(),
+                "recursive": payload,
+            }[scenario]
         return payload
 
     monkeypatch.setattr(VisualizationAgent, "enrich", corrupt)
     old = dict(app.dependency_overrides)
     app.dependency_overrides.update(
         {
-            get_settings: settings,
+            get_settings: lambda: replace(settings(), ask_claim_enforcement=mode),
             get_repository: lambda: repo,
             get_agent_client: lambda: Model("fg_pct"),
         }
@@ -182,10 +212,14 @@ def test_actual_endpoint_withholds_contradicted_bound_claim_before_stream(
                 "/api/agent/ask"
                 + ("/stream" if transport == "sse" else "")
                 + "?season=2024-25",
-                json={"question": "Small Sample FG% this season"},
+                json={
+                    "question": "How did Small Sample play in the conference finals?"
+                    if scenario == "refusal"
+                    else "Small Sample FG% this season"
+                },
             )
         assert response.status_code == 200
-        assert "99999" not in response.text
+        assert ("99999" in response.text) == (mode == "log" and scenario == "mismatch")
         if transport == "json":
             payload = response.json()
         else:
@@ -195,10 +229,39 @@ def test_actual_endpoint_withholds_contradicted_bound_claim_before_stream(
                 if line.startswith("data: ")
             ]
             payload = next(e["payload"] for e in events if e.get("type") == "final")
-            assert not any(
-                "10.0%" in str(e) for e in events if e.get("type") == "answer_delta"
-            )
-        assert payload["reason_code"] == "claim_binding_mismatch"
+            if mode == "enforce" and scenario == "mismatch":
+                assert not any(
+                    "10.0%" in str(e) for e in events if e.get("type") == "answer_delta"
+                )
+        unsafe = scenario in {"bytes", "set", "object", "recursive"}
+        expected_status = (
+            "invalid" if scenario == "mismatch" or unsafe else "incomplete"
+        )
+        assert payload["claim_validation"]["status"] == expected_status
+        assert payload["claim_validation"]["mode"] == mode
+        emitted = [
+            json.loads(line.removeprefix("ask_claim_observation "))
+            for line in observation_stream.getvalue().splitlines()
+        ]
+        assert len(emitted) == 1
+        assert emitted[0]["route"] == (
+            "unsupported" if scenario == "refusal" else "governed_metrics"
+        )
+        assert emitted[0]["mode"] == mode
+        assert emitted[0]["assessed"] == 1
+        assert emitted[0]["status"] == expected_status
+        if unsafe:
+            assert payload["status"] == "error"
+            assert emitted[0]["reason"] == "serialization"
+            assert "_claim_binding_error" not in payload
+            json.dumps(payload, allow_nan=False)
+        elif scenario == "refusal":
+            assert payload["status"] != "ok" and not payload["tables"]
+            assert payload["ask_route"]["reason_code"] == "unsupported_round"
+        elif scenario == "mismatch" and mode == "enforce":
+            assert payload["reason_code"] == "claim_binding_mismatch"
+        else:
+            assert payload["status"] == "ok"
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)
@@ -306,13 +369,16 @@ def test_scope_and_pooled_denominator_prose_has_exact_destinations():
     )
 
 
-def test_contradicted_claim_does_not_commit_successful_conversation(monkeypatch):
+@pytest.mark.parametrize("mode", ["log", "enforce"])
+def test_contradicted_claim_does_not_commit_successful_conversation(monkeypatch, mode):
+    from dataclasses import replace
+
     from app.agent.conversation import InMemoryConversationStore
     from app.agent.visualization import VisualizationAgent
 
     store = InMemoryConversationStore()
     agent = StatsAgent(
-        settings(),
+        replace(settings(), ask_claim_enforcement=mode),
         SimpleNamespace(),
         client=Model("fg_pct"),
         semantic_warehouse=Warehouse(),
@@ -329,8 +395,8 @@ def test_contradicted_claim_does_not_commit_successful_conversation(monkeypatch)
     response = agent.answer(
         "Small Sample FG% this season", conversation_id="invalid-binding"
     )
-    assert response["status"] == "error"
-    assert not store.get_turns("invalid-binding", max_turns=10)
+    assert response["status"] == ("error" if mode == "enforce" else "ok")
+    assert bool(store.get_turns("invalid-binding", max_turns=10)) == (mode == "log")
 
 
 def test_verified_dnp_unknown_and_metric_samples_stay_distinct(tmp_path):
@@ -604,7 +670,7 @@ def test_compact_registry_mutations_fail_after_json_roundtrip(mutation):
     elif mutation == "malformed_claim":
         claim["expected_display"] = 5.0
     assert validate(payload)["status"] == "invalid"
-    assert finalize(payload)["status"] == "error"
+    assert finalize(payload, mode="enforce")["status"] == "error"
 
 
 def test_small_summary_compact_metadata_budget():
