@@ -187,7 +187,6 @@ def test_current_total_cannot_be_erased(endpoint, transport, aggregation, source
         {"home_away": "HOME"},
         {"opponent_abbr": "AAA"},
         {"player_name": "resolved_player_999"},
-        {"aggregation": "total", "aggregation_source": "planner_selected"},
     ],
 )
 def test_raw_mismatches_fail_before_literal_scope_can_overwrite(change):
@@ -227,21 +226,23 @@ def test_literal_variants(question):
     assert planned(question)["queries"][0]["aggregation"] == "average"
 
 
-def test_model_provenance_required_and_unspecified_not_executable():
+def test_advisory_provenance_is_optional_but_invalid_values_cannot_execute():
     raw = raw_plan()
     raw["queries"][0].pop("aggregation_source")
-    with pytest.raises(SemanticError, match="provenance"):
-        plan_question(
-            client_for(raw),
-            model="test",
-            question=QUESTION,
-            selected_season="2024-25",
-            players=PLAYERS,
-        )
+    result = plan_question(
+        client_for(raw),
+        model="test",
+        question=QUESTION,
+        selected_season="2024-25",
+        players=PLAYERS,
+    )
+    assert result["queries"][0]["aggregation"] == "average"
+    assert result["aggregation_policy"]["model_aggregation_source"] is None
     with pytest.raises(SemanticError):
         planned(QUESTION.replace("points", "assists"), metric="ast")
-    with pytest.raises(SemanticError):
-        planned(aggregation="total")
+    for value in ("ratio", None, [], "sum"):
+        with pytest.raises(SemanticError):
+            planned(aggregation=value)
 
 
 @pytest.mark.parametrize(

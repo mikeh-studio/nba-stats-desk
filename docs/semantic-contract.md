@@ -207,19 +207,24 @@ not establish shooting ranking eligibility or statistical precision. See
 [Ask overview sample policy](pages.md#ask-overview-metrics-and-samples).
 
 
-The planner contract `semantic_intent/2` separates aggregation intent from an
-executable query. Every planned query requires `aggregation_source`: `explicit`,
-`inherited`, `planner_selected`, or `omitted`. Only `omitted` pairs with
-`aggregation: unspecified`; it cannot already assert total or average. The
-server resolves an approved omitted aggregation before constructing `Query` and
-strips planner-only provenance. `planner_selected` preserves model-selected
-semantics outside this policy; it does not claim an explicit user instruction or
-a new deterministic default. GP, game logs and ratios retain their existing
-metric/operation constraints.
+The planner contract `semantic_intent/3` makes aggregation provenance server-owned.
+The planner's `aggregation_source` is bounded advisory metadata; missing or
+incorrect labels cannot authorize or veto execution. The server derives
+`aggregation_resolution` from current explicit intent, compatible previous summary
+scope, the approved omitted default, or an existing metric/operation convention.
+Concrete values that contradict explicit or inherited aggregation still fail.
+Planner-only fields are stripped before constructing `Query`. Noneligible
+model-selected semantics remain identified as `planner_selected`; this is not a
+new default for other metrics. GP, game logs and ratios retain their constraints.
 
 An explicitly named player's single dated PTS summary with omitted aggregation
 uses **points per game**. Canonical identity, metric aliases and calendar/date
-scope determine eligibility independently of proposed query fields. Contradictory
+scope determine eligibility independently of proposed query fields. One shared
+literal interval resolver accepts ISO date-to/through-date and
+between-date-and-date forms, regardless of introductory from/over/during words.
+Recognized unresolved or competing date anchors require clarification; reversed
+or invalid literal intervals refuse with `invalid_scope`, rather than executing
+an invented total. Existing calendar resolution is reused. Contradictory
 identity, metric, operation, dates, season, phase or extra filters fail before
 literal scope replacement. Explicit total/average cues cannot be erased by model
 provenance. A partial follow-up retains a compatible previous aggregation;
@@ -232,6 +237,17 @@ game-log total is an operation convention, not transferable user aggregation
 intent. Per-game count charts retain game-log total values; percentage rankings
 retain ratios when a threshold describes total attempts. “Total rebounds per
 game” names the combined rebound statistic at a per-game rate.
+
+The existing open-ended “since [month year]” path is outside the closed-interval
+default. Its per-game plan must match the independently resolved month start;
+model-selected totals or unspecified aggregation clarify. Existing source-anchor
+and model-proposed end-date handling remain in effect: this legacy path does not
+independently establish the upper bound. It reports `legacy_average_compatibility`
+resolution, not an unconstrained planner choice. Additional date anchors or
+numeric windows cannot use this path to bypass interval checks. Ambiguous terse
+clarification replies cannot execute an uncued guessed total; a complete named
+dated request or explicit aggregation reply can resolve that ambiguity. Existing resolved rolling windows likewise retain
+their separate semantics without acquiring the dated-PTS default.
 
 Recognized “how many points” requests clarify total versus per-game unless the
 aggregation is affirmative. Omitted dated PTS with a recognized opponent filter
@@ -249,8 +265,11 @@ accuracy claim.
 The unchanged arithmetic divides valid points by valid recorded appearances:
 zero is valid, missing points remain unknown, and valid/observed counts are
 visible. Defaulted answers disclose the choice through assumptions and
-`query_plan.aggregation_policy` (`dated_points_per_game_v2`), including
-`original_aggregation: unspecified`, chosen average, unit and validated scope.
+`query_plan.aggregation_policy` (`dated_points_per_game_v3`), including the actual
+model `original_aggregation`, chosen average, unit and validated scope. A validated
+omitted request resolves total, average or unspecified model proposals to average;
+a ratio proposal remains invalid for PTS. Diagnostic model labels remain separate
+from authoritative `aggregation_resolution` provenance.
 Explicit averages receive no default disclosure.
 
 Broad overview windows up to 31 inclusive days use game-date chart buckets; longer

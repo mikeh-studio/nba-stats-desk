@@ -71,8 +71,13 @@ def contextual_leader_plan(question, context, season):
         body,
         re.I,
     )
-    scope = explicit_scope(resolved)
-    if not match or scope.get("window") != "date_range":
+    if not match:
+        return None
+    try:
+        scope = explicit_scope(resolved)
+    except SemanticError:
+        return None
+    if scope.get("window") != "date_range":
         return None
     limit = int(match[1]) if match[1] and match[1].isdigit() else 5
     if not 1 <= limit <= 100:
@@ -123,7 +128,11 @@ def normalize_reference_plan(plan, reference_ids, players):
             k: v for k, v in rank.items() if k not in ignored
         }:
             return plan
-    return {**plan, "status": "query", "queries": [dict(rank)]}
+    collapsed = {**plan, "status": "query", "queries": [dict(rank)]}
+    resolutions = plan.get("aggregation_resolution")
+    if isinstance(resolutions, list) and len(resolutions) == len(queries):
+        collapsed["aggregation_resolution"] = [resolutions[queries.index(rank)]]
+    return collapsed
 
 
 def add_leaderboard_reference(payload, result, evidence, players, player_id):
@@ -231,6 +240,7 @@ def render_answer(
     payload["query_plan"] = {
         "route": "governed_metrics",
         "queries": result["resolved_queries"],
+        "aggregation_resolution": result.get("aggregation_resolution", []),
     }
     if policy := result.get("aggregation_policy"):
         payload["query_plan"]["aggregation_policy"] = policy
@@ -848,6 +858,19 @@ class SemanticAsk:
                     "Saved player context does not match this source. Please restate the full player name and dates.",
                 )
             if pending and not selected_player and not overview:
+                from app.agent.planner import explicit_metric_mentions
+
+                if (
+                    explicit_metric_mentions(original) == {"pts"}
+                    and explicit_scope(original).get("window") == "date_range"
+                    and len(resolve_overview_player(original, players, evidence.rows))
+                    == 1
+                ):
+                    # A complete new dated request is not a terse scope reply.
+                    pending = None
+                    question = original
+                    dated_points_eligible = True
+            if pending and not selected_player and not overview:
                 resolved = resolve_overview_player(question, players, evidence.rows)
                 if len(resolved) == 1:
                     selected_player = resolved[0]
@@ -943,12 +966,29 @@ class SemanticAsk:
                         }
                     ),
                 )
+                if pending:
+                    from app.agent.question_intent import explicit_aggregation
+
+                    if not explicit_aggregation(question) and any(
+                        q.get("metric") == "pts"
+                        and q.get("operation", "summary") == "summary"
+                        and q.get("window") == "date_range"
+                        and q.get("aggregation") == "total"
+                        for q in plan.get("queries", [])
+                    ):
+                        raise SemanticError(
+                            "clarification_required",
+                            "Please restate the player and date interval, or specify total points versus points per game.",
+                        )
                 plan = normalize_reference_plan(
                     plan, inherited.get("excluded_player_ids", []), players
                 )
+                validated_points_scope = plan.pop("validated_points_scope", None)
                 for query in plan.get("queries", []):
                     if metric_window.get("window") == "date_range":
                         query.update(metric_window)
+                    if validated_points_scope:
+                        query.update(validated_points_scope)
                     if query.get("window") == "date_range":
                         # Fresh metric requests need the same full-window coverage as
                         # inherited ones. Missing required archives must fail closed.

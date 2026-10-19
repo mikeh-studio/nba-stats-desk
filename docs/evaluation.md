@@ -883,12 +883,24 @@ controlled endpoint tests do not establish live-provider or warehouse accuracy.
 
 
 The `semantic_intent/2` controlled input migration changes planner responses only;
-case expectations and source bytes stay unchanged. Missing aggregation provenance
-is rejected in production. Explicit test-only migration helpers support older
-controlled clients without weakening that runtime contract. New whole-case hashes
+case expectations and source bytes stay unchanged. That v2 contract required
+model provenance labels; ideal-plan controlled clients did not establish live
+provider reliability. Subsequent private live-provider measurement exposed correct
+plans refused for labels and wrong dated totals escaping alternate date wording.
+The v3 correction makes provenance server-owned and reuses canonical interval
+validation; advisory labels no longer govern execution. New whole-case hashes
 are not human-approved merely because their checks were unchanged. JSON/SSE dated
 points controls cover zero/null values, filters, explicit-total contradictions and
 compatible follow-up inheritance. Separate direct planner/executor checks verify
 that independent 2/4/6 inputs produce mean 4 and sum 12. These checks establish
 controlled endpoint and calculation behavior, respectively, not fresh provider
 accuracy or historical cassette compatibility.
+
+
+`semantic_intent/3` endpoint controls use independently authored public synthetic
+questions with intentionally inaccurate or missing model labels and count values.
+They cover canonical and alternate ISO intervals, explicit and inherited value
+contradictions, zero/null samples and invalid scopes. The existing 147-case source
+and expected checks and historical recordings remain unchanged. Controlled passes
+establish those endpoint behaviors only. Fresh live-provider measurement for v3
+is pending; the private v2 failures are regression evidence, not new heldouts.

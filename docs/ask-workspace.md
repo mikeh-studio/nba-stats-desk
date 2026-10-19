@@ -890,8 +890,10 @@ require clarification. Windows beyond the newest supported archive retain source
 coverage warnings and do not establish complete coverage of later seasons.
 
 For a named player's dated points summary, omitted aggregation means points per
-game. The `semantic_intent/2` planner leaves this genuinely unspecified; the
-server chooses average before constructing an executable query. Assumptions and
+game. Under `semantic_intent/3`, the server derives omitted aggregation from the
+validated request and chooses average even when the planner proposes total or
+mislabels its source. Explicit or inherited value contradictions still fail.
+Canonical date intervals and calendar scope are validated before execution. Assumptions and
 `query_plan.aggregation_policy` disclose this choice. Explicit totals stay totals,
 explicit averages have no default disclosure, and partial follow-ups preserve a
 compatible previous aggregation. Fully restated named metric/time requests, including season requests, can start

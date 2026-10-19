@@ -42,7 +42,7 @@ Game-by-game values, game logs, and a player's metric trend chart use game_log w
 Shooting rankings/percentiles without an explicit attempt threshold require clarification_required.
 Other ranking default is five games. TOV defaults to lower (ball security); most turnovers means higher.
 Count averages use average, totals use total, all shooting percentages use ratio.
-Every query has aggregation_source: explicit for current-question aggregation, inherited for a continuing previous aggregation, planner_selected for other established model-selected conventions, or omitted with aggregation unspecified. A complete named player's dated PTS summary without an aggregation MUST use omitted/unspecified; never guess total or average. The server resolves that product default. A partial follow-up retains the previous scope.aggregation unless the current question explicitly overrides it. A fully restated named dated PTS request is new and may omit aggregation. Outside that bounded default, retain existing semantic selection using planner_selected rather than claiming an explicit user choice. GP total, game_log count total and percentage ratio remain existing metric/operation conventions. Do not inherit GP/game_log total as a later summary aggregation; choose planner_selected for a new metric convention. Per-game count charts still use game_log total, and total FGA thresholds do not change percentage aggregation ratio. Clarify how many points unless total or per-game is stated. Omitted dated PTS with an opponent filter requires clarification even if the filter could be dropped. Road games means AWAY. Mixed regular season and playoffs needs explicit combined/Both intent. Never use unspecified for these conventions.
+The server owns aggregation provenance. aggregation_source is advisory diagnostic metadata only; it never authorizes or vetoes execution. Use explicit for a current aggregation cue, inherited for a compatible prior summary, omitted for no requested aggregation, or planner_selected for other conventions. For an omitted named dated PTS summary prefer aggregation unspecified; the server applies the approved per-game default even if you propose average or total, after validating identity, date, phase and filters. Never substitute a model aggregation for explicit user intent or a genuine compatible follow-up. Complete named metric/time requests start fresh. Prior GP or game-log totals are conventions, not transferable summary intent. Preserve percentage ratios and game-log count total values, including per-game charts; total FGA thresholds do not turn a ratio into total. Clarify how many points unless total or per-game is explicit. Omitted dated PTS with an opponent filter clarifies. Road games means AWAY. Mixed regular season and playoffs needs affirmative combined/Both intent. Literal ISO date-to/through-date or between-date-and-date intervals share one server resolver regardless of introductory from/over/during wording. Unknown, competing or incomplete dated scope requires clarification; do not guess a total.
 Games played uses gp with total: count recorded appearances, never sum another box-score statistic or reuse a previous comparison sample.
 Available team abbreviations are authoritative warehouse dimensions, including unfamiliar labels. Copy them with their supplied casing. Identifiers such as resolved_player_123 are already validated, unique player references. Copy them into player_name exactly; never ask to identify them or infer their names. Recognized entity mentions are authoritative even when a name looks generic; never reject an observed name based on world knowledge. Missing shooting qualification is clarification_required, never unsupported. For last_n_games, prior_n_games and last_n_days, copy the requested numeric count into n. Player names stay as mentioned for deterministic identity resolution; never invent an ID.
 A missing player for an individual summary requires clarification; league ranking uses null player_name.
@@ -155,24 +155,12 @@ def explicit_scope(question: str) -> dict[str, Any]:
     home, away = venue_mentions(question)
     if home != away:
         hints["home_away"] = "HOME" if home else "AWAY"
-    match = re.search(
-        r"\bfrom\s+(\d{4}-\d{2}-\d{2})\s+(?:through|to)\s+(\d{4}-\d{2}-\d{2})\b",
-        question,
-        re.I,
-    )
-    if match:
-        try:
-            start, end = (date.fromisoformat(value) for value in match.groups())
-        except ValueError as exc:
-            raise SemanticError("invalid_scope", "Invalid explicit date range") from exc
-        if start > end:
-            raise SemanticError("invalid_scope", "Date range is reversed")
-        hints.update(
-            window="date_range",
-            start_date=start.isoformat(),
-            as_of=end.isoformat(),
-            n=None,
-        )
+    from app.agent.overview_calendar import literal_date_intervals
+
+    intervals = literal_date_intervals(question)
+    if intervals:
+        start, end = intervals[0]
+        hints.update(window="date_range", start_date=start, as_of=end, n=None)
     if "window" not in hints:
         from app.agent.overview_calendar import MONTH_PATTERN, calendar_window
 
@@ -398,7 +386,7 @@ def plan_question(
         text={
             "format": {
                 "type": "json_schema",
-                "name": "semantic_intent_v2",
+                "name": "semantic_intent_v3",
                 "strict": True,
                 "schema": response_schema(schema),
             }
@@ -488,11 +476,9 @@ def plan_question(
         plan["aggregation_policy"] = policy
     if plan["status"] in ("query", "compare"):
         if plan["status"] == "compare" and scope:
-            ranges = re.findall(
-                r"\bfrom\s+(\d{4}-\d{2}-\d{2})\s+(?:through|to)\s+(\d{4}-\d{2}-\d{2})\b",
-                question,
-                re.I,
-            )
+            from app.agent.overview_calendar import literal_date_intervals
+
+            ranges = literal_date_intervals(question)
             days = re.findall(
                 r"\b(?:last|preceding)\s+(\d+)\s+(?:calendar\s+)?days\b", question, re.I
             )
@@ -505,6 +491,7 @@ def plan_question(
             # clarification rather than silently overwriting one with the other.
             competing_window = "window" in scope and (
                 len(set(ranges)) > 1
+                or bool(ranges and trailing_windows)
                 or len(set(days)) > 1
                 or len({(n, unit.lower().rstrip("s")) for n, unit in trailing_windows})
                 > 1
@@ -523,8 +510,11 @@ def plan_question(
                     "message": "Please specify the date range and phase for each comparison side separately; shared scope cannot safely resolve these different windows.",
                     "model_calls": 1,
                 }
+        validated_points_scope = plan.get("validated_points_scope")
         for query in plan["queries"]:
             query.update(scope)
+            if validated_points_scope:
+                query.update(validated_points_scope)
     plan["model_calls"] = 1
     return plan
 
@@ -588,6 +578,7 @@ def execute_plan(
         "status": result["status"],
         "resolved_queries": [asdict(q) for q in queries],
         "evidence": result,
+        "aggregation_resolution": plan.get("aggregation_resolution", []),
         **(
             {"aggregation_policy": plan["aggregation_policy"]}
             if "aggregation_policy" in plan
