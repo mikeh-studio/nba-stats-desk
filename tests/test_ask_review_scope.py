@@ -70,7 +70,11 @@ def test_metric_inferred_windows_use_all_required_archives_at_endpoints(
         {
             get_settings: lambda: config,
             get_repository: lambda: repo,
-            get_agent_client: lambda: Model(),
+            get_agent_client: lambda: (
+                Model(aggregation="unspecified", aggregation_source="omitted")
+                if "in January" in question
+                else Model()
+            ),
         }
     )
     try:
@@ -140,6 +144,7 @@ class CalendarComparisonModel(Model):
                                 "metric": "pts",
                                 "season": "2025-26",
                                 "aggregation": "average",
+                                "aggregation_source": "planner_selected",
                                 "player_name": "resolved_player_1",
                                 "window": "date_range",
                                 "start_date": start,
@@ -256,6 +261,7 @@ class CurrentMonthModel(Model):
                                 "metric": "pts",
                                 "season": "2025-26",
                                 "aggregation": "average",
+                                "aggregation_source": "planner_selected",
                                 "player_name": "resolved_player_1",
                                 "window": "date_range",
                                 "start_date": start,

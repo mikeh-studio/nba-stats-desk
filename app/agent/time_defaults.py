@@ -5,7 +5,7 @@ import re
 from datetime import date
 
 from app.agent.clock import today as semantic_today
-from app.agent.overview_calendar import MONTH_PATTERN, MONTHS
+from app.agent.overview_calendar import MONTH_PATTERN, MONTHS, literal_date_intervals
 from app.agent.semantics import SemanticError
 from app.seasons import SEASONS, season_bounds
 
@@ -37,10 +37,13 @@ def resolve_time_defaults(question, today=None, context=None):
     matches = [m for pattern in patterns for m in re.finditer(pattern, question, re.I)]
     if len(matches) > 1 or (
         matches
-        and re.search(
-            r"\bfrom \d{4}-\d{2}-\d{2}|\b(?:past|last) \d+ (?:months?|weeks?|days?)\b",
-            question,
-            re.I,
+        and (
+            literal_date_intervals(question)
+            or re.search(
+                r"\bfrom \d{4}-\d{2}-\d{2}|\b(?:past|last) \d+ (?:months?|weeks?|days?)\b",
+                question,
+                re.I,
+            )
         )
     ):
         raise SemanticError(

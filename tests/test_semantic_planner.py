@@ -6,6 +6,7 @@ import pytest
 from app.agent.semantic_planner import execute_plan, plan_question, plan_schema
 from app.agent.semantics import Evidence, SemanticError
 from scripts.evaluate_semantic_language import mismatches, run_case
+from tests.semantic_intent_fixtures import migrate_legacy_plan
 
 SOURCE = Path(__file__).parent / "fixtures/semantics/cases.json"
 
@@ -14,7 +15,9 @@ def client_for(plan):
     def create(**kwargs):
         assert kwargs["store"] is False
         assert kwargs["text"]["format"]["strict"] is True
-        return SimpleNamespace(output_text=json.dumps(plan))
+        return SimpleNamespace(
+            output_text=json.dumps(migrate_legacy_plan(plan, kwargs))
+        )
 
     return SimpleNamespace(responses=SimpleNamespace(create=create))
 
@@ -160,7 +163,9 @@ def test_fantasy_default_is_supplied_to_model():
         assert "defaults to fantasy_proxy_weighted" in kwargs["instructions"]
         plan = query_plan()
         plan["queries"][0]["metric"] = "fantasy_proxy_weighted"
-        return SimpleNamespace(output_text=json.dumps(plan))
+        return SimpleNamespace(
+            output_text=json.dumps(migrate_legacy_plan(plan, kwargs))
+        )
 
     plan = plan_question(
         SimpleNamespace(responses=SimpleNamespace(create=create)),
@@ -204,7 +209,9 @@ def test_source_name_is_replaced_by_bounded_reference_before_model():
         assert allowed == ["resolved_player_2", None]
         plan = query_plan()
         plan["queries"][0]["player_name"] = "resolved_player_2"
-        return SimpleNamespace(output_text=json.dumps(plan))
+        return SimpleNamespace(
+            output_text=json.dumps(migrate_legacy_plan(plan, kwargs))
+        )
 
     plan = plan_question(
         SimpleNamespace(responses=SimpleNamespace(create=create)),
@@ -225,7 +232,9 @@ def test_named_team_casing_survives_identity_replacement():
             "properties"
         ]["queries"]["items"]["properties"]
         assert fields["team_abbr"]["enum"] == ["AAA", None]
-        return SimpleNamespace(output_text=json.dumps(query_plan()))
+        return SimpleNamespace(
+            output_text=json.dumps(migrate_legacy_plan(query_plan(), kwargs))
+        )
 
     plan_question(
         SimpleNamespace(responses=SimpleNamespace(create=create)),
@@ -286,8 +295,16 @@ def test_shared_explicit_scope_overrides_both_comparison_sides(question, expecte
         "status": "compare",
         "message": "",
         "queries": [
-            {"window": "season_to_date", "season_type": "Regular Season"},
-            {"window": "season_to_date", "season_type": "Playoffs"},
+            {
+                "window": "season_to_date",
+                "season_type": "Regular Season",
+                "aggregation": "average",
+            },
+            {
+                "window": "season_to_date",
+                "season_type": "Playoffs",
+                "aggregation": "average",
+            },
         ],
     }
     result = plan_question(
@@ -298,7 +315,11 @@ def test_shared_explicit_scope_overrides_both_comparison_sides(question, expecte
 
 
 def test_distinct_comparison_ranges_are_not_silently_overwritten():
-    raw = {"status": "compare", "message": "", "queries": [{}, {}]}
+    raw = {
+        "status": "compare",
+        "message": "",
+        "queries": [{"aggregation": "average"}, {"aggregation": "average"}],
+    }
     result = plan_question(
         client_for(raw),
         model="test",
@@ -326,7 +347,11 @@ def test_past_twelve_months_repairs_missing_model_window_count():
     "baseline", ["last 3 months", "last 5 games", "previous 12 months"]
 )
 def test_month_comparisons_do_not_overwrite_distinct_windows(baseline):
-    raw = {"status": "compare", "message": "", "queries": [{}, {}]}
+    raw = {
+        "status": "compare",
+        "message": "",
+        "queries": [{"aggregation": "average"}, {"aggregation": "average"}],
+    }
     plan = plan_question(
         client_for(raw),
         model="test",

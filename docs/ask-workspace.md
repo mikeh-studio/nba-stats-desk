@@ -889,6 +889,19 @@ the explicit request anchor and disclosed; explicit user future ranges still
 require clarification. Windows beyond the newest supported archive retain source
 coverage warnings and do not establish complete coverage of later seasons.
 
+For a named player's dated points summary, omitted aggregation means points per
+game. Under `semantic_intent/3`, the server derives omitted aggregation from the
+validated request and chooses average even when the planner proposes total or
+mislabels its source. Explicit or inherited value contradictions still fail.
+Canonical date intervals and calendar scope are validated before execution. Assumptions and
+`query_plan.aggregation_policy` disclose this choice. Explicit totals stay totals,
+explicit averages have no default disclosure, and partial follow-ups preserve a
+compatible previous aggregation. Fully restated named metric/time requests, including season requests, can start
+fresh; the omitted-aggregation default remains limited to dated PTS summaries. Identity and scope contradictions fail before literal-scope replacement.
+Zero points count as an observation; missing points remain unknown. Canonical
+unsupported-intent guards do not establish arbitrary-language accuracy. See the
+[semantic contract](semantic-contract.md) for scope and sample semantics.
+
 Distribution buttons announce both the percentile or qualification status and
 the descriptive qualification note. Focused prose uses full statistic names such
 as three-pointers made and turnovers; metric tables keep their abbreviations.

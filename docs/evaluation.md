@@ -767,8 +767,8 @@ The reviewed public recording in
 [`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
 contains 14 calls across six cases. Its immutable capture and historical replay
 passed 4/6; the prior bounded correction produced a historical 5/6 checkpoint.
-Those are historical contract results. `research_intent/2` changes the prompt and
-schema. Current replay rejects the migrated case binding before request-hash
+Those are historical contract results. `research_intent/2` and
+`semantic_intent/2` change the prompts and schemas. Current replay rejects the migrated case binding before request-hash
 comparison; this is not evidence of executing the new contract against old calls. The
 recording, matching rules, expectations and historical outcomes remain unchanged.
 No paid recapture was performed for that historical rework. Controlled planner fixtures migrate input shape
@@ -875,3 +875,32 @@ v2 capture exposed the provenance-label refusals summarized in the public
 is controlled testing, pending a fresh versioned provider measurement. Historical recordings,
 expected checks, source bytes and private measurement ledgers remain unchanged;
 new contract evidence requires separately versioned evaluation.
+
+The dated-points default regression uses independent JSON/SSE endpoint holdouts,
+including zero and missing values, explicit-total contradictions and unmatched
+conditions. The original recording is incompatible with the new planner contract;
+controlled endpoint tests do not establish live-provider or warehouse accuracy.
+
+
+The `semantic_intent/2` controlled input migration changes planner responses only;
+case expectations and source bytes stay unchanged. That v2 contract required
+model provenance labels; ideal-plan controlled clients did not establish live
+provider reliability. Subsequent private live-provider measurement exposed correct
+plans refused for labels and wrong dated totals escaping alternate date wording.
+The v3 correction makes provenance server-owned and reuses canonical interval
+validation; advisory labels no longer govern execution. New whole-case hashes
+are not human-approved merely because their checks were unchanged. JSON/SSE dated
+points controls cover zero/null values, filters, explicit-total contradictions and
+compatible follow-up inheritance. Separate direct planner/executor checks verify
+that independent 2/4/6 inputs produce mean 4 and sum 12. These checks establish
+controlled endpoint and calculation behavior, respectively, not fresh provider
+accuracy or historical cassette compatibility.
+
+
+`semantic_intent/3` endpoint controls use independently authored public synthetic
+questions with intentionally inaccurate or missing model labels and count values.
+They cover canonical and alternate ISO intervals, explicit and inherited value
+contradictions, zero/null samples and invalid scopes. The existing 147-case source
+and expected checks and historical recordings remain unchanged. Controlled passes
+establish those endpoint behaviors only. Fresh live-provider measurement for v3
+is pending; the private v2 failures are regression evidence, not new heldouts.

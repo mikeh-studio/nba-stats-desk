@@ -57,7 +57,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -119,7 +120,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "total",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -181,7 +183,8 @@
                 "metric": "ast",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -243,7 +246,8 @@
                 "metric": "reb",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -305,7 +309,8 @@
                 "metric": "fg_pct",
                 "season": "2024-25",
                 "aggregation": "ratio",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "planner_selected"
               }
             ]
           }
@@ -367,7 +372,8 @@
                 "metric": "ft_pct",
                 "season": "2024-25",
                 "aggregation": "ratio",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "planner_selected"
               }
             ]
           }
@@ -431,7 +437,8 @@
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
                 "window": "last_n_games",
-                "n": 2
+                "n": 2,
+                "aggregation_source": "planner_selected"
               }
             ]
           }
@@ -492,11 +499,12 @@
               {
                 "metric": "pts",
                 "season": "2024-25",
-                "aggregation": "average",
+                "aggregation": "unspecified",
                 "player_name": "resolved_player_101",
                 "window": "date_range",
                 "start_date": "2025-04-11",
-                "as_of": "2025-04-13"
+                "as_of": "2025-04-13",
+                "aggregation_source": "omitted"
               }
             ]
           }
@@ -559,7 +567,8 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "season_type": "Playoffs"
+                "season_type": "Playoffs",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -621,7 +630,8 @@
                 "metric": "min",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -671,7 +681,8 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": null,
-                "operation": "rank"
+                "operation": "rank",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -734,7 +745,8 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "operation": "percentile"
+                "operation": "percentile",
+                "aggregation_source": "planner_selected"
               }
             ]
           }
@@ -2134,7 +2146,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2167,7 +2180,8 @@
                 "metric": "ast",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "inherited"
               }
             ]
           }
@@ -2222,7 +2236,8 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "season_type": "Playoffs"
+                "season_type": "Playoffs",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2248,7 +2263,8 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "season_type": "Playoffs"
+                "season_type": "Playoffs",
+                "aggregation_source": "inherited"
               }
             ]
           }
@@ -2440,7 +2456,8 @@
                 "metric": "ast",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "planner_selected"
               }
             ]
           }
@@ -2494,7 +2511,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2519,7 +2537,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_202"
+                "player_name": "resolved_player_202",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2573,7 +2592,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2598,7 +2618,8 @@
                 "metric": "pts",
                 "season": "2023-24",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2652,7 +2673,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2752,7 +2774,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2793,7 +2816,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -2830,7 +2854,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -5148,7 +5173,8 @@
                 "metric": "ast",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "planner_selected"
               }
             ]
           }
@@ -5701,7 +5727,8 @@
                 "metric": "ast",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "planner_selected"
               }
             ]
           },
@@ -7100,7 +7127,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }
@@ -7163,7 +7191,8 @@
                 "metric": "pts",
                 "season": "2024-25",
                 "aggregation": "average",
-                "player_name": "resolved_player_101"
+                "player_name": "resolved_player_101",
+                "aggregation_source": "explicit"
               }
             ]
           }

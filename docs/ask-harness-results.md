@@ -1,5 +1,14 @@
 # Ask harness program results — 2026-10-18
 
+**Current contract addendum:** The results and v2 rework statements below are
+historical checkpoints. Later authorized private v2 measurement exposed provenance
+refusals and dated-total failures, summarized in the public [PR86 findings](https://github.com/mikeh-studio/nba-stats-desk/pull/86)
+and [PR87 findings](https://github.com/mikeh-studio/nba-stats-desk/pull/87).
+The current research and semantic v3 corrections derive provenance on the server;
+new synthetic endpoint controls establish only their controlled behavior. Fresh
+v3 provider measurement is pending. Historical scores, recordings and approval
+receipts below remain unchanged; this addendum claims no new accuracy score.
+
 **Historical checkpoint:** The results below describe the earlier planner contract.
 The subsequent `research_intent/2` rework passes the unchanged expected checks in
 147/147 controlled synthetic endpoint cases. It changes planner inputs and cannot

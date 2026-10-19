@@ -13,6 +13,7 @@ from app.agent.service import StatsAgent
 from app.config import Settings
 from app.repository import BigQueryWarehouseRepository
 from fastapi.testclient import TestClient
+from tests.semantic_intent_fixtures import migrate_legacy_plan
 
 
 def settings(season="2024-25"):
@@ -93,7 +94,11 @@ class Model:
         ]
         return SimpleNamespace(
             output_text=json.dumps(
-                {"plan": {"status": "query", "queries": queries, "message": ""}}
+                {
+                    "plan": migrate_legacy_plan(
+                        {"status": "query", "queries": queries, "message": ""}, kwargs
+                    )
+                }
             )
         )
 

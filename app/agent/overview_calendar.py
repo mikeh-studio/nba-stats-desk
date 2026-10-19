@@ -15,6 +15,29 @@ MONTHS["sept"] = 9
 MONTH_PATTERN = r"\b(" + "|".join(sorted(MONTHS, key=len, reverse=True)) + r")\.?\b"
 
 
+# Introductory prose does not define an interval: the date anchors and connector do.
+ISO_DATE_PATTERN = r"\b\d{4}-\d{2}-\d{2}\b"
+ISO_INTERVAL_PATTERN = (
+    r"\b(\d{4}-\d{2}-\d{2})\s+(?:to|through)\s+(\d{4}-\d{2}-\d{2})\b"
+    r"|\bbetween\s+(\d{4}-\d{2}-\d{2})\s+and\s+(\d{4}-\d{2}-\d{2})\b"
+)
+
+
+def literal_date_intervals(question: str) -> list[tuple[str, str]]:
+    """Canonical ISO intervals, with real dates and order validated once."""
+    intervals = []
+    for match in re.finditer(ISO_INTERVAL_PATTERN, question, re.I):
+        start, end = match.group(1, 2) if match[1] else match.group(3, 4)
+        try:
+            lo, hi = date.fromisoformat(start), date.fromisoformat(end)
+        except ValueError as exc:
+            raise SemanticError("invalid_scope", "Invalid explicit date range") from exc
+        if lo > hi:
+            raise SemanticError("invalid_scope", "Date range is reversed")
+        intervals.append((start, end))
+    return intervals
+
+
 def shift_months(day, n):
     year, month = divmod(day.year * 12 + day.month - 1 - n, 12)
     if year < 1 or year > 9999:
@@ -39,9 +62,7 @@ def calendar_window(question, today):
             return calendar_window(
                 original[:end] + " " + year_reply[1] + original[end:], today
             )
-        if re.search(
-            r"\bfrom \d{4}-\d{2}-\d{2} (?:to|through) \d{4}-\d{2}-\d{2}\b", reply, re.I
-        ):
+        if literal_date_intervals(reply):
             return None  # overview_scope handles the explicit clarification range.
         if re.search(MONTH_PATTERN, reply, re.I) or re.search(
             r"\b(?:months?|weeks?)\b", reply, re.I
@@ -130,3 +151,58 @@ def calendar_window(question, today):
             "Please specify a month and year, a week starting YYYY-MM-DD, or explicit start and end dates.",
         )
     return None
+
+
+def since_month_start(question: str) -> str | None:
+    """Recognize the existing open-ended since-month scope, not a closed interval.
+
+    Additional date anchors cannot use this legacy path to bypass interval checks.
+    """
+    question = re.sub(r"^may i (?:see|have|get)\s+", "", question, flags=re.I)
+    matches = list(
+        re.finditer(r"\bsince\s+" + MONTH_PATTERN + r"\s+(20\d{2})\b", question, re.I)
+    )
+    if (
+        len(matches) != 1
+        or len(re.findall(MONTH_PATTERN, question, re.I)) != 1
+        or re.search(r"\b\d{4}-\d{1,2}-\d{1,2}\b", question)
+    ):
+        return None
+    match = matches[0]
+    return date(int(match[2]), MONTHS[match[1].lower()], 1).isoformat()
+
+
+def validate_single_period(question: str) -> None:
+    """Reject competing literal calendar/phase/venue scopes for one summary."""
+    text = re.sub(r"^may i (?:see|have|get)\s+", "", question, flags=re.I)
+    intervals = literal_date_intervals(text)
+    remaining = re.sub(ISO_INTERVAL_PATTERN, " ", text, flags=re.I)
+    periods = re.findall(
+        r"\bweek (?:of|starting|beginning)\s+\d{4}-\d{2}-\d{2}\b"
+        r"|\b(?:this|last|previous|past) (?:month|week)\b|" + MONTH_PATTERN,
+        remaining,
+        re.I,
+    )
+    if len(intervals) + len(periods) > 1:
+        raise SemanticError("clarification_required", "Provide one date period")
+    if intervals and re.search(r"\b\d{4}-\d{1,2}-\d{1,2}\b", remaining):
+        raise SemanticError(
+            "clarification_required", "Extra date anchors require clarification"
+        )
+    validate_phase_venue(question)
+
+
+def validate_phase_venue(question: str) -> None:
+    """Shared literal phase/venue contradictions, independent of period count."""
+    from app.agent.question_intent import venue_mentions
+
+    text = question
+    regular = bool(re.search(r"\bregular[ -]season\b", text, re.I))
+    playoff = bool(re.search(r"\b(?:playoffs?|postseason)\b", text, re.I))
+    combined = bool(re.search(r"\b(?:both|combine|combined|including)\b", text, re.I))
+    home, away = venue_mentions(text)
+    if (regular and playoff and not combined) or (home and away):
+        raise SemanticError(
+            "clarification_required",
+            "Provide one date period and nonconflicting phase and venue",
+        )
