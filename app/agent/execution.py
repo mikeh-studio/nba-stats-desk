@@ -230,7 +230,13 @@ def create_response(
             with stage(
                 "planning"
                 if schema_name
-                in {"research_scope", "semantic_plan", "nba_stats_query_plan"}
+                in {
+                    "research_scope",
+                    "research_intent_v2",
+                    "research_intent_v3",
+                    "semantic_plan",
+                    "nba_stats_query_plan",
+                }
                 else "generation"
             ):
                 response = configured.responses.create(**kwargs, **extra)
@@ -256,7 +262,13 @@ def create_response(
                     code = (
                         "invalid_plan"
                         if schema_name
-                        in {"research_scope", "semantic_plan", "nba_stats_query_plan"}
+                        in {
+                            "research_scope",
+                            "research_intent_v2",
+                            "research_intent_v3",
+                            "semantic_plan",
+                            "nba_stats_query_plan",
+                        }
                         else "invalid_response"
                     )
                 raise ExecutionFailure(code) from exc

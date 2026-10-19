@@ -13,7 +13,11 @@ metric discoverability alone does not imply every question or operation is suppo
   clarification instead of choosing a player.
 - Historical team filters use the team on the appearance, not a current profile.
   Season and regular-season/playoff scope remain explicit in results.
-- Governed metric queries default to Regular Season. Broad player overviews
+- Governed metric queries default to Regular Season. The bounded correction of
+  a provably descriptive study-kind plan applies `ResearchQuery`'s Regular Season
+  default instead of the inherited study Both default. Correctly classified
+  model-authored breakdown phases remain unchanged, including Both.
+  Broad player overviews
   have a distinct scope: unqualified phase includes both regular season and
   playoffs; explicit trailing calendar windows end today and can combine supported
   archives. Answers disclose their dates and phases.

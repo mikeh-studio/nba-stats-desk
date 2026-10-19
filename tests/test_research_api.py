@@ -20,7 +20,16 @@ def research_client(monkeypatch):
     query = ResearchQuery(
         player_ids=[1, 2], home_away="home", metrics=["pts", "fg_pct"]
     ).model_dump(mode="json")
-    planner = Client(dict(kind="breakdown", query=query, pair_id=None, message=""))
+    planner_query = {**query, "phase": None}
+    planner = Client(
+        dict(
+            phase_source="omitted",
+            kind="descriptive",
+            query=planner_query,
+            pair_id=None,
+            message="",
+        )
+    )
     client = build_client(
         settings=_test_settings(
             openai_api_key="test-key",
@@ -122,6 +131,7 @@ def test_study_json_stream_and_significance_followup(
     )
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
     planner.result = dict(
+        phase_source="omitted",
         kind="study",
         pair_id=pair["pair_id"],
         message="",
@@ -130,6 +140,7 @@ def test_study_json_stream_and_significance_followup(
             metrics=["pts", "plus_minus"],
         ).model_dump(mode="json"),
     )
+    planner.result["query"]["phase"] = None
     planner.result["query"]["teammate_id"] = pair["teammate_id"]
     request = dict(
         question=f"How does {pair['player_name']} play without {pair['teammate_name']}?"
@@ -172,6 +183,8 @@ def test_study_json_stream_and_significance_followup(
         "/api/agent/ask", json={**request, "conversation_id": "research-followup"}
     )
     assert first.status_code == 200
+    planner.result["phase_source"] = "inherited"
+    planner.result["query"]["phase"] = "Both"
     followup = client.post(
         "/api/agent/ask",
         json={
@@ -203,11 +216,16 @@ def test_partial_study_never_silently_answers_full_season(
     query = ResearchQuery(player_ids=[pair["player_id"]], metrics=["pts"]).model_dump(
         mode="json"
     )
+    query["phase"] = None
     query["teammate_id"] = pair["teammate_id"]
     if explicit_dates:
         query.update(start="2025-10-22", end="2025-12-31")
     planner.result = dict(
-        kind="study", pair_id=pair["pair_id"], message="", query=query
+        phase_source="omitted",
+        kind="study",
+        pair_id=pair["pair_id"],
+        message="",
+        query=query,
     )
     question = "How did LeBron play without Luka?"
     if explicit_dates:
@@ -237,10 +255,15 @@ def test_full_season_answer_discloses_playoffs_and_preserves_explicit_phase(
     query = ResearchQuery(player_ids=[study["player_id"]], metrics=["pts"]).model_dump(
         mode="json"
     )
+    query["phase"] = None
     query["teammate_id"] = study["teammate_id"]
     query["teammate_status"] = arm
     planner.result = dict(
-        kind="study", pair_id=study["pair_id"], message="", query=query
+        phase_source="omitted",
+        kind="study",
+        pair_id=study["pair_id"],
+        message="",
+        query=query,
     )
     answer = client.post(
         "/api/agent/ask", json={"question": "How did LeBron play without Luka?"}
@@ -248,12 +271,17 @@ def test_full_season_answer_discloses_playoffs_and_preserves_explicit_phase(
     assert "regular season and playoffs" in answer["answer"]
     assert "2026-06-13" in answer["answer"]
     assert answer["research_scope"]["phase"] == "Both"
+    planner.result["phase_source"] = "explicit"
+    planner.result["query"]["phase"] = "Regular Season"
     answer = client.post(
         "/api/agent/ask",
         json={"question": "How did LeBron play without Luka in the regular season?"},
     ).json()
     assert not answer["tables"]
-    assert "requested season phase" in answer["answer"]
+    if arm is None:
+        assert "requested season phase" in answer["answer"]
+    else:
+        assert answer["research_error_code"] == "invalid_research_plan"
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -327,12 +355,29 @@ def test_plan_schema_binds_metrics_to_route_and_rejects_invalid_model_output(
     )
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
     query = ResearchQuery(player_ids=[2544], metrics=[metric]).model_dump(mode="json")
+    query["phase"] = None
     query["teammate_id"] = 1629029
-    planner.result = dict(kind="study", query=query, pair_id="lebron-luka", message="")
+    planner.result = dict(
+        phase_source="omitted",
+        kind="study",
+        query=query,
+        pair_id="lebron-luka",
+        message="",
+    )
     schema = research_ask.research_plan_schema()
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"request": planner.result}, schema)
-    jsonschema.validate({"request": {**planner.result, "kind": "breakdown"}}, schema)
+    jsonschema.validate(
+        {
+            "request": {
+                **planner.result,
+                "kind": "descriptive",
+                "pair_id": None,
+                "query": {**query, "teammate_id": None},
+            }
+        },
+        schema,
+    )
     # Even a provider that ignores the output schema cannot reach the presenter.
     payload = client.post(
         "/api/agent/ask", json={"question": "LeBron without Luka"}
@@ -350,10 +395,18 @@ def test_missing_study_after_planning_is_not_a_table_of_unavailable_values(
     client, _, planner = research_client
     monkeypatch.setattr(research_ask, "catalog", lambda path: [pending(PAIRS[0])])
     query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
+    query["phase"] = None
     query["teammate_id"] = 1629029
-    planner.result = dict(kind="study", query=query, pair_id="lebron-luka", message="")
+    planner.result = dict(
+        phase_source="omitted",
+        kind="study",
+        query=query,
+        pair_id="lebron-luka",
+        message="",
+    )
     payload = client.post(
-        "/api/agent/ask", json={"question": "Research the teammate comparison"}
+        "/api/agent/ask",
+        json={"question": "Research LeBron James and Luka Doncic teammate comparison"},
     ).json()
     assert payload["research_error_code"] == "study_coverage_missing"
     assert not payload["tables"]
@@ -395,7 +448,8 @@ def test_missing_study_trace_is_classified_without_sensitive_content(
 def test_direct_study_plan_recognizes_complete_questions(question):
     plan = research_ask.direct_study_plan(question, "2025-26")
     assert plan["kind"] == "study"
-    assert plan["query"]["phase"] == "Both"
+    assert plan["query"]["phase"] is None
+    assert plan["phase_source"] == "omitted"
     assert plan["query"]["start"] is None
     assert len(plan["query"]["metrics"]) == 9
 
@@ -467,3 +521,193 @@ def test_exact_absence_question_json_sse_uses_catalog_without_model_or_warehouse
         for e in events
     )
     assert planner.calls == 0
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Research Luka Doncic points without LeBron James",
+        "Research Luka Doncic points when LeBron James was out",
+    ],
+)
+def test_planner_cannot_reverse_question_roles(research_client, monkeypatch, question):
+    from tests.test_research_insights import presentation_study
+
+    client, _, planner = research_client
+    study = presentation_study()
+    study["scope"].update(phase="Both", window="full_season")
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
+    query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
+    query.update(phase=None, teammate_id=1629029)
+    planner.result = dict(
+        kind="study",
+        phase_source="omitted",
+        pair_id="lebron-luka",
+        message="",
+        query=query,
+    )
+    payload = client.post("/api/agent/ask", json={"question": question}).json()
+    assert payload["research_error_code"] == "invalid_research_plan"
+    assert not payload["tables"]
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("advisory_label", ["explicit", "inherited", "omitted"])
+@pytest.mark.parametrize("concrete_default", [False, True])
+def test_intent_transitions_preserve_user_scope_not_intent_defaults(
+    research_client, monkeypatch, transport, explicit, advisory_label, concrete_default
+):
+    from dataclasses import replace
+
+    from app.agent.conversation import InMemoryConversationStore
+    from tests.test_descriptive_research import request
+    from tests.test_research_insights import presentation_study
+
+    client, _, planner = research_client
+    store = InMemoryConversationStore()
+    monkeypatch.setattr(main, "_season_conversation_store", lambda season: store)
+    source = evidence()
+    source = replace(
+        source,
+        rows=[
+            {
+                **r,
+                "player_id": 2544 if r["player_id"] == 1 else 1629029,
+                "player_name": "LeBron James" if r["player_id"] == 1 else "Luka Dončić",
+            }
+            for r in source.rows
+        ],
+    )
+    monkeypatch.setattr(research_ask, "load_research_evidence", lambda *args: source)
+    study = presentation_study()
+    study["scope"].update(
+        phase="Regular Season" if explicit else "Both",
+        window="full_season",
+        start="2025-11-01",
+        end="2025-11-07",
+    )
+    monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
+    query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
+    query.update(
+        teammate_id=1629029,
+        phase="Regular Season" if explicit else "Both" if concrete_default else None,
+    )
+    if explicit:
+        query.update(start="2025-11-01", end="2025-11-07")
+    planner.result = dict(
+        kind="study",
+        phase_source=advisory_label,
+        pair_id="lebron-luka",
+        message="",
+        query=query,
+    )
+    suffix = " regular season from 2025-11-01 through 2025-11-07" if explicit else ""
+    if not explicit:
+        correct_phase = query["phase"]
+        query["phase"] = "Regular Season"
+        refused = request(
+            client, "How did LeBron play in 2025-26 without Luka?", transport
+        )
+        assert refused["research_error_code"] == "invalid_research_plan"
+        assert not refused["tables"]
+        query["phase"] = correct_phase
+    first = request(
+        client,
+        "How did LeBron play in 2025-26 without Luka?" + suffix,
+        transport,
+        conversation_id="transition",
+    )
+    assert first["research_scope"]["kind"] == "study"
+    saved = store.get_turns("transition", max_turns=1)[0].context[
+        "research_scope_provenance"
+    ]
+    assert saved["phase_user_selected"] is explicit
+    assert saved["phase_source"] == ("explicit" if explicit else "default")
+    query = {
+        **query,
+        "teammate_id": None,
+        "home_away": "home",
+        "phase": "Regular Season" if explicit or concrete_default else None,
+    }
+    planner.result = dict(
+        kind="descriptive",
+        phase_source=advisory_label,
+        pair_id=None,
+        message="",
+        query=query,
+    )
+    if not explicit:
+        correct_phase = query["phase"]
+        query["phase"] = "Both"
+        refused = request(
+            client,
+            "Research LeBron James points at home in 2025-26",
+            transport,
+            conversation_id="transition",
+        )
+        assert refused["research_error_code"] == "invalid_research_plan"
+        assert not refused["tables"]
+        query["phase"] = correct_phase
+    second = request(
+        client,
+        "Research LeBron James points at home in 2025-26",
+        transport,
+        conversation_id="transition",
+    )
+    assert second["research_scope"]["phase"] == "Regular Season"
+    assert second["research_scope"]["start"] == ("2025-11-01" if explicit else None)
+    result = second["research"]["players"][0]["metrics"][0]["result"]
+    assert result["value"] == 4
+    assert result["valid_games"] == 2
+    if not explicit:
+        query["phase"] = "Regular Season"
+        followup = request(
+            client,
+            "Research those games again",
+            transport,
+            conversation_id="transition",
+        )
+        assert followup["research"]["players"][0]["metrics"][0]["result"]["value"] == 4
+        saved = store.get_turns("transition", max_turns=1)[0].context[
+            "research_scope_provenance"
+        ]
+        assert saved["phase_source"] == "inherited"
+        assert saved["phase_user_selected"] is False
+    planner.result = dict(
+        kind="study",
+        phase_source=advisory_label,
+        pair_id="lebron-luka",
+        message="",
+        query={
+            **query,
+            "teammate_id": 1629029,
+            "home_away": None,
+            "phase": "Regular Season"
+            if explicit
+            else "Both"
+            if concrete_default
+            else None,
+        },
+    )
+    if not explicit:
+        correct_phase = planner.result["query"]["phase"]
+        planner.result["query"]["phase"] = "Regular Season"
+        refused = request(
+            client,
+            "Research LeBron points without Luka in 2025-26",
+            transport,
+            conversation_id="transition",
+        )
+        assert refused["research_error_code"] == "invalid_research_plan"
+        assert not refused["tables"]
+        planner.result["query"]["phase"] = correct_phase
+    third = request(
+        client,
+        "Research LeBron points without Luka in 2025-26",
+        transport,
+        conversation_id="transition",
+    )
+    assert third["research_scope"]["phase"] == (
+        "Regular Season" if explicit else "Both"
+    )

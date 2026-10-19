@@ -293,6 +293,7 @@ def research_unsupported(season: str) -> dict[str, Any]:
     ).model_dump(mode="json")
     return {
         "kind": "unsupported",
+        "phase_source": "omitted",
         "query": query,
         "pair_id": None,
         "message": "Controlled route evaluation: the research planner made no decision.",

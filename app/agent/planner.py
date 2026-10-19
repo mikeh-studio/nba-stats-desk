@@ -286,6 +286,27 @@ def _extract_metrics(question: str) -> list[str]:
     return found
 
 
+def explicit_metric_mentions(question: str) -> set[str]:
+    """Canonical aliases, excluding shorter aliases inside a longer match."""
+    q = normalize_player_text(question)
+    matches: list[tuple[int, int, str]] = []
+    for metric in load_semantic_catalog().list_metrics():
+        for name in [metric["key"], metric["label"], *metric.get("aliases", [])]:
+            alias = normalize_player_text(str(name))
+            if alias:
+                matches.extend(
+                    (m.start(), m.end(), str(metric["key"]))
+                    for m in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", q)
+                )
+    return {
+        key
+        for start, end, key in matches
+        if not any(
+            a <= start and end <= b and (a < start or end < b) for a, b, _ in matches
+        )
+    }
+
+
 _OPPONENT_BREAKDOWN_PATTERNS = (
     r"\bagainst (?:which|what|certain|a specific|specific) (?:team|teams|opponent)",
     r"\b(?:which|what|specific|certain) (?:team|teams|opponent)",

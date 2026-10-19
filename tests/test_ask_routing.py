@@ -51,7 +51,8 @@ def agent(model=None, variant="complete", store=None, **overrides):
 
 def research_request(kind, **query):
     request = routing.research_unsupported("2024-25")
-    request["kind"] = kind
+    request["kind"] = "descriptive" if kind == "breakdown" else kind
+    request["query"]["phase"] = None
     request["query"].update(query)
     return request
 
@@ -117,7 +118,11 @@ def test_every_dispatched_path_labels_payload_and_trace(question, route, reason)
 
 def test_research_planner_choice_labels_breakdown_and_study():
     breakdown = ControlledModel(
-        {"research_response": research_request("breakdown", home_away="home")}
+        {
+            "research_response": research_request(
+                "breakdown", home_away="home", metrics=["reb"]
+            )
+        }
     )
     store = InMemoryConversationStore()
     payload = agent(breakdown, store=store).answer(
@@ -136,7 +141,8 @@ def test_research_planner_choice_labels_breakdown_and_study():
         {"research_response": research_request("study", player_ids=[2544])}
     )
     payload = agent(study).answer("Research LeBron James at home this season")
-    assert payload["ask_route"]["route"] == "teammate_study"
+    assert payload["research_error_code"] == "invalid_research_plan"
+    assert payload["ask_route"]["route"] == "research"
     assert payload["ask_route"]["source"] == "model"
 
 

@@ -746,3 +746,20 @@ def test_finalization_deadline_cannot_half_commit_pending_and_answer(
         assert [(turn.question, turn.answer) for turn in turns] == [
             ("Answered", "Verified answer")
         ]
+
+
+@pytest.mark.parametrize(
+    "name", ["research_scope", "research_intent_v2", "research_intent_v3"]
+)
+def test_research_contract_failures_keep_planning_classification(name):
+    observed_stages = []
+
+    def invalid(**kwargs):
+        observed_stages.append(execution.ACTIVE_STAGES.get()[-1])
+        raise ValueError("Synthetic invalid plan")
+
+    client = NS(responses=NS(create=invalid))
+    with pytest.raises(ExecutionFailure) as raised:
+        create_response(client, settings=_settings(), text={"format": {"name": name}})
+    assert raised.value.code == "invalid_plan"
+    assert observed_stages == ["planning"]

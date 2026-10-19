@@ -765,14 +765,16 @@ repeat a paid capture automatically after a failure.
 
 The reviewed public recording in
 [`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
-contains 14 calls across six cases. Capture and replay both pass 4/6; the date-range
-aggregation expectation mismatch and research routing failure remain visible.
-The date-range wording is ambiguous about average versus total; the pending
-expectation mismatch is not a confirmed application defect. The offline pytest
-regression explicitly requires exit 1 and those exact failed assertions alongside
-zero replay provider calls and a passing harness terminal gate. It tests detection
-of mismatches, not six correct answers. No capture was repeated and no independent
-expectation was adjusted.
+contains 14 calls across six cases. Its immutable capture and historical replay
+passed 4/6; the prior bounded correction produced a historical 5/6 checkpoint.
+Those are historical contract results. `research_intent/2` changes the prompt and
+schema. Current replay rejects the migrated case binding before request-hash
+comparison; this is not evidence of executing the new contract against old calls. The
+recording, matching rules, expectations and historical outcomes remain unchanged.
+No paid recapture was performed for that historical rework. Controlled planner fixtures migrate input shape
+only; unchanged expected checks do not transfer human approval of old whole-case
+hashes to new ones. New contract endpoint tests are synthetic evidence, not a new
+model accuracy score.
 
 Settings binding changes require explicit compatibility review. New diagnostic or
 storage-only settings should be excluded with tests when introduced; existing
@@ -857,3 +859,19 @@ cloud-sync boundary. Trace code hashes describe D's first-capture on-disk Python
 fingerprint, not executed code or dependency versions. Config hashes cover only
 D's allowlisted diagnostic settings. A differing current application fingerprint
 is recorded as a reproduction limitation, never silently treated as replay proof.
+
+
+The historical 5/6 recorded result is an in-sample regression repair against the same
+capture that exposed the defect. It is not held-out generalization or live model
+accuracy. Alternate fictional endpoint cases establish only the bounded scope
+and refusal behavior they exercise.
+
+The `research_intent/3` correction makes phase provenance server-authoritative;
+model provenance labels remain advisory. Synthetic JSON/SSE controls exercise
+correct values with misleading labels, contradictory values, and intent changes.
+They do not establish current provider reliability. A later authorized private
+v2 capture exposed the provenance-label refusals summarized in the public
+[PR86 findings](https://github.com/mikeh-studio/nba-stats-desk/pull/86). Current v3 evidence
+is controlled testing, pending a fresh versioned provider measurement. Historical recordings,
+expected checks, source bytes and private measurement ledgers remain unchanged;
+new contract evidence requires separately versioned evaluation.

@@ -907,3 +907,32 @@ and [request fidelity](overview-insights.md#request-fidelity-and-review-regressi
 for the shared contract. An unavailable explicitly requested cohort is partial,
 never an answered league substitute. Game spread and dated highs use the requested
 metric and full scoped sample; all displayed comparisons retain their reference.
+
+
+### Research intent contract
+
+The `research_intent/3` planner chooses affirmative `descriptive`, registered
+`study`, or `unsupported` intent. Study schema variants bind the exact pair,
+focal player and exposure player. A malformed study never becomes a breakdown.
+The model's `phase_source` label is advisory only. The server derives
+explicit, inherited or default phase from the question and applicable context.
+When neither explicit nor applicable prior phase exists, null and the correct
+intent default are accepted regardless
+of that label: Regular Season for descriptive requests and Both for studies.
+An applicable prior phase, including a same-intent default, must be copied as a
+concrete value. Explicit/inherited null is refused. Values must match the resolved scope; invented nondefault
+values are rejected. Saved context records the server-derived source, whether
+phase came from the user, and requested dates. On an intent change, a prior intent
+default and published study dates are not treated as user-selected scope;
+explicit user scope remains inherited.
+
+Shared literal guards check known identities, season, date, phase and venue,
+recognized metric and aggregation cues, and supported intent. Executable queries
+still use deterministic validation and evidence arithmetic. These guards do not
+parse arbitrary natural language: unrecognized modifiers still depend on correct
+model interpretation, including opponent and rest paraphrases. Failure to match a
+literal cue is not proof that the user omitted that filter. Unnamed follow-ups
+retain prior player/exposure identities; new identities require recognized names.
+Per-36 units require an explicit cue or an unchanged inherited metric scope. Controlled JSON/SSE tests establish fixture behavior, not
+live model quality. Old planner prompt/schema recordings are incompatible with
+this version and cannot establish its accuracy.
