@@ -771,7 +771,7 @@ Those are historical contract results. `research_intent/2` changes the prompt an
 schema. Current replay rejects the migrated case binding before request-hash
 comparison; this is not evidence of executing the new contract against old calls. The
 recording, matching rules, expectations and historical outcomes remain unchanged.
-No paid recapture was performed. Controlled planner fixtures migrate input shape
+No paid recapture was performed for that historical rework. Controlled planner fixtures migrate input shape
 only; unchanged expected checks do not transfer human approval of old whole-case
 hashes to new ones. New contract endpoint tests are synthetic evidence, not a new
 model accuracy score.
@@ -865,3 +865,13 @@ The historical 5/6 recorded result is an in-sample regression repair against the
 capture that exposed the defect. It is not held-out generalization or live model
 accuracy. Alternate fictional endpoint cases establish only the bounded scope
 and refusal behavior they exercise.
+
+The `research_intent/3` correction makes phase provenance server-authoritative;
+model provenance labels remain advisory. Synthetic JSON/SSE controls exercise
+correct values with misleading labels, contradictory values, and intent changes.
+They do not establish current provider reliability. A later authorized private
+v2 capture exposed the provenance-label refusals summarized in the public
+[PR86 findings](https://github.com/mikeh-studio/nba-stats-desk/pull/86). Current v3 evidence
+is controlled testing, pending a fresh versioned provider measurement. Historical recordings,
+expected checks, source bytes and private measurement ledgers remain unchanged;
+new contract evidence requires separately versioned evaluation.

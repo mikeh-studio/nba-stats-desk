@@ -150,7 +150,7 @@ class ControlledModel:
             if plan is None:
                 raise ValueError("No controlled plan was declared for this turn")
             value = {"plan": plan}
-        elif name == "research_intent_v2":
+        elif name == "research_intent_v3":
             value = {"request": self.turn["research_response"]}
         elif name == "teammate_study_answer":
             value = self.turn["study_response"]

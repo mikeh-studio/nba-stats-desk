@@ -553,8 +553,10 @@ def test_planner_cannot_reverse_question_roles(research_client, monkeypatch, que
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
 @pytest.mark.parametrize("explicit", [False, True])
+@pytest.mark.parametrize("advisory_label", ["explicit", "inherited", "omitted"])
+@pytest.mark.parametrize("concrete_default", [False, True])
 def test_intent_transitions_preserve_user_scope_not_intent_defaults(
-    research_client, monkeypatch, transport, explicit
+    research_client, monkeypatch, transport, explicit, advisory_label, concrete_default
 ):
     from dataclasses import replace
 
@@ -587,17 +589,29 @@ def test_intent_transitions_preserve_user_scope_not_intent_defaults(
     )
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
     query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
-    query.update(teammate_id=1629029, phase="Regular Season" if explicit else None)
+    query.update(
+        teammate_id=1629029,
+        phase="Regular Season" if explicit else "Both" if concrete_default else None,
+    )
     if explicit:
         query.update(start="2025-11-01", end="2025-11-07")
     planner.result = dict(
         kind="study",
-        phase_source="explicit" if explicit else "omitted",
+        phase_source=advisory_label,
         pair_id="lebron-luka",
         message="",
         query=query,
     )
     suffix = " regular season from 2025-11-01 through 2025-11-07" if explicit else ""
+    if not explicit:
+        correct_phase = query["phase"]
+        query["phase"] = "Regular Season"
+        refused = request(
+            client, "How did LeBron play in 2025-26 without Luka?", transport
+        )
+        assert refused["research_error_code"] == "invalid_research_plan"
+        assert not refused["tables"]
+        query["phase"] = correct_phase
     first = request(
         client,
         "How did LeBron play in 2025-26 without Luka?" + suffix,
@@ -605,14 +619,36 @@ def test_intent_transitions_preserve_user_scope_not_intent_defaults(
         conversation_id="transition",
     )
     assert first["research_scope"]["kind"] == "study"
-    query = {**query, "teammate_id": None, "home_away": "home"}
+    saved = store.get_turns("transition", max_turns=1)[0].context[
+        "research_scope_provenance"
+    ]
+    assert saved["phase_user_selected"] is explicit
+    assert saved["phase_source"] == ("explicit" if explicit else "default")
+    query = {
+        **query,
+        "teammate_id": None,
+        "home_away": "home",
+        "phase": "Regular Season" if explicit or concrete_default else None,
+    }
     planner.result = dict(
         kind="descriptive",
-        phase_source="inherited" if explicit else "omitted",
+        phase_source=advisory_label,
         pair_id=None,
         message="",
         query=query,
     )
+    if not explicit:
+        correct_phase = query["phase"]
+        query["phase"] = "Both"
+        refused = request(
+            client,
+            "Research LeBron James points at home in 2025-26",
+            transport,
+            conversation_id="transition",
+        )
+        assert refused["research_error_code"] == "invalid_research_plan"
+        assert not refused["tables"]
+        query["phase"] = correct_phase
     second = request(
         client,
         "Research LeBron James points at home in 2025-26",
@@ -621,13 +657,51 @@ def test_intent_transitions_preserve_user_scope_not_intent_defaults(
     )
     assert second["research_scope"]["phase"] == "Regular Season"
     assert second["research_scope"]["start"] == ("2025-11-01" if explicit else None)
+    result = second["research"]["players"][0]["metrics"][0]["result"]
+    assert result["value"] == 4
+    assert result["valid_games"] == 2
+    if not explicit:
+        query["phase"] = "Regular Season"
+        followup = request(
+            client,
+            "Research those games again",
+            transport,
+            conversation_id="transition",
+        )
+        assert followup["research"]["players"][0]["metrics"][0]["result"]["value"] == 4
+        saved = store.get_turns("transition", max_turns=1)[0].context[
+            "research_scope_provenance"
+        ]
+        assert saved["phase_source"] == "inherited"
+        assert saved["phase_user_selected"] is False
     planner.result = dict(
         kind="study",
-        phase_source="inherited" if explicit else "omitted",
+        phase_source=advisory_label,
         pair_id="lebron-luka",
         message="",
-        query={**query, "teammate_id": 1629029, "home_away": None},
+        query={
+            **query,
+            "teammate_id": 1629029,
+            "home_away": None,
+            "phase": "Regular Season"
+            if explicit
+            else "Both"
+            if concrete_default
+            else None,
+        },
     )
+    if not explicit:
+        correct_phase = planner.result["query"]["phase"]
+        planner.result["query"]["phase"] = "Regular Season"
+        refused = request(
+            client,
+            "Research LeBron points without Luka in 2025-26",
+            transport,
+            conversation_id="transition",
+        )
+        assert refused["research_error_code"] == "invalid_research_plan"
+        assert not refused["tables"]
+        planner.result["query"]["phase"] = correct_phase
     third = request(
         client,
         "Research LeBron points without Luka in 2025-26",

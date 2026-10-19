@@ -911,16 +911,20 @@ metric and full scoped sample; all displayed comparisons retain their reference.
 
 ### Research intent contract
 
-The `research_intent/2` planner chooses affirmative `descriptive`, registered
+The `research_intent/3` planner chooses affirmative `descriptive`, registered
 `study`, or `unsupported` intent. Study schema variants bind the exact pair,
 focal player and exposure player. A malformed study never becomes a breakdown.
-The planner-only `phase_source` distinguishes explicit, inherited and omitted
-phase. Omitted phase must be null: the server then defaults descriptive requests
-to Regular Season and studies to Both. Explicit and inherited phases must agree
-with the question or prior scope before execution. Saved conversation context
-records whether phase came from the user and which dates were requested. On an
-intent change, a prior intent default and published study dates are not treated
-as user-selected scope; explicit user scope remains inherited.
+The model's `phase_source` label is advisory only. The server derives
+explicit, inherited or default phase from the question and applicable context.
+When neither explicit nor applicable prior phase exists, null and the correct
+intent default are accepted regardless
+of that label: Regular Season for descriptive requests and Both for studies.
+An applicable prior phase, including a same-intent default, must be copied as a
+concrete value. Explicit/inherited null is refused. Values must match the resolved scope; invented nondefault
+values are rejected. Saved context records the server-derived source, whether
+phase came from the user, and requested dates. On an intent change, a prior intent
+default and published study dates are not treated as user-selected scope;
+explicit user scope remains inherited.
 
 Shared literal guards check known identities, season, date, phase and venue,
 recognized metric and aggregation cues, and supported intent. Executable queries
