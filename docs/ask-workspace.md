@@ -909,32 +909,26 @@ never an answered league substitute. Game spread and dated highs use the request
 metric and full scoped sample; all displayed comparisons retain their reference.
 
 
-### Bounded descriptive research correction
+### Research intent contract
 
-When a model labels an explicit descriptive venue request as a study, Ask can
-normalize it to a breakdown only after independently full-matching the entire
-question. Supported forms are `Research|Show|Summarize|Break down NAME [average]
-METRIC at home|away|on the road in YYYY-YY`, or the same form with `In YYYY-YY,`
-first. A possessive name and terminal question mark or period are optional.
-These are recognizer forms after research dispatch: bare `away` reaches this
-path with `Research`; `Show`, `Summarize`, and `Break down` use `at home` or
-`on the road`. Other existing routes are unchanged.
-Names and aliases must resolve to exactly one identity in the loaded evidence.
-The bounded metric vocabulary is points, rebounds, assists, steals, blocks,
-turnovers, minutes, three pointers made, and plus minus.
+The `research_intent/2` planner chooses affirmative `descriptive`, registered
+`study`, or `unsupported` intent. Study schema variants bind the exact pair,
+focal player and exposure player. A malformed study never becomes a breakdown.
+The planner-only `phase_source` distinguishes explicit, inherited and omitted
+phase. Omitted phase must be null: the server then defaults descriptive requests
+to Regular Season and studies to Both. Explicit and inherited phases must agree
+with the question or prior scope before execution. Saved conversation context
+records whether phase came from the user and which dates were requested. On an
+intent change, a prior intent default and published study dates are not treated
+as user-selected scope; explicit user scope remains inherited.
 
-Only a study with no pair, teammate, or exposure status qualifies, with no prior
-research scope. Its raw identity, season, metric, average aggregation, venue,
-and every other filter must exactly match the independently recognized scope.
-The unqualified breakdown uses `ResearchQuery`'s Regular Season default; a raw
-study phase of Both is its inherited study default and is normalized with the
-kind. An already-Regular Season raw phase also qualifies; Playoffs does not.
-Already-correct breakdown plans are untouched, including a model-authored Both
-phase; this correction does not normalize every research plan.
-Explicit phase language, additional dates/opponents/rest filters, study or causal
-language, multiple metrics/players, unknown or ambiguous identities, and other
-prefixes/suffixes fall outside this correction. No model prompt or schema changes.
-The existing full query validation and deterministic computation still run.
-`ask_route.source` stays `model`, while `descriptive_kind_normalized` records the
-bounded correction. Other paraphrases continue through existing planning and may
-still fail; this is not a general language-accuracy guarantee.
+Shared literal guards check known identities, season, date, phase and venue,
+recognized metric and aggregation cues, and supported intent. Executable queries
+still use deterministic validation and evidence arithmetic. These guards do not
+parse arbitrary natural language: unrecognized modifiers still depend on correct
+model interpretation, including opponent and rest paraphrases. Failure to match a
+literal cue is not proof that the user omitted that filter. Unnamed follow-ups
+retain prior player/exposure identities; new identities require recognized names.
+Per-36 units require an explicit cue or an unchanged inherited metric scope. Controlled JSON/SSE tests establish fixture behavior, not
+live model quality. Old planner prompt/schema recordings are incompatible with
+this version and cannot establish its accuracy.

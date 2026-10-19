@@ -141,9 +141,14 @@ def test_study_fallback_and_explicit_scope_through_http(
     query = ResearchQuery(player_ids=[pair["player_id"]], metrics=["pts"]).model_dump(
         mode="json"
     )
+    query["phase"] = None
     query["teammate_id"] = pair["teammate_id"]
     planner.result = dict(
-        kind="study", query=query, pair_id=pair["pair_id"], message=""
+        phase_source="omitted",
+        kind="study",
+        query=query,
+        pair_id=pair["pair_id"],
+        message="",
     )
     question = "How did LeBron play while Luka was out" + (
         " in 2025-26" if explicit else ""
@@ -200,9 +205,14 @@ def test_study_answer_survives_missing_season_boxscores(research_client, monkeyp
     query = ResearchQuery(player_ids=[pair["player_id"]], metrics=["pts"]).model_dump(
         mode="json"
     )
+    query["phase"] = None
     query["teammate_id"] = pair["teammate_id"]
     planner.result = dict(
-        kind="study", query=query, pair_id=pair["pair_id"], message=""
+        phase_source="omitted",
+        kind="study",
+        query=query,
+        pair_id=pair["pair_id"],
+        message="",
     )
     payload = client.post(
         "/api/agent/ask", json={"question": "LeBron without Luka"}

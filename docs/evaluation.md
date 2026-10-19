@@ -765,19 +765,16 @@ repeat a paid capture automatically after a failure.
 
 The reviewed public recording in
 [`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
-contains 14 calls across six cases. The immutable capture and historical replay
-passed 4/6. Current replay passes 5/6 after bounded descriptive research kind/default
-correction; only `research_home` changes. Its original expectation independently
-requires Regular Season home averages (6 points over 3 appearances); the study
-planner's Both default must not carry over to this descriptive breakdown.
-The date-range wording is ambiguous about average versus total; the pending
-expectation mismatch is not a confirmed application defect. The offline pytest
-regression explicitly requires exit 1, the unchanged date-range failed assertions,
-the repaired research assertions, and all other original outcomes unchanged,
-alongside zero provider calls and a passing harness terminal gate. The historical
-`observed-outcomes.json` remains unchanged and still records both original failures.
-It does not claim six correct answers or human approval. No capture was repeated and no independent
-expectation was adjusted.
+contains 14 calls across six cases. Its immutable capture and historical replay
+passed 4/6; the prior bounded correction produced a historical 5/6 checkpoint.
+Those are historical contract results. `research_intent/2` changes the prompt and
+schema. Current replay rejects the migrated case binding before request-hash
+comparison; this is not evidence of executing the new contract against old calls. The
+recording, matching rules, expectations and historical outcomes remain unchanged.
+No paid recapture was performed. Controlled planner fixtures migrate input shape
+only; unchanged expected checks do not transfer human approval of old whole-case
+hashes to new ones. New contract endpoint tests are synthetic evidence, not a new
+model accuracy score.
 
 Settings binding changes require explicit compatibility review. New diagnostic or
 storage-only settings should be excluded with tests when introduced; existing
@@ -864,7 +861,7 @@ D's allowlisted diagnostic settings. A differing current application fingerprint
 is recorded as a reproduction limitation, never silently treated as replay proof.
 
 
-The current 5/6 recorded result is an in-sample regression repair against the same
+The historical 5/6 recorded result is an in-sample regression repair against the same
 capture that exposed the defect. It is not held-out generalization or live model
 accuracy. Alternate fictional endpoint cases establish only the bounded scope
 and refusal behavior they exercise.

@@ -360,8 +360,8 @@ def test_visualization_fallback_cannot_hide_miss(tmp_path):
     assert replay.terminal()["errors"]
 
 
-def test_reviewed_recording_repairs_only_descriptive_kind_offline(tmp_path):
-    """Current behavior repairs research_home; historical capture remains immutable."""
+def test_reviewed_recording_rejects_new_planner_contract_offline(tmp_path):
+    """Old request hashes must reject the new planner; capture remains immutable."""
     import json
     import os
     from pathlib import Path
@@ -388,62 +388,23 @@ def test_reviewed_recording_repairs_only_descriptive_kind_offline(tmp_path):
         text=True,
         timeout=90,
     )
-    assert result.returncode == 1, result.stdout + result.stderr
-    report = json.loads((output / "results.json").read_text())
-    assert report["harness_passed"] and not report["cassette"]["errors"]
-    assert report["runtime"]["model_calls"] == 0
-    assert report["cassette"]["consumed"] == report["cassette"]["calls"] == 14
-    assert report["passed"] == 5 and report["total"] == 6
-    assert {r["id"] for r in report["results"] if not r["passed"]} == {
-        "date_range",
-    }
-    actual = {
-        r["id"]: {
-            mode: [
-                {
-                    "passed": t["passed"],
-                    "failed_checks": [c for c in t["checks"] if not c["passed"]],
-                }
-                for t in turns
-            ]
-            for mode, turns in r["modes"].items()
-        }
-        for r in report["results"]
-    }
-    repaired = next(r for r in report["results"] if r["id"] == "research_home")
-    for transport in ("json", "sse"):
-        assert repaired["modes"][transport][0]["payload"]["ask_route"] == {
-            "route": "research_breakdown",
-            "source": "model",
-            "reason_code": "descriptive_kind_normalized",
-        }
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "Cassette manifest mismatch: cases" in result.stderr
+    # The migrated controlled inputs cannot reuse historical capture binding.
+    assert not (output / "results.json").exists()
     historical = json.loads((folder / "observed-outcomes.json").read_text())
-    assert all(
-        not t["passed"] for turns in historical["research_home"].values() for t in turns
-    )
-    assert all(
-        t["passed"] and not t["failed_checks"]
-        for turns in actual["research_home"].values()
-        for t in turns
-    )
-    assert {k: v for k, v in actual.items() if k != "research_home"} == {
-        k: v for k, v in historical.items() if k != "research_home"
-    }
-    assert report["human_reviewed"] is False
+    assert {
+        key
+        for key, modes in historical.items()
+        if not all(t["passed"] for turns in modes.values() for t in turns)
+    } == {"date_range", "research_home"}
     import hashlib
 
-    from scripts.ask_eval.legacy_recording import CASSETTE_SHA256, RAW_SHA256
+    from scripts.ask_eval.legacy_recording import RAW_SHA256
 
-    assert report["cassette_sha256"] == CASSETTE_SHA256
     assert all(
         hashlib.sha256((folder / name).read_bytes()).hexdigest() == value
         for name, value in RAW_SHA256.items()
-    )
-    import stat
-
-    assert stat.S_IMODE(output.stat().st_mode) == 0o700
-    assert all(
-        stat.S_IMODE(p.stat().st_mode) == 0o600 for p in output.iterdir() if p.is_file()
     )
 
 

@@ -1,4 +1,4 @@
-"""Bounded kind correction through the actual JSON and SSE endpoints."""
+"""Explicit descriptive intent through the actual JSON and SSE endpoints."""
 
 import json
 from copy import deepcopy
@@ -103,7 +103,10 @@ def plan(**updates):
         home_away="home",
     ).model_dump(mode="json")
     query.update(updates)
-    return dict(kind="study", pair_id=None, message="", query=query)
+    query["phase"] = updates.get("phase")
+    return dict(
+        phase_source="omitted", kind="study", pair_id=None, message="", query=query
+    )
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
@@ -187,7 +190,10 @@ def test_alternate_scope_independent_arithmetic(
     expected_games,
 ):
     client, planner, source, _ = setup
-    planner.result = plan(player_ids=[pid], metrics=[metric], home_away=venue)
+    planner.result = {
+        **plan(player_ids=[pid], metrics=[metric], home_away=venue),
+        "kind": "descriptive",
+    }
     original = deepcopy(planner.result)
     body = f"{prefix} {name}'s average {word} {phrase}"
     question = f"In 2025-26, {body}" if leading else body + " in 2025-26"
@@ -195,7 +201,7 @@ def test_alternate_scope_independent_arithmetic(
     assert payload["ask_route"] == dict(
         route="research_breakdown",
         source="model",
-        reason_code="descriptive_kind_normalized",
+        reason_code=None,
     )
     assert payload["research_scope"] == {**original["query"], "phase": "Regular Season"}
     # Hand-derived: home days 1/7 and away days 2/4; player 2 doubles
@@ -225,7 +231,7 @@ def test_alternate_scope_independent_arithmetic(
         {"player_ids": [1, 2]},
     ],
 )
-def test_mismatched_or_extra_raw_scope_never_normalized(setup, transport, change):
+def test_malformed_study_contract_never_becomes_descriptive(setup, transport, change):
     client, planner, _, _ = setup
     planner.result = plan(**change)
     payload = request(
@@ -240,7 +246,6 @@ def test_mismatched_or_extra_raw_scope_never_normalized(setup, transport, change
 @pytest.mark.parametrize(
     "question",
     [
-        "Research Morgan Fiction points at home",
         "Research Unknown Person points at home in 2025-26",
         "Research Morgan Fiction and Taylor Invented points at home in 2025-26",
         "Research Morgan Fiction points and assists at home in 2025-26",
@@ -257,9 +262,11 @@ def test_mismatched_or_extra_raw_scope_never_normalized(setup, transport, change
         "Research predict Morgan Fiction points at home in 2025-26",
     ],
 )
-def test_full_question_rejects_unsupported_fragments(setup, transport, question):
+def test_descriptive_guards_reject_unsupported_or_contradictory_fragments(
+    setup, transport, question
+):
     client, planner, _, _ = setup
-    planner.result = plan()
+    planner.result = {**plan(), "kind": "descriptive"}
     payload = request(client, question, transport)
     assert (
         payload.get("ask_route", {}).get("reason_code") != "descriptive_kind_normalized"
@@ -270,7 +277,7 @@ def test_full_question_rejects_unsupported_fragments(setup, transport, question)
 @pytest.mark.parametrize("transport", ["json", "sse"])
 def test_ambiguous_identity_and_prior_study_not_reinterpreted(setup, transport):
     client, planner, source, store = setup
-    planner.result = plan()
+    planner.result = {**plan(), "kind": "descriptive"}
     for row in source.rows:
         row["player_name"] = "Morgan Fiction"
     payload = request(
@@ -288,7 +295,7 @@ def test_ambiguous_identity_and_prior_study_not_reinterpreted(setup, transport):
         max_turns=10,
         context={
             "research_scope": {
-                **plan()["query"],
+                **plan(phase="Both")["query"],
                 "kind": "study",
                 "pair_id": "lebron-luka",
             }
@@ -306,16 +313,19 @@ def test_ambiguous_identity_and_prior_study_not_reinterpreted(setup, transport):
 @pytest.mark.parametrize("transport", ["json", "sse"])
 def test_correct_breakdown_unchanged(setup, transport):
     client, planner, _, _ = setup
-    planner.result = {**plan(), "kind": "breakdown"}
+    planner.result = {**plan(), "kind": "descriptive"}
     payload = request(
         client, "Research Morgan Fiction points at home in 2025-26", transport
     )
-    assert payload["research_scope"] == planner.result["query"]
+    assert payload["research_scope"] == {
+        **planner.result["query"],
+        "phase": "Regular Season",
+    }
     assert payload["ask_route"]["reason_code"] is None
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
-@pytest.mark.parametrize("raw_phase", ["Both", "Regular Season"])
+@pytest.mark.parametrize("raw_phase", [None])
 def test_evidence_alias_and_existing_breakdown_default(
     setup, monkeypatch, transport, raw_phase
 ):
@@ -324,7 +334,7 @@ def test_evidence_alias_and_existing_breakdown_default(
         "app.agent.semantic_serving.load_player_aliases",
         lambda: {"morgan": "Morgan Fiction"},
     )
-    planner.result = plan(phase=raw_phase)
+    planner.result = {**plan(phase=raw_phase), "kind": "descriptive"}
     payload = request(client, "Research Morgan points at home in 2025-26", transport)
     assert payload["research_scope"]["phase"] == "Regular Season"
     assert payload["research_scope"]["player_ids"] == [1]
@@ -342,11 +352,11 @@ def test_evidence_alias_and_existing_breakdown_default(
         "and predict next season",
     ],
 )
-def test_explicit_phase_or_study_language_stays_outside_grammar(
+def test_descriptive_guard_rejects_mismatched_phase_or_study_language(
     setup, transport, suffix
 ):
     client, planner, _, _ = setup
-    planner.result = plan()
+    planner.result = {**plan(), "kind": "descriptive"}
     payload = request(
         client, f"Research Morgan Fiction points at home in 2025-26 {suffix}", transport
     )
@@ -355,33 +365,30 @@ def test_explicit_phase_or_study_language_stays_outside_grammar(
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
-def test_missing_evidence_never_normalizes(setup, monkeypatch, transport):
+def test_descriptive_missing_evidence_is_refused(setup, monkeypatch, transport):
     from app.agent.semantics import SemanticError
 
     client, planner, _, _ = setup
-    planner.result = plan()
+    planner.result = {**plan(player_ids=[2544]), "kind": "descriptive"}
 
     def unavailable(*args):
         raise SemanticError("unsupported_coverage", "No fixture coverage")
 
     monkeypatch.setattr(research_ask, "load_research_evidence", unavailable)
     payload = request(
-        client, "Research Morgan Fiction points at home in 2025-26", transport
+        client, "Research LeBron James points at home in 2025-26", transport
     )
     assert payload["research_status"] == "unsupported"
+    assert payload["ask_route"]["reason_code"] == "research_coverage_missing"
     assert payload["ask_route"]["reason_code"] != "descriptive_kind_normalized"
     assert not payload.get("research")
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
-def test_nonnull_pair_never_normalizes(setup, monkeypatch, transport):
+def test_malformed_study_roles_are_refused(setup, monkeypatch, transport):
     client, planner, _, _ = setup
     planner.result = {**plan(), "pair_id": "lebron-luka"}
 
-    def unexpected(*args):
-        raise AssertionError("A named pair must never enter descriptive normalization")
-
-    monkeypatch.setattr(research_ask, "descriptive_venue_scope", unexpected)
     payload = request(
         client, "Research Morgan Fiction points at home in 2025-26", transport
     )
@@ -391,15 +398,15 @@ def test_nonnull_pair_never_normalizes(setup, monkeypatch, transport):
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
-def test_unicode_metric_variant_does_not_normalize_fragment(setup, transport):
+def test_malformed_study_is_not_repaired_for_unicode_question(setup, transport):
     client, planner, _, _ = setup
     planner.result = plan()
     payload = request(
         client, "Research Morgan Fiction pointſ at home in 2025-26", transport
     )
     assert payload["research_status"] == "unsupported"
-    assert payload["ask_route"]["reason_code"] == "study_roles_mismatch"
-    assert payload.get("research_error_code") != "invalid_research_plan"
+    assert payload["research_error_code"] == "invalid_research_plan"
+
     assert not payload.get("research")
 
 
@@ -411,10 +418,6 @@ def test_show_bare_away_does_not_expand_research_dispatch(
     question = "Show Morgan Fiction points away in 2025-26"
     assert not research_ask.wants_research(question)
 
-    def unexpected(*args):
-        raise AssertionError("Bare away with Show must not enter research correction")
-
-    monkeypatch.setattr(research_ask, "descriptive_venue_scope", unexpected)
     planner.result = {
         "status": "unsupported",
         "queries": [],
@@ -423,3 +426,272 @@ def test_show_bare_away_does_not_expand_research_dispatch(
     payload = request(client, question, transport)
     assert payload["ask_route"]["route"] != "research_breakdown"
     assert payload["ask_route"]["reason_code"] != "descriptive_kind_normalized"
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize(
+    "question",
+    [
+        "At home in 2025-26, could you research the assists of Morgan Fiction?",
+        "Research how many assists Morgan Fiction averaged in home games in 2025-26",
+        "Research Morgan Fiction: 2025-26, home games, assists please",
+    ],
+)
+def test_descriptive_paraphrases_are_not_a_whole_question_grammar(
+    setup, transport, question
+):
+    client, planner, _, _ = setup
+    planner.result = {**plan(metrics=["ast"]), "kind": "descriptive"}
+    payload = request(client, question, transport)
+    assert payload["research"]["players"][0]["metrics"][0]["result"]["value"] == 6
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "causal effect",
+        "and predict next season",
+        "in the finals",
+        "in clutch possessions",
+        "from 2025-11-01 through 2025-11-07",
+        "playoffs",
+        "on the road",
+        "and Taylor Invented",
+    ],
+)
+def test_affirmative_descriptive_plan_cannot_drop_literal_scope(
+    setup, transport, suffix
+):
+    client, planner, _, _ = setup
+    planner.result = {**plan(), "kind": "descriptive"}
+    payload = request(
+        client, f"Research Morgan Fiction points in 2025-26 {suffix}", transport
+    )
+    assert not payload.get("research")
+    assert not payload.get("tables")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize("phase", ["Playoffs", "Both", "Regular Season"])
+def test_explicit_and_inherited_descriptive_phase(setup, transport, phase):
+    client, planner, _, store = setup
+    planner.result = {
+        **plan(phase=phase),
+        "kind": "descriptive",
+        "phase_source": "explicit",
+    }
+    phrase = "both phases" if phase == "Both" else phase
+    payload = request(
+        client,
+        f"Research Morgan Fiction points at home in 2025-26 {phrase}",
+        transport,
+        conversation_id="phase-scope",
+    )
+    assert payload["research_scope"]["phase"] == phase
+    planner.result["phase_source"] = "inherited"
+    payload = request(
+        client, "Research those games again", transport, conversation_id="phase-scope"
+    )
+    assert payload["research_scope"]["phase"] == phase
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize(
+    "metric,phrase",
+    [
+        ("fg_pct", "field goal percentage"),
+        ("ts_pct", "true shooting percentage"),
+        ("efg_pct", "eFG%"),
+        ("pts_per36", "points per 36 minutes"),
+    ],
+)
+def test_descriptive_metric_holdouts(setup, transport, metric, phrase):
+    client, planner, _, _ = setup
+    planner.result = {**plan(metrics=[metric]), "kind": "descriptive"}
+    payload = request(
+        client, f"Research Morgan Fiction {phrase} at home in 2025-26", transport
+    )
+    assert payload["research_scope"]["metrics"] == [metric]
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize(
+    "change,suffix",
+    [
+        ({"metrics": ["ast"]}, ""),
+        ({"aggregation": "average"}, "total"),
+        ({}, "against BOS"),
+        ({}, "after two rest days"),
+        ({"phase": "Both"}, ""),
+    ],
+)
+def test_descriptive_plan_cannot_contradict_named_metric_or_filter(
+    setup, transport, change, suffix
+):
+    client, planner, _, _ = setup
+    planner.result = {**plan(**change), "kind": "descriptive"}
+    payload = request(
+        client, f"Research Morgan Fiction {suffix} points at home in 2025-26", transport
+    )
+    assert not payload.get("research")
+    assert not payload.get("tables")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"start": "2025-11-01"},
+        {"end": "2025-11-07"},
+        {"player_ids": [1, 2]},
+        {"metrics": ["pts", "ast"]},
+    ],
+)
+def test_descriptive_plan_cannot_invent_scope(setup, transport, change):
+    client, planner, _, _ = setup
+    planner.result = {**plan(**change), "kind": "descriptive"}
+    payload = request(
+        client, "Research Morgan Fiction points at home in 2025-26", transport
+    )
+    assert not payload.get("research")
+    assert not payload.get("tables")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize("explicit_override", [False, True])
+def test_followup_identity_requires_prior_scope_or_explicit_name(
+    setup, transport, explicit_override
+):
+    client, planner, _, _ = setup
+    planner.result = {**plan(), "kind": "descriptive"}
+    first = request(
+        client,
+        "Research Morgan Fiction points at home in 2025-26",
+        transport,
+        conversation_id="identity",
+    )
+    assert first["research_scope"]["player_ids"] == [1]
+    planner.result = {
+        **plan(player_ids=[2], phase="Regular Season"),
+        "kind": "descriptive",
+        "phase_source": "inherited",
+    }
+    question = (
+        "Research Taylor Invented instead"
+        if explicit_override
+        else "Research those games again"
+    )
+    payload = request(client, question, transport, conversation_id="identity")
+    if explicit_override:
+        assert payload["research_scope"]["player_ids"] == [2]
+    else:
+        assert payload["research_error_code"] == "invalid_research_plan"
+        assert not payload["tables"]
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_per36_cannot_replace_requested_per_game_units(setup, transport):
+    client, planner, _, _ = setup
+    planner.result = {**plan(metrics=["pts_per36"]), "kind": "descriptive"}
+    payload = request(
+        client, "Research Morgan Fiction points at home in 2025-26", transport
+    )
+    assert payload["research_error_code"] == "invalid_research_plan"
+    assert not payload["tables"]
+    first = request(
+        client,
+        "Research Morgan Fiction points per 36 minutes at home in 2025-26",
+        transport,
+        conversation_id="units",
+    )
+    assert first["research_scope"]["metrics"] == ["pts_per36"]
+    planner.result.update(phase_source="inherited")
+    planner.result["query"]["phase"] = "Regular Season"
+    again = request(
+        client, "Research those games again", transport, conversation_id="units"
+    )
+    assert again["research_scope"]["metrics"] == ["pts_per36"]
+    changed = request(
+        client, "Research points at home instead", transport, conversation_id="units"
+    )
+    assert changed["research_error_code"] == "invalid_research_plan"
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize(
+    "phrase,filters",
+    [
+        ("against Boston", {"opponent": "BOS"}),
+        ("against bos", {"opponent": "BOS"}),
+        ("on one day off", {"rest": "one_day"}),
+    ],
+)
+def test_supported_opponent_and_rest_paraphrases_are_not_whitelisted(
+    setup, transport, phrase, filters
+):
+    client, planner, source, _ = setup
+    for row in source.rows:
+        row["opponent_abbr"] = "BOS"
+    planner.result = {**plan(home_away="away", **filters), "kind": "descriptive"}
+    payload = request(
+        client,
+        f"Research Morgan Fiction points on the road in 2025-26 {phrase}",
+        transport,
+    )
+    for field, value in filters.items():
+        assert payload["research_scope"][field] == value
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+@pytest.mark.parametrize(
+    "phrase,metric",
+    [
+        ("rebounds per 36 minutes", "reb"),
+        ("per 36", "pts"),
+        ("points per 36 minutes", "pts"),
+        ("points excluding the playoffs", "pts"),
+        ("points including the playoffs", "pts"),
+        ("averages not totals", "pts"),
+    ],
+)
+def test_descriptive_units_and_negated_scope_fail_closed(
+    setup, transport, phrase, metric
+):
+    client, planner, _, _ = setup
+    planner.result = {**plan(metrics=[metric]), "kind": "descriptive"}
+    payload = request(
+        client, f"Research Morgan Fiction {phrase} at home in 2025-26", transport
+    )
+    assert not payload.get("research")
+    assert not payload.get("tables")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_descriptive_play_in_and_la_clippers_are_not_false_cues(setup, transport):
+    client, planner, source, _ = setup
+    for row in source.rows:
+        row["opponent_abbr"] = "LAC"
+    planner.result = {**plan(opponent="LAC"), "kind": "descriptive"}
+    payload = request(
+        client,
+        "Research how Morgan Fiction play in home games against LA Clippers in 2025-26",
+        transport,
+    )
+    assert payload["research_scope"]["opponent"] == "LAC"
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_explicit_including_both_phases_retains_canonical_scope(setup, transport):
+    client, planner, _, _ = setup
+    planner.result = {
+        **plan(phase="Both"),
+        "kind": "descriptive",
+        "phase_source": "explicit",
+    }
+    payload = request(
+        client,
+        "Research Morgan Fiction points at home in 2025-26 including regular season and playoffs",
+        transport,
+    )
+    assert payload["research_scope"]["phase"] == "Both"

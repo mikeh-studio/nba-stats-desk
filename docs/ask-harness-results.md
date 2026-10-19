@@ -1,10 +1,19 @@
 # Ask harness program results — 2026-10-18
 
+**Historical checkpoint:** The results below describe the earlier planner contract.
+The subsequent `research_intent/2` rework passes the unchanged expected checks in
+147/147 controlled synthetic endpoint cases. It changes planner inputs and cannot
+reuse the old provider recording as current model evidence: strict replay rejects
+the incompatible binding. Original recordings, historical scores and approval
+receipts remain unchanged. No new provider capture or model-accuracy score is
+claimed. See [evaluation boundaries](evaluation.md) and the
+[current research contract](ask-workspace.md#research-intent-contract).
+
 The controlled endpoint inventory remains **147 cases** and passes **147/147
 before and after**; A and C strengthened independent assertions without changing
 the denominator.
 The one authorized provider capture used 14 calls across six fictional cases and
-passed **4/6**. Current offline replay passes **5/6**, repairing only
+passed **4/6**. At that historical checkpoint, offline replay passed **5/6**, repairing only
 `research_home`; all 16 original recording files and `observed-outcomes.json`
 remain immutable. No paid capture was repeated and none of the six recorded-case expectations was
 retuned.
@@ -42,11 +51,14 @@ Correctly classified breakdown plans, including Both, remain unchanged. Model
 provenance is retained and the route reason identifies the correction; immutable
 provider recordings preserve the original raw plan. Live diagnostic projections
 are not a guarantee of complete original planner reconstruction. See the
-[bounded grammar](ask-workspace.md#bounded-descriptive-research-correction).
+[current intent contract](ask-workspace.md#research-intent-contract), which supersedes that historical grammar.
 
-## Reproduction and validation
+## Historical reproduction and validation
 
-Run in the application development environment, using fresh report directories:
+These commands and counts describe the historical checkout. In the current
+`research_intent/2` checkout, controlled evaluation is supported, while the frozen
+replay command exits 2 on the changed case binding before comparing requests.
+Use fresh report directories:
 
 ```bash
 python -m scripts.ask_eval.coverage
@@ -60,7 +72,7 @@ ruff format --check .
 mypy
 ```
 
-Replay deliberately exits 1 for the retained date-range mismatch while consuming
+On the historical checkout, replay deliberately exits 1 for the retained date-range mismatch while consuming
 all 14 recordings, passing the harness integrity gate, and making zero provider
 calls. The CI regression asserts both transports' repaired route/reason and every
 other original outcome. The final integrated local tree passed **2,269 Python
@@ -90,7 +102,7 @@ no heuristic partial credit is added.
 | Domain | Supported points | Evidence boundary |
 | --- | ---: | --- |
 | Oracle and coverage | 1/2 | Explicit critical map 0.5; independent arithmetic and wrong-payload rejection 0.5; human-reviewed critical expectations 0. |
-| Strict replay and isolation | 2/2 | Strict missing/mismatched/unused gates 0.5; both transports/fresh context and Python outbound guard 0.5; current immutable real-capture replay evidence 1. Not OS-level isolation. |
+| Strict replay and isolation | 2/2 | Strict missing/mismatched/unused gates 0.5; both transports/fresh context and Python outbound guard 0.5; historical immutable real-capture replay evidence 1. Not OS-level isolation. |
 | Factual path binding | 1/2 | Independent displayed prose/table/chart mutation controls 1; universal exact binding across all supported claims/renderers 0. |
 | Private failure capture | 1.5/1.5 | Bounded opt-in capture, access/redaction/retention controls and request-linked failure evidence. |
 | Regression drafting | 1/1 | Validating reproductions and provenance; drafts always remain pending human approval. |
