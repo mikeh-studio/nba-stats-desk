@@ -36,6 +36,57 @@ per-36 requests remain supported by breakdowns only. Explicit unsupported study
 metrics are not silently dropped or replaced. The server validates the plan
 before rendering, even when a provider returns output outside the schema.
 
+## Factual-output reachability
+
+| Configuration / route | User-visible factual output |
+| --- | --- |
+| Default `BigQueryWarehouseRepository`, or an explicitly supplied semantic warehouse | `StatsAgent` selects governed metrics, overview, comparisons, splits, reference, availability or research handlers. Their statistics and factual summaries are deterministic; failed governed requests do not enter compatibility narration. |
+| `RESEARCH_STUDIES_PATH` / research snapshots | Published catalog and breakdown handlers validate scope and render from evidence. Optional visualization chooses a verified chart candidate, not new values. |
+| `AGENT_TEAMMATE_STUDY_PATH`, when not replaced by that pair's published catalog entry | `teammate_study_v1` uses the model only to select scope. The server renders the frozen assists study, table and uncertainty notice. |
+| Injected non-BigQuery repository with no semantic warehouse | The final `legacy_repository` route retains `_answer_from_evidence` and the compatibility tool loop in `service.py`. These can publish model-authored prose/tables, including streamed prose. External usage is unknown; this route is not universally fact-governed. |
+
+The v1 study rejects missing/nonfinite estimates, invalid sample counts, nominal
+p-values outside [0, 1], malformed intervals and inconsistent identity/date scope.
+The narrative distinguishes original descriptive, complete-case raw and adjusted
+estimates, all Out minus participated. It makes no validated significance or causal
+claim. Imported limitations remain visible; no live refitting or warehouse refresh
+is implied. Scope selection still requires correct model interpretation for requests
+without literal date/season/phase guards; deterministic narration does not prove universal
+natural-language scope accuracy.
+
+The additive `study_claims` field (`teammate_study_claims/1`) binds each displayed
+value to its source JSON path, study ID and content digest, full identity/date/phase
+scope, metric, unit, contrast, qualifier and display paths. Values are imported
+frozen estimates, not arithmetic recalculated by Ask. The exporter separately
+verifies its analysis inputs. The digest identifies content and does not certify
+source quality. Existing saved payloads need no new field to render. No changes
+are made to `league_baseline/2` or published similarity semantics.
+
+Only allowlisted scope fields are sent to the scope-selection model or returned
+in scope/claim metadata. Unknown scope keys are not exposed. Model-supplied extra
+answer fields are ignored defensively; normal provider responses contain scope
+selection only. Malformed configured artifacts fail closed for potential study
+questions, including natural-name absence questions, rather than falling through
+to compatibility narration. Invalid JSON shapes, noncanonical dates and nonfinite
+values are rejected before any provider call.
+
+Version 1 assumes the exporter contract: assists per game, reported Out with no
+appearance minus participated; adjusted estimates and counts use complete cases
+and OLS with pregame covariates and calendar-month effects. The checked exporter
+`export_teammate_study.py` enforces the fixed specification. Importers must preserve
+these invariants; Ask cannot reconstruct methodology from the compact artifact.
+Claims disclose `contrast_basis: declared` when `difference_direction` is present
+and validated, or `v1_default_assumed` when omitted for v1 compatibility. Units and
+method qualifiers come from this versioned contract, not independent fitting.
+
+The digest is SHA-256 of the parsed full artifact serialized using Python JSON
+with sorted keys, compact separators, `ensure_ascii=True`, and finite numbers.
+It identifies normalized content, not the original bytes: duplicate object keys
+collapse during parsing and equivalent float spellings normalize. Display rounding
+does not change the bound values. A point estimate rounding to zero is described
+as such, never proof of no association; nominal p-values below 0.001 display as
+`<0.001`.
+
 ## Two-player comparisons
 
 Explicit `A vs B`, `A versus B`, and `Compare A and B` questions use a
