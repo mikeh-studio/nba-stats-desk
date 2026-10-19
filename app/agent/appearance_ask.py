@@ -199,6 +199,9 @@ def answer_appearances(agent, question, context, conversation_id, trace=None):
             conversation_context=next_context,
             appearance_evidence=results,
         )
+        from app.agent.claim_renderers import appearance_table
+
+        appearance_table(payload, identities, bool(context.get("availability_scope")))
         route_hint(payload, route="appearances")
         if conversation_id and agent.conversation_store:
             agent.conversation_store.clear_pending_clarification(conversation_id)

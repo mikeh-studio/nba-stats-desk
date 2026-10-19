@@ -71,6 +71,8 @@ class Settings:
     metadata_dataset: str
     freshness_threshold_hours: int
     max_search_results: int
+    ask_claim_enforcement: str = "log"
+
     season: str = SUPPORTED_SEASON
     agent_dataset: str = "nba_agent"
     openai_api_key: str | None = None
@@ -128,6 +130,8 @@ class Settings:
     next_regular_season_start: date = date(2026, 10, 20)
 
     def __post_init__(self) -> None:
+        if self.ask_claim_enforcement not in {"log", "enforce"}:
+            raise ValueError("ASK_CLAIM_ENFORCEMENT must be log or enforce")
         for name in (
             "agent_max_concurrent_requests",
             "agent_stream_buffer_bytes",
@@ -156,6 +160,7 @@ class Settings:
 
 def get_settings() -> Settings:
     return Settings(
+        ask_claim_enforcement=os.getenv("ASK_CLAIM_ENFORCEMENT", "log"),
         project_id=os.getenv("BQ_PROJECT", os.getenv("GCP_PROJECT_ID", "")),
         gold_dataset=os.getenv("BQ_DATASET_GOLD", "nba_gold"),
         agent_dataset=os.getenv("BQ_DATASET_AGENT", "nba_agent"),

@@ -1,3 +1,4 @@
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261019-claim-rollout-v1";
 // Governed values, explicit display policy and server-authored balanced takeaways.
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 const escape = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -79,7 +80,7 @@ export function overviewPresentation(payload) {
   const keys=policy?.primary_keys;
   const visible=Array.isArray(keys) ? keys.map(k=>metrics.find(m=>m.key===k)).filter(Boolean) : metrics;
   const insights=Array.isArray(policy?.takeaways) ? policy.takeaways : [{area:'Sample',icon:'chart-bar',title:'Recorded observations',text:`${payload.player_profile?.player?.games_sampled || 0} recorded appearances. See each metric's evidence; box scores do not establish overall defensive impact.`}];
-  return {paragraphs, summaryContext:evidence.summary_context || "", insights, playerName:name, metrics:visible, allMetrics:metrics,
+  return {claimEvidence:prepareClaimEvidence(payload), claimPayload:payload, paragraphs, summaryContext:evidence.summary_context || "", insights, playerName:name, metrics:visible, allMetrics:metrics,
     gameVariation:evidence.insights?.find(f=>f.game_variation)?.game_variation || null,
     additionalMetrics:Array.isArray(keys) ? metrics.filter(m=>!keys.includes(m.key)) : [],
     range:`${dateLabel(scope.start)} – ${dateLabel(scope.end)}`,
@@ -133,12 +134,12 @@ export function overviewMetricsTable(overview) {
 export function peerComparisonDetails(overview) {
   const metrics=overview.allMetrics.filter(m=>m.peer_comparison?.mode && m.peer_comparison.mode !== 'withheld');
   if (!metrics.length) return '';
-  return `<details data-peer-details><summary>Overview peer comparisons</summary><p class="meta">Table percentiles remain league-wide. These distributions use the reference named for each Overview comparison.</p>${metrics.map(m=>{
+  return `<details data-peer-details><summary>Overview peer comparisons</summary><p class="meta">Table percentiles remain league-wide. These distributions use the reference named for each Overview comparison.</p>${metrics.map((m, peerIndex)=>{
     const p=m.peer_comparison, bins=p.distribution?.among_players?.bins || [], max=Math.max(1,...bins.map(b=>b.count));
     const group=p.kind==='position' ? ({Guard:'Guards',Wing:'Wings/forwards',Big:'Bigs/centers'}[p.group] || p.group) : 'League-wide';
     const standing=p.mode==='ordinal' ? `${p.tied?'Tied ':''}${ordinal(p.rank)} of ${p.cohort_size}` : `${p.percentile.toFixed(1)}% of other qualifiers below this value`;
     const bars=bins.map((b,i)=>`<rect x="${i*240/bins.length}" y="${60-55*b.count/max}" width="${Math.max(1,240/bins.length-1)}" height="${55*b.count/max}" fill="currentColor"><title>${escape(`${b.start.toFixed(1)} to ${b.end.toFixed(1)}: ${b.count} players`)}</title></rect>`).join('');
-    return `<section class="peer-comparison"><h4>${escape(metricAbbreviation(m))} · ${escape(group)}</h4><p>${escape(standing)} · ${escape(p.cohort_size)} qualifiers · ${escape(p.season || '')} ${escape(p.phases.join(' + '))}</p><p class="meta">${escape(p.start)} through ${escape(p.end)} · at least ${escape(p.qualification.min_games)} complete appearances${Number.isFinite(p.classified_players) ? ` · ${escape(p.classified_players)}/${escape(p.eligible_players)} eligible players classified` : ''}</p><svg role="img" aria-label="${escape(metricAbbreviation(m)+' '+group+' distribution, '+p.cohort_size+' qualifying players')}" viewBox="0 0 240 64" width="240" height="64">${bars}</svg></section>`;
+    return `<section data-peer-index="${peerIndex}" class="peer-comparison"><h4>${escape(metricAbbreviation(m))} · ${escape(group)}</h4><p>${escape(standing)} · ${escape(p.cohort_size)} qualifiers · ${escape(p.season || '')} ${escape(p.phases.join(' + '))}</p><p class="meta">${escape(p.start)} through ${escape(p.end)} · at least ${escape(p.qualification.min_games)} complete appearances${Number.isFinite(p.classified_players) ? ` · ${escape(p.classified_players)}/${escape(p.eligible_players)} eligible players classified` : ''}</p><svg role="img" aria-label="${escape(metricAbbreviation(m)+' '+group+' distribution, '+p.cohort_size+' qualifying players')}" viewBox="0 0 240 64" width="240" height="64">${bars}</svg></section>`;
   }).join('')}<p class="meta">${metrics.some(m=>m.peer_comparison.kind==='position') ? 'Historical listed positions: G = Guard, F = Wing/forward, C = Big/center. Hybrids belong to both listed groups; each player counts once per comparison. Mapping: position_groups/2. ' : ''}At least five complete appearances and 10 qualifiers; percentile prose requires 20. Project qualification rules.</p></details>`;
 }
 

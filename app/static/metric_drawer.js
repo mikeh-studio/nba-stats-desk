@@ -1,3 +1,5 @@
+import {claimMode} from "./ask_claim_rollout.js?v=20261019-claim-rollout-v1";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261019-claim-rollout-v1";
 // Render server-owned distributions; no client-side statistical estimates.
 const esc = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const ordinal = n => {const v=Math.round(n), rem=v%100; return v + (rem>=11 && rem<=13 ? 'th' : ({1:'st',2:'nd',3:'rd'})[v%10] || 'th');};
@@ -20,7 +22,7 @@ export function distributionChart(metric, view) {
   const max = Math.max(1,...bins.map(b=>b.count));
   const bars = bins.map(b=>`<rect x="${x(b.start)}" y="${174-b.count/max*126}" width="${Math.max(1,x(b.end)-x(b.start)-2)}" height="${b.count/max*126}" fill="#626975"><title>${esc(fmt(b.start,metric.unit))} to ${esc(fmt(b.end,metric.unit))}: ${b.count} ${view === 'among_players' ? 'qualified players' : 'valid games'}</title></rect>`).join('');
   const points = view === 'across_games' ? (data.points || []).filter(p=>finite(p.value)).map((p,i)=>`<circle cx="${x(p.value)}" cy="${183+(i%3)*4}" r="2.5" fill="#ff6253" opacity=".75" tabindex="0" role="img" data-game-point data-game-index="${i}" aria-label="${esc(p.date)}: ${esc(fmt(p.value,metric.unit))}${opportunity(p,metric) ? ', '+esc(opportunity(p,metric)) : ''}"><title>${esc(p.date)} · ${esc(fmt(p.value,metric.unit))}${opportunity(p,metric) ? ' · '+esc(opportunity(p,metric)) : ''}</title></circle>`).join('') : '';
-  const band = view === 'across_games' ? `<rect x="${x(summary.q1)}" y="46" width="${Math.max(1,x(summary.q3)-x(summary.q1))}" height="106" fill="#626975" opacity=".22"/>` : '';
+  const band = view === 'across_games' && finite(summary.q1) && finite(summary.q3) ? `<rect x="${x(summary.q1)}" y="46" width="${Math.max(1,x(summary.q3)-x(summary.q1))}" height="106" fill="#626975" opacity=".22"/>` : '';
   const eligible = view !== 'among_players' || data.focal_in_cohort;
   const line = finite(marker) ? `<line x1="${x(marker)}" x2="${x(marker)}" y1="34" y2="178" stroke="${eligible ? '#ff6253' : '#b3b9c2'}" stroke-width="2" ${eligible ? '' : 'stroke-dasharray="5 4"'}/>` : '';
   return `<svg class="distribution-chart" viewBox="0 0 360 214" role="img" aria-label="${esc(metric.display_label || metric.label)} ${view === 'among_players' ? 'distribution of qualified player values' : 'individual game values; shaded middle 50 percent'}"><line x1="24" x2="336" y1="178" y2="178" stroke="#626975"/>${band}${bars}${points}${line}<text x="20" y="44" text-anchor="end" fill="#b3b9c2" font-size="10">${max}</text><text x="24" y="201" fill="#b3b9c2" font-size="11">${esc(fmt(lo,metric.unit))}</text><text x="336" y="201" text-anchor="end" fill="#b3b9c2" font-size="11">${esc(fmt(hi,metric.unit))}</text></svg>`;
@@ -57,9 +59,13 @@ export function bindMetricDrawer(root, overview) {
       trigger=button;
       const paint=view=>{
         dialog.innerHTML=drawerContent(metric,overview,view);
+        if (overview.claimPayload && bindRenderedClaims(dialog,overview.claimPayload,"drawer",{key:metric.key,view},overview.claimEvidence).status === "invalid" && claimMode() === "enforce") return;
         dialog.querySelector('[data-drawer-close]').addEventListener('click',()=>dialog.close());
         dialog.querySelectorAll('[data-game-point]').forEach(point=>{
-          const reveal=()=>{ dialog.querySelector('[data-game-point-info]').textContent=point.getAttribute('aria-label'); };
+          const reveal=()=>{
+            dialog.querySelector('[data-game-point-info]').textContent=point.getAttribute('aria-label');
+            if(overview.claimPayload)bindRenderedClaims(dialog,overview.claimPayload,"drawer",{key:metric.key,view,selectedPoint:Number(point.dataset.gameIndex)},overview.claimEvidence);
+          };
           ['mouseenter','focus','click'].forEach(event=>point.addEventListener(event,reveal));
         });
         dialog.querySelector('[data-game-select]')?.addEventListener('change',event=>{
@@ -67,11 +73,11 @@ export function bindMetricDrawer(root, overview) {
           if(event.target.value === '') return;
           dialog.querySelector(`[data-game-index="${index}"]`)?.focus({preventScroll:true});
         });
-        dialog.querySelectorAll('[data-distribution-view]').forEach(b=>b.addEventListener('click',()=>{paint(b.dataset.distributionView);dialog.querySelector(`[data-distribution-view="${b.dataset.distributionView}"]`).focus();}));
+        dialog.querySelectorAll('[data-distribution-view]').forEach(b=>b.addEventListener('click',()=>{paint(b.dataset.distributionView);dialog.querySelector(`[data-distribution-view="${b.dataset.distributionView}"]`)?.focus();}));
       };
       paint('among_players');
       if (!dialog.open) dialog.showModal();
-      dialog.querySelector('[data-drawer-close]').focus();
+      dialog.querySelector('[data-drawer-close]')?.focus();
     });
   });
 }

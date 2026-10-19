@@ -160,7 +160,7 @@ def study_answer(study, metrics=None):
         if scope
         else ""
     )
-    return {
+    payload = {
         "answer": narrative + ("\n\n" + scope_line if scope_line else ""),
         "player_profile": scoped_identity_profile(study, [], scope) if scope else None,
         "research_highlights": highlights,
@@ -215,3 +215,7 @@ def study_answer(study, metrics=None):
         "study_id": study["pair_id"],
         "study_status": study["status"],
     }
+    from app.agent.claim_renderers import published_study_table
+
+    published_study_table(payload, study, selected)
+    return payload

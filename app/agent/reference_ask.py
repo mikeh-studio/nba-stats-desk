@@ -450,6 +450,9 @@ def render_reference(evidence, player):
             "Incomplete inputs suppress the difference; individual partial averages use only complete observations.",
             *evidence["warnings"],
         ]
+    from app.agent.claim_renderers import reference_tables
+
+    reference_tables(payload, player)
     return payload
 
 

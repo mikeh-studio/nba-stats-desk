@@ -387,7 +387,7 @@ def answer_split(question, evidence, players, season):
         canonical += f" against {first['opponent_abbr']}"
     if request["kind"] != "venue" and first.get("home_away"):
         canonical += " at home" if first["home_away"] == "HOME" else " on the road"
-    return dict(
+    payload = dict(
         status="ok" if all_observed else "no_observations",
         answer=answer,
         answerability="partial" if request["interpretive"] else "descriptive",
@@ -440,3 +440,7 @@ def answer_split(question, evidence, players, season):
             status="compare", model_calls=0, queries=[r["queries"] for r in results]
         ),
     )
+    from app.agent.claim_renderers import split_table
+
+    split_table(payload)
+    return payload

@@ -75,7 +75,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261015-overview-recovery-v7"
+STATIC_VERSION = "20261019-claim-rollout-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -1376,6 +1376,7 @@ def ask_page(
         "page_title": "Ask NBA Stats",
         "season": current_season(),
         "tracking_cap": TRACKING_CAP,
+        "ask_claim_enforcement": settings.ask_claim_enforcement,
         "agent_enabled": settings.openai_agent_enabled,
         "agent_configured": bool(
             settings.openai_api_key
@@ -1631,3 +1632,12 @@ def _check_research_rate_limit(request: Request, settings: Settings) -> None:
         raise HTTPException(
             429, "Research request limit exceeded. Try again in a minute."
         )
+
+
+@app.post("/api/agent/claim-observations")
+async def claim_observations(
+    request: Request, settings: Annotated[Settings, Depends(get_settings)]
+) -> dict:
+    from app.agent.claim_rollout import ingest
+
+    return await ingest(request, settings.ask_claim_enforcement)

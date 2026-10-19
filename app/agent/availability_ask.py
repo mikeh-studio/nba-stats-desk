@@ -592,6 +592,9 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
         )
         result = compare_availability(loaded, request)
         payload = render_answer(result, players)
+        from app.agent.claim_renderers import availability_table
+
+        availability_table(payload)
         payload["conversation_id"] = conversation_id
         route_hint(payload, route="availability")
         if conversation_id and agent.conversation_store:

@@ -904,3 +904,15 @@ contradictions, zero/null samples and invalid scopes. The existing 147-case sour
 and expected checks and historical recordings remain unchanged. Controlled passes
 establish those endpoint behaviors only. Fresh live-provider measurement for v3
 is pending; the private v2 failures are regression evidence, not new heldouts.
+
+## Exact binding regressions
+
+`python -m pytest tests/test_claim_bindings.py -q` checks literal independent
+values, equal-valued identity/source swaps, metric/unit/date/phase/hash/format
+mutations, chart points, and paired actual JSON/SSE log/enforce behavior: invalid
+bindings remain visible in log and are withheld in enforce, while older refusals
+remain enforced in both. Tests assert emitted assessment counts and canonical
+route/mode attribution, not just reconstructed events. A bounded
+100-player, two-metric fixture checks evidence hashing once per stage. These
+checks establish the mapped surfaces in the [inventory](ask-claim-bindings.md),
+not universal prose accuracy, human approval, live warehouse or deployment health.

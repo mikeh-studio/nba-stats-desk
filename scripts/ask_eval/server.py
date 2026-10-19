@@ -52,6 +52,7 @@ def settings(request: Request = None):
     # Settings() itself does not read the user's .env. No live source is used.
     base = Settings(
         project_id="fixture-project",
+        ask_claim_enforcement=os.environ.get("ASK_EVAL_CLAIM_ENFORCEMENT", "log"),
         gold_dataset="fixture",
         metadata_dataset="fixture",
         freshness_threshold_hours=36,

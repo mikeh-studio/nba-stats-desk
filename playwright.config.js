@@ -14,7 +14,7 @@ export default defineConfig({
     command: `${fs.existsSync('.venv-app/bin/python') ? '.venv-app/bin/python' : 'python'} -m uvicorn scripts.ask_eval.server:app --host 127.0.0.1 --port 8129 --no-proxy-headers`,
     url: 'http://127.0.0.1:8129/ask',
     reuseExistingServer: false,
-    env: { ASK_EVAL_LIVE: '0' },
+    env: { ASK_EVAL_LIVE: '0', ASK_EVAL_CLAIM_ENFORCEMENT: 'enforce' },
     timeout: 30000,
   },
 });

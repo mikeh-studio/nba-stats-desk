@@ -1496,6 +1496,16 @@ def test_ask_page_smoke() -> None:
         f"ask_presentation.js?v={STATIC_VERSION}"
         in (Path(__file__).parents[1] / "app/static/agent.js").read_text()
     )
+    for module in (
+        "agent.js",
+        "ask_presentation.js",
+        "ask_comparison.js",
+        "metric_drawer.js",
+    ):
+        assert (
+            f"ask_claim_bindings.js?v={STATIC_VERSION}"
+            in (Path(__file__).parents[1] / "app/static" / module).read_text()
+        )
     assert "data-health-status" in response.text
     assert "data-agent-provider" in response.text
     assert "data-agent-model" in response.text
