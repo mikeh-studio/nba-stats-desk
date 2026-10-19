@@ -806,3 +806,54 @@ recorded or live-provider evidence; review remains pending. Existing availabilit
 overview and reference tests cover their distinct evidence and rendering contracts.
 These checks do not establish universal governance of injected compatibility
 repositories; see [factual-output reachability](ask-workspace.md#factual-output-reachability).
+
+### Private trace-to-case drafting
+
+`python -m scripts.ask_eval.draft` creates a fresh ignored `reports/` bundle for
+local review, with mode 0700 directories and 0600 files. It makes no provider or
+warehouse calls. Supply `--trace`, `--source`, `--cases`, `--review`, and `--output`.
+The source and cases use the existing frozen evaluator formats. Cases must contain
+explicit checks and an independently authored `oracle_note`; the trace's observed
+answer is never used to generate expectations.
+
+The review JSON uses `schema: ask_failure_review/1`, `status: confirmed_failure`,
+`reviewer_kind: agent` or `human`, a `reviewer`, a `failure_explanation`, and
+`expectations_independent_of_observed_answer: true`. Bind it to the exact input
+bytes with `trace_sha256`, `source_sha256`, and `cases_sha256`. This is an explicit
+authorship attestation, not machine proof that the oracle is independent. Suspected
+failures alone are rejected. `mode: private_reproduction` retains private evidence.
+`mode: fictional_reconstruction` additionally requires `--original-source`, its
+`original_source_sha256`, `separately_authored_fictional_inputs: true`, and a
+`reconstruction_note`. Author the fictional source, questions, controlled plans,
+and checks separately; text substitution is not a sufficient reconstruction.
+An unchanged source copy is rejected in reconstruction mode; differing bytes or
+content alone do not prove anonymization.
+
+The bundle freezes the authored source, pending cases, and private provenance containing
+the trace reference/hash and failure signature, application/config hashes, reviewed explanation and
+reproduction limitations. Reconstruction retains only an original-source path/hash
+reference, never a copy of the private original. It does not modify the trace or
+overwrite a prior bundle. Provenance is written first and cases last; incomplete
+writes are rejected and cleaned up when possible.
+Missing controlled planner responses or attachments are listed as limitations;
+they must be supplied in a new reviewed draft before claiming complete replay.
+Trace projections alone cannot reconstruct warehouse rows or model responses.
+Use `scripts/evaluate_ask.py --input-dir reports/YOUR_DRAFT --output reports/YOUR_RUN`
+to run the existing JSON/SSE evaluator with frozen inputs and controlled plans.
+
+All drafts force `human_reviewed: false` and case review `pending`, even when the
+failure reviewer is human. No option approves, publishes, or copies a draft into
+public fixtures. Provider recordings are not accepted as source metadata. Review
+questions, source rows, generated outputs, provenance and attachments before any
+separate public promotion. Credential/contact-pattern checks are limited safeguards,
+not a comprehensive privacy review. Corrections require a fresh output directory;
+keep all run artifacts and the original trace private.
+
+Inputs are limited to 8 MiB per file. Symlinked path components are rejected,
+including macOS `/tmp` and `/var` aliases; use their actual resolved paths. Existing
+owned parent directories may retain 0755 permissions; new bundles remain 0700.
+Ignored files may still be backed up or synced: Git-ignore is not an access or
+cloud-sync boundary. Trace code hashes describe D's first-capture on-disk Python
+fingerprint, not executed code or dependency versions. Config hashes cover only
+D's allowlisted diagnostic settings. A differing current application fingerprint
+is recorded as a reproduction limitation, never silently treated as replay proof.
