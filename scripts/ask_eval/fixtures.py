@@ -145,7 +145,7 @@ class ControlledModel:
 
     def create(self, **kwargs):
         name = kwargs.get("text", {}).get("format", {}).get("name", "")
-        if name == "semantic_plan":
+        if name == "semantic_intent_v2":
             plan = self.turn.get("planner_response")
             if plan is None:
                 raise ValueError("No controlled plan was declared for this turn")

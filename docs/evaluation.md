@@ -767,8 +767,8 @@ The reviewed public recording in
 [`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
 contains 14 calls across six cases. Its immutable capture and historical replay
 passed 4/6; the prior bounded correction produced a historical 5/6 checkpoint.
-Those are historical contract results. `research_intent/2` changes the prompt and
-schema. Current replay rejects the migrated case binding before request-hash
+Those are historical contract results. `research_intent/2` and
+`semantic_intent/2` change the prompts and schemas. Current replay rejects the migrated case binding before request-hash
 comparison; this is not evidence of executing the new contract against old calls. The
 recording, matching rules, expectations and historical outcomes remain unchanged.
 No paid recapture was performed for that historical rework. Controlled planner fixtures migrate input shape
@@ -880,3 +880,13 @@ The dated-points default regression uses independent JSON/SSE endpoint holdouts,
 including zero and missing values, explicit-total contradictions and unmatched
 conditions. The original recording is incompatible with the new planner contract;
 controlled endpoint tests do not establish live-provider or warehouse accuracy.
+
+
+The `semantic_intent/2` controlled input migration changes planner responses only;
+case expectations and source bytes stay unchanged. Missing aggregation provenance
+is rejected in production. Explicit test-only migration helpers support older
+controlled clients without weakening that runtime contract. New whole-case hashes
+are not human-approved merely because their checks were unchanged. JSON/SSE dated
+points controls include zero/null values, direct total contradictions, compatible
+follow-up inheritance and independent 2/4/6 arithmetic. This establishes controlled
+endpoint behavior, not fresh provider accuracy or historical cassette compatibility.

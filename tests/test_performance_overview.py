@@ -241,6 +241,7 @@ def test_specific_metric_duplicate_name_can_resume(evidence, selection):
                         {
                             "metric": "pts",
                             "aggregation": "average",
+                            "aggregation_source": "planner_selected",
                             "season": "2025-26",
                             "player_name": "resolved_player_1",
                         }

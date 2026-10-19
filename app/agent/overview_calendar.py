@@ -130,3 +130,34 @@ def calendar_window(question, today):
             "Please specify a month and year, a week starting YYYY-MM-DD, or explicit start and end dates.",
         )
     return None
+
+
+def validate_single_period(question: str) -> None:
+    """Reject competing literal calendar/phase/venue scopes for one summary."""
+    text = re.sub(r"^may i (?:see|have|get)\s+", "", question, flags=re.I)
+    periods = re.findall(
+        r"\bfrom\s+\d{4}-\d{2}-\d{2}\s+(?:through|to)\s+\d{4}-\d{2}-\d{2}\b"
+        r"|\bweek (?:of|starting|beginning)\s+\d{4}-\d{2}-\d{2}\b"
+        r"|\b(?:this|last|previous|past) (?:month|week)\b|" + MONTH_PATTERN,
+        text,
+        re.I,
+    )
+    if len(periods) > 1:
+        raise SemanticError("clarification_required", "Provide one date period")
+    validate_phase_venue(question)
+
+
+def validate_phase_venue(question: str) -> None:
+    """Shared literal phase/venue contradictions, independent of period count."""
+    from app.agent.question_intent import venue_mentions
+
+    text = question
+    regular = bool(re.search(r"\bregular[ -]season\b", text, re.I))
+    playoff = bool(re.search(r"\b(?:playoffs?|postseason)\b", text, re.I))
+    combined = bool(re.search(r"\b(?:both|combine|combined|including)\b", text, re.I))
+    home, away = venue_mentions(text)
+    if (regular and playoff and not combined) or (home and away):
+        raise SemanticError(
+            "clarification_required",
+            "Provide one date period and nonconflicting phase and venue",
+        )

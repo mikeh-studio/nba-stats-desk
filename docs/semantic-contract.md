@@ -207,25 +207,51 @@ not establish shooting ranking eligibility or statistical precision. See
 [Ask overview sample policy](pages.md#ask-overview-metrics-and-samples).
 
 
-Within a bounded supported single-period grammar, an explicitly named player's
-dated points summary defaults to **points per game** when aggregation is omitted.
-This policy accepts literal date
-ranges and supported calendar windows with compatible season, phase and venue.
-The decoded plan must match the requested identity, metric and scope before any
-literal-scope replacement. Absent optional date fields may inherit independently
-resolved literal scope; explicitly supplied conflicts or null dates are withheld.
-`derived_scope_fields` records inherited fields (including the contract phase
-default when absent). Unknown modifiers require clarification; explicit
-totals remain totals, and a contradictory planned average is withheld. Explicit
-averages, other metrics and other operations do not acquire this default.
-Missing identity/date follow-ups retain their existing interpretation.
+The planner contract `semantic_intent/2` separates aggregation intent from an
+executable query. Every planned query requires `aggregation_source`: `explicit`,
+`inherited`, `planner_selected`, or `omitted`. Only `omitted` pairs with
+`aggregation: unspecified`; it cannot already assert total or average. The
+server resolves an approved omitted aggregation before constructing `Query` and
+strips planner-only provenance. `planner_selected` preserves model-selected
+semantics outside this policy; it does not claim an explicit user instruction or
+a new deterministic default. GP, game logs and ratios retain their existing
+metric/operation constraints.
 
-The unchanged arithmetic divides summed valid points by valid recorded
-appearances: zero is valid, missing points are excluded, and valid/observed game
-counts remain visible. Answers disclose the per-game default and publish
-`query_plan.aggregation_policy` with the policy version, deterministic source,
-reason, original/chosen aggregation, unit and request scope. Fully restated dated
-summaries use this policy even when the preceding request asked for totals.
+An explicitly named player's single dated PTS summary with omitted aggregation
+uses **points per game**. Canonical identity, metric aliases and calendar/date
+scope determine eligibility independently of proposed query fields. Contradictory
+identity, metric, operation, dates, season, phase or extra filters fail before
+literal scope replacement. Explicit total/average cues cannot be erased by model
+provenance. A partial follow-up retains a compatible previous aggregation;
+a complete named metric/time request (including a season) may start fresh.
+Supported explicit totals and averages retain their ordinary filters. Recognized
+negated aggregation/phase phrases require affirmative clarification; they never
+establish the opposite intent. Percentage and GP conventions
+are not replaced by an incompatible inherited count aggregation. A prior GP or
+game-log total is an operation convention, not transferable user aggregation
+intent. Per-game count charts retain game-log total values; percentage rankings
+retain ratios when a threshold describes total attempts. “Total rebounds per
+game” names the combined rebound statistic at a per-game rate.
+
+Recognized “how many points” requests clarify total versus per-game unless the
+aggregation is affirmative. Omitted dated PTS with a recognized opponent filter
+also clarifies, including when a planner drops that filter. Explicit supported
+totals/averages retain their filters. Road and away games share the canonical
+AWAY scope. Mixed regular-season/playoff language requires affirmative combined
+intent rather than silently selecting Playoffs.
+
+Recognized unsupported predictions, causal calculations, rolling calculations and
+additional game filters are withheld. These literal guards are not a complete
+natural-language parser: arbitrary unfamiliar wording still depends on model
+interpretation. There is no whole-question word whitelist or universal language
+accuracy claim.
+
+The unchanged arithmetic divides valid points by valid recorded appearances:
+zero is valid, missing points remain unknown, and valid/observed counts are
+visible. Defaulted answers disclose the choice through assumptions and
+`query_plan.aggregation_policy` (`dated_points_per_game_v2`), including
+`original_aggregation: unspecified`, chosen average, unit and validated scope.
+Explicit averages receive no default disclosure.
 
 Broad overview windows up to 31 inclusive days use game-date chart buckets; longer
 windows use monthly averages. Grain is explicit in scope, charts and metric trend

@@ -81,9 +81,70 @@ def round_scope_message(question: str) -> str | None:
     return None
 
 
+def venue_mentions(question: str) -> tuple[bool, bool]:
+    """Canonical literal home/road scope shared by metric and calendar guards."""
+    return (
+        bool(re.search(r"\bat home\b|\bhome games\b", question, re.I)),
+        bool(re.search(r"\bon the road\b|\b(?:away|road) games\b", question, re.I)),
+    )
+
+
+def explicit_aggregation(question: str) -> str | None:
+    """Recognized aggregation cues; unspecified language remains planner-owned."""
+    # "Total rebounds" names the combined rebound statistic when followed by
+    # a per-game rate; it is not a second requested aggregation.
+    question = re.sub(
+        r"\btotal\s+(?=rebounds?\s+(?:per[ -]game|a game)\b)", "", question, flags=re.I
+    )
+    total = bool(re.search(r"\b(?:total|totals|sum)\b", question, re.I))
+    average = bool(
+        re.search(
+            r"\b(?:average|averaging|mean|ppg|per[ -]game|a game)\b", question, re.I
+        )
+    )
+    if total and average:
+        from app.agent.semantics import SemanticError
+
+        raise SemanticError(
+            "clarification_required", "Choose totals or per-game averages"
+        )
+    return "total" if total else "average" if average else None
+
+
 def question_intent(question: str) -> dict[str, str | None]:
     """Return a route hint and, for unsupported grains, a precise next step."""
     kind = split_kind(question)
+    if re.search(
+        r"\b(?:not|excluding|except)\s+(?:the\s+)?(?:total(?:s)?|sum|average|mean|"
+        r"per[ -]game|playoffs?|postseason|regular[ -]season)\b",
+        question,
+        re.I,
+    ):
+        return dict(
+            kind="negated_scope",
+            status="clarification_required",
+            message="Please state the intended aggregation and season phase affirmatively.",
+        )
+    if re.search(
+        r"\bhow many (?:points|pts)\b", question, re.I
+    ) and not explicit_aggregation(question):
+        return dict(
+            kind="quantity_aggregation",
+            status="clarification_required",
+            message="Do you mean total points or points per game?",
+        )
+    if re.search(
+        r"\b(?:causal|causation|cause[ds]?|predict\w*|forecast\w*|rolling|cumulative|"
+        r"overtime|in wins|in losses|on (?:Mondays?|Tuesdays?|Wednesdays?|Thursdays?|Fridays?|Saturdays?|Sundays?)|"
+        r"with (?:at least|more than|fewer than) \d+ (?:points|rebounds|assists))\b",
+        question,
+        re.I,
+    ):
+        return dict(
+            kind="unsupported_calculation",
+            status="unsupported_scope",
+            message="This prediction, causal calculation or additional game filter is not supported by the connected statistics.",
+        )
     if message := round_scope_message(question):
         return dict(
             kind="unavailable_round", status="unsupported_scope", message=message

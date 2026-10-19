@@ -236,6 +236,7 @@ def create_response(
                     "research_intent_v3",
                     "semantic_plan",
                     "nba_stats_query_plan",
+                    "semantic_intent_v2",
                 }
                 else "generation"
             ):
@@ -268,6 +269,7 @@ def create_response(
                             "research_intent_v3",
                             "semantic_plan",
                             "nba_stats_query_plan",
+                            "semantic_intent_v2",
                         }
                         else "invalid_response"
                     )

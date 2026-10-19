@@ -225,7 +225,7 @@ def test_new_question_replaces_pending_overview_clarification(question, route):
     plans = [
         json.loads(r["input"][0]["content"])
         for r in model.requests
-        if r.get("text", {}).get("format", {}).get("name") == "semantic_plan"
+        if r.get("text", {}).get("format", {}).get("name") == "semantic_intent_v2"
     ]
     assert plans and "Clarification:" not in json.dumps(plans[-1])
     assert "How is Avery performing?" not in json.dumps(plans[-1])
@@ -395,7 +395,7 @@ def test_stored_route_is_not_sent_to_the_metrics_planner():
     plans = [
         r
         for r in model.requests
-        if r.get("text", {}).get("format", {}).get("name") == "semantic_plan"
+        if r.get("text", {}).get("format", {}).get("name") == "semantic_intent_v2"
     ]
     assert plans
     sent = json.loads(plans[-1]["input"][0]["content"])

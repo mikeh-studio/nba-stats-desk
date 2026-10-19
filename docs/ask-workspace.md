@@ -889,13 +889,15 @@ the explicit request anchor and disclosed; explicit user future ranges still
 require clarification. Windows beyond the newest supported archive retain source
 coverage warnings and do not establish complete coverage of later seasons.
 
-For a named player's dated points summary within the bounded supported
-single-period grammar, omitted aggregation means points per game. The visible assumptions disclose this choice; `query_plan.aggregation_policy`
-records its deterministic provenance and the model's original aggregation.
-Explicit totals stay totals, and explicit per-game requests are not labeled as
-implicit defaults. Player, dates, season and phase must match the validated
-request; unsupported extra conditions are not silently dropped. Zero points
-count as an observation; missing points do not become zero. See the
+For a named player's dated points summary, omitted aggregation means points per
+game. The `semantic_intent/2` planner leaves this genuinely unspecified; the
+server chooses average before constructing an executable query. Assumptions and
+`query_plan.aggregation_policy` disclose this choice. Explicit totals stay totals,
+explicit averages have no default disclosure, and partial follow-ups preserve a
+compatible previous aggregation. Fully restated named metric/time requests, including season requests, can start
+fresh; the omitted-aggregation default remains limited to dated PTS summaries. Identity and scope contradictions fail before literal-scope replacement.
+Zero points count as an observation; missing points remain unknown. Canonical
+unsupported-intent guards do not establish arbitrary-language accuracy. See the
 [semantic contract](semantic-contract.md) for scope and sample semantics.
 
 Distribution buttons announce both the percentile or qualification status and

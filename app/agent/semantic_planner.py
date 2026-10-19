@@ -15,6 +15,10 @@ from typing import Any, Callable, Mapping, Sequence
 
 from app.agent.clock import today as semantic_today
 from app.agent.execution import create_response, timed
+from app.agent.semantic_intent import (
+    SEMANTIC_PLANNER_CONTRACT,
+    resolve_aggregation_intent,
+)
 from app.agent.semantics import (
     Evidence,
     Query,
@@ -38,6 +42,7 @@ Game-by-game values, game logs, and a player's metric trend chart use game_log w
 Shooting rankings/percentiles without an explicit attempt threshold require clarification_required.
 Other ranking default is five games. TOV defaults to lower (ball security); most turnovers means higher.
 Count averages use average, totals use total, all shooting percentages use ratio.
+Every query has aggregation_source: explicit for current-question aggregation, inherited for a continuing previous aggregation, planner_selected for other established model-selected conventions, or omitted with aggregation unspecified. A complete named player's dated PTS summary without an aggregation MUST use omitted/unspecified; never guess total or average. The server resolves that product default. A partial follow-up retains the previous scope.aggregation unless the current question explicitly overrides it. A fully restated named dated PTS request is new and may omit aggregation. Outside that bounded default, retain existing semantic selection using planner_selected rather than claiming an explicit user choice. GP total, game_log count total and percentage ratio remain existing metric/operation conventions. Do not inherit GP/game_log total as a later summary aggregation; choose planner_selected for a new metric convention. Per-game count charts still use game_log total, and total FGA thresholds do not change percentage aggregation ratio. Clarify how many points unless total or per-game is stated. Omitted dated PTS with an opponent filter requires clarification even if the filter could be dropped. Road games means AWAY. Mixed regular season and playoffs needs explicit combined/Both intent. Never use unspecified for these conventions.
 Games played uses gp with total: count recorded appearances, never sum another box-score statistic or reuse a previous comparison sample.
 Available team abbreviations are authoritative warehouse dimensions, including unfamiliar labels. Copy them with their supplied casing. Identifiers such as resolved_player_123 are already validated, unique player references. Copy them into player_name exactly; never ask to identify them or infer their names. Recognized entity mentions are authoritative even when a name looks generic; never reject an observed name based on world knowledge. Missing shooting qualification is clarification_required, never unsupported. For last_n_games, prior_n_games and last_n_days, copy the requested numeric count into n. Player names stay as mentioned for deterministic identity resolution; never invent an ID.
 A missing player for an individual summary requires clarification; league ranking uses null player_name.
@@ -104,10 +109,14 @@ def plan_schema() -> dict[str, Any]:
             "date_range",
         ],
         "operation": ["summary", "rank", "percentile", "game_log"],
-        "aggregation": ["average", "total", "ratio"],
+        "aggregation": ["average", "total", "ratio", "unspecified"],
         "season_type": ["Regular Season", "Playoffs", "Both"],
     }.items():
         fields[field]["enum"] = values
+    fields["aggregation_source"] = {
+        "type": "string",
+        "enum": ["explicit", "inherited", "planner_selected", "omitted"],
+    }
     fields["direction"]["enum"] = ["higher", "lower", None]
     fields["home_away"]["enum"] = ["HOME", "AWAY", None]
 
@@ -141,8 +150,9 @@ def response_schema(schema: dict[str, Any]) -> dict[str, Any]:
 def explicit_scope(question: str) -> dict[str, Any]:
     """Extract unambiguous literal scope; leave inferred language to the planner."""
     hints: dict[str, Any] = {}
-    home = bool(re.search(r"\bat home\b|\bhome games\b", question, re.I))
-    away = bool(re.search(r"\bon the road\b|\baway games\b", question, re.I))
+    from app.agent.question_intent import venue_mentions
+
+    home, away = venue_mentions(question)
     if home != away:
         hints["home_away"] = "HOME" if home else "AWAY"
     match = re.search(
@@ -213,7 +223,7 @@ def explicit_scope(question: str) -> dict[str, Any]:
             )
     if (
         re.search(r"\b(?:both|combine|combined|including)\b", question, re.I)
-        and re.search(r"regular season", question, re.I)
+        and re.search(r"regular[ -]season", question, re.I)
         and re.search(r"playoffs?|postseason", question, re.I)
     ):
         hints["season_type"] = "Both"
@@ -337,6 +347,16 @@ def plan_question(
             resolved_question,
             flags=re.I,
         )
+    resolved_current = (
+        dated_points_question if dated_points_question is not None else question
+    )
+    for name in sorted(replacements, key=len, reverse=True):
+        resolved_current = re.sub(
+            r"(?<!\w)" + re.escape(" ".join(name.casefold().split())) + r"(?!\w)",
+            replacements[name],
+            " ".join(resolved_current.split()),
+            flags=re.I,
+        )
     schema = plan_schema()
     if players:
         schema["properties"]["queries"]["items"]["properties"]["player_name"][
@@ -359,6 +379,8 @@ def plan_question(
                 "content": json.dumps(
                     {
                         "question": resolved_question,
+                        "current_question": resolved_current,
+                        "contract": SEMANTIC_PLANNER_CONTRACT,
                         "conversation_context": conversation_context or {},
                         "selected_season": selected_season,
                         "recognized_entity_mentions": mentions,
@@ -376,7 +398,7 @@ def plan_question(
         text={
             "format": {
                 "type": "json_schema",
-                "name": "semantic_plan",
+                "name": "semantic_intent_v2",
                 "strict": True,
                 "schema": response_schema(schema),
             }
@@ -453,22 +475,14 @@ def plan_question(
                     "invalid_plan", "Planner selected an unresolved player reference"
                 )
             query["player_name"] = references[handle]
-    from app.agent.dated_points_policy import dated_points_default
-
-    policy_question = (
-        question if dated_points_question is None else dated_points_question
-    )
-    policy = (
-        dated_points_default(
-            policy_question,
-            plan,
-            scope,
-            replacements,
-            references,
-            selected_season,
-        )
-        if dated_points_eligible
-        else None
+    policy = resolve_aggregation_intent(
+        question if dated_points_question is None else dated_points_question,
+        plan,
+        replacements,
+        references,
+        selected_season,
+        conversation_context or {},
+        dated_points_eligible,
     )
     if policy:
         plan["aggregation_policy"] = policy
