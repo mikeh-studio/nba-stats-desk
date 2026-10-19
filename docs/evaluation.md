@@ -887,6 +887,8 @@ case expectations and source bytes stay unchanged. Missing aggregation provenanc
 is rejected in production. Explicit test-only migration helpers support older
 controlled clients without weakening that runtime contract. New whole-case hashes
 are not human-approved merely because their checks were unchanged. JSON/SSE dated
-points controls include zero/null values, direct total contradictions, compatible
-follow-up inheritance and independent 2/4/6 arithmetic. This establishes controlled
-endpoint behavior, not fresh provider accuracy or historical cassette compatibility.
+points controls cover zero/null values, filters, explicit-total contradictions and
+compatible follow-up inheritance. Separate direct planner/executor checks verify
+that independent 2/4/6 inputs produce mean 4 and sum 12. These checks establish
+controlled endpoint and calculation behavior, respectively, not fresh provider
+accuracy or historical cassette compatibility.
