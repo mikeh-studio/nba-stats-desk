@@ -6,7 +6,7 @@ as a checkpoint, not asserted as the current integrated result.
 
 ## Current compatibility rework boundary
 
-The stack now uses `research_intent/2` and `semantic_intent/2`. Controlled planner
+The stack now uses `research_intent/3` and `semantic_intent/3`. Controlled planner
 inputs have migrated while expected checks and fictional source bytes remain
 unchanged. The original human approval remains evidence for the previously
 selected 26 unchanged critical expectations and their source; it does not approve
@@ -16,8 +16,13 @@ Historical approval receipts and private ledgers remain unchanged.
 The original 14-call recording remains immutable, but current replay rejects its
 incompatible case binding before request matching. Its historical 6/6 result is
 not current strict-provider replay success. Current evidence consists of frozen
-recording integrity and controlled endpoint checks; no new capture or live model
-accuracy is claimed. The historical conditional 9.0 ceiling is not a new award
+recording integrity and controlled endpoint checks. A later authorized private v2
+measurement exposed provenance-label refusals and dated-points scope failures,
+as summarized in the public [PR86](https://github.com/mikeh-studio/nba-stats-desk/pull/86)
+and [PR87](https://github.com/mikeh-studio/nba-stats-desk/pull/87) findings. Those failures
+are regression evidence. The v3 contracts make phase and aggregation provenance
+server-authoritative; fresh v3 provider measurement is separate and is not claimed
+by this compatibility checkpoint. The historical conditional 9.0 ceiling is not a new award
 for this rework, and missing current provider replay evidence is not replaced by
 synthetic tests.
 
@@ -86,7 +91,7 @@ truth of the upstream data or statistical methodology. See the
 | Historical I and G checkpoint | 6/6 | Approved dated-points default repaired `date_range` |
 
 All runs use the original recorded request/response bytes and unchanged
-expectations. No new provider capture was made. At that historical checkpoint,
+expectations. No new provider capture was made at that historical checkpoint. Then,
 replay consumed all 14 recorded calls, passed integrity/isolation gates and made
 no provider calls.
 The repairs are **in-sample regression evidence**, not held-out generalization,
