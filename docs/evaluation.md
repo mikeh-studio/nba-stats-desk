@@ -249,14 +249,15 @@ The concurrency guarantee relies on BigQuery's
 
 ## Ask endpoint regression and human review
 
-The Ask harness has 113 distinct draft scenarios and 24 paraphrases (137 cases)
-in `tests/fixtures/ask/cases.json` and
-fictional statistics in `tests/fixtures/ask/source.json`. The schema validates
+The Ask harness stores draft scenarios and linked paraphrases in
+`tests/fixtures/ask/cases.json`, with fictional statistics in
+`tests/fixtures/ask/source.json`. Generate current counts and assertion coverage
+with `python -m scripts.ask_eval.coverage`. The schema validates
 case shape, IDs, structured assertions and review provenance. Expectations cover
 identity, phase/date scope, numeric tolerances, missingness, rendered values,
 refusals and multi-turn behavior. Award cases use the existing reviewed catalog.
-Availability/study cases test missing-source refusals; successful availability
-arithmetic remains covered by the separate availability suite above.
+Availability/study cases include both missing-source refusals and successful
+frozen-source answers; the separate availability suite provides additional checks.
 
 Run in the app Python environment, using a **new** output directory each time:
 
@@ -404,12 +405,15 @@ expectations to the same frozen facts without paid calls or warehouse access.
 
 ### Expanded offline Ask coverage
 
-The default corpus contains **100 distinct scenarios and 24 linked paraphrases**.
+Generate current corpus counts and assertion coverage with
+`python -m scripts.ask_eval.coverage`. The result separates source rows, cases,
+distinct scenarios, paraphrases and frozen expectation review states. See the
+[frozen quality rubric](ask-harness-quality.md).
 Reports show both denominators separately, plus per-family scores. Paraphrases
 inherit the parent oracle and do not increase the distinct-scenario count.
-The expanded cases include 10 conversation transitions/recovery scenarios,
-8 successful availability comparisons, 6 research/study answers, and 8
-statistical boundaries. Existing refusal scenarios remain in the corpus.
+The expanded cases include conversation transitions/recovery, successful
+availability comparisons, research/study answers and statistical boundaries.
+Existing refusal scenarios remain in the corpus.
 
 Synthetic availability attachments distinguish positive participation, pregame
 Out plus no appearance, verified zero-minute nonparticipation, and unknown
@@ -672,3 +676,17 @@ missing games, tiny samples, and peaks outside the chart point cap. Re-run
 JavaScript suite and populated mobile/desktop charts after rendering changes.
 Frozen-source runs and synthetic position-group tests establish different things;
 real position comparisons require separately verified season membership.
+
+
+### Schema-v1 review provenance limitation
+
+The coverage inventory reports declared review states without verifying reviewer
+identity or approval binding. Schema v1 intentionally permits an omitted reviewer
+and does not bind approval to a hash of the expectations. Even an `approved`
+declaration therefore does not establish human-reviewed rubric credit. Browser
+review decisions are separate records. A future versioned provenance contract may
+strengthen this without silently rejecting existing v1 corpora.
+
+Critical risks list the selected case, one-based turn, expected assertion path and
+value, maximum tolerance, and missing assertions. Presence means the required
+assertion exists; actual endpoint passes and human approval remain separate.

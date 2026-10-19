@@ -137,3 +137,48 @@ for (const [id, expected] of [
     await expect(guide).toContainText('Passing automated checks is not human approval');
   });
 }
+
+
+test('oracle provenance stays separate from browser approval and pass rate', async ({ page }) => {
+  const expanded = { ...run, execution_mode: 'controlled_planner_frozen_source_http',
+    corpus_summary: { counts: { cases: 147 } },
+    selection_summary: { counts: { cases: 2, source_rows: 24 }, review_states: { pending: 2 }, cases: { first: { review: { status: 'pending', reviewer: null } } } },
+  };
+  const body = fs.readFileSync('scripts/ask_eval/review.html','utf8').replace('/*__DATA__*/',JSON.stringify({baseline:expanded,candidate:expanded,source:{description:'Synthetic provenance fixture'}}));
+  await page.route('**/__provenance-review',route=>route.fulfill({contentType:'text/html',body}));
+  await page.goto('/__provenance-review');
+  const panel = page.getByRole('region', {name:'Oracle provenance'});
+  await expect(panel).toContainText('controlled_planner_frozen_source_http');
+  await expect(panel).toContainText('Selected cases: 2; full corpus: 147; source rows: 24');
+  await expect(panel).toContainText('"pending":2');
+  await page.locator('#decision').selectOption('approved');
+  await page.locator('#save').click();
+  await expect(page.locator('#stats')).toContainText('1 / 2');
+  await expect(panel).toContainText('"pending":2');
+  await panel.locator('summary').click();
+  await expect(panel.locator('pre')).toContainText('"reviewer": null');
+});
+
+
+for (const malformed of [false, true]) {
+  test(`optional provenance remains safe and usable: malformed=${malformed}`, async ({ page }) => {
+    const malicious = '<img src=x onerror="window.provenanceInjected=true">';
+    const expanded = { ...run, execution_mode: malicious,
+      corpus_summary: {counts:{cases:malicious}},
+      selection_summary: malformed ? {} : {counts:{cases:malicious,source_rows:malicious},review_states:{pending:2}},
+    };
+    const body=fs.readFileSync('scripts/ask_eval/review.html','utf8').replace('/*__DATA__*/',JSON.stringify({baseline:expanded,candidate:expanded,source:{}}).replaceAll('<','\\u003c'));
+    await page.route('**/__unsafe-provenance',route=>route.fulfill({contentType:'text/html',body}));
+    await page.goto('/__unsafe-provenance');
+    const panel=page.getByRole('region',{name:'Oracle provenance'});
+    if(malformed) await expect(panel).toContainText('Oracle provenance unavailable');
+    else {await expect(panel).toContainText(malicious);await expect(panel.locator('img')).toHaveCount(0);}
+    expect(await page.evaluate(()=>window.provenanceInjected)).toBeUndefined();
+    await page.locator('#decision').selectOption('revise');
+    await page.locator('#save').click();
+    await expect(page.locator('#review-save-state')).toContainText('Saved locally');
+    const downloaded=page.waitForEvent('download');await page.locator('#export').click();
+    const data=JSON.parse(fs.readFileSync(await (await downloaded).path(),'utf8'));
+    expect(data.decisions.first.decision).toBe('revise');
+  });
+}
