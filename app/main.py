@@ -43,6 +43,7 @@ from app.agent.history import (
     saved_context_question,
 )
 from app.agent.observability import LOGGER_NAME, AgentTrace
+from app.agent.private_traces import PrivateCapture
 from app.agent.service import AgentDisabledError, StatsAgent
 from app.config import (
     AGENT_MODEL_OPTIONS,
@@ -69,7 +70,7 @@ from app.seasons import (
     settings_for_season,
     validate_season,
 )
-from app.security import rate_limit_identity, require_local_history
+from app.security import is_direct_local, rate_limit_identity, require_local_history
 from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
@@ -512,12 +513,14 @@ def _agent_terminal_bytes(terminal: dict[str, Any], *, streaming: bool) -> bytes
     return bytes(JSONResponse(content).body)
 
 
-def _emit_agent_trace(trace: AgentTrace) -> None:
+def _emit_agent_trace(trace: AgentTrace, *, private: bool = True) -> None:
     # A logging sink failure must not change the response or strand a lease.
     try:
         trace.emit()
     except Exception:
         pass
+    if private and trace.private_capture is not None:
+        trace.private_capture.finish(trace)
 
 
 async def _emit_agent_trace_off_loop(trace: AgentTrace) -> None:
@@ -601,6 +604,21 @@ def _prepare_agent_request(
         model="unvalidated",
         conversation_id=conversation_id,
     )
+    if settings.agent_trace_enabled and is_direct_local(request):
+        try:
+            trace.private_capture = PrivateCapture(
+                settings_for_season(settings, current_season()),
+                trace,
+                provider=payload.provider,
+                transport="sse" if request.url.path.endswith("/stream") else "json",
+                static_version=STATIC_VERSION,
+                selected_player=_selected_player(payload),
+            )
+        except Exception:
+            try:
+                app_logger.warning("private_trace_init_failed")
+            except Exception:
+                pass
     try:
         trace.model = _selected_agent_model(payload, settings)
         question = _validate_agent_question(payload.question, settings)
@@ -1151,6 +1169,10 @@ async def _start_agent_execution(
             try:
                 # Restore only after admission; rejected work cannot alter state.
                 _restore_agent_context(payload, settings, conversation_id)
+                if trace.private_capture is not None:
+                    trace.private_capture.context(
+                        _season_conversation_store(current_season()), conversation_id
+                    )
                 agent = _build_stats_agent(settings, repo, agent_client)
                 from app.agent.overview_tracking import (
                     overview_events,
@@ -1170,6 +1192,8 @@ async def _start_agent_execution(
                     provider=payload.provider,
                     model=payload.model,
                 )
+                if trace.private_capture is not None:
+                    trace.private_capture.answer(answer)
                 answer["request_id"] = request_id
                 answer["season"] = current_season()
                 try:
@@ -1229,10 +1253,13 @@ async def _start_agent_execution(
                         wire = _agent_terminal_bytes(terminal, streaming=streaming)
                     # A reserved single terminal result bypasses interim quotas.
                     delivery.finish(wire, status)
-                    # Operational logging must not strand the response or lease.
-                    _emit_agent_trace(trace)
+                    # Normal telemetry remains inside worker admission.
+                    _emit_agent_trace(trace, private=False)
                 finally:
                     lease.complete(worker=True)
+                # Only private persistence may outlive admission; globally bounded.
+                if trace.private_capture is not None:
+                    trace.private_capture.finish(trace)
 
         Thread(target=request_context.run, args=(worker,), daemon=True).start()
     except BaseException as exc:

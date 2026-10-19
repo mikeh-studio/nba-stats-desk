@@ -692,3 +692,60 @@ before promoting a model, then update the existing options/defaults in config.
 Provider API references:
 - https://developers.openai.com/api/reference/python/resources/models/methods/list
 - https://platform.claude.com/docs/en/api/models/list
+
+## Private local Ask traces
+
+Set `AGENT_TRACE_ENABLED=true` only for local diagnosis. The default is false.
+JSON and SSE Ask requests capture successes, business validation failures, rate
+limits, capacity rejections, worker-start failures and execution failures when the
+original socket peer is loopback, Host is localhost, no forwarding header is
+present, and any Origin matches. Remote requests continue normally without
+capture. Run Uvicorn with `--no-proxy-headers`; this is not authentication.
+Server history retains its stricter remote-request rejection when enabled.
+Do not place a same-host proxy or tunnel in front of a trace-enabled instance:
+a proxy that strips forwarding headers and rewrites Host cannot be detected by
+this predicate. Known proxy headers, duplicate Host/Origin and nonmatching Origin
+are rejected for both private capture and server history; these checks tighten
+history ingress as well. This is not remote user authentication.
+
+`AGENT_TRACE_DIRECTORY` defaults to ignored `local_notes/ask_traces`. Each
+server-generated request ID gets a unique JSON file. The final directory must
+be owned by the current user and mode 0700; files are 0600. Symlink paths and
+untrusted targets are refused. A process-wide nonblocking single-writer limit
+and nonblocking file lock skip capture on contention. Normal telemetry remains
+inside worker admission; only private persistence runs after worker completion,
+with at most one such writer per process. Storage errors emit only constant
+diagnostic codes and do not change the response. Do not configure a tracked/public directory
+or publish these records as attachments. Ignore rules are not access control.
+
+Limits are `AGENT_TRACE_MAX_BYTES` (2048–1048576, default 65536),
+`AGENT_TRACE_MAX_RECORDS` (1–10000, default 100), and
+`AGENT_TRACE_RETENTION_DAYS` (1–365, default 7). Retention runs on writes under
+an exclusive file lock after a new record is successfully published, removing
+expired/oldest recognized private trace files;
+it is not a background deletion guarantee. Stop the server and delete the local
+trace directory to purge it, including backups under your own retention policy.
+Local backup and document-sync services may copy these files. Ancestor symlinks
+(including macOS `/tmp` and `/var`) and non-0700 directory modes fail closed;
+filesystem ACLs are not inspected.
+
+The versioned allowlisted projection includes redacted question/context,
+selected provider/model, available plan/scope/evidence identifiers, route,
+outcome, static version and diagnostic source/config fingerprints. The cached
+source digest snapshots on-disk `app/**/*.py` at first capture (including a cached
+unavailable result); it does not prove loaded code, dependencies, templates or
+other assets. The config fingerprint covers nine allowlisted fields and is not
+B's replay-compatibility binding. Conversation IDs use an unsalted hash and are
+pseudonymous, not anonymized; guessable client IDs can be recovered. Provider prompts, raw responses, error bodies,
+headers and credentials are excluded. Nested values, text, records and counts
+are bounded; recognizable secrets/email/user-ID assignments are redacted.
+Recognizable local user-file paths are also redacted. Redaction is best effort,
+so treat all records as private. Omitted fields,
+truncation, redaction and unavailable evidence are recorded as incomplete reasons.
+Hashes identify projected content; these records are not complete replay inputs.
+Request-schema rejection before endpoint execution is outside this capture path.
+No trace is exposed by an API or added to the public service summary.
+
+For offline verification run `python -m pytest tests/test_private_traces.py -q`.
+The tests use synthetic endpoint agents and temporary storage; they do not
+establish live-provider, warehouse or deployed-ingress behavior.

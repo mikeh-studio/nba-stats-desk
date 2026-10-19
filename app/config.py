@@ -116,6 +116,11 @@ class Settings:
     research_context_path: str | None = None
     research_studies_path: str | None = None
     research_availability_path: str | None = None
+    agent_trace_enabled: bool = False
+    agent_trace_directory: str = "local_notes/ask_traces"
+    agent_trace_max_bytes: int = 65536
+    agent_trace_max_records: int = 100
+    agent_trace_retention_days: int = 7
     agent_history_enabled: bool = False
     agent_history_path: str = "local_notes/ask_history/ask_chat_history.jsonl"
     performance_cache_prewarm_enabled: bool = True
@@ -133,6 +138,16 @@ class Settings:
                 continue
             if type(value) is not int or value <= 0:
                 raise ValueError(f"{name} must be a positive integer")
+        for name, minimum, maximum in (
+            ("agent_trace_max_bytes", 2048, 1048576),
+            ("agent_trace_max_records", 1, 10000),
+            ("agent_trace_retention_days", 1, 365),
+        ):
+            value = getattr(self, name)
+            if type(value) is not int or not minimum <= value <= maximum:
+                raise ValueError(f"{name} outside supported bounds")
+        if not self.agent_trace_directory.strip():
+            raise ValueError("agent_trace_directory must not be empty")
         for value in self.agent_trusted_proxy_cidrs:
             network = ip_network(value)
             if network.prefixlen == 0:
@@ -220,6 +235,12 @@ def get_settings() -> Settings:
         research_context_path=os.getenv("RESEARCH_CONTEXT_PATH") or None,
         research_studies_path=os.getenv("RESEARCH_STUDIES_PATH") or None,
         research_availability_path=os.getenv("RESEARCH_AVAILABILITY_PATH") or None,
+        agent_trace_enabled=_env_bool("AGENT_TRACE_ENABLED", False),
+        agent_trace_directory=os.getenv("AGENT_TRACE_DIRECTORY")
+        or "local_notes/ask_traces",
+        agent_trace_max_bytes=int(os.getenv("AGENT_TRACE_MAX_BYTES") or "65536"),
+        agent_trace_max_records=int(os.getenv("AGENT_TRACE_MAX_RECORDS") or "100"),
+        agent_trace_retention_days=int(os.getenv("AGENT_TRACE_RETENTION_DAYS") or "7"),
         agent_history_enabled=_env_bool("AGENT_HISTORY_ENABLED", False),
         agent_history_path=os.getenv(
             "AGENT_HISTORY_PATH",
