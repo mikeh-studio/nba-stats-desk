@@ -19,7 +19,7 @@ class FrozenWarehouse:
     def load(self, seasons):
         from app.agent.semantics import Evidence, SemanticError
 
-        if "2024-25" not in seasons:
+        if not seasons or not set(seasons).issubset({"2024-25"}):
             raise SemanticError(
                 "unsupported_coverage", "Frozen fixture covers only 2024-25."
             )
@@ -61,6 +61,11 @@ def frozen_repository(settings, source, variant):
         def __init__(self):
             super().__init__(settings, client=SimpleNamespace())
             self._governed_warehouse = FrozenWarehouse(source, variant)
+
+        def _query(self, *args, **kwargs):
+            from scripts.ask_eval.source_guard import uncaptured_read
+
+            uncaptured_read("synthetic")
 
         def get_health(self):
             return {

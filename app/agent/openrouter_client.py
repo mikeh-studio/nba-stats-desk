@@ -123,4 +123,9 @@ class OpenRouterResponsesClient:
             if u
             else None
         )
-        return SimpleNamespace(output=output, output_text=content, usage=usage)
+        return SimpleNamespace(
+            output=output,
+            output_text=content,
+            usage=usage,
+            finish_reason=choice.finish_reason,
+        )

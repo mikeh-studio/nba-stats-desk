@@ -690,3 +690,102 @@ strengthen this without silently rejecting existing v1 corpora.
 Critical risks list the selected case, one-based turn, expected assertion path and
 value, maximum tolerance, and missing assertions. Presence means the required
 assertion exists; actual endpoint passes and human approval remain separate.
+
+## Strict recorded-provider replay
+
+The endpoint runner also supports recording actual provider calls against frozen
+inputs and replaying them offline. Controlled planning remains the default.
+Recording consumes provider usage and requires explicit cases, model, attempted
+call budget, and an ISO semantic clock date. Use a fresh ignored directory:
+
+```bash
+python scripts/evaluate_ask.py --live --provider openai --model gpt-5.4-mini \
+  --case points_mean --max-model-calls 4 --clock 2026-10-18 \
+  --record-cassettes reports/ask-harness/my-capture/cassettes \
+  --output reports/ask-harness/my-capture/results
+python scripts/evaluate_ask.py \
+  --replay-cassettes reports/ask-harness/my-capture/cassettes \
+  --output reports/ask-harness/my-offline-replay
+```
+
+Replay resolves provider, model, selected cases and clock from the manifest;
+explicit conflicting arguments fail before server startup. It creates no provider
+client and spends no provider calls. The fixture server blocks Python-audited
+outbound socket/DNS operations and process spawns, including local proxies, and
+runs the asyncio event loop. This is a Python-level guard, not OS isolation of
+native extensions. The runner is a separate process connecting inbound to loopback.
+Frozen repositories reject uncaptured reads and retain sticky failure evidence
+independently of application fallback; no warehouse fallback is available.
+Zero-call evidence combines blocked real client construction, consumed recordings,
+and the Python guard, rather than relying on the unused live-call counter alone.
+
+Version 2 recordings bind each independent case/turn/JSON-or-SSE call sequence to
+its provider, model, complete semantic request hash, fixture settings, selected
+case contract, source, schema and fixed date. Version 2 binds the manifest hash
+in the terminal record and validates stored request/match hashes and record shape.
+The sole supported v1 bundle is the original reviewed capture, pinned by raw-file
+hashes and canonical cassette hash; arbitrary unverified v1 bundles are rejected.
+Transport timeouts/retries are saved
+separately; callbacks are replayed in their captured order. SDK output items, tool
+IDs/arguments, usage and available finish/refusal fields at the app's adapted
+Responses boundary are retained; this is not a complete provider wire capture.
+Claude stop reasons are retained and truncation/refusal/pause stops fail the gate.
+OpenRouter rejects incomplete/filtered/refused results and retains accepted finish
+reasons. Unsupported values fail serialization. Failed attempts remain failures,
+with safe error
+classifications instead of private error messages. No provider retry policy is
+changed in the production app.
+
+Missing, out-of-order, mismatched, extra and unused calls fail the terminal harness
+gate even when an optional application fallback produces a valid payload. Reports
+retain this gate separately from case assertion scores, with cassette hashes and
+attempt counts. Full corpus hashes remain comparability provenance; replay binds
+the individual selected case contracts so an unrelated case edit does not invalidate
+a recording. Application and adapter revisions are recorded as provenance; changed
+application code may replay when its requests and contracts still match.
+
+The clock seam affects semantic date defaults, scope checks, splits and overview
+periods only. Execution deadlines, source capture timestamps and history clocks
+remain real time. New recordings include elapsed time and available timeout/
+remaining-deadline bounds. Bound overruns and execution failures during provider
+calls make capture unsuccessful. ExecutionFailure codes remain distinguishable.
+Replayed chunks establish callback ordering, not provider streaming latency,
+cancellation, deadline effects or post-call scheduling. Replay does not freeze or
+reproduce those execution clocks; changes after the captured boundary can still
+change the application's timing-sensitive outcome. Each transport has its own recording;
+parity means both satisfy the same independent expectations, not identical prose.
+
+Keep raw captures private. Before copying synthetic recordings into
+`tests/fixtures/ask/recordings`, inspect requests, response text, evidence, IDs,
+paths, metadata and attachments for privacy. Record this agent privacy review
+separately from human expectation approval; pending cases stay pending. A replay
+pass establishes frozen response behavior, not current model quality, live
+warehouse accuracy or deployment readiness. Never regenerate expectations or
+repeat a paid capture automatically after a failure.
+
+The reviewed public recording in
+[`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
+contains 14 calls across six cases. Capture and replay both pass 4/6; the date-range
+aggregation expectation mismatch and research routing failure remain visible.
+The date-range wording is ambiguous about average versus total; the pending
+expectation mismatch is not a confirmed application defect. The offline pytest
+regression explicitly requires exit 1 and those exact failed assertions alongside
+zero replay provider calls and a passing harness terminal gate. It tests detection
+of mismatches, not six correct answers. No capture was repeated and no independent
+expectation was adjusted.
+
+Settings binding changes require explicit compatibility review. New diagnostic or
+storage-only settings should be excluded with tests when introduced; existing
+generation, scope and execution policy settings must remain bound. Never rewrite
+an existing capture's settings hash merely to make replay pass.
+
+New private recording/report directories are created with mode 0700 and raw files
+with mode 0600. Response terminal failure metadata also fails the harness gate,
+even if application fallback produces a usable payload; missing optional status
+fields on provider adapters are not themselves failures.
+
+The evaluator loads only three provider credential keys from `.env` and suppresses
+automatic dotenv loading while importing the app. It binds explicit fixture settings,
+not every inherited process environment variable. Capture/replay middleware returns
+structured 400 errors for invalid case/turn headers and preserves 501 capability
+details; semantic clock context is reset even when request setup fails.

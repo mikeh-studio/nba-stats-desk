@@ -151,6 +151,7 @@ def _convert_input(input_messages: list[Any]) -> list[dict[str, Any]]:
 
 class _AdapterResponse:
     def __init__(self, message: Any) -> None:
+        self.stop_reason = getattr(message, "stop_reason", None)
         self.output: list[Any] = []
         texts: list[str] = []
         for block in getattr(message, "content", None) or []:

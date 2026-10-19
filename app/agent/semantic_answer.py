@@ -10,6 +10,7 @@ from time import monotonic
 from typing import Any
 
 from app.agent.award_lookup import award_intro, resolve_award_question, wants_award
+from app.agent.clock import today as semantic_today
 from app.agent.execution import timed
 from app.agent.followup import analysis_context, resolve_followup
 from app.agent.history import saved_context_question
@@ -754,7 +755,7 @@ class SemanticAsk:
                     anchor = (
                         date.fromisoformat(anchor_match[1])
                         if anchor_match
-                        else date.today()
+                        else semantic_today()
                     )
                     metric_window = {
                         **metric_window,
@@ -951,16 +952,19 @@ class SemanticAsk:
                                     == query.get("season_type", "Regular Season")
                                 )
                             ),
-                            default=date.today().isoformat(),
+                            default=semantic_today().isoformat(),
                         )
                         if metric_window.get("window") != "date_range":
                             anchor_match = re.search(
                                 r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I
                             )
                             upper = (
-                                min(date.today(), date.fromisoformat(anchor_match[1]))
+                                min(
+                                    semantic_today(),
+                                    date.fromisoformat(anchor_match[1]),
+                                )
                                 if anchor_match
-                                else date.today()
+                                else semantic_today()
                             )
                             if date.fromisoformat(end) > upper:
                                 end = upper.isoformat()

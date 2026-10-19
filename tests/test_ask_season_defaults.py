@@ -100,7 +100,7 @@ def test_previous_season_is_explicit_for_governed_ask(monkeypatch):
         def today(cls):
             return cls(2025, 11, 10)
 
-    monkeypatch.setattr(time_defaults, "date", Clock)
+    monkeypatch.setattr(time_defaults, "semantic_today", Clock.today)
     warehouse = Warehouse()
     agent = StatsAgent(
         settings("2025-26"),

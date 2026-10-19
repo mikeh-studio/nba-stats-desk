@@ -82,6 +82,7 @@ def test_schema_provider_routing_and_usage():
     }
     assert args["messages"][1] == {"role": "system", "content": "Scope"}
     assert result.output_text == '{"choice":"pts"}'
+    assert result.finish_reason == "stop"
     assert result.usage.input_tokens == 100
     assert result.usage.output_tokens == 20
     client.with_options(timeout=9)

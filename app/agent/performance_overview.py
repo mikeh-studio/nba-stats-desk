@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 from datetime import date, timedelta
 
+from app.agent.clock import today as semantic_today
 from app.agent.context_metrics import context_metrics
 from app.agent.overview_calendar import MONTH_PATTERN, calendar_window, shift_months
 from app.agent.overview_clarification import WINDOW_MESSAGE, OverviewClarification
@@ -107,7 +108,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             question,
             flags=re.I,
         )
-    today = today or date.today()
+    today = today or semantic_today()
     from app.agent.time_defaults import resolve_time_defaults
 
     question, _, _ = resolve_time_defaults(question, today)

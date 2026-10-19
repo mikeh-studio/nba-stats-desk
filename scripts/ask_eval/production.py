@@ -27,7 +27,9 @@ def production_repository(settings, source):
             self._governed_warehouse = Warehouse()
 
         def _query(self, *args, **kwargs):
-            raise RuntimeError("Uncaptured repository read: no live warehouse fallback")
+            from scripts.ask_eval.source_guard import uncaptured_read
+
+            uncaptured_read("production_snapshot")
 
         def search_players(self, query, limit=12):
             from app.agent.player_resolver import normalize_player_text

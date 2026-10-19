@@ -9,6 +9,7 @@ from threading import Lock
 from time import monotonic
 from typing import Any
 
+from app.agent.clock import today as semantic_today
 from app.agent.execution import timed
 from app.agent.player_resolver import load_player_aliases, normalize_player_text
 from app.agent.semantic_source import BigQuerySemanticSource, snapshot_evidence
@@ -93,7 +94,7 @@ def seasons_in_dates(start, end):
         raise SemanticError(
             "invalid_scope", "Please provide valid start and end dates."
         ) from exc
-    if lo > hi or hi > date.today():
+    if lo > hi or hi > semantic_today():
         raise SemanticError(
             "invalid_scope",
             "Please choose an ordered period ending no later than today.",

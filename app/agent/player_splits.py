@@ -7,6 +7,7 @@ from dataclasses import asdict
 from datetime import date, timedelta
 
 from app.agent.availability_ask import METRICS, _identities
+from app.agent.clock import today as semantic_today
 from app.agent.metric_presentation import (
     GAME_COVERAGE_NOTE,
     game_coverage,
@@ -106,7 +107,7 @@ def parse_split(question, players, season):
         text,
     )
     start, end = season_bounds(season)
-    end = min(end, date.today())
+    end = min(end, semantic_today())
     dates = re.findall(
         r"\bfrom (\d{4}-\d{2}-\d{2}) (?:through|to) (\d{4}-\d{2}-\d{2})", text
     )
@@ -129,7 +130,7 @@ def parse_split(question, players, season):
     except ValueError as exc:
         raise SemanticError("invalid_scope", "Supply valid ISO dates.") from exc
     bounds = season_bounds(season)
-    if not bounds[0] <= start <= end <= min(bounds[1], date.today()):
+    if not bounds[0] <= start <= end <= min(bounds[1], semantic_today()):
         raise SemanticError(
             "unsupported_coverage",
             "Dates must be ordered and inside the selected season, ending no later than today.",

@@ -4,13 +4,14 @@ import calendar
 import re
 from datetime import date
 
+from app.agent.clock import today as semantic_today
 from app.agent.overview_calendar import MONTH_PATTERN, MONTHS
 from app.agent.semantics import SemanticError
 from app.seasons import SEASONS, season_bounds
 
 
 def resolve_time_defaults(question, today=None, context=None):
-    today = today or date.today()
+    today = today or semantic_today()
     anchor = re.search(r"\bas[ -]of (\d{4}-\d{2}-\d{2})\b", question, re.I)
     if anchor:
         try:

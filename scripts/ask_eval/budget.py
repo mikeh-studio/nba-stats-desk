@@ -6,6 +6,12 @@ from threading import Lock
 from time import monotonic
 from types import SimpleNamespace
 
+from scripts.ask_eval.private_io import private_open
+
+
+class BudgetExceeded(RuntimeError):
+    """The evaluation attempted to exceed its authorized provider-call limit."""
+
 
 class CallBudget:
     def __init__(self, maximum, log_path=None):
@@ -18,7 +24,7 @@ class CallBudget:
     def claim(self):
         with self.lock:
             if self.calls >= self.maximum:
-                raise RuntimeError("Evaluation model-call budget exhausted")
+                raise BudgetExceeded("Evaluation model-call budget exhausted")
             self.calls += 1
             return self.calls
 
@@ -26,7 +32,7 @@ class CallBudget:
         with self.lock:
             self.records.append(record)
             if self.log_path:
-                with self.log_path.open("a") as stream:
+                with private_open(self.log_path, append=True) as stream:
                     stream.write(
                         json.dumps({**record, "response": response}, default=str) + "\n"
                     )

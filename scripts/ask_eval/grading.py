@@ -56,5 +56,11 @@ def comparable(a, b):
             "execution_mode",
             "grader_sha256",
             "fixture_adapter_sha256",
+            "provider",
+            "model",
+            "clock",
+            "selected_cases_sha256",
+            "schema_sha256",
+            "cassette_sha256",
         )
     )

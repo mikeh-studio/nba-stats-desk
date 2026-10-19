@@ -1,25 +1,31 @@
 """Loopback-only evaluation app. Explicit frozen dependencies, no production writes."""
 
+import json
 import os
 import sys
 import tempfile
 from dataclasses import replace
+from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 # Select baseline/candidate app code before any app import. Runner code stays fixed.
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, os.environ.get("ASK_EVAL_CODE_ROOT", str(ROOT)))
 if os.environ.get("ASK_EVAL_LIVE") == "1":
-    from dotenv import load_dotenv
+    from scripts.ask_eval.environment import load_provider_credentials
 
-    # Archived app code may not discover the working checkout's local config.
-    # Load here without copying credentials into the archive or run artifacts.
-    load_dotenv(ROOT / ".env")
+    load_provider_credentials(ROOT / ".env")
 
-from app.config import Settings  # noqa: E402
-from app.main import app, get_agent_client, get_repository, get_settings  # noqa: E402
+# This evaluation-only import scope prevents app.config's automatic .env load
+# from bypassing the credential-only loader (including on older dotenv versions).
+with patch("dotenv.load_dotenv", return_value=False):
+    from app.config import Settings
+    from app.main import app, get_agent_client, get_repository, get_settings
+
 from fastapi import HTTPException, Request  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
 from scripts.ask_eval.fixtures import (  # noqa: E402
     ControlledModel,
     FixtureAttachments,
@@ -27,6 +33,7 @@ from scripts.ask_eval.fixtures import (  # noqa: E402
     frozen_repository,
     load_inputs,
 )
+from scripts.ask_eval.source_guard import failures as source_failures  # noqa: E402
 
 source, document = load_inputs(
     ROOT,
@@ -67,6 +74,13 @@ def settings(request: Request = None):
             anthropic_agent_max_retries=0,
             openrouter_agent_max_retries=0,
         )
+    if os.environ.get("ASK_EVAL_CASSETTE_MODE"):
+        base = replace(
+            base,
+            openai_agent_max_retries=0,
+            anthropic_agent_max_retries=0,
+            openrouter_agent_max_retries=0,
+        )
     attachments = case_for(request).get("attachments", []) if request else []
     try:
         return _attachments.configure(base, attachments)
@@ -86,29 +100,106 @@ from scripts.ask_eval.budget import BudgetClient, CallBudget  # noqa: E402
 budget = CallBudget(
     int(os.environ.get("ASK_EVAL_MAX_CALLS", "0")), os.environ.get("ASK_EVAL_CALL_LOG")
 )
-if os.environ.get("ASK_EVAL_LIVE") == "1":
+cassette = None
+if os.environ.get("ASK_EVAL_CASSETTE_MODE"):
+    from scripts.ask_eval.cassettes import (
+        CassetteClient,
+        CassetteStore,
+        call_context,
+        install_network_guard,
+        settings_binding,
+    )
+
+    cassette = CassetteStore(
+        os.environ["ASK_EVAL_CASSETTE_DIR"],
+        os.environ["ASK_EVAL_CASSETTE_MODE"],
+        json.loads(os.environ["ASK_EVAL_BINDING"]),
+    )
+    if cassette.mode == "replay":
+        install_network_guard(cassette.fail)
+
+
+@app.middleware("http")
+async def evaluation_context(request, call_next):
+    if not request.url.path.startswith("/api/agent/ask"):
+        return await call_next(request)
+    clock_token = None
+    context_token = None
+    try:
+        if os.environ.get("ASK_EVAL_CLOCK"):
+            from app.agent.clock import semantic_date
+
+            clock_token = semantic_date.set(
+                date.fromisoformat(os.environ["ASK_EVAL_CLOCK"])
+            )
+        if cassette:
+            case = case_for(request)
+            try:
+                turn = int(request.headers["X-Evaluation-Turn"])
+                if not 0 <= turn < len(case["turns"]):
+                    raise ValueError()
+            except (KeyError, ValueError):
+                raise HTTPException(
+                    status_code=400, detail="Valid X-Evaluation-Turn is required"
+                )
+            context_token = call_context.set(
+                {
+                    "case": case["id"],
+                    "turn": turn,
+                    "transport": "sse"
+                    if request.url.path.endswith("/stream")
+                    else "json",
+                    "settings_sha256": settings_binding(settings(request)),
+                }
+            )
+        return await call_next(request)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    finally:
+        if context_token is not None:
+            call_context.reset(context_token)
+        if clock_token is not None:
+            semantic_date.reset(clock_token)
+
+
+if os.environ.get("ASK_EVAL_LIVE") == "1" or cassette:
     from app.agent.service import StatsAgent
 
     _get_client = StatsAgent._get_client
 
     def budgeted_client(self, provider="openai"):
+        if cassette and cassette.mode == "replay":
+            return CassetteClient(cassette, provider)
         client = _get_client(self, provider)
         if provider == "openai":
             client = client.with_options(max_retries=0, timeout=30)
-        return BudgetClient(client, budget)
+        client = BudgetClient(client, budget)
+        return CassetteClient(cassette, provider, client) if cassette else client
 
     StatsAgent._get_client = budgeted_client
+    if cassette and cassette.mode == "replay":
+        StatsAgent._get_openrouter_client = lambda self: CassetteClient(
+            cassette, "openrouter"
+        )
+        StatsAgent._get_claude_client = lambda self: CassetteClient(cassette, "claude")
 
 
 @app.get("/__eval/metadata")
 def evaluation_metadata():
     return {
+        "cassette_errors": list(cassette.errors) if cassette else [],
         "fixture_capability_failures": dict(_capability_failures),
+        "uncaptured_reads": source_failures(),
         "model_calls": budget.calls,
         "source_kind": source.get("source_kind", "synthetic"),
         "model_usage": budget.records,
         "live": os.environ.get("ASK_EVAL_LIVE") == "1",
     }
+
+
+@app.post("/__eval/finalize")
+def finalize():
+    return cassette.terminal() if cassette else {"errors": []}
 
 
 @app.post("/__eval/reset-conversations")
@@ -122,7 +213,13 @@ def reset_conversations():
 
 
 def case_for(request):
-    cid = request.headers.get("X-Evaluation-Case", next(iter(lookup)))
+    cid = request.headers.get(
+        "X-Evaluation-Case", None if cassette else next(iter(lookup))
+    )
+    if cid not in lookup:
+        raise HTTPException(
+            status_code=400, detail="Valid X-Evaluation-Case is required"
+        )
     return lookup[cid]
 
 
@@ -142,7 +239,7 @@ def repository(request: Request):
 
 
 def model(request: Request):
-    if os.environ.get("ASK_EVAL_LIVE") == "1":
+    if os.environ.get("ASK_EVAL_LIVE") == "1" or cassette:
         return None
     case = case_for(request)
     index = int(request.headers.get("X-Evaluation-Turn", "0"))
