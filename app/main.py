@@ -1581,6 +1581,7 @@ def research_players(
     request: Request, settings: Annotated[Settings, Depends(get_settings)]
 ) -> dict:
     from app.agent.semantic_serving import source_players
+    from app.agent.semantics import SemanticError
 
     _check_research_rate_limit(request, settings)
     try:
@@ -1599,6 +1600,15 @@ def research_players(
             result["season_fallback"] = {"requested": current_season(), "used": used}
             result["notice"] = fallback_notice(current_season(), used)
         return result
+    except SemanticError as exc:
+        if exc.code == "unsupported_coverage":
+            return {
+                "players": [],
+                "season": current_season(),
+                "status": exc.code,
+                "notice": str(exc),
+            }
+        raise HTTPException(503, "Research source is unavailable") from exc
     except Exception as exc:
         raise HTTPException(503, "Research source is unavailable") from exc
 

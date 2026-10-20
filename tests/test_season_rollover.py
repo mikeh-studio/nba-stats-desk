@@ -328,6 +328,12 @@ def test_actual_research_endpoints_disclose_fallback_and_preserve_explicit_scope
             f"No matching data is available for {DEFAULT_SEASON}"
         )
         calls.clear()
+        missing = client.get(f"/api/research/players?season={DEFAULT_SEASON}")
+        assert missing.status_code == 200
+        assert missing.json()["players"] == []
+        assert missing.json()["status"] == "unsupported_coverage"
+        assert calls == [DEFAULT_SEASON]
+        calls.clear()
         response = client.post(
             "/api/research/breakdown",
             json={"season": DEFAULT_SEASON, "player_ids": [1]},
