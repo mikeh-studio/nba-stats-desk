@@ -230,9 +230,9 @@ export async function initialize(root) {
   if (root.dataset.researchInitialized) return;
   root.dataset.researchInitialized = "true";
   const form = root.querySelector("form"),
-    status = root.querySelector("[data-research-status]"),
-    season = root.dataset.season;
-  const urlSeason = `?season=${encodeURIComponent(season)}`;
+    status = root.querySelector("[data-research-status]");
+  let season = root.dataset.season;
+  let coverageNotice = "";
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const submit = form.querySelector("[type=submit]");
@@ -240,7 +240,7 @@ export async function initialize(root) {
     status.textContent = "Loading breakdown…";
     try {
       const scope = readScope(form, season);
-      const data = await fetchJSON(`/api/research/breakdown${urlSeason}`, {
+      const data = await fetchJSON(`/api/research/breakdown?season=${encodeURIComponent(season)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(scope),
@@ -254,8 +254,8 @@ export async function initialize(root) {
         }
       params.set("season", season);
       history.replaceState(null, "", `${location.pathname}?${params}`);
-      root.querySelector('a[href^="/research"]').href = `/research?${params}`;
-      status.textContent = "Breakdown ready.";
+      root.querySelector('a[href^="/players"]').href = `/players?${params}`;
+      status.textContent = `${coverageNotice} Breakdown ready.`.trim();
     } catch (error) {
       status.textContent = error.message;
       root.querySelector("[data-research-results]").replaceChildren();
@@ -286,7 +286,10 @@ export async function initialize(root) {
       root.querySelector("[data-study-results]").textContent = error.message;
     });
   try {
-    const { players } = await fetchJSON(`/api/research/players${urlSeason}`);
+    const source = await fetchJSON("/api/research/players");
+    const { players } = source;
+    season = source.season;
+    coverageNotice = source.notice || "";
     const query = new URLSearchParams(location.search);
     for (const name of ["player", "compare", "teammate"]) {
       const select = form.elements.namedItem(name);
@@ -318,7 +321,7 @@ export async function initialize(root) {
       "teammate_status",
     ])
       if (query.has(key)) form.elements.namedItem(key).value = query.get(key);
-    status.textContent = "Choose a scope to inspect the underlying games.";
+    status.textContent = `${coverageNotice} Choose a scope to inspect the underlying games.`.trim();
   } catch (error) {
     status.textContent = error.message;
   }

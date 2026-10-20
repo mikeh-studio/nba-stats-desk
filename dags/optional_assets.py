@@ -6,6 +6,8 @@ import logging
 from functools import wraps
 from typing import Any, Callable
 
+from season_config import CURRENT_SEASON
+
 logger = logging.getLogger("nba_pipeline")
 
 
@@ -29,7 +31,7 @@ def optional_injury_stage(function: Callable) -> Callable:
             return {
                 **previous,
                 "domain": "injury_reports",
-                "season": previous.get("season", "2025-26"),
+                "season": previous.get("season", CURRENT_SEASON),
                 "row_count": 0,
                 "rows_loaded": 0,
                 "rows_inserted": 0,

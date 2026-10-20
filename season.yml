@@ -1,0 +1,5 @@
+# The one production season setting. Source contracts, the scheduled DAG, the
+# app's default season, and dbt (dbt_project.yml var, checked by tests) derive
+# from this value. Earlier seasons are served from season-suffixed archive
+# datasets; see docs/operations.md#season-rollover.
+current_season: "2026-27"

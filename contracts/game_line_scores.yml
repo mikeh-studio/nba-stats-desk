@@ -43,13 +43,13 @@ rules:
   - name: season_scope
     check: equals
     column: SEASON
-    value: "2025-26"
+    value: "{season}"
     severity: fatal
   - name: game_date_supported_window
     check: date_between
     column: GAME_DATE
-    min: "2025-07-01"
-    max: "2026-06-30"
+    min: "{season_start}"
+    max: "{season_end}"
     severity: fatal
   - name: one_home_and_away_team_per_game
     check: group_count

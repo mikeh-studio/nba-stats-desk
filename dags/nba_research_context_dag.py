@@ -10,6 +10,8 @@ from pathlib import Path
 
 from airflow.decorators import dag, task
 
+from season_config import CURRENT_SEASON
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -41,7 +43,7 @@ def research_context_dag():
                 "--memberships",
                 memberships,
                 "--season",
-                os.environ.get("RESEARCH_CAPTURE_SEASON", "2026-27"),
+                os.environ.get("RESEARCH_CAPTURE_SEASON", CURRENT_SEASON),
             ],
             cwd=ROOT,
             timeout=540,

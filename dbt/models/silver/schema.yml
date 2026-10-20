@@ -16,7 +16,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["{{ var('nba_season', '2025-26') }}"]
+                values: ["{{ var('nba_season', var('nba_current_season')) }}"]
       - name: season_type
         tests:
           - not_null
@@ -37,7 +37,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["{{ var('nba_season', '2025-26') }}"]
+                values: ["{{ var('nba_season', var('nba_current_season')) }}"]
       - name: season_type
         tests:
           - not_null
@@ -108,7 +108,7 @@ models:
           - not_null
           - accepted_values:
               arguments:
-                values: ["{{ var('nba_season', '2025-26') }}"]
+                values: ["{{ var('nba_season', var('nba_current_season')) }}"]
       - name: season_type
         tests:
           - not_null

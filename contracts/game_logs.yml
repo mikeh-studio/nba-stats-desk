@@ -49,7 +49,7 @@ rules:
   - name: season_scope
     check: equals
     column: SEASON
-    value: "2025-26"
+    value: "{season}"
     severity: fatal
   - name: season_type_values
     check: in_set
@@ -59,8 +59,8 @@ rules:
   - name: game_date_supported_window
     check: date_between
     column: GAME_DATE
-    min: "2025-07-01"
-    max: "2026-06-30"
+    min: "{season_start}"
+    max: "{season_end}"
     severity: fatal
   - name: wl_values
     check: in_set

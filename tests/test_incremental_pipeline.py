@@ -854,7 +854,7 @@ def test_get_player_game_log_passes_timeout_to_nba_api(monkeypatch):
 
     monkeypatch.setattr(pipeline.playergamelog, "PlayerGameLog", FakePlayerGameLog)
 
-    result = pipeline.get_player_game_log(7, timeout=4.5, retries=1)
+    result = pipeline.get_player_game_log(7, timeout=4.5, retries=1, season="2025-26")
 
     assert captured == {
         "player_id": 7,
@@ -889,6 +889,7 @@ def test_get_all_player_game_logs_fetches_configured_season_types(monkeypatch):
         season_types=["Regular Season", "Playoffs"],
         extract_mode="players",
         delay=0,
+        season="2025-26",
     )
 
     assert calls == [
@@ -926,6 +927,7 @@ def test_get_all_player_game_logs_uses_league_endpoint_by_default(monkeypatch):
         [{"id": 7, "full_name": "Ignored In League Mode"}],
         season_types="Regular Season,Playoffs",
         delay=0,
+        season="2025-26",
     )
 
     assert calls == [
@@ -979,6 +981,7 @@ def test_get_all_player_game_logs_falls_back_to_cdn_for_missing_league_rows(
         start_date="2026-04-18",
         allow_cdn_fallback=True,
         delay=0,
+        season="2025-26",
     )
 
     assert calls == [
@@ -1194,6 +1197,7 @@ def test_get_cdn_player_game_logs_falls_back_to_scheduleleague(monkeypatch):
         start_date="2026-04-18",
         end_date="2026-04-20",
         delay=0,
+        season="2025-26",
     )
 
     assert len(result) == 1
@@ -1316,7 +1320,9 @@ def test_get_player_shot_locations_flattens_aggregate_endpoint(monkeypatch):
         FakeShotLocations,
     )
 
-    result = pipeline.get_player_shot_locations(timeout=4.5, retries=1)
+    result = pipeline.get_player_shot_locations(
+        timeout=4.5, retries=1, season="2025-26"
+    )
 
     assert captured == {
         "season": "2025-26",
@@ -1639,10 +1645,7 @@ def test_get_upcoming_schedule_soft_fails_after_retries(monkeypatch):
     monkeypatch.setattr(pipeline.time, "sleep", lambda seconds: sleeps.append(seconds))
 
     result = pipeline.get_upcoming_schedule(
-        timeout=3,
-        retries=2,
-        retry_base_delay=0,
-        retry_max_delay=0,
+        timeout=3, retries=2, retry_base_delay=0, retry_max_delay=0, season="2025-26"
     )
 
     assert result.empty
@@ -1887,7 +1890,7 @@ def test_parse_matchup_context_identifies_home_and_away():
 
 def test_derive_game_line_scores_from_game_logs_uses_team_lookup_and_totals():
     result = pipeline.derive_game_line_scores_from_game_logs(
-        _bootstrap_game_logs_sample()
+        _bootstrap_game_logs_sample(), season="2025-26"
     )
 
     first_game = result[result["GAME_ID"] == "0022500001"].sort_values("TEAM_ABBR")
@@ -1898,7 +1901,9 @@ def test_derive_game_line_scores_from_game_logs_uses_team_lookup_and_totals():
 
 
 def test_derive_schedule_from_game_logs_marks_observed_home_away_and_b2b():
-    result = pipeline.derive_schedule_from_game_logs(_bootstrap_game_logs_sample())
+    result = pipeline.derive_schedule_from_game_logs(
+        _bootstrap_game_logs_sample(), season="2025-26"
+    )
 
     first_game = result[result["GAME_ID"] == "0022500001"].sort_values("TEAM_ABBR")
     assert first_game[["TEAM_ABBR", "OPPONENT_ABBR", "HOME_AWAY"]].to_dict(
@@ -1915,7 +1920,7 @@ def test_derive_schedule_from_game_logs_marks_observed_home_away_and_b2b():
 
 def test_derive_player_reference_from_game_logs_uses_latest_team_context():
     result = pipeline.derive_player_reference_from_game_logs(
-        _bootstrap_game_logs_sample()
+        _bootstrap_game_logs_sample(), season="2025-26"
     )
 
     player = result[result["PLAYER_ID"] == 1].iloc[0]

@@ -31,6 +31,7 @@ from app.main import (
     get_repository,
 )
 from app.repository import WarehouseRepository
+from app.seasons import DEFAULT_SEASON
 from app.telemetry import LOGGER_NAME
 
 
@@ -1582,7 +1583,7 @@ def test_api_agent_ask_runs_mocked_openai_tool_loop() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["season"] == "2025-26"
+    assert payload["season"] == DEFAULT_SEASON
     assert payload["request_id"]
     assert response.headers["x-request-id"] == payload["request_id"]
     assert payload["answer"].startswith("Tyrese Maxey")
@@ -2676,7 +2677,7 @@ def test_api_performance_dates() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["season"] == "2025-26"
+    assert payload["season"] == DEFAULT_SEASON
     assert payload["items"][0]["value"] == "2026-02-10"
 
 
@@ -3017,7 +3018,7 @@ def test_player_shell_does_not_query_warehouse() -> None:
     assert 'data-player-id="7"' in response.text
     assert 'aria-busy="true"' in response.text
     assert "Loading profile" in response.text
-    assert "2025-26" in response.text
+    assert DEFAULT_SEASON in response.text
     assert not response.url.query
     assert repo.detail_calls == []
 

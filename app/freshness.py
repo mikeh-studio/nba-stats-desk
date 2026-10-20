@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.config import Settings
 from app.repository._helpers import _parse_iso_datetime, build_freshness_payload
+from app.seasons import DEFAULT_SEASON
 
 ASSET_LABELS = {"stats": "Stats", "injuries": "Injuries", "similarity": "Similarity"}
 
@@ -115,7 +116,7 @@ def build_publication_health(
         payload.update(
             status="partially_updated" if latest_run else "missing", is_fresh=False
         )
-    if settings.season != "2025-26":
+    if settings.season != DEFAULT_SEASON:
         payload.update(
             status="historical" if coverage else "missing",
             is_fresh=None,

@@ -15,6 +15,8 @@ from typing import Any
 import pandas as pd
 import yaml
 
+from season_config import CURRENT_SEASON, season_date_bounds
+
 logger = logging.getLogger("nba_source_contracts")
 
 CONTRACT_DIR = Path(__file__).resolve().parents[1] / "contracts"
@@ -72,19 +74,7 @@ def load_contract(
 
     if not isinstance(contract, dict):
         raise ValueError(f"Contract {contract_path} must contain a mapping")
-    if season is not None:
-        if season not in ("2023-24", "2024-25", "2025-26", "2026-27"):
-            raise ValueError("Unsupported contract season")
-        year = int(season[:4])
-        for rule in contract.get("rules", []):
-            if rule.get("name") == "season_scope":
-                rule["value"] = season
-            elif rule.get("check") == "date_between" and rule.get("column") in (
-                "SCHEDULE_DATE",
-                "GAME_DATE",
-                "REPORT_DATE",
-            ):
-                rule.update(min=f"{year}-07-01", max=f"{year + 1}-06-30")
+    _resolve_season_placeholders(contract, season or CURRENT_SEASON)
 
     for required_key in ("source", "version", "domain", "business_key", "columns"):
         if required_key not in contract:
@@ -127,6 +117,27 @@ def load_contract(
                 f"{', '.join(sorted(set(missing_rule_columns)))}"
             )
     return contract
+
+
+def _resolve_season_placeholders(contract: dict[str, Any], season: str) -> None:
+    """Fill {season}, {season_start}, and {season_end} in rule values.
+
+    Contracts never hard-code a season; the value comes from season.yml unless
+    a caller validates an explicit (archive) season.
+    """
+    try:
+        start, end = season_date_bounds(season)
+    except ValueError:
+        raise ValueError("Unsupported contract season") from None
+    values = {
+        "{season}": season,
+        "{season_start}": start.isoformat(),
+        "{season_end}": end.isoformat(),
+    }
+    for rule in contract.get("rules", []):
+        for key in ("value", "min", "max"):
+            if isinstance(rule.get(key), str) and rule[key] in values:
+                rule[key] = values[rule[key]]
 
 
 def skipped_contract_result(contract_name: str, *, reason: str) -> dict[str, Any]:

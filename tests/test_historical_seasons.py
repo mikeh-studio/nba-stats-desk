@@ -7,7 +7,12 @@ import pytest
 from app.config import Settings, get_settings
 from app.freshness import build_publication_health
 from app.main import app
-from app.seasons import current_season, season_bounds, settings_for_season
+from app.seasons import (
+    DEFAULT_SEASON,
+    current_season,
+    season_bounds,
+    settings_for_season,
+)
 from fastapi.testclient import TestClient
 from scripts.backfill_historical_seasons import reconcile_games, warehouse_env
 
@@ -28,7 +33,7 @@ def test_archive_settings_do_not_mutate_current_settings():
     assert archived.gold_dataset == "gold_2023_24"
     assert archived.agent_dataset == "nba_agent_2023_24"
     assert base.gold_dataset == "gold"
-    assert settings_for_season(base, "2025-26") == base
+    assert settings_for_season(base, DEFAULT_SEASON) == base
     with pytest.raises(ValueError):
         settings_for_season(base, "2023-24`")
     assert tuple(str(value) for value in season_bounds("2024-25")) == (
@@ -39,7 +44,7 @@ def test_archive_settings_do_not_mutate_current_settings():
 
 def test_writer_refuses_current_season_and_isolates_every_dataset():
     with pytest.raises(ValueError):
-        warehouse_env("2025-26", "example", "US")
+        warehouse_env(DEFAULT_SEASON, "example", "US")
     env = warehouse_env("2024-25", "example", "US")
     for name in (
         "BQ_DATASET_BRONZE",
@@ -124,8 +129,8 @@ def test_request_seasons_are_isolated_and_validated(monkeypatch):
             results = list(pool.map(read, ["2023-24", "2024-25", "2025-26"] * 3))
         assert results[0]["items"][0]["dataset"] == "gold_2023_24"
         assert client.get("/api/rankings?season=2022-23").status_code == 422
-        assert client.get("/api/rankings").json()["season"] == "2025-26"
-        assert current_season() == "2025-26"
+        assert client.get("/api/rankings").json()["season"] == DEFAULT_SEASON
+        assert current_season() == DEFAULT_SEASON
         page = client.get("/performance?season=2023-24")
         assert page.status_code == 200
         assert page.url.path == "/performance" and not page.url.query

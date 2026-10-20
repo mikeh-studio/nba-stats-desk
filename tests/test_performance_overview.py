@@ -39,15 +39,18 @@ def evidence():
                         "blk": scale,
                     }
                 )
+    # Synthetic closed snapshot: 2026-27 has no observations through September.
     covered = frozenset(
-        (s, p) for s in ("2024-25", "2025-26") for p in ("Regular Season", "Playoffs")
+        (s, p)
+        for s in ("2024-25", "2025-26", "2026-27")
+        for p in ("Regular Season", "Playoffs")
     )
     return Evidence(
         rows,
         covered,
         "fixture",
         "overview-test",
-        {s: "2026-06-01" for s in covered},
+        {s: "2026-09-12" if s[0] == "2026-27" else "2026-06-01" for s in covered},
         complete=True,
     )
 
@@ -65,7 +68,7 @@ def test_calendar_scope_includes_baseline_seasons_and_both_phases():
         date(2024, 9, 13),
         date(2025, 9, 12),
     )
-    assert set(s["seasons"]) == {"2024-25", "2025-26"}
+    assert set(s["seasons"]) == {"2024-25", "2025-26", "2026-27"}
     assert s["phases"] == ["Regular Season", "Playoffs"]
 
 
@@ -858,7 +861,8 @@ def test_conversational_defaults_answer_json_and_sse(evidence, question):
         with TestClient(app) as client:
             for suffix in ("", "/stream"):
                 response = client.post(
-                    "/api/agent/ask" + suffix, json={"question": question}
+                    "/api/agent/ask" + suffix + "?season=2025-26",
+                    json={"question": question},
                 )
                 assert response.status_code == 200
                 payload = (

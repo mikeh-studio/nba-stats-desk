@@ -24,7 +24,7 @@ sys.path[:0] = [str(ROOT), str(ROOT / "dags")]
 
 import pandas as pd  # noqa: E402
 import yaml  # noqa: E402
-from app.seasons import dataset_for_season, season_bounds  # noqa: E402
+from app.seasons import ARCHIVE_SEASONS, dataset_for_season, season_bounds  # noqa: E402
 from google.api_core.exceptions import NotFound  # noqa: E402
 from google.cloud import bigquery, storage  # noqa: E402
 from nba_api.stats.endpoints import leaguegamelog  # noqa: E402
@@ -37,7 +37,7 @@ from scripts.historical_sources import (  # noqa: E402
 import nba_pipeline as pipeline  # noqa: E402
 import nba_source_contracts as contracts  # noqa: E402
 
-HISTORICAL_SEASONS = ("2023-24", "2024-25")
+HISTORICAL_SEASONS = ARCHIVE_SEASONS
 PHASES = ("Regular Season", "Playoffs")
 TABLES = {
     "game_logs": ("raw_game_logs", pipeline.get_game_logs_schema),
@@ -98,13 +98,7 @@ def validate_frame(domain: str, frame: pd.DataFrame, season: str) -> dict:
     unavailable and stored as NULL. Do not apply the box-score period-sum rule
     to a source that has no periods.
     """
-    contract = contracts.load_contract(domain)
-    start, end = season_bounds(season)
-    for rule in contract.get("rules", []):
-        if rule.get("name") == "season_scope":
-            rule["value"] = season
-        if rule["check"] == "date_between":
-            rule["min"], rule["max"] = start.isoformat(), end.isoformat()
+    contract = contracts.load_contract(domain, season=season)
     if domain == "game_line_scores":
         periods = [c for c in frame if c.startswith(("PTS_QTR", "PTS_OT"))]
         if not frame[periods].isna().all().all():

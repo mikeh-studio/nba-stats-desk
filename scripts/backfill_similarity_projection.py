@@ -24,7 +24,9 @@ from collections import Counter
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "dags"))
+sys.path[:0] = [str(ROOT), str(ROOT / "dags")]
+
+from app.seasons import DEFAULT_SEASON  # noqa: E402
 
 try:
     from dotenv import load_dotenv
@@ -37,7 +39,6 @@ from google.cloud import bigquery  # noqa: E402
 
 import nba_pipeline as pipeline  # noqa: E402
 
-DEFAULT_SEASON = "2025-26"
 PROJECTION_COLUMNS = ("proj_x", "proj_y", "proj_z")
 
 

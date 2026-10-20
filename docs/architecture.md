@@ -1,6 +1,6 @@
 # Architecture
 
-This project is an NBA analytics platform serving `2023-24` through `2025-26`.
+This project is an NBA analytics platform serving `2023-24` through `2026-27`.
 BigQuery is the warehouse system of record.
 
 ## Core Decisions
@@ -20,7 +20,7 @@ BigQuery is the warehouse system of record.
 
 The Airflow DAG in `dags/nba_analytics_dag.py` runs this path:
 
-1. Extract active-player game logs for `2025-26`.
+1. Extract active-player game logs for the configured current season.
 2. Apply incremental filtering using the persisted watermark plus replay buffer.
 3. Derive changed `game_id` values and fetch team line scores.
 4. Fetch active-player reference attributes and roster context.

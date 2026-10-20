@@ -73,6 +73,7 @@ from app.repository._helpers import (
     build_reason_summary,
     build_season_coverage_payload,
 )
+from app.seasons import DEFAULT_SEASON
 from app.what_changed import ComparisonPeriod, SeasonPhase
 
 # Bound concurrent warehouse work across all player requests in this process.
@@ -3833,7 +3834,7 @@ class BigQueryWarehouseRepository:
     def get_health(self) -> dict[str, Any]:
         from app.freshness import build_publication_health
 
-        if self.settings.season != "2025-26":
+        if self.settings.season != DEFAULT_SEASON:
             table = f"`{self.settings.project_id}.{self.settings.metadata_dataset}.historical_backfill_manifest`"
             try:
                 rows = self._query(
@@ -3848,8 +3849,10 @@ class BigQueryWarehouseRepository:
                 rows = []
             publication = rows[0] if rows else {}
             archive_report = json.loads(publication.get("report_json") or "{}")
-            names = ["stats", "similarity"]
-            if archive_report.get("row_counts", {}).get("injury_reports", 0):
+            names = archive_report.get("validated_assets", ["stats", "similarity"])
+            if "validated_assets" not in archive_report and archive_report.get(
+                "row_counts", {}
+            ).get("injury_reports", 0):
                 names.append("injuries")
             assets = (
                 [

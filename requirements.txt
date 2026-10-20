@@ -24,3 +24,6 @@ apache-airflow>=2.7,<3
 
 # Validate OpenRouter structured output before rendering or execution.
 jsonschema>=4,<5
+
+# Parse BigQuery archive view references, including CTEs and unquoted paths.
+sqlglot>=30.23,<31

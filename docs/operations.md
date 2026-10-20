@@ -46,8 +46,8 @@ make airflow-webserver
 
 Airflow UI: `http://localhost:8080`
 
-The DAG is scheduled daily at `0 11 * * *` UTC through `2026-07-01`, giving the
-2025-26 season a post-Finals correction buffer before scheduled runs stop. To
+The DAG is scheduled daily at `0 11 * * *` UTC through `2027-07-01`, giving the
+configured season a post-Finals correction buffer before scheduled runs stop. To
 allow scheduled runs, keep the scheduler running and unpause the DAG:
 
 ```bash
@@ -470,7 +470,7 @@ ignored `reports/`; use CI or a dated PR summary for validation results.
 
 ## Historical seasons
 
-The app supports `2025-26`, `2024-25`, and `2023-24`. All tabs default to the
+The app supports `2026-27`, `2025-26`, `2024-25`, and `2023-24`. All tabs default to the
 latest supported season, with no shared season selector. Ask accepts a historical
 season in the question and preserves it in follow-ups. Unspecified periods use
 the latest available coverage, checking supported seasons newest first and
@@ -484,6 +484,7 @@ Each archive uses its own datasets:
 | --- | --- | --- | --- | --- | --- |
 | 2023-24 | nba_bronze_2023_24 | nba_silver_2023_24 | nba_gold_2023_24 | nba_agent_2023_24 | nba_metadata_2023_24 |
 | 2024-25 | nba_bronze_2024_25 | nba_silver_2024_25 | nba_gold_2024_25 | nba_agent_2024_25 | nba_metadata_2024_25 |
+| 2025-26 | nba_bronze_2025_26 | nba_silver_2025_26 | nba_gold_2025_26 | nba_agent_2025_26 | nba_metadata_2025_26 |
 
 Configured dataset base names receive the same suffix. Current-season datasets
 and the scheduled Airflow DAG retain their existing names and behavior. A
@@ -749,3 +750,76 @@ No trace is exposed by an API or added to the public service summary.
 For offline verification run `python -m pytest tests/test_private_traces.py -q`.
 The tests use synthetic endpoint agents and temporary storage; they do not
 establish live-provider, warehouse or deployed-ingress behavior.
+
+## Season rollover
+
+`season.yml` defines the app and pipeline current season. Keep dbt's
+`nba_current_season`, `nba_supported_seasons` and the browser's `DEFAULT_SEASON`
+in sync; `tests/test_season_rollover.py` enforces this. Supported seasons are
+2026-27 through 2023-24. Source extraction contracts validate one explicit season;
+bronze raw tests accept supported historical rows, while silver/gold builds stay
+scoped through `warehouse_season()`. The scheduled pipeline ends on 2027-07-01.
+The deployment checkout must include root `season.yml` alongside app and DAG code.
+
+### Preserve 2025-26 by warehouse copy
+
+These are operator steps pending review. Stop **all** writers (scheduled DAGs,
+research capture, repair, refresh and publication commands) and wait for active
+runs to finish before starting. Use the intended production project explicitly:
+
+```bash
+python scripts/archive_season_copy.py --project YOUR_PROJECT --season 2025-26
+python scripts/archive_season_copy.py --project YOUR_PROJECT --season 2025-26 \
+  --publish --writers-stopped > reports/season-copy-2025-26.json
+```
+
+The first command inventories only. Publication copies all five base datasets to
+`nba_bronze_2025_26`, `nba_silver_2025_26`, `nba_gold_2025_26`,
+`nba_agent_2025_26`, and `nba_metadata_2025_26`. Tables use a single time-travel
+instant, view SQL is parsed to rebind physical table references and order view dependencies
+(including unquoted paths and CTEs), and destination data is never
+overwritten. Row-count/fingerprint parity checks include period scores and injury
+timestamps. Completed-game checks require 1,230 regular-season games and 15
+completed playoff series. The archive health manifest is written last; similarity
+health remains unavailable until independently validated. This preserves existing
+warehouse data; it does not claim independent re-extraction or historical
+knowledge-time reconstruction.
+
+Existing destination datasets cause refusal, including partial runs. Keep failed
+copies for inspection; do not delete or retry over them automatically. Stop if
+any validation fails, the source changes, or time travel is unavailable. No
+manifest means the archive has not passed publication validation.
+
+After publication, grant the app principal dataset read access to the archived
+gold, agent, and metadata datasets. With the rollover app running locally against
+production **read-only**, verify explicit API requests with `?season=2025-26`,
+archive health, populated player statistics, period scoring, and reconstructed
+availability. HTML pages always open the latest season; historical page URL
+parameters redirect, so use API requests or explicit historical Ask questions.
+Verify unknown injury status stays unavailable.
+
+Only after archive checks pass: merge/deploy the reviewed app and pipeline,
+verify the new DAG imports and schedule/end date, then unpause
+`nba_analytics_pipeline`. Confirm the first 2026-27 run's source contracts,
+season-specific watermarks, gold season values, and optional-asset failures.
+Do not delete prior-season bronze rows. Keep writers stopped if archive checks
+fail. Before the first new-season publication, rollback can restore the previous
+app/pipeline revision. After base tables change, use the reviewed season-aware
+app with the validated archive; reverting only old application code would read
+the wrong base datasets.
+
+Unqualified historical research and teammate availability comparisons can use
+the newest available supported evidence and disclose its season. Explicit
+seasons, dates and established follow-up scope never change to another season;
+permission errors or invalid evidence never trigger fallback. Historical injury
+comparisons are not current injury status. Empty 2026-27 evidence is unavailable,
+not zero production. A base table containing 2025-26 rows must never be relabeled
+as 2026-27. Browser chat history retains its existing unsuffixed key; each saved
+answer and conversation follow-up retains its evidence scope.
+
+The re-extraction command also accepts `--seasons 2025-26` for separate repairs.
+It discards unavailable quarter scoring and reconstructs injuries from archived
+PDFs, so it is not the preferred rollover archive. The completed-season repair
+scripts (`refresh_player_comparisons.py`, `repair_context_snapshot.py`,
+`stage_game_log_repair.py`, and the frozen availability evaluator) intentionally
+retain explicit 2025-26 scope; inspect their dataset targets before any future use.

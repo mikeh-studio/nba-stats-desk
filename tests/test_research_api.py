@@ -18,7 +18,7 @@ def research_client(monkeypatch):
         research_ask, "load_research_evidence", lambda *args: evidence()
     )
     query = ResearchQuery(
-        player_ids=[1, 2], home_away="home", metrics=["pts", "fg_pct"]
+        season="2025-26", player_ids=[1, 2], home_away="home", metrics=["pts", "fg_pct"]
     ).model_dump(mode="json")
     planner_query = {**query, "phase": None}
     planner = Client(
@@ -39,6 +39,9 @@ def research_client(monkeypatch):
         ),
         agent_client=planner,
     )
+    from httpx import QueryParams
+
+    client._params = QueryParams(season="2025-26")
     yield client, query, planner
     main.app.dependency_overrides.clear()
 
@@ -136,6 +139,7 @@ def test_study_json_stream_and_significance_followup(
         pair_id=pair["pair_id"],
         message="",
         query=ResearchQuery(
+            season="2025-26",
             player_ids=[pair["player_id"]],
             metrics=["pts", "plus_minus"],
         ).model_dump(mode="json"),
@@ -213,9 +217,9 @@ def test_partial_study_never_silently_answers_full_season(
         window="bounded",
     )
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
-    query = ResearchQuery(player_ids=[pair["player_id"]], metrics=["pts"]).model_dump(
-        mode="json"
-    )
+    query = ResearchQuery(
+        season="2025-26", player_ids=[pair["player_id"]], metrics=["pts"]
+    ).model_dump(mode="json")
     query["phase"] = None
     query["teammate_id"] = pair["teammate_id"]
     if explicit_dates:
@@ -252,9 +256,9 @@ def test_full_season_answer_discloses_playoffs_and_preserves_explicit_phase(
         phase="Both", window="full_season", start="2025-10-21", end="2026-06-13"
     )
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
-    query = ResearchQuery(player_ids=[study["player_id"]], metrics=["pts"]).model_dump(
-        mode="json"
-    )
+    query = ResearchQuery(
+        season="2025-26", player_ids=[study["player_id"]], metrics=["pts"]
+    ).model_dump(mode="json")
     query["phase"] = None
     query["teammate_id"] = study["teammate_id"]
     query["teammate_status"] = arm
@@ -354,7 +358,9 @@ def test_plan_schema_binds_metrics_to_route_and_rejects_invalid_model_output(
         end="2026-06-13",
     )
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
-    query = ResearchQuery(player_ids=[2544], metrics=[metric]).model_dump(mode="json")
+    query = ResearchQuery(
+        season="2025-26", player_ids=[2544], metrics=[metric]
+    ).model_dump(mode="json")
     query["phase"] = None
     query["teammate_id"] = 1629029
     planner.result = dict(
@@ -394,7 +400,9 @@ def test_missing_study_after_planning_is_not_a_table_of_unavailable_values(
 
     client, _, planner = research_client
     monkeypatch.setattr(research_ask, "catalog", lambda path: [pending(PAIRS[0])])
-    query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
+    query = ResearchQuery(
+        season="2025-26", player_ids=[2544], metrics=["pts"]
+    ).model_dump(mode="json")
     query["phase"] = None
     query["teammate_id"] = 1629029
     planner.result = dict(
@@ -537,7 +545,9 @@ def test_planner_cannot_reverse_question_roles(research_client, monkeypatch, que
     study = presentation_study()
     study["scope"].update(phase="Both", window="full_season")
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
-    query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
+    query = ResearchQuery(
+        season="2025-26", player_ids=[2544], metrics=["pts"]
+    ).model_dump(mode="json")
     query.update(phase=None, teammate_id=1629029)
     planner.result = dict(
         kind="study",
@@ -588,7 +598,9 @@ def test_intent_transitions_preserve_user_scope_not_intent_defaults(
         end="2025-11-07",
     )
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
-    query = ResearchQuery(player_ids=[2544], metrics=["pts"]).model_dump(mode="json")
+    query = ResearchQuery(
+        season="2025-26", player_ids=[2544], metrics=["pts"]
+    ).model_dump(mode="json")
     query.update(
         teammate_id=1629029,
         phase="Regular Season" if explicit else "Both" if concrete_default else None,

@@ -215,3 +215,17 @@ def test_injury_task_adapters_keep_retry_then_soft_failure(monkeypatch, task_id)
     count = len(calls)
     assert function(failed) is failed
     assert len(calls) == count
+
+
+def test_rollover_schedule_end_matches_configured_season():
+    from datetime import date
+
+    from dags.season_config import CURRENT_SEASON
+
+    bag = DagBag(
+        dag_folder=str(Path(__file__).resolve().parents[1] / "dags"),
+        include_examples=False,
+    )
+    assert bag.import_errors == {}
+    dag = bag.dags["nba_analytics_pipeline"]
+    assert dag.end_date.date() == date(int(CURRENT_SEASON[:4]) + 1, 7, 1)

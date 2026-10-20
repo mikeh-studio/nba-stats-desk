@@ -19,7 +19,13 @@ from app.agent.metric_presentation import (
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.research_ask import refusal
 from app.agent.route_labels import route_hint
-from app.agent.semantic_serving import requested_seasons, source_players
+from app.agent.semantic_serving import (
+    fallback_notice,
+    has_time_scope,
+    requested_seasons,
+    season_candidates,
+    source_players,
+)
 from app.agent.semantics import SemanticError
 from app.availability import compare_availability, load_availability
 from app.research import CORE_METRICS
@@ -574,24 +580,74 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
         selected_season = requested_seasons(
             question, (previous or {}).get("season", agent.settings.season)
         )
-        for player in players:
-            player["observed_teams"] = sorted(
-                {
-                    r["team_abbr"]
-                    for r in loaded[1].rows
-                    if r["player_id"] == player["player_id"]
-                    and r["season"] in selected_season
-                }
-            )
-        request = parse_request(
-            question,
-            players,
-            agent.settings.season,
-            previous,
-            {r["team_abbr"] for r in loaded[1].rows},
+        can_fallback = not previous and not has_time_scope(question)
+        candidates = (
+            season_candidates(question, agent.settings.season)
+            if can_fallback
+            else selected_season
         )
-        result = compare_availability(loaded, request)
+        last_error = None
+        for used_season in candidates:
+            # An uncovered season has no team context for alias resolution.
+            # Skip it before parsing, without relaxing real identity ambiguity.
+            if can_fallback and not any(
+                season == used_season
+                for season, _ in loaded[1].covered_scopes
+                & loaded[1].data_through.keys()
+            ):
+                continue
+            # Resolve identity and team aliases against this candidate's teams.
+            players = [
+                dict(
+                    player,
+                    observed_teams=sorted(
+                        {
+                            row["team_abbr"]
+                            for row in loaded[1].rows
+                            if row["player_id"] == player["player_id"]
+                            and row["season"] == used_season
+                        }
+                    ),
+                )
+                for player in source_players(loaded[1])
+            ]
+            request = parse_request(
+                question,
+                players,
+                used_season,
+                previous,
+                {row["team_abbr"] for row in loaded[1].rows},
+            )
+            try:
+                result = compare_availability(loaded, request)
+                if can_fallback and not any(result["groups"].values()):
+                    raise SemanticError(
+                        "unsupported_coverage",
+                        "No verified appearances for this player pair.",
+                    )
+            except SemanticError as exc:
+                if not can_fallback or exc.code != "unsupported_coverage":
+                    raise
+                last_error = exc
+                continue
+            break
+        else:
+            raise last_error or SemanticError(
+                "unsupported_coverage", "No season is available for this pair."
+            )
         payload = render_answer(result, players)
+        if (
+            not previous
+            and used_season != agent.settings.season
+            and not has_time_scope(question)
+        ):
+            notice = fallback_notice(agent.settings.season, used_season)
+            payload["answer"] = notice + "\n\n" + payload["answer"]
+            payload.setdefault("assumptions", []).append(notice)
+            payload["season_fallback"] = {
+                "requested": agent.settings.season,
+                "used": used_season,
+            }
         from app.agent.claim_renderers import availability_table
 
         availability_table(payload)

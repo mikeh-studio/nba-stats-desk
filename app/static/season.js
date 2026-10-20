@@ -1,7 +1,9 @@
 // Tabs always start with the latest supported season. Historical Ask scope is
 // carried by the question and conversation, never by a sticky navigation filter.
+export const DEFAULT_SEASON = "2026-27";
+
 export function selectedSeason() {
-  return "2025-26";
+  return DEFAULT_SEASON;
 }
 
 export function withSeason(input, season = selectedSeason()) {

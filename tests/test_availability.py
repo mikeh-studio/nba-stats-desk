@@ -236,6 +236,8 @@ def test_json_sse_followups_and_no_model_calls(bundle, monkeypatch):
         payload = client.post(
             "/api/agent/ask", json={"question": question, "conversation_id": "dynamic"}
         ).json()
+        assert payload["season_fallback"]["used"] == "2025-26"
+        assert "Using 2025-26" in payload["answer"]
         assert payload["availability_scope"]["player_id"] == 811
         stream = client.post("/api/agent/ask/stream", json={"question": question})
         events = [
@@ -405,6 +407,9 @@ def test_pair_followup_counts_full_appearances_after_restore(
     store = InMemoryConversationStore()
     monkeypatch.setattr(main, "_season_conversation_store", lambda season: store)
     client = build_client(settings=settings, agent_client=planner)
+    from httpx import QueryParams
+
+    client._params = QueryParams(season="2025-26")
     question = (
         "How did Avery Finch play while Blake Reed was out in the regular season?"
     )
@@ -483,6 +488,9 @@ def test_appearance_count_rejects_unconsumed_filters_and_context_mismatch(
     store = InMemoryConversationStore()
     monkeypatch.setattr(main, "_season_conversation_store", lambda season: store)
     client = build_client(settings=settings, agent_client=planner)
+    from httpx import QueryParams
+
+    client._params = QueryParams(season="2025-26")
     first = client.post(
         "/api/agent/ask",
         json={
