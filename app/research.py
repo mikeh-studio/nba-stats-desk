@@ -336,7 +336,9 @@ def answer_payload(result: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
-def available_research(settings, repo, selected, *, fallback=False, loader=None):
+def available_research(
+    settings, repo, selected, *, fallback=False, loader=None, player_ids=(), phase=None
+):
     """Only missing coverage permits an older supported season."""
     loader = loader or load_research_evidence
     candidates = [s for s in SEASONS if s <= selected] if fallback else [selected]
@@ -348,7 +350,24 @@ def available_research(settings, repo, selected, *, fallback=False, loader=None)
             if exc.code == "unsupported_coverage":
                 continue
             raise
-        if any(row["season"] == season for row in evidence.rows):
+        if player_ids and phase:
+            phases = ("Regular Season", "Playoffs") if phase == "Both" else (phase,)
+            scopes = {(season, requested_phase) for requested_phase in phases}
+            if (
+                not scopes <= evidence.covered_scopes
+                or not scopes <= evidence.data_through.keys()
+            ):
+                continue
+        season_rows = [
+            row
+            for row in evidence.rows
+            if row["season"] == season
+            and (phase in (None, "Both") or row["season_type"] == phase)
+        ]
+        if season_rows and (
+            not player_ids
+            or set(player_ids) <= {row["player_id"] for row in season_rows}
+        ):
             return evidence, season
     raise SemanticError(
         "unsupported_coverage", f"No matching research data for {selected}"

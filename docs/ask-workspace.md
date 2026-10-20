@@ -11,6 +11,11 @@ their published date window. Answers disclose an earlier-season fallback and its
 scope. Explicit seasons/dates and conversational follow-up scope are preserved;
 permission errors and invalid evidence never trigger fallback. This does not
 create missing studies or infer an injury absence from a missing appearance.
+Research breakdown fallback requires observations for every requested player in
+the same candidate season and phase. Availability fallback checks the named pair
+against the candidate comparison; unrelated rows or an entirely unverified pair
+do not establish coverage. A small verified sample stays visible with its
+limitations rather than being replaced solely for being small.
 
 Named absence questions check the published pair's coverage before warehouse or
 model work. A missing comparison names the pair and explains that its verified

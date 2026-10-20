@@ -21,6 +21,9 @@ sys.path.insert(0, str(ROOT))
 from app.seasons import ARCHIVE_SEASONS, dataset_for_season  # noqa: E402
 from google.api_core.exceptions import NotFound  # noqa: E402
 from google.cloud import bigquery  # noqa: E402
+from sqlglot import exp, parse  # noqa: E402
+from sqlglot.errors import SqlglotError  # noqa: E402
+from sqlglot.optimizer.scope import traverse_scope  # noqa: E402
 
 DATASETS = ("nba_bronze", "nba_silver", "nba_gold", "nba_agent", "nba_metadata")
 
@@ -36,12 +39,40 @@ def archive_mapping(project, season):
     }
 
 
+def _view_sql_and_dependencies(sql, mapping):
+    """Parse physical table sources; leave CTEs, literals and aliases intact."""
+    try:
+        statements = parse(sql, read="bigquery")
+        if len(statements) != 1 or not isinstance(statements[0], exp.Query):
+            raise ValueError("Archive views must contain one SELECT query")
+        query = statements[0]
+        project = next(iter(mapping)).split(".")[0]
+        dependencies = set()
+        for scope in traverse_scope(query):
+            for source in scope.sources.values():
+                if not isinstance(source, exp.Table):
+                    continue  # CTEs and subqueries have their own traversed scope.
+                if not isinstance(source.this, exp.Identifier) or not source.db:
+                    raise ValueError("View has an external or unsupported dependency")
+                dataset = f"{source.catalog or project}.{source.db}"
+                target = mapping.get(dataset)
+                if target is None:
+                    raise ValueError(
+                        f"View has an external or unsupported dependency: {dataset}"
+                    )
+                target_project, target_dataset = target.split(".")
+                dependencies.add(f"{target}.{source.name}")
+                source.set("catalog", exp.to_identifier(target_project, quoted=True))
+                source.set("db", exp.to_identifier(target_dataset, quoted=True))
+                source.set("this", exp.to_identifier(source.name, quoted=True))
+                source.meta["quoted_table"] = True
+        return query.sql(dialect="bigquery"), dependencies
+    except SqlglotError as exc:
+        raise ValueError("Unsupported archive view SQL") from exc
+
+
 def rebind_view(sql, mapping):
-    for source, target in mapping.items():
-        sql = sql.replace(source + ".", target + ".")
-        # Dataset-qualified definitions are also common in saved views.
-        sql = re.sub(r"(?<![\w.])" + source.split(".")[1] + r"\.", target + ".", sql)
-    return sql
+    return _view_sql_and_dependencies(sql, mapping)[0]
 
 
 def ordered_views(inventory, mapping):
@@ -50,8 +81,7 @@ def ordered_views(inventory, mapping):
     pending = {}
     for table, _, _, target in inventory:
         if table.table_type == "VIEW":
-            sql = rebind_view(table.view_query, mapping)
-            references = set(re.findall(r"`([^`]+)`", sql))
+            sql, references = _view_sql_and_dependencies(table.view_query, mapping)
             if any(ref.count(".") != 2 or ref not in known for ref in references):
                 raise ValueError(
                     f"View has an external or unsupported dependency: {table.table_id}"

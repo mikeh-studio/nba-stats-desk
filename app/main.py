@@ -1631,6 +1631,8 @@ def research_breakdown(
             repo,
             current_season(),
             loader=load_research_evidence,
+            player_ids=payload.player_ids,
+            phase=payload.phase,
             fallback=(
                 "season" not in payload.model_fields_set
                 and "season" not in request.query_params

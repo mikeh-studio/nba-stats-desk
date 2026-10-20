@@ -776,7 +776,8 @@ python scripts/archive_season_copy.py --project YOUR_PROJECT --season 2025-26 \
 The first command inventories only. Publication copies all five base datasets to
 `nba_bronze_2025_26`, `nba_silver_2025_26`, `nba_gold_2025_26`,
 `nba_agent_2025_26`, and `nba_metadata_2025_26`. Tables use a single time-travel
-instant, views are rebound to the copied datasets, and destination data is never
+instant, view SQL is parsed to rebind physical table references and order view dependencies
+(including unquoted paths and CTEs), and destination data is never
 overwritten. Row-count/fingerprint parity checks include period scores and injury
 timestamps. Completed-game checks require 1,230 regular-season games and 15
 completed playoff series. The archive health manifest is written last; similarity

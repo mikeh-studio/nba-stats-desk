@@ -580,34 +580,53 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
         selected_season = requested_seasons(
             question, (previous or {}).get("season", agent.settings.season)
         )
-        used_season = selected_season[0]
-        if not previous and not has_time_scope(question):
-            used_season = next(
-                (
-                    s
-                    for s in season_candidates(question, agent.settings.season)
-                    if any(row["season"] == s for row in loaded[1].rows)
-                ),
-                used_season,
-            )
-            selected_season = [used_season]
-        for player in players:
-            player["observed_teams"] = sorted(
-                {
-                    r["team_abbr"]
-                    for r in loaded[1].rows
-                    if r["player_id"] == player["player_id"]
-                    and r["season"] in selected_season
-                }
-            )
-        request = parse_request(
-            question,
-            players,
-            used_season,
-            previous,
-            {r["team_abbr"] for r in loaded[1].rows},
+        can_fallback = not previous and not has_time_scope(question)
+        candidates = (
+            season_candidates(question, agent.settings.season)
+            if can_fallback
+            else selected_season
         )
-        result = compare_availability(loaded, request)
+        last_error = None
+        for used_season in candidates:
+            # Resolve identity and team aliases against this candidate's teams.
+            players = [
+                dict(
+                    player,
+                    observed_teams=sorted(
+                        {
+                            row["team_abbr"]
+                            for row in loaded[1].rows
+                            if row["player_id"] == player["player_id"]
+                            and row["season"] == used_season
+                        }
+                    ),
+                )
+                for player in source_players(loaded[1])
+            ]
+            request = parse_request(
+                question,
+                players,
+                used_season,
+                previous,
+                {row["team_abbr"] for row in loaded[1].rows},
+            )
+            try:
+                result = compare_availability(loaded, request)
+                if can_fallback and not any(result["groups"].values()):
+                    raise SemanticError(
+                        "unsupported_coverage",
+                        "No verified appearances for this player pair.",
+                    )
+            except SemanticError as exc:
+                if not can_fallback or exc.code != "unsupported_coverage":
+                    raise
+                last_error = exc
+                continue
+            break
+        else:
+            raise last_error or SemanticError(
+                "unsupported_coverage", "No season is available for this pair."
+            )
         payload = render_answer(result, players)
         if (
             not previous
