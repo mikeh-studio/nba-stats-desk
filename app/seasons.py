@@ -1,16 +1,44 @@
 """Validated season selection and isolated historical warehouse routing."""
 
+import re
 from contextvars import ContextVar
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
+
 if TYPE_CHECKING:
     from app.config import Settings
 
-DEFAULT_SEASON = "2025-26"
-SEASONS = ("2025-26", "2024-25", "2023-24")
+SEASON_FILE = Path(__file__).resolve().parents[1] / "season.yml"
+FIRST_ARCHIVE_SEASON = "2023-24"
+
+
+def _season_label(start_year: int) -> str:
+    return f"{start_year}-{(start_year + 1) % 100:02d}"
+
+
+def _load_default_season(path: Path = SEASON_FILE) -> str:
+    """Read the one production season setting shared with the pipeline."""
+    with path.open("r", encoding="utf-8") as handle:
+        season = str((yaml.safe_load(handle) or {}).get("current_season", ""))
+    if not re.fullmatch(r"\d{4}-\d{2}", season) or season != _season_label(
+        int(season[:4])
+    ):
+        raise ValueError(f"{path} must set current_season like '2026-27'")
+    return season
+
+
+DEFAULT_SEASON = _load_default_season()
+# Newest first. Every season except DEFAULT_SEASON reads its isolated archive
+# datasets (for example nba_gold_2025_26); the current season keeps base names.
+SEASONS = tuple(
+    _season_label(year)
+    for year in range(int(DEFAULT_SEASON[:4]), int(FIRST_ARCHIVE_SEASON[:4]) - 1, -1)
+)
+ARCHIVE_SEASONS = SEASONS[1:]
 _selected_season: ContextVar[str] = ContextVar("nba_season", default=DEFAULT_SEASON)
 
 

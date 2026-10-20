@@ -16,7 +16,7 @@ from app.agent.performance_overview import scoped_identity_profile
 from app.agent.semantic_serving import source_players, warehouse_for_repository
 from app.agent.semantic_source import load_snapshot
 from app.agent.semantics import Evidence, Query, SemanticError, load_contract, run_query
-from app.seasons import validate_season
+from app.seasons import DEFAULT_SEASON, validate_season
 
 CORE_METRICS = ("pts", "reb", "ast", "stl", "blk", "tov", "fg3m", "min", "plus_minus")
 SHOOTING_METRICS = (
@@ -34,7 +34,7 @@ RESEARCH_METRICS = (*CORE_METRICS, *SHOOTING_METRICS, "pts_per36", "ast_per36")
 
 class ResearchQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    season: str = "2025-26"
+    season: str = DEFAULT_SEASON
     phase: Literal["Regular Season", "Playoffs", "Both"] = "Regular Season"
     player_ids: list[int] = Field(min_length=1, max_length=2)
     metrics: list[str] = Field(

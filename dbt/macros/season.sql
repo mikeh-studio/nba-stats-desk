@@ -1,6 +1,9 @@
 {% macro warehouse_season() -%}
-  {% set season = var('nba_season', '2025-26') %}
-  {% if season not in ['2023-24', '2024-25', '2025-26', '2026-27'] %}
+  {% set current = var('nba_current_season') %}
+  {% set season = var('nba_season', current) %}
+  {% set year = season[:4] | int %}
+  {% if year < 2023 or year > (current[:4] | int)
+        or season != year ~ '-' ~ ('%02d' % ((year + 1) % 100)) %}
     {{ exceptions.raise_compiler_error('Unsupported nba_season: ' ~ season) }}
   {% endif %}
   {{ return(season) }}

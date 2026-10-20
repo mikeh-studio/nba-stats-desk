@@ -35,6 +35,7 @@ from nba_api.stats.static import players
 
 import player_similarity_model
 from publication import publish_candidates, quoted_table
+from season_config import CURRENT_SEASON, season_date_bounds
 
 logger = logging.getLogger("nba_pipeline")
 
@@ -66,9 +67,8 @@ NBA_CDN_SCHEDULE_URL = (
 NBA_CDN_BOXSCORE_URL_TEMPLATE = (
     "https://cdn.nba.com/static/json/liveData/boxscore/boxscore_{game_id}.json"
 )
-SUPPORTED_SEASON = "2025-26"
-SUPPORTED_SEASON_START = date(2025, 7, 1)
-SUPPORTED_SEASON_END = date(2026, 6, 30)
+SUPPORTED_SEASON = CURRENT_SEASON
+SUPPORTED_SEASON_START, SUPPORTED_SEASON_END = season_date_bounds(SUPPORTED_SEASON)
 DEFAULT_GAME_LOG_SEASON_TYPES = ("Regular Season", "Playoffs")
 NBA_CDN_GAME_ID_PREFIX_TO_SEASON_TYPE = {
     "002": "Regular Season",
@@ -164,11 +164,11 @@ NBA_TEAM_NAME_CANONICAL["LA CLIPPERS"] = "LA Clippers"
 
 
 def get_season_date_bounds(season: str = SUPPORTED_SEASON) -> Tuple[date, date]:
-    """Return the inclusive date bounds for the supported production season."""
-    if season not in ("2025-26", "2026-27"):
-        raise ValueError(f"Unsupported production season: {season}")
-    year = int(season[:4])
-    return date(year, 7, 1), date(year + 1, 6, 30)
+    """Return the inclusive July-June date bounds for a supported season."""
+    try:
+        return season_date_bounds(season)
+    except ValueError:
+        raise ValueError(f"Unsupported production season: {season}") from None
 
 
 def normalize_game_log_season_types(value: Any = None) -> List[str]:
@@ -4808,8 +4808,7 @@ def get_upcoming_schedule(
     retry_max_delay: float = NBA_API_RETRY_MAX_DELAY_SECONDS,
 ) -> pd.DataFrame:
     """Fetch upcoming schedule rows from nba_api scheduleleaguev2."""
-    if season not in ("2025-26", "2026-27"):
-        raise ValueError(f"Unsupported production season: {season}")
+    get_season_date_bounds(season)
 
     base_day = coerce_to_date(today) or pd.Timestamp.now(tz="UTC").date()
     end_day = base_day + timedelta(days=max(horizon_days, 1) - 1)

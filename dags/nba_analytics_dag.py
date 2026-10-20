@@ -26,6 +26,7 @@ from nba_pipeline_triage import (
 )
 from optional_assets import optional_injury_stage
 from run_results import combine_results, format_run_details
+from season_config import CURRENT_SEASON, season_date_bounds
 from source_landing import (
     _safe_storage_token,
     land_source_frame,
@@ -34,8 +35,12 @@ from source_landing import (
 from warehouse_stages import check_staging, load_staging, merge_staging
 
 logger = logging.getLogger("nba_pipeline")
-SUPPORTED_SEASON = "2025-26"
-SCHEDULE_END_DATE = datetime(2026, 7, 1)
+SUPPORTED_SEASON = CURRENT_SEASON
+# Scheduled runs stop the day after the season window (June 30), leaving a
+# post-Finals correction buffer. Roll over by changing season.yml.
+SCHEDULE_END_DATE = datetime.combine(
+    season_date_bounds(SUPPORTED_SEASON)[1] + timedelta(days=1), datetime.min.time()
+)
 
 
 def get_config(key: str, default: str | None = None) -> str | None:
@@ -122,7 +127,7 @@ default_args = {
 
 @dag(
     dag_id="nba_analytics_pipeline",
-    description="Incremental NBA 2025-26 player stats pipeline with BigQuery + dbt",
+    description=f"Incremental NBA {SUPPORTED_SEASON} player stats pipeline with BigQuery + dbt",
     schedule="0 11 * * *",
     start_date=datetime(2025, 1, 1),
     end_date=SCHEDULE_END_DATE,

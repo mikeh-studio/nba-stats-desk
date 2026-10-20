@@ -7,12 +7,14 @@ from ipaddress import ip_network
 
 from dotenv import load_dotenv
 
+from app.seasons import DEFAULT_SEASON
+
 # Settings are read via os.getenv, so load .env here once: `uvicorn
 # app.main:app` then works straight from the README without exporting the
 # file manually. Real environment variables keep precedence.
 load_dotenv()
 
-SUPPORTED_SEASON = "2025-26"
+SUPPORTED_SEASON = DEFAULT_SEASON
 
 OPENAI_AGENT_MODEL_OPTIONS = (
     {"value": "gpt-6-astra", "label": "GPT-6 Astra"},

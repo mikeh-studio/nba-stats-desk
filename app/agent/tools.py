@@ -13,6 +13,7 @@ from app.agent.catalog import (
 )
 from app.agent.formulas import evaluate_formula
 from app.repository import WarehouseRepository
+from app.seasons import DEFAULT_SEASON
 
 
 class _TtlCache:
@@ -976,7 +977,7 @@ class StatsToolRunner:
         scope = (
             getattr(settings, "project_id", ""),
             getattr(settings, "gold_dataset", ""),
-            getattr(settings, "season", "2025-26"),
+            getattr(settings, "season", DEFAULT_SEASON),
         )
         cache_key = ("resolve_player", scope, query.casefold(), max_rows)
         cached = _resolve_player_cache.get(cache_key, self.cache_ttl_seconds)

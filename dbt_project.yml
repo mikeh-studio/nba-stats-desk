@@ -12,3 +12,8 @@ models:
   nba_warehouse:
     +materialized: view
 
+
+vars:
+  # Mirrors current_season in season.yml (enforced by tests/test_season_rollover.py).
+  # Override one build with --vars '{"nba_season": "2025-26"}' for an archive.
+  nba_current_season: "2026-27"

@@ -570,7 +570,7 @@ def _fail_trace(trace: AgentTrace, exc: Exception) -> None:
 
 @lru_cache(maxsize=3)
 def _season_conversation_store(season: str):
-    if season == "2025-26":
+    if season == DEFAULT_SEASON:
         return get_conversation_store()
     from app.agent.conversation import InMemoryConversationStore
 
@@ -847,7 +847,7 @@ def api_health(
 def home() -> RedirectResponse:
     return RedirectResponse(
         url="/ask"
-        if current_season() == "2025-26"
+        if current_season() == DEFAULT_SEASON
         else f"/ask?season={current_season()}"
     )
 
@@ -1397,7 +1397,7 @@ def ask_page(
 def visualize_page() -> RedirectResponse:
     return RedirectResponse(
         url="/performance"
-        if current_season() == "2025-26"
+        if current_season() == DEFAULT_SEASON
         else f"/performance?season={current_season()}"
     )
 
