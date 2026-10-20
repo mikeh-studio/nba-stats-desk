@@ -588,6 +588,14 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
         )
         last_error = None
         for used_season in candidates:
+            # An uncovered season has no team context for alias resolution.
+            # Skip it before parsing, without relaxing real identity ambiguity.
+            if can_fallback and not any(
+                season == used_season
+                for season, _ in loaded[1].covered_scopes
+                & loaded[1].data_through.keys()
+            ):
+                continue
             # Resolve identity and team aliases against this candidate's teams.
             players = [
                 dict(

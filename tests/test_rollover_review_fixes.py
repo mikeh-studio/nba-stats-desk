@@ -182,7 +182,7 @@ def test_pair_fallback_ignores_unrelated_or_unverified_new_season(
                 and json.loads(line[6:]).get("type") == "final"
             )
         )
-        assert result["status"] == "ok", result
+        assert result.get("status") == "ok", result
         assert result["availability_scope"]["season"] == "2025-26"
         assert result["availability_scope"]["phase"] == "Regular Season"
         if filters:
@@ -195,6 +195,74 @@ def test_pair_fallback_ignores_unrelated_or_unverified_new_season(
         ).json()
         assert "season_fallback" not in explicit
         assert explicit.get("availability_scope", {}).get("season") != "2025-26"
+    finally:
+        main.app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize("other_team", ["BOS", "ATL"])
+@pytest.mark.parametrize("transport", ["/api/agent/ask", "/api/agent/ask/stream"])
+def test_empty_season_does_not_block_team_disambiguated_alias_fallback(
+    bundle, monkeypatch, transport, other_team
+):
+    import json
+
+    from app.agent import availability_ask
+
+    loaded = list(load_availability(str(bundle[0])))
+    # Both players share the first-name alias "Blake". Only Reed was Avery's
+    # teammate unless the fixture explicitly makes the alias ambiguous in 2025-26.
+    other = {
+        **next(row for row in loaded[1].rows if row["team_abbr"] == "BOS"),
+        "player_id": 833,
+        "player_name": "Blake Swift",
+        "team_abbr": other_team,
+    }
+    loaded[1] = replace(loaded[1], rows=[*loaded[1].rows, other])
+    loaded[4] = {**loaded[4], ("2025-26", other["game_id"], 833): other}
+    monkeypatch.setattr(
+        availability_ask, "load_availability", lambda *args: tuple(loaded)
+    )
+    model = Client({})
+    client = build_client(
+        settings=_test_settings(
+            openai_api_key="fixture",
+            research_availability_path=str(bundle[0]),
+            agent_rate_limit_per_minute=0,
+            agent_rate_limit_daily=0,
+        ),
+        agent_client=model,
+    )
+    question = "How did Avery Finch play while Blake was out in the regular season?"
+    try:
+        response = client.post(transport, json={"question": question})
+        assert response.status_code == 200
+        result = (
+            response.json()
+            if not transport.endswith("stream")
+            else next(
+                json.loads(line[6:])["payload"]
+                for line in response.text.splitlines()
+                if line.startswith("data: ")
+                and json.loads(line[6:]).get("type") == "final"
+            )
+        )
+        if other_team == "BOS":
+            assert result.get("status") == "ok", result
+            assert result["availability_scope"]["teammate_id"] == 822
+            assert result["season_fallback"] == {
+                "requested": DEFAULT_SEASON,
+                "used": "2025-26",
+            }
+            assert "2025-26" in result["answer"]
+        else:
+            assert result["research_error_code"] == "clarification_required", result
+            assert "season_fallback" not in result
+        explicit = client.post(
+            "/api/agent/ask", json={"question": question + f" in {DEFAULT_SEASON}"}
+        ).json()
+        assert explicit.get("status") != "ok"
+        assert "season_fallback" not in explicit
+        assert model.calls == 0
     finally:
         main.app.dependency_overrides.clear()
 
