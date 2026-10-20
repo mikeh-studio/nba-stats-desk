@@ -3849,8 +3849,10 @@ class BigQueryWarehouseRepository:
                 rows = []
             publication = rows[0] if rows else {}
             archive_report = json.loads(publication.get("report_json") or "{}")
-            names = ["stats", "similarity"]
-            if archive_report.get("row_counts", {}).get("injury_reports", 0):
+            names = archive_report.get("validated_assets", ["stats", "similarity"])
+            if "validated_assets" not in archive_report and archive_report.get(
+                "row_counts", {}
+            ).get("injury_reports", 0):
                 names.append("injuries")
             assets = (
                 [

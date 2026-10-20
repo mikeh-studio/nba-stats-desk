@@ -138,9 +138,9 @@ def test_study_fallback_and_explicit_scope_through_http(
     )
     study["metrics"][0] = metric()
     monkeypatch.setattr(research_ask, "catalog", lambda path: [study])
-    query = ResearchQuery(player_ids=[pair["player_id"]], metrics=["pts"]).model_dump(
-        mode="json"
-    )
+    query = ResearchQuery(
+        season="2025-26", player_ids=[pair["player_id"]], metrics=["pts"]
+    ).model_dump(mode="json")
     query["phase"] = None
     query["teammate_id"] = pair["teammate_id"]
     planner.result = dict(
@@ -202,9 +202,9 @@ def test_study_answer_survives_missing_season_boxscores(research_client, monkeyp
         raise SemanticError("unsupported_coverage", "No box scores")
 
     monkeypatch.setattr(research_ask, "load_research_evidence", missing)
-    query = ResearchQuery(player_ids=[pair["player_id"]], metrics=["pts"]).model_dump(
-        mode="json"
-    )
+    query = ResearchQuery(
+        season="2025-26", player_ids=[pair["player_id"]], metrics=["pts"]
+    ).model_dump(mode="json")
     query["phase"] = None
     query["teammate_id"] = pair["teammate_id"]
     planner.result = dict(

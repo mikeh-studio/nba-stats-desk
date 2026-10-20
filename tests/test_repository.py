@@ -26,6 +26,7 @@ from app.repository._constants import RECENT_PERFORMANCE_TABLE_FIELDS
 def _build_repository() -> BigQueryWarehouseRepository:
     return BigQueryWarehouseRepository(
         Settings(
+            season="2025-26",
             project_id="local-project",
             gold_dataset="nba_gold",
             metadata_dataset="nba_metadata",

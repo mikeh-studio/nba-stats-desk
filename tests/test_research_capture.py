@@ -13,13 +13,13 @@ def test_next_season_contract_and_legacy_missing_tipoff():
     from nba_source_contracts import SourceContractError, validate_source_contract
 
     frame = pd.DataFrame(_schedule_rows())
-    old = validate_source_contract("schedule", frame)
+    old = validate_source_contract("schedule", frame, season="2025-26")
     assert old.frame.GAME_TIME_UTC.isna().all()
     frame["SEASON"] = "2026-27"
     frame["SCHEDULE_DATE"] = "2026-11-01"
     assert len(validate_source_contract("schedule", frame, season="2026-27").frame) == 2
     with pytest.raises(SourceContractError):
-        validate_source_contract("schedule", frame)
+        validate_source_contract("schedule", frame, season="2025-26")
 
 
 def test_capture_failure_is_saved_and_raised(monkeypatch, tmp_path):

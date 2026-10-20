@@ -76,7 +76,7 @@ def setup(tmp_path, data=None, response=None):
     result.update(response or {})
     client = Client(result)
     agent = StatsAgent(
-        replace(_settings(), agent_teammate_study_path=str(path)),
+        replace(_settings(), season="2025-26", agent_teammate_study_path=str(path)),
         SimpleNamespace(),
         client=client,
     )

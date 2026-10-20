@@ -19,7 +19,13 @@ from app.agent.metric_presentation import (
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.research_ask import refusal
 from app.agent.route_labels import route_hint
-from app.agent.semantic_serving import requested_seasons, source_players
+from app.agent.semantic_serving import (
+    fallback_notice,
+    has_time_scope,
+    requested_seasons,
+    season_candidates,
+    source_players,
+)
 from app.agent.semantics import SemanticError
 from app.availability import compare_availability, load_availability
 from app.research import CORE_METRICS
@@ -574,6 +580,17 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
         selected_season = requested_seasons(
             question, (previous or {}).get("season", agent.settings.season)
         )
+        used_season = selected_season[0]
+        if not previous and not has_time_scope(question):
+            used_season = next(
+                (
+                    s
+                    for s in season_candidates(question, agent.settings.season)
+                    if any(row["season"] == s for row in loaded[1].rows)
+                ),
+                used_season,
+            )
+            selected_season = [used_season]
         for player in players:
             player["observed_teams"] = sorted(
                 {
@@ -586,12 +603,24 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
         request = parse_request(
             question,
             players,
-            agent.settings.season,
+            used_season,
             previous,
             {r["team_abbr"] for r in loaded[1].rows},
         )
         result = compare_availability(loaded, request)
         payload = render_answer(result, players)
+        if (
+            not previous
+            and used_season != agent.settings.season
+            and not has_time_scope(question)
+        ):
+            notice = fallback_notice(agent.settings.season, used_season)
+            payload["answer"] = notice + "\n\n" + payload["answer"]
+            payload.setdefault("assumptions", []).append(notice)
+            payload["season_fallback"] = {
+                "requested": agent.settings.season,
+                "used": used_season,
+            }
         from app.agent.claim_renderers import availability_table
 
         availability_table(payload)

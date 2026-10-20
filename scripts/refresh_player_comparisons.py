@@ -54,7 +54,9 @@ def validate_comparison_contract(snapshot, run):
     frame = pd.DataFrame(rows)
     frame.columns = frame.columns.str.upper()
     try:
-        result = nba_source_contracts.validate_source_contract("game_logs", frame)
+        result = nba_source_contracts.validate_source_contract(
+            "game_logs", frame, season=SEASON
+        )
     except nba_source_contracts.SourceContractError as exc:
         write_new(run / "source-contract.json", exc.result)
         exc.quarantine_frame.to_csv(run / "quarantine.csv", index=False)

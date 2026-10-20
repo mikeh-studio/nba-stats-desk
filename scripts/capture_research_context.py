@@ -20,9 +20,10 @@ from app.research_snapshots import (  # noqa: E402
     read_snapshot,
 )
 from app.research_studies import PAIRS  # noqa: E402
+from app.seasons import DEFAULT_SEASON, SEASONS  # noqa: E402
 
 
-def capture(output: Path, memberships_path: Path, season="2026-27"):
+def capture(output: Path, memberships_path: Path, season=DEFAULT_SEASON):
     import pandas as pd
 
     from nba_pipeline import (
@@ -189,7 +190,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--memberships", type=Path, required=True)
-    parser.add_argument("--season", choices=("2025-26", "2026-27"), default="2026-27")
+    parser.add_argument("--season", choices=SEASONS, default=DEFAULT_SEASON)
     args = parser.parse_args()
     print(capture(args.output, args.memberships, args.season))
 

@@ -1,6 +1,6 @@
 # Ask workspace
 
-Every tab opens on the latest supported season (currently 2025–26). There is no
+Every tab opens on the latest supported season (currently 2026–27). There is no
 shared season selector; old page links with a season parameter redirect to the
 latest view. Explicit historical API requests remain supported.
 

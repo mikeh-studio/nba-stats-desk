@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.agent.semantic_source import snapshot_digest  # noqa: E402
 from app.agent.semantics import pregame_evidence  # noqa: E402
+from app.seasons import ARCHIVE_SEASONS  # noqa: E402
 
 
 def capture(client: Any, project: str) -> dict[str, Any]:
@@ -28,7 +29,7 @@ def capture(client: Any, project: str) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     sources = [
         f"{project}.nba_silver_{suffix}.stg_player_injury_reports_clean"
-        for suffix in ("2023_24", "2024_25")
+        for suffix in (season.replace("-", "_") for season in ARCHIVE_SEASONS)
     ]
     columns = "season, player_id, player_name_source, team_abbr, game_date, game_time_et, matchup, report_timestamp_utc, injury_status, reason, source_url"
     sql = (

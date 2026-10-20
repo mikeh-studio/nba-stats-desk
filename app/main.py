@@ -60,7 +60,13 @@ from app.repository import (
     get_compare_focus_options,
     get_compare_window_options,
 )
-from app.research import ResearchQuery, breakdown, load_context, load_research_evidence
+from app.research import (
+    ResearchQuery,
+    available_research,
+    breakdown,
+    load_context,
+    load_research_evidence,
+)
 from app.research_studies import catalog as research_catalog
 from app.seasons import (
     DEFAULT_SEASON,
@@ -75,7 +81,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261019-claim-rollout-v1"
+STATIC_VERSION = "20261020-season-rollover-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -1579,8 +1585,20 @@ def research_players(
     _check_research_rate_limit(request, settings)
     try:
         repo = None if settings.research_snapshot_path else get_repository(settings)
-        evidence = load_research_evidence(settings, repo, current_season())
-        return {"players": source_players(evidence), "season": current_season()}
+        evidence, used = available_research(
+            settings,
+            repo,
+            current_season(),
+            fallback="season" not in request.query_params,
+            loader=load_research_evidence,
+        )
+        result = {"players": source_players(evidence), "season": used}
+        if used != current_season():
+            from app.agent.semantic_serving import fallback_notice
+
+            result["season_fallback"] = {"requested": current_season(), "used": used}
+            result["notice"] = fallback_notice(current_season(), used)
+        return result
     except Exception as exc:
         raise HTTPException(503, "Research source is unavailable") from exc
 
@@ -1593,16 +1611,34 @@ def research_breakdown(
 ) -> dict:
     from app.agent.semantics import SemanticError
 
-    if payload.season != current_season():
+    if "season" in payload.model_fields_set and payload.season != current_season():
         raise HTTPException(400, "Request body and selected season disagree")
     _check_research_rate_limit(request, settings)
     try:
         repo = None if settings.research_snapshot_path else get_repository(settings)
-        return breakdown(
-            load_research_evidence(settings, repo, payload.season),
-            payload,
+        evidence, used = available_research(
+            settings,
+            repo,
+            current_season(),
+            loader=load_research_evidence,
+            fallback=(
+                "season" not in payload.model_fields_set
+                and "season" not in request.query_params
+                and not payload.start
+                and not payload.end
+            ),
+        )
+        result = breakdown(
+            evidence,
+            payload.model_copy(update={"season": used}),
             load_context(settings.research_context_path),
         )
+        if used != current_season():
+            from app.agent.semantic_serving import fallback_notice
+
+            result["season_fallback"] = {"requested": current_season(), "used": used}
+            result["notice"] = fallback_notice(current_season(), used)
+        return result
     except SemanticError as exc:
         raise HTTPException(422, str(exc)) from exc
     except Exception as exc:

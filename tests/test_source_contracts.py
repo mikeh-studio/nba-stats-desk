@@ -219,7 +219,9 @@ def test_contract_files_load():
 def test_valid_game_log_frame_passes():
     frame = pd.DataFrame([_game_log_row()])
 
-    validation = contracts.validate_source_contract("game_logs", frame)
+    validation = contracts.validate_source_contract(
+        "game_logs", frame, season="2025-26"
+    )
 
     assert validation.result["status"] == "passed"
     assert validation.result["rows_checked"] == 1
@@ -231,7 +233,7 @@ def test_missing_required_column_is_fatal():
     frame = pd.DataFrame([_game_log_row()]).drop(columns=["GAME_DATE"])
 
     with pytest.raises(contracts.SourceContractError) as exc:
-        contracts.validate_source_contract("game_logs", frame)
+        contracts.validate_source_contract("game_logs", frame, season="2025-26")
 
     assert exc.value.result["status"] == "fatal"
     assert exc.value.result["fatal_count"] == 1
@@ -247,7 +249,7 @@ def test_duplicate_business_key_is_fatal():
     )
 
     with pytest.raises(contracts.SourceContractError) as exc:
-        contracts.validate_source_contract("game_logs", frame)
+        contracts.validate_source_contract("game_logs", frame, season="2025-26")
 
     assert exc.value.result["status"] == "fatal"
     assert any(
@@ -260,7 +262,7 @@ def test_invalid_game_log_season_type_is_fatal():
     frame = pd.DataFrame([_game_log_row(SEASON_TYPE="Pre Season")])
 
     with pytest.raises(contracts.SourceContractError) as exc:
-        contracts.validate_source_contract("game_logs", frame)
+        contracts.validate_source_contract("game_logs", frame, season="2025-26")
 
     assert exc.value.result["status"] == "fatal"
     assert any(
@@ -273,7 +275,7 @@ def test_blank_business_key_is_fatal():
     frame = pd.DataFrame([_game_log_row(GAME_ID="", MATCHUP=" ")])
 
     with pytest.raises(contracts.SourceContractError) as exc:
-        contracts.validate_source_contract("game_logs", frame)
+        contracts.validate_source_contract("game_logs", frame, season="2025-26")
 
     assert exc.value.result["status"] == "fatal"
     assert any(
@@ -290,7 +292,9 @@ def test_quarantine_rule_removes_bad_rows():
         ]
     )
 
-    validation = contracts.validate_source_contract("game_logs", frame)
+    validation = contracts.validate_source_contract(
+        "game_logs", frame, season="2025-26"
+    )
 
     assert validation.result["status"] == "quarantine"
     assert validation.result["rows_quarantined"] == 1
@@ -303,7 +307,7 @@ def test_fatal_contract_error_preserves_quarantined_rows():
     frame = pd.DataFrame([_game_log_row(PLAYER_ID=2, MATCHUP="NYK @ MIA", PTS=120)])
 
     with pytest.raises(contracts.SourceContractError) as exc:
-        contracts.validate_source_contract("game_logs", frame)
+        contracts.validate_source_contract("game_logs", frame, season="2025-26")
 
     assert exc.value.result["status"] == "fatal"
     assert exc.value.result["rows_quarantined"] == 1
@@ -317,7 +321,9 @@ def test_fatal_contract_error_preserves_quarantined_rows():
 def test_warning_rule_does_not_drop_rows():
     frame = pd.DataFrame([_player_reference_row(TEAM_ABBR="XYZ")])
 
-    validation = contracts.validate_source_contract("player_reference", frame)
+    validation = contracts.validate_source_contract(
+        "player_reference", frame, season="2025-26"
+    )
 
     assert validation.result["status"] == "warning"
     assert validation.result["warning_count"] == 1
@@ -328,7 +334,7 @@ def test_warning_rule_does_not_drop_rows():
 def test_valid_schedule_frame_passes_and_result_is_json_serializable():
     frame = pd.DataFrame(_schedule_rows())
 
-    validation = contracts.validate_source_contract("schedule", frame)
+    validation = contracts.validate_source_contract("schedule", frame, season="2025-26")
 
     assert validation.result["status"] == "passed"
     assert len(validation.frame) == 2
@@ -338,7 +344,9 @@ def test_valid_schedule_frame_passes_and_result_is_json_serializable():
 def test_valid_player_shot_locations_frame_passes():
     frame = pd.DataFrame([_shot_location_row()])
 
-    validation = contracts.validate_source_contract("player_shot_locations", frame)
+    validation = contracts.validate_source_contract(
+        "player_shot_locations", frame, season="2025-26"
+    )
 
     assert validation.result["status"] == "passed"
     assert validation.result["rows_checked"] == 1
@@ -349,7 +357,7 @@ def test_injury_report_blank_player_name_source_is_fatal():
     frame = pd.DataFrame([_injury_report_row(PLAYER_NAME_SOURCE=" ")])
 
     with pytest.raises(contracts.SourceContractError) as exc:
-        contracts.validate_source_contract("injury_reports", frame)
+        contracts.validate_source_contract("injury_reports", frame, season="2025-26")
 
     assert exc.value.result["status"] == "fatal"
     assert any(
@@ -373,7 +381,7 @@ def test_post_quarantine_fatal_rules_prevent_partial_game_groups():
     )
 
     with pytest.raises(contracts.SourceContractError) as exc:
-        contracts.validate_source_contract("game_line_scores", frame)
+        contracts.validate_source_contract("game_line_scores", frame, season="2025-26")
 
     assert exc.value.result["status"] == "fatal"
     assert any(

@@ -1,6 +1,6 @@
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261019-claim-rollout-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261019-claim-rollout-v1";
-import { seasonFetch, selectedSeason } from "./season.js";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261020-season-rollover-v1";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261020-season-rollover-v1";
+import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
   comparisonAssumptions,
@@ -8,7 +8,7 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261019-claim-rollout-v1";
+} from "./ask_comparison.js?v=20261020-season-rollover-v1";
 import {
   normalizeTabs,
   openTab,
@@ -22,8 +22,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261019-claim-rollout-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261019-claim-rollout-v1";
+} from "./ask_presentation.js?v=20261020-season-rollover-v1";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261020-season-rollover-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -33,7 +33,7 @@ function escHtml(value) {
 }
 
 const HISTORY_STORAGE_KEY =
-  selectedSeason() === "2025-26"
+  selectedSeason() === DEFAULT_SEASON
     ? "askChatHistory:v1"
     : `askChatHistory:v1:${selectedSeason()}`;
 const HISTORY_CONVERSATION_CAP = 25;

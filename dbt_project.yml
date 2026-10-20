@@ -17,3 +17,4 @@ vars:
   # Mirrors current_season in season.yml (enforced by tests/test_season_rollover.py).
   # Override one build with --vars '{"nba_season": "2025-26"}' for an archive.
   nba_current_season: "2026-27"
+  nba_supported_seasons: ["2026-27", "2025-26", "2024-25", "2023-24"]

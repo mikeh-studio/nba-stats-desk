@@ -52,7 +52,9 @@ def evidence():
 
 def test_shared_ratios_and_rest_precede_date_filter():
     e = evidence()
-    q = ResearchQuery(player_ids=[1, 2], metrics=["fg_pct", "pts"], end="2025-11-02")
+    q = ResearchQuery(
+        season="2025-26", player_ids=[1, 2], metrics=["fg_pct", "pts"], end="2025-11-02"
+    )
     r = breakdown(e, q)
     assert r["players"][0]["metrics"][0]["result"]["display_value"] == 10
     assert answer_payload(r)["research"] == r
@@ -60,7 +62,11 @@ def test_shared_ratios_and_rest_precede_date_filter():
     rested = breakdown(
         e,
         ResearchQuery(
-            player_ids=[1], start="2025-11-04", end="2025-11-07", rest="one_day"
+            season="2025-26",
+            player_ids=[1],
+            start="2025-11-04",
+            end="2025-11-07",
+            rest="one_day",
         ),
     )
     assert [g["game_id"] for g in rested["players"][0]["games"]] == ["g4"]
@@ -75,7 +81,9 @@ def test_shared_ratios_and_rest_precede_date_filter():
 def test_research_card_team_comes_only_from_filtered_appearances():
     e = evidence()
     e.rows[-2]["team_abbr"] = "NEW"
-    result = breakdown(e, ResearchQuery(player_ids=[1], end="2025-11-02"))
+    result = breakdown(
+        e, ResearchQuery(season="2025-26", player_ids=[1], end="2025-11-02")
+    )
     profile = answer_payload(result)["player_profile"]
     assert profile["player"]["team_abbr"] == "ATL"
     assert profile["player"]["games_sampled"] == 2
@@ -85,7 +93,12 @@ def test_research_card_team_comes_only_from_filtered_appearances():
 def test_home_missing_scope_and_no_zero_imputation():
     e = evidence()
     e.rows[0]["pts"] = None
-    r = breakdown(e, ResearchQuery(player_ids=[1], metrics=["pts"], home_away="home"))
+    r = breakdown(
+        e,
+        ResearchQuery(
+            season="2025-26", player_ids=[1], metrics=["pts"], home_away="home"
+        ),
+    )
     m = r["players"][0]["metrics"][0]["result"]
     assert m["valid_games"] == 1 and m["observed_games"] == 2
     assert m["value"] == 7
@@ -93,13 +106,18 @@ def test_home_missing_scope_and_no_zero_imputation():
         breakdown(
             e,
             ResearchQuery(
-                player_ids=[1], teammate_id=2, teammate_status="participated"
+                season="2025-26",
+                player_ids=[1],
+                teammate_id=2,
+                teammate_status="participated",
             ),
         )
     with pytest.raises(ValidationError):
-        ResearchQuery(player_ids=[1, 1])
+        ResearchQuery(season="2025-26", player_ids=[1, 1])
     with pytest.raises(ValidationError):
-        ResearchQuery(player_ids=[1], start="2025-12-01", end="2025-11-01")
+        ResearchQuery(
+            season="2025-26", player_ids=[1], start="2025-12-01", end="2025-11-01"
+        )
 
 
 def test_context_cannot_duplicate_grain_or_silently_cross_seasons():
@@ -111,10 +129,12 @@ def test_context_cannot_duplicate_grain_or_silently_cross_seasons():
         "teammate_status": "participated",
     }
     with pytest.raises(SemanticError, match="Duplicate"):
-        breakdown(evidence(), ResearchQuery(player_ids=[1]), [row, row])
+        breakdown(
+            evidence(), ResearchQuery(season="2025-26", player_ids=[1]), [row, row]
+        )
     with pytest.raises(SemanticError):
         breakdown(evidence(), ResearchQuery(season="2024-25", player_ids=[1]))
-    assert dataset_for_season("nba_gold", "2025-26") == "nba_gold"
+    assert dataset_for_season("nba_gold", "2025-26") == "nba_gold_2025_26"
     assert dataset_for_season("nba_gold", "2024-25") == "nba_gold_2024_25"
 
 
@@ -196,7 +216,7 @@ def test_all_three_study_cards_remain_visible_without_artifacts():
 
 def test_future_stats_do_not_change_a_bounded_breakdown():
     e = evidence()
-    q = ResearchQuery(player_ids=[1], end="2025-11-02")
+    q = ResearchQuery(season="2025-26", player_ids=[1], end="2025-11-02")
     before = breakdown(e, q)
     rows = deepcopy(e.rows)
     rows[-1]["pts"] = 999
@@ -229,7 +249,7 @@ def test_multi_metric_builder_preserves_missing_stats_and_rejects_unbound_causal
 
 
 def test_context_changes_query_identity():
-    q = ResearchQuery(player_ids=[1])
+    q = ResearchQuery(season="2025-26", player_ids=[1])
     context = [{"season": "2025-26", "game_id": "g1", "player_id": 1, "teammate_id": 2}]
     assert (
         breakdown(evidence(), q)["query_id"]
@@ -250,12 +270,14 @@ def test_reviewed_game_context_can_supply_venue_without_status_filter():
             "home_away": "home",
         }
     ]
-    result = breakdown(e, ResearchQuery(player_ids=[1], home_away="home"), context)
+    result = breakdown(
+        e, ResearchQuery(season="2025-26", player_ids=[1], home_away="home"), context
+    )
     assert [g["game_id"] for g in result["players"][0]["games"]] == ["g1"]
     assert result["players"][0]["filter_missing_games"] == 3
     conflicting = [*context, {**context[0], "teammate_id": 3, "home_away": "away"}]
     with pytest.raises(SemanticError, match="Conflicting"):
-        breakdown(e, ResearchQuery(player_ids=[1]), conflicting)
+        breakdown(e, ResearchQuery(season="2025-26", player_ids=[1]), conflicting)
 
 
 def test_research_followup_does_not_capture_unrelated_new_questions():
@@ -288,7 +310,9 @@ def test_signed_plus_minus_breakdown_and_study_missingness():
     own = [r for r in e.rows if r["player_id"] == 1]
     for row, value in zip(own, [-12, 4, None, 0]):
         row["plus_minus"] = value
-    result = breakdown(e, ResearchQuery(player_ids=[1], metrics=["plus_minus"]))
+    result = breakdown(
+        e, ResearchQuery(season="2025-26", player_ids=[1], metrics=["plus_minus"])
+    )
     metric = result["players"][0]["metrics"][0]["result"]
     assert metric["valid_games"] == 3
     assert metric["value"] == pytest.approx(-8 / 3)
