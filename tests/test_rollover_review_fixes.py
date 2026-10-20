@@ -8,7 +8,7 @@ from app import main
 from app.agent.semantics import SemanticError
 from app.availability import load_availability
 from app.seasons import DEFAULT_SEASON
-from scripts.archive_season_copy import archive_mapping, ordered_views
+from scripts.archive_season_copy import archive_mapping, ordered_views, rebind_view
 from tests.test_api import _test_settings, build_client
 from tests.test_availability import bundle as bundle
 from tests.test_research import evidence
@@ -218,7 +218,7 @@ def view_inventory(child_sql, parent_sql="SELECT 1 AS value"):
     [
         "nba_gold.parent",
         "`nba_gold.parent`",
-        "example-project.nba_gold.parent",
+        "`example-project`.nba_gold.parent",
         "`example-project.nba_gold.parent`",
     ],
 )
@@ -262,3 +262,37 @@ def test_archive_detects_cycles_with_unquoted_references():
     )
     with pytest.raises(ValueError, match="Cyclic"):
         ordered_views(inventory, mapping)
+
+
+@pytest.mark.parametrize(
+    "qualifier",
+    [
+        "nba_gold.parent",
+        "`example-project`.nba_gold.parent",
+        "`example-project.nba_gold.parent`",
+    ],
+)
+def test_archive_rebinds_qualified_columns_with_their_table(qualifier):
+    from sqlglot import exp, parse_one
+
+    mapping = archive_mapping("example-project", "2025-26")
+    rebound = rebind_view(f"SELECT {qualifier}.value FROM nba_gold.parent", mapping)
+    query = parse_one(rebound, read="bigquery")
+    table = query.find(exp.Table)
+    assert table.catalog == "example-project"
+    assert table.db == "nba_gold_2025_26"
+    column = query.find(exp.Column)
+    assert (
+        column.db == "nba_gold_2025_26"
+        or column.table == "example-project.nba_gold_2025_26.parent"
+    )
+
+
+def test_archive_keeps_alias_and_struct_column_qualifiers():
+    mapping = archive_mapping("example-project", "2025-26")
+    rebound = rebind_view(
+        "SELECT t.value, t.nba_gold.parent FROM nba_gold.parent AS t", mapping
+    )
+    assert "t.value" in rebound
+    assert "t.nba_gold.parent" in rebound
+    assert "nba_gold_2025_26.parent" in rebound

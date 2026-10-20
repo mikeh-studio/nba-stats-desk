@@ -49,6 +49,7 @@ def _view_sql_and_dependencies(sql, mapping):
         project = next(iter(mapping)).split(".")[0]
         dependencies = set()
         for scope in traverse_scope(query):
+            column_bindings = {}
             for source in scope.sources.values():
                 if not isinstance(source, exp.Table):
                     continue  # CTEs and subqueries have their own traversed scope.
@@ -62,10 +63,35 @@ def _view_sql_and_dependencies(sql, mapping):
                     )
                 target_project, target_dataset = target.split(".")
                 dependencies.add(f"{target}.{source.name}")
+                if not source.alias:
+                    column_bindings[f"{dataset}.{source.name}"] = (
+                        target_project,
+                        target_dataset,
+                        source.name,
+                    )
                 source.set("catalog", exp.to_identifier(target_project, quoted=True))
                 source.set("db", exp.to_identifier(target_dataset, quoted=True))
                 source.set("this", exp.to_identifier(source.name, quoted=True))
                 source.meta["quoted_table"] = True
+            for column in scope.columns:
+                if column.db:
+                    binding = column_bindings.get(
+                        f"{column.catalog or project}.{column.db}.{column.table}"
+                    )
+                    if binding:
+                        column.set(
+                            "catalog", exp.to_identifier(binding[0], quoted=True)
+                        )
+                        column.set("db", exp.to_identifier(binding[1], quoted=True))
+                elif "." in column.table:
+                    key = column.table
+                    if key.count(".") == 1:
+                        key = project + "." + key
+                    binding = column_bindings.get(key)
+                    if binding:
+                        column.set(
+                            "table", exp.to_identifier(".".join(binding), quoted=True)
+                        )
         return query.sql(dialect="bigquery"), dependencies
     except SqlglotError as exc:
         raise ValueError("Unsupported archive view SQL") from exc
