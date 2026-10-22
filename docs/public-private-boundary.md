@@ -1,11 +1,48 @@
 # Public / Private Boundary
 
-This repo is intended to stay public as NBA Stats Desk: the agentic stats
-workbench, GCP-backed data platform, and reference application. The personal
-model layer should live in a private repo or package. Adding feedback loops,
-evaluation, and recovery workflows does not itself require moving system code
-into a private repository. Keep reusable implementation public and operational
-data and administrative access restricted.
+This repo stays public as NBA Stats Desk: the shared data platform, reusable
+analytics, and reference application. A separate private product repository owns
+new website experiences, product-specific workflows, and proprietary analysis.
+Private model research can remain in its existing dedicated repositories.
+Keep reusable implementation public and operational data and administrative
+access restricted. A private code repository can power a public website; it does
+not provide authentication or authorize publication of its data.
+
+## Repository ownership
+
+| Area | Owner and boundary |
+| --- | --- |
+| `dags/`, ingestion and repair scripts, `contracts/`, `dbt/`, `season.yml`, `dags/season_config.py` | Public platform remains the single source of shared pipeline code, source validation, season scope, and statistics. |
+| Existing `app/`, baseline models, semantic and evidence contracts, reusable evaluation tools | Public reference implementation; fixes to shared behavior belong here. |
+| New differentiated website flows, personalization, product-specific agent workflows, proprietary features and models | Private product or research repositories. Generic improvements can be deliberately contributed back with sanitized tests. |
+| Generic infrastructure templates and CI | Public when reusable and free of operational details; product-specific deployment configuration and release controls belong in the private product repo. |
+| Credentials, user records, raw feedback, source exports, traces, trained artifacts, and production state | Access-controlled storage outside Git, including private Git. |
+
+### Sharing the platform
+
+The private product pins an immutable public commit with a Git submodule. The
+public repo remains independently buildable and never depends on private code.
+Do not copy DAGs or dbt models into the product or start a second production
+ingestion schedule. Shared fixes land here first; dependency updates are separate
+reviewable product changes. Preserve this repository's license in the dependency.
+
+Product runtime access should use a reviewed read API or curated warehouse read
+models with a restricted identity. The submodule shares source, not credentials
+or permission to run warehouse writers. Future private model jobs publish only
+validated, versioned outputs through an explicitly reviewed publication contract.
+
+### Initial transition
+
+Existing tracked platform and reference-app code stays here. New product-specific
+work starts private; there is no bulk copy of the working checkout, ignored
+research, or uncommitted work. Moving a currently tracked module later requires
+an explicit path inventory, consumer compatibility checks, and a reviewed change.
+Previously published code remains in public history.
+
+Repository setup does not activate production. Prior-season archive publication,
+IAM, deployment, scheduler repair or activation, warehouse writes, and any live
+polling remain pending operator review under the
+[season rollover procedure](operations.md#season-rollover).
 
 ## Keep Public
 
@@ -16,7 +53,7 @@ data and administrative access restricted.
 - public baseline similarity output contracts
 - FastAPI routes and read-only app behavior
 - public-safe docs and validation commands
-- agent orchestration, application prompts, and tool definitions
+- existing reference agent orchestration, prompts, and tool definitions
 - feedback, evaluation, repair, and release-control implementation
 - reviewed synthetic or sanitized regression fixtures and concise evaluation
   summaries or incident write-ups
@@ -24,6 +61,8 @@ data and administrative access restricted.
 
 ## Keep Private
 
+- new product-specific website code, personalization, and agent workflows
+- proprietary feature engineering and product-specific deployment configuration
 - tuned similarity model code
 - proprietary feature weights, thresholds, and model-selection experiments
   (documented public baseline parameters remain public)
@@ -31,7 +70,8 @@ data and administrative access restricted.
   and scouting notes
 - generated reports under `reports/`
 - local Ask history under `local_notes/`
-- notebooks and local experiments
+- private research source and experiment definitions; raw datasets and generated
+  notebook outputs remain outside Git
 - model artifacts, checkpoints, and embeddings
 - real `.env` files, service accounts, tokens, and warehouse exports
 - raw quarantine exports and incident records containing sensitive information
