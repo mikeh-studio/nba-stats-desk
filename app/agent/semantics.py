@@ -150,6 +150,7 @@ class Evidence:
     model_built_at: str | None = None
     complete: bool = False
     position_context: Mapping[str, Any] | None = None
+    cohort_complete: bool = True
 
     def validate(self) -> None:
         if not self.complete:
@@ -399,6 +400,11 @@ def run_query(
     metric = contract.metric(query.metric)
     query.validate(metric)
     evidence.validate()
+    if not evidence.cohort_complete and query.operation in ("rank", "percentile"):
+        raise SemanticError(
+            "unsupported_coverage",
+            "League comparisons require complete cohort coverage",
+        )
     phases = PHASES if query.season_type == "Both" else (query.season_type,)
     seasons = query.seasons or [query.season]
     scopes = [(season, phase) for season in seasons for phase in phases]
@@ -557,7 +563,7 @@ def run_query(
         )
     cohort = [s for s in summaries if s["eligible"]]
     direction = query.direction or metric.direction
-    for summary in cohort:
+    for summary in cohort if evidence.cohort_complete else []:
         value = summary["value"]
         better = sum(
             (s["value"] > value if direction == "higher" else s["value"] < value)

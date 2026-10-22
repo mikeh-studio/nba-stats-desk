@@ -300,6 +300,40 @@ test("browser history saves, dedupes, caps, and renders list rows", async () => 
   assert.match(list.innerHTML, /agent-history-item/);
 });
 
+test("saved failures require an explicit retry and preserve their original evidence", async () => {
+  const thread = new FakeElement();
+  const agent = await loadAgentModule({elements:{
+    "[data-agent-answer]": thread,
+    "[data-agent-empty]": new FakeElement(),
+  }});
+  const payload = {status:"unsupported_coverage", answer:"Source unavailable"};
+  agent.saveHistoryState({conversations:[{id:"saved-failure",turns:[{
+    question:"How did Avery Finch perform this season?", payload,
+    request_id:"failed-request",timestamp:"2026-10-22T12:00:00Z",
+  }]}]});
+  const posts = [];
+  globalThis.fetch = async (url, options) => {
+    posts.push(JSON.parse(options.body));
+    return {ok:true,body:new ReadableStream({start(controller){
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{conversation_id:"saved-failure",request_id:"retry-request",status:"ok",answer:"Fresh answer"}})}\n\n`));
+      controller.close();
+    }})};
+  };
+  await agent.restoreConversation("saved-failure");
+  assert.equal(posts.length,0);
+  const article = thread.children[0];
+  assert.match(article.children[1].textContent,/Saved response/);
+  const retry = article.children[2];
+  assert.equal(retry.textContent,"Run this question again");
+  await retry.listeners.get("click")[0]();
+  assert.equal(posts.length,1);
+  assert.equal(posts[0].conversation_id,"saved-failure");
+  assert.equal(posts[0].question,"How did Avery Finch perform this season?");
+  const turns=agent.loadHistoryState().conversations[0].turns;
+  assert.deepEqual(turns[0].payload,payload);
+  assert.equal(turns[1].payload.answer,"Fresh answer");
+});
+
 test("browser history write failures do not break Ask", async () => {
   const storage = createStorage({ failWrites: true });
   const agent = await loadAgentModule({ storage });

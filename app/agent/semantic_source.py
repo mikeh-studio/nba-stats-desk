@@ -15,6 +15,11 @@ from app.agent.semantics import COMPONENTS, PHASES, Evidence, SemanticError
 from app.seasons import dataset_for_season, validate_season
 
 
+def capture_timestamp() -> str:
+    """Real retrieval time, independent of the request scope clock."""
+    return datetime.now(timezone.utc).isoformat()
+
+
 def snapshot_digest(snapshot: dict[str, Any]) -> str:
     payload = {k: v for k, v in snapshot.items() if k != "sha256"}
     return hashlib.sha256(
@@ -37,6 +42,7 @@ def snapshot_evidence(snapshot: dict[str, Any]) -> Evidence:
         snapshot_id=snapshot["sha256"],
         data_through={(c["season"], c["phase"]): c["data_through"] for c in coverage},
         complete=True,
+        cohort_complete=snapshot.get("cohort_complete", True),
         position_context=snapshot.get("position_context"),
     )
     evidence.validate()
@@ -84,6 +90,9 @@ class BigQuerySemanticSource:
         self.max_rows = max_rows
         self.byte_budget = maximum_bytes_billed
 
+    def source_for_season(self, season: str) -> str:
+        return f"{self.project}.{dataset_for_season(self.dataset, season)}.fct_player_game_stats"
+
     def capture(self, seasons: list[str]) -> dict[str, Any]:
         from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound
         from google.cloud import bigquery
@@ -93,10 +102,7 @@ class BigQuerySemanticSource:
         for season in seasons:
             validate_season(season)
         captured_at = datetime.now(timezone.utc).isoformat()
-        sources = [
-            f"{self.project}.{dataset_for_season(self.dataset, s)}.fct_player_game_stats"
-            for s in seasons
-        ]
+        sources = [self.source_for_season(s) for s in seasons]
         columns = ", ".join(
             [
                 "season",

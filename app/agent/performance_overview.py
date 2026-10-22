@@ -546,10 +546,11 @@ def build_overview(question, evidence, players, scope, selected=None):
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
     from app.agent.overview_percentiles import add_percentiles
 
-    add_percentiles(metrics + extra, grouped, player["player_id"], contract.min_games)
+    cohort = grouped if evidence.cohort_complete else {}
+    add_percentiles(metrics + extra, cohort, player["player_id"], contract.min_games)
     add_position_comparisons(
         metrics + extra,
-        grouped,
+        cohort,
         player["player_id"],
         scope,
         evidence.position_context,

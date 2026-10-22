@@ -100,6 +100,12 @@ Explicit `A vs B`, `A versus B`, and `Compare A and B` questions use a
 deterministic two-player scorecard. Nicknames use the existing source-backed
 alias catalog. Each side is resolved separately; ambiguous identities require
 selection and already-resolved sides are retained during clarification.
+`Compare A to B`, `How does A compare with B?`, and a performance question
+followed by `How does he compare to B?` also use this scorecard when A is named
+in the same question. Both players share the question's stated dates and phases.
+An unresolved second identity requires clarification; it cannot become a
+single-player overview. Temporal baselines such as `compared with last season`
+remain period comparisons.
 The scorecard shares one date/phase scope and one qualified cohort per metric
 across points, rebounds, assists, steals and blocks. Minutes and sample sizes
 come from the same appearances. Differences use unrounded averages; missing
@@ -165,6 +171,9 @@ storage behavior. Follow-ups remain in their original conversation.
 More opens searchable local history. Search includes opening questions and
 follow-ups, and the local endpoint pages beyond the browser's recent cache.
 Opening a result restores the stored response payload without rerunning queries.
+The latest saved response with an unsuccessful status is labeled as saved and
+offers “Run this question again.” Only clicking that action submits a new request;
+it appends the new result in the same conversation and preserves the old response.
 All questions and responses remain visible in chronological order, with each
 response owning its profile, methodology, tables, and interactive charts. The
 question selector jumps to an existing response without replacing content.

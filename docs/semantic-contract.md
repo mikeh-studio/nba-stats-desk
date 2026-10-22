@@ -368,3 +368,7 @@ null is missing, and games played remains independent of metric completeness.
 Two played games with 0 and 10 points average 5; a null and 10 points average 10
 over one valid game out of two observed games. Zero field-goal attempts do not
 imply zero points. Pooled zero attempts produce unavailable shooting efficiency.
+
+The opt-in [local ESPN review adapter](ask-espn-local-review.md) supplies mapped,
+accepted dev box-score evidence with explicit partial coverage. It disables
+league cohort claims and preserves provider-specific game keys.

@@ -105,10 +105,14 @@ def comparison_sides(question):
         return None  # Do not reinterpret an arbitrary follow-up as the old question.
     parts = re.split(r"\s+v(?:s\.?|ersus)\s+", original, flags=re.I)
     if len(parts) != 2:
-        match = re.match(r"\s*compare\s+(.+?)\s+(?:and|with)\s+(.+)", original, re.I)
-        if not match:
-            return None
-        parts = list(match.groups())
+        match = re.match(r"\s*compare\s+(.+?)\s+(?:and|with|to)\s+(.+)", original, re.I)
+        if match:
+            parts = list(match.groups())
+        else:
+            cue = re.search(r"\bcompar(?:e[sd]?|ing)\s+(?:to|with)\s+", original, re.I)
+            if not cue or not original[: cue.start()].strip():
+                return None
+            parts = [original[: cue.start()], original[cue.end() :]]
     # A dated month is a period comparison, not a second player identity.
     from app.agent.overview_calendar import MONTH_PATTERN
 
