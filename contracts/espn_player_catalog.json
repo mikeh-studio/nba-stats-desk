@@ -1,0 +1,7 @@
+{
+  "repository": "swar/nba_api",
+  "path": "src/nba_api/stats/library/data.py",
+  "commit": "ec190700dab27498b3f75ecac8f932e3a3ee1606",
+  "sha256": "656d716226ad3a9a466698298a2c8f44d762a09e0d7b8faf62af0109fd959502",
+  "method": "unique_normalized_full_name_pinned_nba_api_with_installed_aliases_v1"
+}

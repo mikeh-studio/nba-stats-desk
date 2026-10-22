@@ -1,0 +1,396 @@
+{
+  "event_relationships": [
+    {
+      "name": "game_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "revision",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "event_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "relationship_type",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "from_player_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "from_player_name",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "to_player_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    }
+  ],
+  "gamebook_coverage": [
+    {
+      "name": "game_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "source",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "domain",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "game_date",
+      "type": "DATE",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "season",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "phase",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "away",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "home",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "current_revision",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "published_at",
+      "type": "TIMESTAMP",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "last_attempt_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "last_failure_attempt_id",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "health",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    }
+  ],
+  "gamebook_documents": [
+    {
+      "name": "document_sha256",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "artifact_path",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "byte_count",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    }
+  ],
+  "gamebook_events": [
+    {
+      "name": "game_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "revision",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "event_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "game_date",
+      "type": "DATE",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "season",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "phase",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "team_abbreviation",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "period",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "clock",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "clock_seconds_remaining",
+      "type": "FLOAT",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "kind",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "scorer_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "scorer_name",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "points",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "page",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "source_row",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "bbox_json",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "raw_text",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    }
+  ],
+  "gamebook_extraction_runs": [
+    {
+      "name": "attempt_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "game_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "candidate_revision",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "expected_previous_revision",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "started_at",
+      "type": "TIMESTAMP",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "finished_at",
+      "type": "TIMESTAMP",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "status",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "input_path",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "errors_json",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "reason",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    }
+  ],
+  "gamebook_publication_history": [
+    {
+      "name": "publication_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "game_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "previous_revision",
+      "type": "STRING",
+      "mode": "NULLABLE"
+    },
+    {
+      "name": "new_revision",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "published_at",
+      "type": "TIMESTAMP",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "attempt_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "reason",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    }
+  ],
+  "gamebook_revisions": [
+    {
+      "name": "game_id",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "revision",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "document_sha256",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "payload_sha256",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "payload_path",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "identity_sha256",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "identity_path",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "source_url",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "parser_version",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "parser_sha256",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "pypdf_version",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "extraction_schema_version",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "storage_schema_version",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "event_count",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "relationship_count",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "raw_row_count",
+      "type": "INTEGER",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "validation_scope",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    },
+    {
+      "name": "independent_review_status",
+      "type": "STRING",
+      "mode": "REQUIRED"
+    }
+  ]
+}

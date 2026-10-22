@@ -164,10 +164,25 @@ NBA_API_RETRY_MAX_DELAY_SECONDS=8.0
 NBA_SHOT_LOCATION_SEASON_TYPE="Regular Season"
 ```
 
-Game logs are currently fetched through the active-player game-log endpoint, so
-`NBA_MAX_PLAYERS=0` should remain in place for season coverage runs.
+Game logs default to the league-wide player game-log endpoint
+(`NBA_GAME_LOG_EXTRACT_MODE=league`). The optional `players` mode calls the
+active-player endpoint individually; keep `NBA_MAX_PLAYERS=0` for its coverage
+runs. The enabled CDN fallback uses the official schedule and live boxscores,
+with `scheduleleaguev2` as a schedule fallback. If those sources are unavailable,
+an empty extraction fails; do not manufacture a successful run or advance a
+watermark to unblock downstream discovery.
 Aggregate shot-location data uses one league-wide player endpoint call per DAG
 run and lands in `raw_player_shot_locations`.
+
+Before restarting a stalled scheduler, inspect its LaunchAgent/process state,
+metadata heartbeat, and active DagRuns. A stale `running` record is not proof of
+a live task. Preserve metadata and confirm no worker exists before repairing an
+orphan; do not clear or replay it automatically. LaunchAgent filesystem-access
+errors require fixing the host's access to the checkout and Airflow database.
+Changing Python retries does not resolve those errors or HTTP 403 responses.
+Keep the scheduler stopped while [season-rollover](#season-rollover) publication
+prerequisites remain unmet. Use isolated Airflow metadata for a manual dev test
+so restarting it cannot resume unrelated production runs.
 
 ### Injury Reports
 
@@ -234,6 +249,13 @@ make airflow-live-validate
 ```
 
 ## Source Contracts
+
+The independent gamebook dev workflow has its own
+[source, retry, correction and publication contract](gamebook-ingestion.md).
+It starts paused and must be enabled by its exact DAG ID, `nba_gamebook_dev`;
+the production `airflow-unpause` target does not control it.
+The [ESPN dev pilot](espn-dev-pilot.md) has its own provider-specific landing,
+ID mapping, validation and correction checks under `nba_espn_dev`.
 
 Source contracts live under `contracts/` and run inside Airflow extract tasks
 before non-empty dataframes are uploaded to GCS.

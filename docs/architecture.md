@@ -69,6 +69,29 @@ newer serving data than the recorded status; it does not remove serving data.
 
 ## Warehouse Layout
 
+The independent [`nba_gamebook_dev` DAG](gamebook-ingestion.md) discovers completed
+regular-season games by reading existing NBA API game logs and upstream run health,
+then processes PDF gamebooks into isolated dev GCS/BigQuery
+storage. It starts paused, records source failures and validation rejections,
+revisits games for corrections, and preserves prior accepted revisions on failed
+replacement. It is not connected to the production analytics DAG, dbt, or Ask.
+
+The separate [ESPN dev pilot](espn-dev-pilot.md) captures alternative-provider
+games, box scores and assist events, preserves ESPN/NBA ID crosswalks, and
+compares mapped events with official PDFs. Its revisioned dev tables and run
+health are separate from NBA API production ingestion. It also starts paused.
+
+The manual [ESPN-only dev worker](espn-only-dev.md) publishes reconciled PBP and
+assist facts to a separate `nba_gamebook_dev_espn_only` dataset, with independent
+NBA identity and revision-specific PDF verification statuses. It retains prior
+valid facts on failed replacements and is not connected to a scheduler or Ask.
+
+The manual [ESPN correction worker](espn-corrections-dev.md) independently accepts
+reported final scores, player box scores, and reconciled PBP, with revision-bound
+dependencies and bounded correction-window discovery. Its dev-only tables retain
+failed replacement evidence and exclude stale assist relationships from the
+validated view. Airflow scheduling and production consumers remain unchanged.
+
 Bronze raw tables:
 
 - `nba_bronze.raw_game_logs`
