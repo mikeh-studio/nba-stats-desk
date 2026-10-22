@@ -37,6 +37,10 @@ Create a local admin user:
 make airflow-create-user
 ```
 
+Airflow prompts for a password and confirmation in the terminal. Choose a unique
+local password; this target supplies no default and does not change existing
+accounts.
+
 Start scheduler and webserver in separate terminals:
 
 ```bash

@@ -37,9 +37,9 @@ scores without claiming those scores are canonical NBA metrics.
 
 A source pin does not freeze live schemas, data, freshness, or season/archive
 routing. Product requests must preserve explicit scope and evidence availability.
-Dependency updates follow the reviewed rollover sequence; fixture-based CI does
-not establish live readiness. Source reuse supplies no credentials or permission
-to run warehouse writers. Future private model jobs publish only validated,
+Dependency updates that change season or archive routing follow the reviewed
+rollover sequence; fixture-based CI does not establish live readiness. Source
+reuse supplies no credentials or permission to run warehouse writers. Future private model jobs publish only validated,
 versioned outputs through an explicitly reviewed publication contract.
 
 ### Initial transition
@@ -170,7 +170,7 @@ without changing the public contract.
 Example tracked private research source:
 
 ```text
-nba-personal-model/
+private-model/
   src/             # model implementation, not trained binaries
   evals/synthetic/ # synthetic fixtures and evaluation code
   docs/            # private design and methodology
