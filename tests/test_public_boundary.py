@@ -100,3 +100,24 @@ def test_untracked_private_data_is_not_read(tmp_path):
     stage(tmp_path, "AGENTS.md", "Shared instructions\n")
     (tmp_path / "AGENTS.local.md").write_text("Private local guidance\n")
     assert check_index(tmp_path) == []
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "REPORTS/output.csv",
+        "DBT/PROFILES/.USER.YML",
+        "INFRA/TERRAFORM-AWS/ENV/local.json",
+        ".CLAUDE/settings.json",
+        "Research/NOTEBOOKS/source.py",
+        "dump.JSONL",
+        "model.PT",
+        "Nested/Agents.LOCAL.md",
+        ".ENV.Production",
+    ],
+)
+def test_force_added_case_variants_are_detected(tmp_path, filename):
+    init_repo(tmp_path)
+    (tmp_path / filename).parent.mkdir(parents=True, exist_ok=True)
+    stage(tmp_path, filename, "Synthetic artifact.\n")
+    assert (filename, "private artifact path") in check_index(tmp_path)

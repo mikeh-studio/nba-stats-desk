@@ -1,11 +1,61 @@
 # Public / Private Boundary
 
-This repo is intended to stay public as NBA Stats Desk: the agentic stats
-workbench, GCP-backed data platform, and reference application. The personal
-model layer should live in a private repo or package. Adding feedback loops,
-evaluation, and recovery workflows does not itself require moving system code
-into a private repository. Keep reusable implementation public and operational
-data and administrative access restricted.
+This repo stays public as NBA Stats Desk: the shared data platform, reusable
+analytics, and reference application. A separate private product repository owns
+new website experiences, product-specific workflows, and proprietary analysis.
+Private model research can remain in its existing dedicated repositories.
+Keep reusable implementation public and operational data and administrative
+access restricted. A private code repository can power a public website; it does
+not provide authentication or authorize publication of its data.
+
+## Repository ownership
+
+| Area | Owner and boundary |
+| --- | --- |
+| `dags/`, ingestion and repair scripts, `contracts/`, `dbt/`, `season.yml`, `dags/season_config.py` | Public platform remains the single source of shared pipeline code, source validation, season scope, and statistics. |
+| Governed NBA metrics, identity resolution, season/phase validation, evidence provenance, baseline models, and reusable evaluation tools in `app/` | Public and authoritative, including improvements discovered during private product development. |
+| Reference UI, Ask orchestration, prompts, and tools in `app/` | Public reference implementation that continues to receive fixes and useful shared improvements. |
+| New differentiated website flows, personalization, product-specific agent workflows, proprietary features and models | Private product or research repositories. Generic improvements can be deliberately contributed back with sanitized tests. |
+| Generic infrastructure templates, CI, and reusable release tooling | Public when free of operational details; product-specific deployment configuration and release policy belong in the private product repo. |
+| Credentials, user records, raw feedback, source exports, traces, trained artifacts, and production state | Access-controlled storage outside Git, including private Git. |
+
+### Sharing the platform
+
+The private product pins an immutable public revision. The
+public repo remains independently buildable and never depends on private code.
+Do not copy DAGs or dbt models into the product or start a second production
+ingestion schedule. Shared fixes land here first; dependency updates are separate
+reviewable product changes. Preserve this repository's license in the dependency.
+
+Select a narrow runtime interface for each product capability before implementing
+it. Prefer an existing reviewed read API when it supplies the required evidence;
+otherwise review the missing contract before introducing direct warehouse reads
+or a small shared library. Keep governed arithmetic in this platform rather than
+copying it into product SQL or a private Ask fork. Public shared logic defines
+the NBA statistics; private methods may derive clearly labeled proprietary
+scores without claiming those scores are canonical NBA metrics.
+
+A source pin does not freeze live schemas, data, freshness, or season/archive
+routing. Product requests must preserve explicit scope and evidence availability.
+Dependency updates that change season or archive routing follow the reviewed
+rollover sequence; fixture-based CI does not establish live readiness. Source
+reuse supplies no credentials or permission to run warehouse writers. Future private model jobs publish only validated,
+versioned outputs through an explicitly reviewed publication contract.
+
+### Initial transition
+
+Existing tracked platform and reference-app code stays here. Ownership follows
+responsibility, not the date code was written: shared correctness changes land
+publicly, while differentiated product workflows start private. There is no bulk
+copy of the working checkout, ignored
+research, or uncommitted work. Moving a currently tracked module later requires
+an explicit path inventory, consumer compatibility checks, and a reviewed change.
+Previously published code remains in public history.
+
+Repository setup does not activate production. Prior-season archive publication,
+IAM, deployment, scheduler repair or activation, warehouse writes, and any live
+polling remain pending operator review under the
+[season rollover procedure](operations.md#season-rollover).
 
 ## Keep Public
 
@@ -14,24 +64,34 @@ data and administrative access restricted.
 - dbt bronze, silver, gold, and agent models
 - feature input tables
 - public baseline similarity output contracts
-- FastAPI routes and read-only app behavior
+- reference FastAPI routes and reusable read-only app behavior
 - public-safe docs and validation commands
-- agent orchestration, application prompts, and tool definitions
-- feedback, evaluation, repair, and release-control implementation
+- existing reference agent orchestration, prompts, and tool definitions
+- reusable feedback, evaluation, repair, and release-control tooling
 - reviewed synthetic or sanitized regression fixtures and concise evaluation
   summaries or incident write-ups
 - `.env.example` placeholders
 
-## Keep Private
+## Private source repositories
 
+- new product-specific website code, personalization, and agent workflows
+- proprietary feature engineering and product-specific deployment configuration
 - tuned similarity model code
 - proprietary feature weights, thresholds, and model-selection experiments
   (documented public baseline parameters remain public)
-- raw user feedback, conversations, traces, private labels and evaluation sets,
-  and scouting notes
-- generated reports under `reports/`
-- local Ask history under `local_notes/`
-- notebooks and local experiments
+- private research source, experiment definitions, design documents, and synthetic
+  product evaluation cases that contain no real user or operational records
+
+Assign each proprietary model one source owner. Product and research repositories
+must not maintain parallel copies of the same model or pipeline. Keep shared
+metric/evidence corrections public with sanitized tests.
+
+## Private storage outside Git
+
+- raw user feedback, conversations, traces, private labels and evaluation captures,
+  and scouting records
+- generated reports under `reports/` and local Ask history under `local_notes/`
+- raw datasets and generated notebook outputs
 - model artifacts, checkpoints, and embeddings
 - real `.env` files, service accounts, tokens, and warehouse exports
 - raw quarantine exports and incident records containing sensitive information
@@ -41,12 +101,11 @@ data and administrative access restricted.
 These are requirements for future implementation, not a statement that feedback
 collection, authenticated administration, or automated recovery already exists.
 
-Keep one public system repository by default. Store operational records in
+Keep one shared public platform and use private source repositories for the
+product or deliberately proprietary research. Store operational records in
 access-controlled local or cloud storage with explicit retention and deletion
-rules. A private code repository is appropriate for deliberately proprietary
-personal-model work or confidential integrations; it is not the default store
-for logs, feedback, or credentials. Credentials must remain outside Git, including
-private repositories.
+rules. A private source repository is not a storage destination for logs,
+feedback, credentials, raw exports, or trained artifacts.
 
 When adding feedback and improvement loops:
 
@@ -101,25 +160,29 @@ Keep service logs access-controlled with a deployment-specific retention policy.
 These source controls do not configure cloud IAM, log retention, or external
 monitoring integrations that might independently capture request bodies.
 
-## Local Spinout
+## Private research integration
 
 The public repo can expose feature tables such as
 `nba_gold.player_similarity_feature_input`. A private package can consume those
 tables, train the personal model, and write private reports or model artifacts
 without changing the public contract.
 
-Recommended private repo shape:
+Example tracked private research source:
 
 ```text
-nba-personal-model/
-  models/
-  notebooks/
-  reports/
-  evals/
+private-model/
+  src/             # model implementation, not trained binaries
+  evals/synthetic/ # synthetic fixtures and evaluation code
+  docs/            # private design and methodology
   README.md
 ```
 
-Keep any local bridge scripts ignored until they are safe to publish.
+This is an ownership example, not a migration of an existing repository. Local
+`notebooks/`, `reports/`, raw data, and generated model artifacts must remain
+ignored or in access-controlled external storage. Ignored files are not backed
+up by Git. Product-specific adapters can be tracked privately; reusable adapters
+can be contributed here after review.
+
 Keep `AGENT_HISTORY_ENABLED=false` for public deployments unless the endpoint is
 put behind a real auth boundary.
 
@@ -168,11 +231,12 @@ architecture explanations focused on the system that exists. Public evidence
 should be concise, dated, and clear about what was actually tested.
 
 Keep detailed research surveys, rejected alternatives, roadmap planning,
-proprietary tuning, private evaluation cases, prompts/outputs from experiments,
-cost ledgers, session transcripts, and machine-specific debugging notes outside
-the tracked documentation tree. Use ignored `local_notes/` for working notes and
-`reports/` for run artifacts. Use a separate private repository for durable backup
-and collaboration; ignored local files are not remotely backed up by this repo.
+proprietary tuning, and synthetic product evaluation designs outside this public
+documentation tree; private source repositories can track those documents for
+collaboration. Raw experiment prompts/outputs, private evaluation captures, cost
+ledgers, session transcripts, and operational debugging records stay outside Git.
+Use ignored `local_notes/` for working records and `reports/` for run artifacts,
+with access-controlled backup separate from source repositories.
 
 Do not blanket-ignore `docs/` or Markdown files. Existing tracked material must
 be deliberately moved or untracked; ignore patterns only prevent future additions.

@@ -40,8 +40,7 @@ airflow-create-user:
 		--firstname Local \
 		--lastname Admin \
 		--role Admin \
-		--email admin@example.com \
-		--password admin
+		--email admin@example.com
 
 airflow-webserver:
 	$(AIRFLOW_CMD) webserver --port 8080

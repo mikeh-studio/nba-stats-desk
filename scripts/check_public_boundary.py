@@ -26,11 +26,11 @@ PRIVATE_DIRS = {
     ".gstack",
 }
 PRIVATE_FILES = {
-    "AGENTS.local.md",
-    "AGENTS.override.md",
-    "CLAUDE.md",
-    "DESIGN.md",
-    "TODOS.md",
+    "agents.local.md",
+    "agents.override.md",
+    "claude.md",
+    "design.md",
+    "todos.md",
     "airflow.cfg",
     "webserver_config.py",
 }
@@ -67,6 +67,7 @@ SECRET_PATTERNS = {
 
 
 def private_path(path: str) -> bool:
+    path = path.casefold()
     p = PurePosixPath(path)
     return (
         bool(set(p.parts[:-1]) & PRIVATE_DIRS)

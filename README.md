@@ -122,8 +122,7 @@ The project grew one layer at a time.
 
 1. **Notebook to ELT pipeline (Feb–Mar 2026):** a notebook that loaded game logs
    into BigQuery and had Claude write a recap became an Airflow, GCS, BigQuery,
-   dbt, and Terraform pipeline. See the [initial notebook](https://github.com/mikeh-studio/nba-stats-desk/commit/4d37b31)
-   and [2025–26 production stack](https://github.com/mikeh-studio/nba-stats-desk/pull/1).
+   dbt, and Terraform pipeline. See the [2025–26 production stack](https://github.com/mikeh-studio/nba-stats-desk/pull/1).
 2. **Data contracts and quality (Apr–May 2026):** source contracts, quarantine,
    freshness tracking, and atomic publication. Analysis stayed in deterministic SQL
    until this foundation was solid. See [source contracts](https://github.com/mikeh-studio/nba-stats-desk/pull/19)
