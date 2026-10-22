@@ -20,6 +20,7 @@ from app.agent.metric_presentation import (
     GAMES_WITH_DATA,
     game_coverage,
 )
+from app.agent.name_matching import name_matching_entrypoint
 from app.agent.performance_overview import (
     build_overview,
     identity_profile,
@@ -466,6 +467,7 @@ class SemanticAsk:
         self.warehouse = warehouse
         self.store = conversation_store
 
+    @name_matching_entrypoint
     def answer(
         self,
         question: str,
@@ -950,6 +952,10 @@ class SemanticAsk:
                     if p["player_id"] == chosen["player_id"]
                     or p["player_name"].casefold() != chosen["player_name"].casefold()
                 ]
+            from app.agent.name_matching import prepare_names
+
+            if not overview:
+                question, players = prepare_names(question, players)
             if split:
                 payload = answer_split(question, evidence, players, seasons[0])
                 plan = payload["semantic_plan"]
@@ -986,7 +992,11 @@ class SemanticAsk:
                     model=model,
                     question=question,
                     dated_points_eligible=dated_points_eligible,
-                    dated_points_question=original,
+                    dated_points_question=(
+                        prepare_names(original, players, strict=False)[0]
+                        if dated_points_eligible
+                        else original
+                    ),
                     selected_season=seasons[0]
                     if len(seasons) == 1
                     else self.settings.season,
@@ -1171,9 +1181,7 @@ class SemanticAsk:
                     option["team_abbr"] = identity_profile(option, evidence.rows)[
                         "player"
                     ].get("team_abbr")
-                    option["label"] = (
-                        f"{option['player_name']} (ID {option['player_id']})"
-                    )
+                    option["label"] = option["player_name"]
             if award:
                 payload["answer"] = award_intro(award) + "\n\n" + payload["answer"]
                 payload["award_evidence"] = award
@@ -1188,7 +1196,7 @@ class SemanticAsk:
                 "ok",
                 "unsupported_coverage",
             ):
-                payload["scope_assumptions"] = time_assumptions
+                payload.setdefault("scope_assumptions", []).extend(time_assumptions)
                 payload["period_options"] = period_options
                 payload["assumptions"].extend(time_assumptions)
             payload["semantic_plan"] = plan
@@ -1205,11 +1213,14 @@ class SemanticAsk:
                     snapshot["coverage_notes"]
                     + ([dev_phase_notice] if dev_phase_notice else [])
                 )
-                payload["answer"] = note + "\n\n" + payload["answer"]
+                if payload["status"] not in {"clarification_required", "not_found"}:
+                    payload["answer"] = note + "\n\n" + payload["answer"]
+                    payload.setdefault("scope_assumptions", []).extend(
+                        snapshot.get("scope_assumptions", [])
+                    )
+                # Identity confirmation is the immediate action; retain source
+                # disclosures in metadata and show them with the final answer.
                 payload["assumptions"].extend(snapshot["coverage_notes"])
-                payload.setdefault("scope_assumptions", []).extend(
-                    snapshot.get("scope_assumptions", [])
-                )
                 payload["source_coverage"] = snapshot.get("review_metadata")
             payload["source_query"] = {
                 k: v for k, v in snapshot.get("capture", {}).items() if k != "sql"

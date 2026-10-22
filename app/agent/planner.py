@@ -349,10 +349,11 @@ _MENTION_STOPWORDS = frozenset(
         "who", "what", "show", "compare", "which", "how", "follow",
         "previous", "question", "tell", "give", "list", "find", "rank",
         "analyze",
+        "summarize",
         # League and cohort words.
         "nba", "league", "average", "baseline", "eastern", "western",
         "conference", "regular", "season", "playoffs", "team", "teams",
-        "player", "players", "game", "games", "top", "best", "leaders",
+        "player", "players", "game", "games", "top", "best", "leaders", "markdown",
         # Metric words.
         "points", "assists", "rebounds", "steals", "blocks", "turnovers",
         "percentile", "trend", "trends", "stats", "minutes", "performance",
@@ -369,6 +370,7 @@ _MENTION_STOPWORDS = frozenset(
 _MENTION_TRIM_PREFIXES = frozenset(
     {
         "analyze",
+        "summarize",
         "compare",
         "show",
         "tell",

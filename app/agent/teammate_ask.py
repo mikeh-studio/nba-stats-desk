@@ -393,6 +393,23 @@ def _answer_study(agent, question, provider, model, trace):
         x != s["season"] for x in seasons
     ):
         return unavailable(study, reason_code="study_scope_mismatch")
+    from app.agent.name_matching import prepare_names
+
+    question, _ = prepare_names(
+        question,
+        [
+            {
+                "player_id": s["focal_player_id"],
+                "player_name": s["focal_player_name"],
+                "aliases": [],
+            },
+            {
+                "player_id": s["teammate_id"],
+                "player_name": s["teammate_name"],
+                "aliases": [],
+            },
+        ],
+    )
     response = agent._create_response(
         client=agent._get_client(provider),
         model=model,

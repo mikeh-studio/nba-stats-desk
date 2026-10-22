@@ -757,7 +757,9 @@ def test_untyped_player_clarification_recovers_after_restart(
 
     cid = str(uuid4())
     first = ask(
-        "Give an overview of Missing Player among guards in the 2024-25 regular season.",
+        # Unknown identities now return unavailable; a partial observed name
+        # still exercises identity clarification and recovery after restart.
+        "Give an overview of Example among guards in the 2024-25 regular season.",
         suffix,
         conversation_id=cid,
     )

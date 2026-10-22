@@ -201,7 +201,7 @@ def test_pair_fallback_ignores_unrelated_or_unverified_new_season(
 
 @pytest.mark.parametrize("other_team", ["BOS", "ATL"])
 @pytest.mark.parametrize("transport", ["/api/agent/ask", "/api/agent/ask/stream"])
-def test_empty_season_does_not_block_team_disambiguated_alias_fallback(
+def test_empty_season_keeps_ambiguous_names_pending_until_selection(
     bundle, monkeypatch, transport, other_team
 ):
     import json
@@ -246,17 +246,27 @@ def test_empty_season_does_not_block_team_disambiguated_alias_fallback(
                 and json.loads(line[6:]).get("type") == "final"
             )
         )
-        if other_team == "BOS":
-            assert result.get("status") == "ok", result
-            assert result["availability_scope"]["teammate_id"] == 822
-            assert result["season_fallback"] == {
-                "requested": DEFAULT_SEASON,
-                "used": "2025-26",
-            }
-            assert "2025-26" in result["answer"]
-        else:
-            assert result["research_error_code"] == "clarification_required", result
-            assert "season_fallback" not in result
+        assert result["status"] == "clarification_required", result
+        assert {p["player_name"] for p in result["clarification_options"]} == {
+            "Blake Reed",
+            "Blake Swift",
+        }
+        assert not result["tables"]
+        assert "season_fallback" not in result
+        selected = client.post(
+            "/api/agent/ask",
+            json={
+                "question": "Blake Reed",
+                "conversation_id": result["conversation_id"],
+                "selected_player": {"player_id": 822, "player_name": "Blake Reed"},
+            },
+        ).json()
+        assert selected["status"] == "ok", selected
+        assert selected["availability_scope"]["teammate_id"] == 822
+        assert selected["season_fallback"] == {
+            "requested": DEFAULT_SEASON,
+            "used": "2025-26",
+        }
         explicit = client.post(
             "/api/agent/ask", json={"question": question + f" in {DEFAULT_SEASON}"}
         ).json()

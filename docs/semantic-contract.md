@@ -11,6 +11,10 @@ metric discoverability alone does not imply every question or operation is suppo
 - Player appearances have unique `(season, game_id, player_id)` keys. Game IDs
   remain strings. Names resolve against observed identities; ambiguity requires
   clarification instead of choosing a player.
+  All Ask spelling matches use identities from the route's source roster only.
+  Clear minor full-name typos may resolve under `player_name_match/1`, with the
+  name used disclosed in the answer. Partial names and competing identities
+  require clarification; no credible match returns unavailable without statistics.
 - Historical team filters use the team on the appearance, not a current profile.
   Season and regular-season/playoff scope remain explicit in results.
 - Governed metric queries default to Regular Season. The bounded correction of

@@ -80,12 +80,14 @@ def availability_followup(question):
 
 
 def _identities(question, players):
+    from app.agent.name_matching import prepare_names
+
+    question, players = prepare_names(question, players)
     hits = []
     for player in players:
         for alias in {
             player["player_name"],
-            *player["aliases"],
-            player["player_name"].split()[0],
+            *player.get("aliases", []),
         }:
             for match in re.finditer(
                 r"(?<!\w)" + re.escape(alias) + r"(?!\w)", question, re.I
@@ -102,22 +104,6 @@ def _identities(question, players):
     spans = {}
     for start, end, player in hits:
         spans.setdefault((start, end), {})[player["player_id"]] = player
-    known_teams = set().union(
-        *[
-            set(next(iter(matches.values())).get("observed_teams", []))
-            for matches in spans.values()
-            if len(matches) == 1
-        ]
-    )
-    for span, matches in spans.items():
-        if len(matches) > 1 and known_teams:
-            same_team = {
-                pid: p
-                for pid, p in matches.items()
-                if known_teams.intersection(p.get("observed_teams", []))
-            }
-            if len(same_team) == 1:
-                spans[span] = same_team
     if any(len(matches) != 1 for matches in spans.values()):
         raise SemanticError(
             "clarification_required",

@@ -143,7 +143,9 @@ def test_comparison_wording_at_actual_endpoints(suffix, variant):
                 data = response.json()
             assert data["ask_route"]["route"] == "player_comparison"
             if variant in {"missing", "ambiguous", "same"}:
-                assert data["status"] == "clarification_required"
+                assert data["status"] == (
+                    "not_found" if variant == "missing" else "clarification_required"
+                )
                 assert not data["tables"]
                 return
             assert data["status"] == "ok"

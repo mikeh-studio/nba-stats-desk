@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from app.agent.conversation import InMemoryConversationStore
+from app.agent.name_matching import PlayerNameError
 from app.agent.player_comparison import comparison_sides
 from app.agent.player_splits import answer_split, parse_split
 from app.agent.semantic_answer import SemanticAsk
@@ -134,7 +135,7 @@ def test_missing_trade_date_clarifies_without_guess(source):
 def test_ambiguous_identity_never_chooses(source):
     players = source_players(source)
     players.append(dict(player_id=202, player_name="Avery Other", aliases=["Avery"]))
-    with pytest.raises(SemanticError, match="full names"):
+    with pytest.raises(PlayerNameError, match="Select the intended player"):
         parse_split("Avery regular season vs playoff", players, "2024-25")
 
 

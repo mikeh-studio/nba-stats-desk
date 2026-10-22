@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from app.agent.conversation import ConversationStore, PendingClarification
 from app.agent.execution import create_response, governed_request
+from app.agent.name_matching import PlayerNameError, run_name_matching
 from app.agent.observability import AgentTrace, summarize_tool_result
 from app.agent.planner import (
     QueryPlan,
@@ -1431,17 +1432,24 @@ class StatsAgent:
         from app.agent.visualization import VisualizationAgent
 
         routing: dict[str, str] = {}
-        payload = finish_route(
-            self._answer(
-                question,
+        payload = run_name_matching(
+            self,
+            question,
+            selected_player,
+            conversation_id,
+            lambda effective_question, selection: self._answer(
+                effective_question,
                 conversation_id=conversation_id,
                 trace=trace,
                 progress_callback=progress_callback,
-                selected_player=selected_player,
+                selected_player=selection,
                 provider=provider,
                 model=model,
                 routing=routing,
             ),
+        )
+        payload = finish_route(
+            payload,
             route=routing["route"],
             source=routing["source"],
             trace=trace,
@@ -1605,6 +1613,8 @@ class StatsAgent:
                     selected_player,
                     route_context=route_context,
                 )
+            except PlayerNameError:
+                raise
             except Exception as exc:
                 raise AgentExecutionError("Governed reference request failed") from exc
         if route.handler == "teammate_study":
@@ -1633,6 +1643,8 @@ class StatsAgent:
                         },
                     )
                 return payload
+            except PlayerNameError:
+                raise
             except Exception as exc:
                 raise AgentExecutionError("Teammate study request failed") from exc
         if route.handler == "semantic":
@@ -1649,6 +1661,8 @@ class StatsAgent:
                 )
                 return payload
             except ValueError:
+                raise
+            except PlayerNameError:
                 raise
             except Exception as exc:
                 raise AgentExecutionError("Governed analytics request failed") from exc
@@ -1676,10 +1690,12 @@ class StatsAgent:
                     selected_id = None
                 selected_resolution = _selection_resolution(selected_id, selected_name)
 
+        abandoned_identity = False
         if pending is not None and selected_resolution is None:
             reply_name = _clarify_reply_name(cleaned_question)
             if reply_name is None:
                 # Reads like a brand-new question; drop the pending one.
+                abandoned_identity = True
                 if store is not None and conversation_id:
                     store.clear_pending_clarification(conversation_id)
                 pending = None
@@ -1752,7 +1768,11 @@ class StatsAgent:
 
         client = self._get_client(provider_name)
         planning_question = cleaned_question
-        if history_turns:
+        if (
+            history_turns
+            and not abandoned_identity
+            and not (pending_route and not keep_pending)
+        ):
             planning_question = (
                 f"Previous question: {history_turns[-1].question}\n"
                 f"Follow-up question: {cleaned_question}"
@@ -1831,6 +1851,16 @@ class StatsAgent:
                 query_plan.raw_player_mentions,
                 limit=5,
             )
+        for resolution in resolutions:
+            if resolution.status == "not_found":
+                raise PlayerNameError(
+                    resolution.raw_name,
+                    {
+                        "status": "not_found",
+                        "matches": [],
+                        "message": "No matching player is available in this NBA dataset for the requested scope.",
+                    },
+                )
         query_plan.resolved_players = _resolved_players_payload(resolutions)
         query_plan.unresolved_players = [
             resolution.raw_name
@@ -1848,8 +1878,10 @@ class StatsAgent:
         # planner clarification flag is honored only for routes that have no
         # player to anchor on (e.g. ranking) or when no usable player resolved.
         missing_target = needs_players and ok_resolution_count == 0
-        needs_clarification = missing_target or (
-            query_plan.needs_clarification and not needs_players
+        needs_clarification = (
+            bool(query_plan.unresolved_players)
+            or missing_target
+            or (query_plan.needs_clarification and not needs_players)
         )
         if query_plan.route == AgentRoute.COMPARE and ok_resolution_count < 2:
             needs_clarification = True

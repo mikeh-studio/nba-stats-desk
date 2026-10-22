@@ -923,3 +923,16 @@ See the [Phase 1 serving contract](ask-serving-contract.md) for the offline metr
 inventory, publication validation, telemetry, and parity checks. Production Ask
 retrieval remains unchanged; serving routing and live performance measurement are
 subsequent phases.
+
+## Shared player-name matching regressions
+
+`tests/test_name_matching_routes.py` exercises JSON and SSE endpoints with
+synthetic source evidence across appearances, splits, similarity, league
+baselines, planned summaries/game logs/ranks/percentiles, research, and study
+identity handling. Corrected queries must return the same statistics and scope
+as canonical-name controls. Partial names clarify; unrelated names return
+`not_found`, without tables or a planning call. Selection and typed replies
+resume the original filters, duplicate names retain distinct IDs, and team/metric
+words must not become player candidates. Overview/comparison controls remain in
+`tests/test_player_suggestions.py`. These checks establish fixture behavior;
+local live-source probes and browser checks are reported separately.
