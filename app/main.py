@@ -81,7 +81,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261020-season-rollover-v1"
+STATIC_VERSION = "20261022-saved-response-retry-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -296,6 +296,28 @@ class SeasonMiddleware:
             _selected_season.reset(token)
 
 
+class LocalDevSourceBoundary:
+    """Pure ASGI guard: preserve streaming send/backpressure semantics."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and get_settings().ask_local_espn_dev:
+            request = Request(scope)
+            if not is_direct_local(request):
+                response = JSONResponse(
+                    status_code=403,
+                    content={
+                        "detail": "ESPN dev review requires direct localhost access"
+                    },
+                )
+                await response(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(LocalDevSourceBoundary)
 app.add_middleware(SeasonMiddleware)
 
 
@@ -1383,6 +1405,7 @@ def ask_page(
         "season": current_season(),
         "tracking_cap": TRACKING_CAP,
         "ask_claim_enforcement": settings.ask_claim_enforcement,
+        "ask_local_espn_dev": settings.ask_local_espn_dev,
         "agent_enabled": settings.openai_agent_enabled,
         "agent_configured": bool(
             settings.openai_api_key

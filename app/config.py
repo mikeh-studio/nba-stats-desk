@@ -75,6 +75,7 @@ class Settings:
     max_search_results: int
     ask_claim_enforcement: str = "log"
 
+    ask_local_espn_dev: bool = False
     season: str = SUPPORTED_SEASON
     agent_dataset: str = "nba_agent"
     openai_api_key: str | None = None
@@ -162,6 +163,7 @@ class Settings:
 
 def get_settings() -> Settings:
     return Settings(
+        ask_local_espn_dev=_env_bool("ASK_LOCAL_ESPN_DEV", False),
         ask_claim_enforcement=os.getenv("ASK_CLAIM_ENFORCEMENT", "log"),
         project_id=os.getenv("BQ_PROJECT", os.getenv("GCP_PROJECT_ID", "")),
         gold_dataset=os.getenv("BQ_DATASET_GOLD", "nba_gold"),

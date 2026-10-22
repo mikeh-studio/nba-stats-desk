@@ -7,7 +7,7 @@ from collections import OrderedDict
 from datetime import date
 from threading import Lock
 from time import monotonic
-from typing import Any
+from typing import Any, Protocol
 
 from app.agent.clock import today as semantic_today
 from app.agent.execution import timed
@@ -113,8 +113,12 @@ def seasons_in_dates(start, end):
     return seasons
 
 
+class SnapshotSource(Protocol):
+    def capture(self, seasons: list[str]) -> dict[str, Any]: ...
+
+
 class SemanticWarehouse:
-    def __init__(self, source: BigQuerySemanticSource, ttl_seconds: int = 300):
+    def __init__(self, source: SnapshotSource, ttl_seconds: int = 300):
         self.source = source
         self.ttl_seconds = ttl_seconds
         self._lock = Lock()
@@ -189,5 +193,9 @@ def warehouse_for_repository(repo: Any) -> SemanticWarehouse:
                 ),
                 settings.agent_cache_ttl_seconds,
             )
+            if settings.ask_local_espn_dev:
+                from app.agent.espn_dev_source import ESPNDevSource
+
+                warehouse.source = ESPNDevSource(warehouse.source)
             repo._governed_warehouse = warehouse
         return warehouse

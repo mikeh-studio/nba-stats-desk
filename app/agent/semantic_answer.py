@@ -852,6 +852,34 @@ class SemanticAsk:
                 if hasattr(self.warehouse, "players")
                 else source_players(evidence)
             )
+            dev_phase_notice = None
+            if (
+                not evidence.cohort_complete
+                and overview
+                and not re.search(
+                    r"\b(playoffs?|postseason|both|all phases)\b", question, re.I
+                )
+            ):
+                overview = {
+                    **overview,
+                    "phases": ["Regular Season"],
+                    "previous_phases": ["Regular Season"],
+                }
+                dev_phase_notice = "This preview covers regular-season box scores only; this overview uses the regular season."
+            if not evidence.cohort_complete and (
+                comparison
+                or split
+                or position_group
+                or re.search(
+                    r"\b(rank|rankings|percentiles?|baseline|cohort|peers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
+                    question,
+                    re.I,
+                )
+            ):
+                raise SemanticError(
+                    "unsupported_coverage",
+                    "League and peer comparisons are unavailable for partial ESPN dev coverage. Ask for a player's recorded box-score metrics.",
+                )
             if context.get("browser_recovered") and any(
                 not any(
                     p["player_id"] == hint["player_id"]
@@ -1168,6 +1196,17 @@ class SemanticAsk:
                     "requested": self.settings.season,
                     "used": seasons[0],
                 }
+            if snapshot.get("coverage_notes"):
+                note = " ".join(
+                    snapshot["coverage_notes"]
+                    + ([dev_phase_notice] if dev_phase_notice else [])
+                )
+                payload["answer"] = note + "\n\n" + payload["answer"]
+                payload["assumptions"].extend(snapshot["coverage_notes"])
+                payload.setdefault("scope_assumptions", []).extend(
+                    snapshot.get("scope_assumptions", [])
+                )
+                payload["source_coverage"] = snapshot.get("review_metadata")
             payload["source_query"] = {
                 k: v for k, v in snapshot.get("capture", {}).items() if k != "sql"
             }

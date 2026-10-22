@@ -1,5 +1,5 @@
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261020-season-rollover-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261020-season-rollover-v1";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261022-saved-response-retry-v1";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261022-saved-response-retry-v1";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -8,7 +8,7 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261020-season-rollover-v1";
+} from "./ask_comparison.js?v=20261022-saved-response-retry-v1";
 import {
   normalizeTabs,
   openTab,
@@ -22,8 +22,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261020-season-rollover-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261020-season-rollover-v1";
+} from "./ask_presentation.js?v=20261022-saved-response-retry-v1";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261022-saved-response-retry-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1509,6 +1509,19 @@ function appendRestoredTurn(turn, isLatest) {
     answerEl?.parentElement || document,
     isLatest,
   );
+  if (isLatest && turn.payload.status && !["ok", "clarification_required"].includes(turn.payload.status)) {
+    const notice = document.createElement("p");
+    notice.className = "meta";
+    notice.textContent = "Saved response. Opening this chat does not run the question again.";
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "button subtle";
+    retry.dataset.savedQuestionRetry = "true";
+    retry.textContent = "Run this question again";
+    retry.addEventListener("click", () => askQuestion(turn.question));
+    article.appendChild(notice);
+    article.appendChild(retry);
+  }
   if (!isLatest)
     article.querySelectorAll("[data-agent-player-option]").forEach((button) => {
       button.disabled = true;
@@ -2097,7 +2110,7 @@ function setBusy(busy) {
   if (status) status.dataset.thinking = String(busy);
   document
     .querySelectorAll(
-      "[data-followup-submit], [data-agent-submit], [data-agent-provider], [data-agent-model], #chat-turn",
+      "[data-followup-submit], [data-agent-submit], [data-saved-question-retry], [data-agent-provider], [data-agent-model], #chat-turn",
     )
     .forEach((el) => {
       el.disabled = busy;
