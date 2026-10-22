@@ -97,6 +97,101 @@ def test_minutes_units():
         minutes("12:99")
 
 
+@pytest.mark.parametrize("value", [None, "abc", "12:", "NaN", "inf", "-1:30"])
+def test_malformed_minutes_are_invalid_evidence(value):
+    with pytest.raises(SemanticError) as exc:
+        minutes(value)
+    assert exc.value.code == "invalid_evidence"
+
+
+@pytest.mark.parametrize("payload", [None, "{", "null", "[]", "{}"])
+def test_malformed_or_missing_joined_payload_is_invalid_evidence(payload):
+    data = bundle()
+    data["games"][0]["payload"] = payload
+    with pytest.raises(SemanticError) as exc:
+        snapshot(data, SEASON, "synthetic")
+    assert exc.value.code == "invalid_evidence"
+
+
+@pytest.mark.parametrize("change_input", [False, True])
+def test_rehashed_but_inconsistent_box_is_not_served(change_input):
+    from scripts.espn_corrections import revision
+
+    data = bundle()
+    candidate = json.loads(data["games"][0]["payload"])
+    candidate["players"][0]["stats"]["PTS"] = 1
+    if change_input:
+        group = candidate["input"]["boxscore"]["players"][0]["statistics"][0]
+        group["athletes"][0]["stats"][group["labels"].index("PTS")] = "1"
+    data["games"][0]["payload"] = json.dumps(candidate)
+    data["games"][0]["box_revision"] = revision(candidate)
+    with pytest.raises(SemanticError) as exc:
+        snapshot(data, SEASON, "synthetic")
+    assert exc.value.code == "invalid_evidence"
+
+
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+@pytest.mark.parametrize("kind", ["nba", "league", "baseline", "similarity"])
+def test_partial_source_at_actual_endpoints(suffix, kind):
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+
+    from test_semantic_migration import settings
+
+    value = snapshot(bundle(), SEASON, "synthetic")
+    evidence = snapshot_evidence(value)
+    config = replace(settings(SEASON), performance_cache_prewarm_enabled=False)
+    repo = BigQueryWarehouseRepository(config, client=SimpleNamespace())
+    repo._governed_warehouse = SimpleNamespace(load=lambda seasons: (value, evidence))
+    question = {
+        "nba": "How did Avery Able perform in the NBA this season?",
+        "league": "How did Avery Able perform in the league this season?",
+        "baseline": "Compare Avery Able points with the league average this season",
+        "similarity": "Who is similar to Avery Able this season?",
+    }[kind]
+    previous = dict(app.dependency_overrides)
+    app.dependency_overrides.update(
+        {
+            get_settings: lambda: config,
+            get_repository: lambda: repo,
+            get_agent_client: lambda: object(),
+        }
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/agent/ask" + suffix,
+                params={"season": SEASON},
+                json={"question": question},
+            )
+            assert response.status_code == 200
+            if suffix:
+                events = [
+                    json.loads(s[6:])
+                    for s in response.text.splitlines()
+                    if s.startswith("data: ")
+                ]
+                result = next(e["payload"] for e in events if e.get("type") == "final")
+            else:
+                result = response.json()
+            if kind in {"baseline", "similarity"}:
+                assert result["status"] == "unsupported_coverage"
+                assert not result["tables"]
+            else:
+                assert result["status"] == "ok"
+                ev = result["semantic_evidence"]
+                assert ev["player_id"] == 10
+                assert ev["scope"]["phases"] == ["Regular Season"]
+                assert ev["scope"]["start"] == "2025-07-01"
+                assert ev["scope"]["end"] == "2026-06-30"
+                assert next(m for m in ev["metrics"] if m["key"] == "pts")["value"] == 0
+                assert result["semantic_plan"]["model_calls"] == 0
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(previous)
+
+
 def test_opt_in_source_denies_remote_ingress(monkeypatch):
     import app.main as main
     from app.config import Settings

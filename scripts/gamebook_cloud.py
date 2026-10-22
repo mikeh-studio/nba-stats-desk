@@ -15,7 +15,8 @@ from uuid import uuid4
 
 from dotenv import load_dotenv
 from google.api_core.exceptions import NotFound, PreconditionFailed
-from google.cloud import bigquery, storage
+from google.cloud import bigquery
+from google.cloud.storage import Client as StorageClient
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -106,7 +107,7 @@ class CloudStore:
         self.output = Path(output)
         self.output.mkdir(parents=True, exist_ok=False)
         self.bq = bq or bigquery.Client(project=project)
-        self.gcs = gcs or storage.Client(project=project)
+        self.gcs = gcs or StorageClient(project=project)
         self.bucket = self.gcs.get_bucket(bucket, timeout=30)
         require(
             self.bucket.location.upper() == location.upper(),

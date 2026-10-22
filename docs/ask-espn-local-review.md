@@ -8,7 +8,9 @@ The app rejects non-loopback, forwarded, or non-local-origin requests in this mo
 Run Uvicorn on `127.0.0.1` with `--no-proxy-headers`.
 
 The adapter preserves provider provenance and exact box/result revisions. It
-checks payload hashes, current acceptance and dependency identity. Game keys use
+revalidates each box against its retained source input and checks payload hashes,
+current acceptance and dependency identity. Malformed payloads or minute values
+produce `invalid_evidence` rather than an unclassified parsing failure. Game keys use
 `espn:<source_game_id>`; ESPN game IDs are never represented as NBA IDs. Only
 mapped NBA player IDs enter the semantic identity field. Unmapped player-game
 rows are excluded and counted in every successful answer's source-coverage note.
@@ -17,9 +19,10 @@ Minutes are converted from decimal-minute or minute:second cells.
 Evidence completeness means retrieval of the accepted mapped dev sample, not a
 certified full league season. It carries `cohort_complete=false`. Rankings and
 percentiles are blocked, summary ranks stay null, and player overviews omit
-league/position peer distributions. Explicit peer/baseline requests are refused
+league/position peer distributions. Explicit peer/baseline and similarity requests are refused
 in this preview. Current-season overviews without an explicit phase use regular
 season only and state that choice; explicit playoff requests are not narrowed.
+Mentioning the NBA or league in a plain player overview does not request a ranking.
 
 Accepted player box-score assists remain usable independently of PBP. Pending
 PBP counts are displayed; player assist totals do not certify assist-pair edges.
@@ -51,3 +54,10 @@ to normal serving without changing any warehouse rows.
 Tests: `tests/test_espn_dev_source.py`, semantic source/overview suites, streaming
 capacity tests, and frozen Ask endpoint evaluation. Live provider freshness and
 actual UI/endpoint results must be verified separately from synthetic tests.
+
+The adapter regressions exercise malformed and rehashed invalid source payloads,
+explicit scope and identity, and JSON/SSE requests for ordinary player overviews
+and unavailable league/similarity comparisons. Conversational comparison tests
+also distinguish a second player from career, league and month baselines; this
+does not add support for every baseline. Static review and fixture success do
+not establish live provider interpretation or production readiness.

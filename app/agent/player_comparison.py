@@ -116,11 +116,11 @@ def comparison_sides(question):
     # A dated month is a period comparison, not a second player identity.
     from app.agent.overview_calendar import MONTH_PATTERN
 
-    if re.match(r"\s*(?:in\s+)?" + MONTH_PATTERN + r"\s+20\d{2}\b", parts[1], re.I):
+    if re.match(r"\s*(?:in\s+)?" + MONTH_PATTERN, parts[1], re.I):
         return None
     # A baseline is not a second player, regardless of comparison wording.
     if re.match(
-        r"\s*(?:(?:the|his|her|their|its)\s+)?(?:prior|previous|last|past|this|current|regular season|playoffs?|postseason|home|away|road|before|after|20\d{2})\b",
+        r"\s*(?:(?:the|his|her|their|its|an?)\s+)?(?:prior|previous|last|past|this|current|career|league|average player|best season|rookie season|year ago|regular season|playoffs?|postseason|home|away|road|before|after|20\d{2})\b",
         parts[1],
         re.I,
     ):

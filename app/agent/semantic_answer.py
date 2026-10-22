@@ -866,10 +866,15 @@ class SemanticAsk:
                     "previous_phases": ["Regular Season"],
                 }
                 dev_phase_notice = "This preview covers regular-season box scores only; this overview uses the regular season."
-            if not evidence.cohort_complete and re.search(
-                r"\b(league|nba|rank|rankings|percentiles?|baseline|cohort|peers|guards|forwards|centers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
-                question,
-                re.I,
+            if not evidence.cohort_complete and (
+                comparison
+                or split
+                or position_group
+                or re.search(
+                    r"\b(rank|rankings|percentiles?|baseline|cohort|peers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
+                    question,
+                    re.I,
+                )
             ):
                 raise SemanticError(
                     "unsupported_coverage",

@@ -31,7 +31,19 @@ def test_conversational_comparison_selects_two_sides(question):
 
 @pytest.mark.parametrize(
     "baseline",
-    ["last season", "his previous 5 games", "2024-25", "November 2025"],
+    [
+        "last season",
+        "his previous 5 games",
+        "2024-25",
+        "November 2025",
+        "November",
+        "his career average",
+        "the league average",
+        "his rookie season",
+        "his best season",
+        "an average player",
+        "a year ago",
+    ],
 )
 def test_conversational_temporal_baselines_are_not_player_comparisons(baseline):
     assert comparison_sides(f"How does Avery Finch compare to {baseline}?") is None

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
+import math
 from collections import Counter
+
+from scripts.espn_corrections import validate as validate_box
 
 from app.agent.semantic_source import (
     BigQuerySemanticSource,
@@ -33,15 +35,33 @@ FIELDS = dict(
 
 
 def minutes(value):
-    parts = str(value).split(":")
-    if len(parts) == 1:
-        return float(parts[0])
-    if len(parts) != 2 or not 0 <= float(parts[1]) < 60:
-        raise SemanticError("invalid_data", "Invalid ESPN minutes")
-    return float(parts[0]) + float(parts[1]) / 60
+    try:
+        parts = str(value).split(":")
+        if len(parts) == 1:
+            result = float(parts[0])
+        elif len(parts) == 2 and 0 <= float(parts[1]) < 60:
+            result = float(parts[0]) + float(parts[1]) / 60
+        else:
+            raise ValueError("Invalid minute format")
+        if not math.isfinite(result) or result < 0 or float(parts[0]) < 0:
+            raise ValueError("Invalid minute value")
+        return result
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise SemanticError("invalid_evidence", "Invalid ESPN minutes") from exc
 
 
 def snapshot(bundle, season, source, query_id=None):
+    try:
+        return _snapshot(bundle, season, source, query_id)
+    except SemanticError:
+        raise
+    except (KeyError, TypeError, ValueError, OverflowError, AttributeError) as exc:
+        raise SemanticError(
+            "invalid_evidence", "Malformed ESPN dev box-score evidence"
+        ) from exc
+
+
+def _snapshot(bundle, season, source, query_id=None):
     games, mappings = bundle["games"], bundle["mappings"]
     if len(games) > 1500 or len(mappings) > 1000:
         raise SemanticError("incomplete_evidence", "Dev source bound exceeded")
@@ -63,15 +83,9 @@ def snapshot(bundle, season, source, query_id=None):
         if item["box_status"] != "accepted" or item["result_status"] != "accepted":
             continue
         candidate = json.loads(item["payload"])
-        digest = hashlib.sha256(
-            json.dumps(
-                candidate,
-                sort_keys=True,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                allow_nan=False,
-            ).encode()
-        ).hexdigest()
+        # A matching hash establishes integrity, not the source contract. Rebuild
+        # and validate the box from its retained input before serving any rows.
+        digest = validate_box(candidate)
         if digest != item["box_revision"]:
             raise SemanticError("invalid_evidence", "Box revision hash differs")
         game = candidate["game"]

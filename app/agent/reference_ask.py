@@ -493,6 +493,11 @@ def answer_reference(
                 "The similarity publication must match the selected season.",
             )
         _, source = agent.semantic_agent.warehouse.load(seasons)
+        if not source.cohort_complete:
+            raise SemanticError(
+                "unsupported_coverage",
+                "League and similarity comparisons require complete cohort coverage.",
+            )
         source.validate()
         players = source_players(source)
         if selected_player:
