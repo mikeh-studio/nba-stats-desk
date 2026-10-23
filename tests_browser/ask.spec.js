@@ -287,10 +287,10 @@ test('research displays populated filtered values and explicit player override',
   await submit(page, c.turns[0].question);
   await expect(page.locator('[data-agent-tables]')).toContainText('Research breakdown');
   await expect(page.locator('[data-agent-tables]')).toContainText('Avery Example');
-  await page.locator('[data-followup-question]').fill(c.turns[1].question);
-  await page.locator('[data-followup-submit]').click();
-  await expect(page.locator('[data-followup-redirect]')).toBeVisible();
-  await page.locator('[data-followup-new-tab]').click();
+  // Legacy research responses have no qualifying status/context for the
+  // follow-up composer. A new subject remains available through the top bar.
+  await expect(page.locator('[data-followup-section]')).toBeHidden();
+  await submit(page, c.turns[1].question);
   await expect(page.locator('[data-agent-answer]')).toContainText('Blair Sample');
   await expect(page.locator('[data-agent-tables]').last()).toContainText('13');
 });
@@ -829,3 +829,73 @@ for (const width of [1280, 390, 320]) {
     await page.screenshot({path: testInfo.outputPath('compact-bars.png'), fullPage: true});
   });
 }
+
+for (const suggestionIndex of [0, 1]) {
+  test('rendered backend suggestion submits in the current chat: ' + suggestionIndex, async ({page}) => {
+    const c = await prepare(page, 'baseline_points');
+    const posts = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/api/agent/ask/stream'))
+        posts.push(request.postDataJSON());
+    });
+    await submit(page, c.turns[0].question);
+    // Use the backend's actual canned wording in a saved, qualified report.
+    const backendSource = fs.readFileSync('app/research_studies.py', 'utf8');
+    const followups = JSON.parse(backendSource.match(/"followups": (\[[^\]]*\])/)[1]);
+    await page.evaluate(followups => {
+      const key = 'askChatHistory:v1';
+      const saved = JSON.parse(localStorage.getItem(key));
+      saved.conversations[0].turns[0].payload.followups = followups;
+      localStorage.setItem(key, JSON.stringify(saved));
+    }, followups);
+    await page.reload();
+    const suggestion = page.locator('[data-followup-suggestions] [data-agent-example]').nth(suggestionIndex);
+    const text = await suggestion.getAttribute('data-agent-example');
+    await suggestion.click();
+    await expect(page.locator('[data-followup-question]')).toHaveValue(text);
+    const response = page.waitForResponse(r => r.url().includes('/api/agent/ask/stream'));
+    await page.locator('[data-followup-submit]').click();
+    expect((await response).status()).toBe(200);
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    expect(posts).toHaveLength(2);
+    expect(posts[1].question).toBe(text);
+    expect(posts[1].conversation_id).toBe(posts[0].conversation_id);
+    expect(posts[1].previous_context).toBeDefined();
+    await expect(page.locator('[data-followup-redirect]')).toBeHidden();
+  });
+}
+
+test('saved unusable response hides follow-up input and a successful retry restores it', async ({page}) => {
+  const c = await prepare(page, 'baseline_points');
+  await submit(page, c.turns[0].question);
+  await page.evaluate(() => {
+    const key = 'askChatHistory:v1';
+    const saved = JSON.parse(localStorage.getItem(key));
+    saved.conversations[0].turns[0].payload = {status:'unsupported', answer:'Unsupported saved question.'};
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  await expect(page.locator('[data-agent-answer]')).toContainText('Unsupported saved question.');
+  await expect(page.locator('[data-followup-section]')).toBeHidden();
+  await page.locator('[data-saved-question-retry]').click();
+  await expect(page.locator('[data-followup-section]')).toBeVisible();
+  await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+});
+
+test('Ask recovers when the active saved chat cannot be restored', async ({page}) => {
+  const c = await prepare(page, 'baseline_points');
+  await page.evaluate(() => {
+    localStorage.removeItem('askChatHistory:v1');
+    const key = Object.keys(localStorage).find(key => key.startsWith('askOpenTabs:v1:'));
+    localStorage.setItem(key, JSON.stringify({open:['missing-chat'], active:'missing-chat', drafts:{}}));
+  });
+  await page.route('**/api/agent/history?conversation_id=missing-chat*', route => route.fulfill({status:503, body:'Unavailable'}));
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.reload();
+  await expect(page.locator('[data-storage-notice]')).toContainText('could not be reached');
+  await submit(page, c.turns[0].question);
+  await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
+  await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
+  expect(errors).toEqual([]);
+});

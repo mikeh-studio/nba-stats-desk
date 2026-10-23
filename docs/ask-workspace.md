@@ -209,6 +209,10 @@ wrapped text and shrink when cleared; the button occupies its own column.
 Suggestions fill the follow-up composer without submitting. A conservative
 browser vocabulary check admits common refinements, names in the report, and
 terms in the opening/current report question so clarification replies remain usable.
+Exact report suggestions also pass, including suggestions with unfamiliar words;
+edited suggestions use the normal check. The follow-up composer is hidden when
+the chat has neither a usable report nor a pending clarification. A failed
+follow-up retains the prior report context and allows an explicit retry.
 Unrecognized wording stays in the composer and asks for clarification or “Open in
 new tab”; that action submits with a new conversation ID and no previous context.
 This navigation aid is not semantic identity validation: novel related wording may

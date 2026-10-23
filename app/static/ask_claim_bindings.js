@@ -1,4 +1,4 @@
-import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261023-ask-compact-bars-v3";
+import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261023-ask-review-fixes-v4";
 // Exact canonical evidence -> final DOM relationships; rendered text is never an oracle.
 export const UI_CLAIM_VERSION = "ask_ui_claim_bindings/1";
 const finite = Number.isFinite,

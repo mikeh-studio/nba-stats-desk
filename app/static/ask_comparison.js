@@ -1,5 +1,5 @@
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261023-ask-compact-bars-v3";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261023-ask-compact-bars-v3";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261023-ask-review-fixes-v4";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261023-ask-review-fixes-v4";
 
 const esc = (v) =>
   String(v ?? "")

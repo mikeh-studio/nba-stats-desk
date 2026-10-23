@@ -1,6 +1,6 @@
-import {followupFitsReport} from "./ask_followup.js?v=20261023-ask-compact-bars-v3";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261023-ask-compact-bars-v3";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261023-ask-compact-bars-v3";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261023-ask-review-fixes-v4";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261023-ask-review-fixes-v4";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261023-ask-review-fixes-v4";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -9,13 +9,13 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261023-ask-compact-bars-v3";
+} from "./ask_comparison.js?v=20261023-ask-review-fixes-v4";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261023-ask-compact-bars-v3";
+} from "./ask_sessions.js?v=20261023-ask-review-fixes-v4";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -23,8 +23,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261023-ask-compact-bars-v3";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261023-ask-compact-bars-v3";
+} from "./ask_presentation.js?v=20261023-ask-review-fixes-v4";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261023-ask-review-fixes-v4";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -899,7 +899,7 @@ function bindExampleButtons(root = document) {
     button.addEventListener("click", () => {
       const followup = document.querySelector("[data-followup-question]");
       const input =
-        historyState.conversations.some((c) => c.id === activeConversationId && c.turns.length) && followup
+        !document.querySelector("[data-followup-section]")?.hidden && followup
           ? followup
           : document.querySelector("[data-agent-question]");
       if (!(input instanceof HTMLTextAreaElement)) return;
@@ -1067,6 +1067,39 @@ function renderAnswerPayload(payload, targetEl) {
   bindClarifyOptions(targetEl);
 }
 
+function latestFollowupReport() {
+  const conversation = historyState.conversations.find(c => c.id === activeConversationId);
+  return [...(conversation?.turns || [])].reverse().find(turn => isFollowupReport(turn.payload));
+}
+
+function renderFollowupComposer(payload) {
+  // A failed follow-up must not remove the usable report or its retry input.
+  const report = isFollowupReport(payload) ? payload : latestFollowupReport()?.payload;
+  const section = document.querySelector("[data-followup-section]");
+  if (section) section.hidden = !report;
+  if (!report) return;
+  const comparison = comparisonPresentation(report);
+  const overview = comparison ? null : overviewPresentation(report);
+  const name = report.conversation_context?.players?.map(p => p.player_name).join(" and ") || report.player_profile?.player?.player_name;
+  const scopeLabel = document.querySelector("[data-followup-context]");
+  if (scopeLabel) scopeLabel.textContent = comparison
+    ? `${comparison.names.join(" and ")} · ${comparison.scopeLabel}`
+    : overview
+      ? `${name ? name + " · " : ""}${overview.range} · ${overview.scope.phases.join(" + ")}`
+      : [name, report.conversation_context?.scope?.season || report.semantic_evidence?.scope?.season || report.availability_scope?.season].filter(Boolean).join(" · ") || "Current report";
+  const suggestions = document.querySelector("[data-followup-suggestions]");
+  if (suggestions) {
+    const prompts = overview?.followups || asArray(report.followups).slice(0, 2);
+    const labels = comparison ? ["Review scoring", "Review playmaking"]
+      : overview ? ["Review scoring in these dates", "Review regular season only"] : prompts;
+    suggestions.innerHTML = prompts.map((text, i) =>
+      `<button class="button secondary" type="button" data-agent-example="${escHtml(text)}">${escHtml(labels[i])}</button>`,
+    ).join("");
+    bindExampleButtons(suggestions);
+  }
+  resizeQuestionInputs();
+}
+
 function renderAuxiliaryPayload(
   payload,
   root = document,
@@ -1078,7 +1111,10 @@ function renderAuxiliaryPayload(
   const tableEl = root.querySelector("[data-agent-tables]");
   const chartCard = root.querySelector("[data-agent-chart-card]");
   const chartEl = root.querySelector("[data-agent-charts]");
-  if (updateComposer) updateSourceCoverage(payload, root.querySelector(".agent-turn-question")?.textContent || "");
+  if (updateComposer) {
+    updateSourceCoverage(payload, root.querySelector(".agent-turn-question")?.textContent || "");
+    renderFollowupComposer(payload);
+  }
   if (!tableCard || !tableEl || !chartCard || !chartEl) return;
   const tables = asArray(payload.tables);
   const comparison = comparisonPresentation(payload);
@@ -1108,24 +1144,6 @@ function renderAuxiliaryPayload(
     const profile = root.querySelector("[data-agent-profile]");
     if (profile)
       profile.innerHTML = comparisonProfiles(comparison, renderPlayerProfile);
-    if (!updateComposer) return;
-    const followup = document.querySelector("[data-followup-section]");
-    if (followup) followup.hidden = false;
-    resizeQuestionInputs();
-    const scopeLabel = document.querySelector("[data-followup-context]");
-    if (scopeLabel)
-      scopeLabel.textContent = `${comparison.names.join(" and ")} · ${comparison.scopeLabel}`;
-    const suggestions = document.querySelector("[data-followup-suggestions]");
-    if (suggestions) {
-      suggestions.innerHTML = asArray(payload.followups)
-        .slice(0, 2)
-        .map(
-          (text, i) =>
-            `<button class="button secondary" type="button" data-agent-example="${escHtml(text)}">${["Review scoring", "Review playmaking"][i]}</button>`,
-        )
-        .join("");
-      bindExampleButtons(suggestions);
-    }
     return;
   }
   const overview = overviewPresentation(payload);
@@ -1161,28 +1179,7 @@ function renderAuxiliaryPayload(
           }
         : null,
     );
-  if (!updateComposer) return;
-  const followup = document.querySelector("[data-followup-section]");
-  if (followup) followup.hidden = false;
-  resizeQuestionInputs();
-  const name = payload.conversation_context?.players?.map((p) => p.player_name).join(" and ") || payload.player_profile?.player?.player_name;
-  const scopeLabel = document.querySelector("[data-followup-context]");
-  if (scopeLabel)
-    scopeLabel.textContent = overview
-      ? `${name ? name + " · " : ""}${overview.range} · ${overview.scope.phases.join(" + ")}`
-      : [name, payload.conversation_context?.scope?.season || payload.semantic_evidence?.scope?.season || payload.availability_scope?.season].filter(Boolean).join(" · ") || "Current report";
-  const suggestions = document.querySelector("[data-followup-suggestions]");
-  if (suggestions) {
-    const prompts =
-      overview?.followups || asArray(payload.followups).slice(0, 2);
-    suggestions.innerHTML = prompts
-      .map(
-        (text, i) =>
-          `<button class="button secondary" type="button" data-agent-example="${escHtml(text)}">${escHtml(overview ? ["Review scoring in these dates", "Review regular season only"][i] : text)}</button>`,
-      )
-      .join("");
-    bindExampleButtons(suggestions);
-  }
+
 }
 
 function renderOverviewTable(overview) {
@@ -2055,6 +2052,7 @@ async function askQuestionStream(request) {
 function askNewQuestion(question) {
   question = String(question).trim();
   if (runtimeFor().inFlight || !question) return;
+  if (!activeConversationId) startNewChat();
   const input = document.querySelector("[data-agent-question]");
   const settings = currentAskSettings();
   const submitted = {question, ...settings};
@@ -2185,12 +2183,12 @@ function initAgentPage() {
     if (!followupInput.value.trim() || runtimeFor().inFlight) return;
     const sentQuestion = followupInput.value.trim();
     const conversation = historyState.conversations.find(c => c.id === activeConversationId);
-    const report = [...(conversation?.turns || [])].reverse().find(turn =>
-      turn.payload?.status === "ok" || turn.payload?.status === "clarification_required" ||
-      (turn.payload?.status == null && turn.payload?.availability_scope && turn.payload?.availability_evidence),
-    );
+    const report = latestFollowupReport();
     const reportQuestion = [conversation?.turns[0]?.question, report?.question].filter(Boolean).join(" ");
-    if (!followupFitsReport(sentQuestion, report?.payload, reportQuestion)) {
+    if (!report) return;
+    const suggestions = [...document.querySelectorAll("[data-followup-suggestions] [data-agent-example]")]
+      .map(button => button.dataset.agentExample);
+    if (!followupFitsReport(sentQuestion, report.payload, reportQuestion, suggestions)) {
       document.querySelector("[data-followup-redirect]").hidden = false;
       return;
     }
