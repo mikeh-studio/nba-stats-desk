@@ -125,9 +125,12 @@ def test_league_leader_reaches_rank_planner_not_single_player(ask, suffix):
     )
     p = ask("Who led the league in scoring in 2024-25?", suffix, model)
     assert p["status"] == "ok"
-    assert model.calls and not p["semantic_evidence"].get("presentation")
-    assert [r["player_id"] for r in p["semantic_evidence"]["rows"]] == [30, 29, 28]
-    assert [r["value"] for r in p["semantic_evidence"]["rows"]] == [30, 29, 28]
+    # The whole question is a recognized leaderboard: no model planning.
+    assert not model.calls and not p["semantic_evidence"].get("presentation")
+    assert p["semantic_plan"]["model_calls"] == 0
+    rows = p["semantic_evidence"]["rows"][:3]
+    assert [r["player_id"] for r in rows] == [30, 29, 28]
+    assert [r["value"] for r in rows] == [30, 29, 28]
 
 
 @pytest.mark.parametrize("suffix", ["", "/stream"])

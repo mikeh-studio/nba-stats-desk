@@ -1,5 +1,5 @@
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261023-ask-stable-buttons-v5";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261023-ask-stable-buttons-v5";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261023-ask-stable-buttons-v6";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261023-ask-stable-buttons-v6";
 
 const esc = (v) =>
   String(v ?? "")

@@ -916,3 +916,15 @@ test("indistinguishable player choices ask for scope instead of identical button
   assert.match(target.innerHTML, /choices cannot be distinguished/);
   assert.doesNotMatch(target.innerHTML, /data-agent-player-option/);
 });
+
+test("a scope note leading a plain answer is shown once", async () => {
+  const agent = await loadAgentModule();
+  const target = new FakeElement();
+  target.prepend = (el) => target.children.unshift(el);
+  const note = "Local review: 2025–26 figures come from retained game records.";
+  agent.renderAnswerPayload({status: "unsupported_scope", answer: `${note}\n\nNo league ranking is available.`,
+    scope_assumptions: [note]}, target);
+  assert.match(target.innerHTML, /No league ranking is available/);
+  assert.doesNotMatch(target.innerHTML, /Local review/);
+  assert.equal(target.children.filter(c => c.className === "scope-assumption").length, 1);
+});

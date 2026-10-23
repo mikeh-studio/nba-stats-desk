@@ -1,6 +1,6 @@
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261023-ask-stable-buttons-v5";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261023-ask-stable-buttons-v5";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261023-ask-stable-buttons-v5";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261023-ask-stable-buttons-v6";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261023-ask-stable-buttons-v6";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261023-ask-stable-buttons-v6";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -9,13 +9,13 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261023-ask-stable-buttons-v5";
+} from "./ask_comparison.js?v=20261023-ask-stable-buttons-v6";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261023-ask-stable-buttons-v5";
+} from "./ask_sessions.js?v=20261023-ask-stable-buttons-v6";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -23,8 +23,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261023-ask-stable-buttons-v5";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261023-ask-stable-buttons-v5";
+} from "./ask_presentation.js?v=20261023-ask-stable-buttons-v6";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261023-ask-stable-buttons-v6";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1044,6 +1044,16 @@ function renderScopeAssumptions(payload, targetEl) {
   targetEl.prepend(block);
 }
 
+// Scope notes render in their own block; the backend also leads plain answers
+// with them, so drop that leading copy instead of showing the note twice.
+function answerWithoutScopeNotes(payload) {
+  let text = String(payload.answer || "");
+  for (const note of asArray(payload.scope_assumptions)) {
+    if (note && text.startsWith(note)) text = text.slice(note.length).replace(/^\s+/, "");
+  }
+  return text;
+}
+
 function renderAnswerPayload(payload, targetEl) {
   if (!targetEl) return;
   if (withholdKnownInvalid(payload)) {
@@ -1059,7 +1069,7 @@ function renderAnswerPayload(payload, targetEl) {
   const overview = payload.award_evidence ? null : overviewPresentation(payload);
   targetEl.innerHTML = overview
     ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p${p === overview.summaryContext ? ' class="meta overview-scope"' : ""}>${escHtml(p)}</p>`).join("")}</div>${overviewTakeaways(overview)}</div>`
-    : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(payload.answer || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
+    : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(answerWithoutScopeNotes(payload) || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
   if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
     targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
   }

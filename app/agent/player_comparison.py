@@ -97,6 +97,41 @@ def additional_comparisons(summaries, names):
     return sections
 
 
+EVALUATIVE = (
+    r"\b(?:better|best|more\s+(?:productive|effective|valuable|impactful)|"
+    r"(?:the\s+)?better\s+(?:season|year|player))\b"
+)
+SIDE = r"[^,:;?]+?"
+
+
+def evaluative_sides(text):
+    """Two named players with no statistic: "who was better, A or B?".
+
+    Statistic-specific wording ("who scored more, A or B") is left to the
+    metric planner; an unnamed "better" gets the full shared scorecard.
+    """
+    from app.agent.question_intent import has_specific_metric
+
+    if not re.search(EVALUATIVE, text, re.I) or has_specific_metric(text):
+        return None
+    text = text.strip().rstrip("?.! ")
+    patterns = (
+        # Who played better last season: A or B / Who's better, A or B
+        rf"^(?:who|which(?:\s+player)?)\b[^:,;?]*{EVALUATIVE}[^:,;?]*[:,;-]\s*(?P<a>{SIDE})\s+or\s+(?P<b>{SIDE})$",
+        # Who was better between A and B / Who played better: A and B
+        rf"^(?:who|which(?:\s+player)?)\b[^:,;?]*{EVALUATIVE}[^:,;?]*?(?:\bbetween\b|[:;-])\s*(?P<a>{SIDE})\s+(?:and|or)\s+(?P<b>{SIDE})$",
+        # A or B: who played better
+        rf"^(?P<a>{SIDE})\s+or\s+(?P<b>{SIDE})\s*[:,;?-]+\s*(?:who|which)\b.*{EVALUATIVE}",
+        # Is A better than B / Was A better than B last season
+        r"^(?:is|was|has)\s+(?P<a>.+?)\s+(?:been\s+)?better\s+than\s+(?P<b>.+)$",
+    )
+    for pattern in patterns:
+        match = re.match(pattern, text, re.I)
+        if match:
+            return [match["a"].strip(), match["b"].strip()]
+    return None
+
+
 def comparison_sides(question):
     from app.agent.overview_positions import strip_peer_clause
 
@@ -111,9 +146,12 @@ def comparison_sides(question):
             parts = list(match.groups())
         else:
             cue = re.search(r"\bcompar(?:e[sd]?|ing)\s+(?:to|with)\s+", original, re.I)
-            if not cue or not original[: cue.start()].strip():
-                return None
-            parts = [original[: cue.start()], original[cue.end() :]]
+            if cue and original[: cue.start()].strip():
+                parts = [original[: cue.start()], original[cue.end() :]]
+            else:
+                parts = evaluative_sides(original)
+                if parts is None:
+                    return None
     # A dated month is a period comparison, not a second player identity.
     from app.agent.overview_calendar import MONTH_PATTERN
 

@@ -62,7 +62,12 @@ def wants_overview(question):
         bool(
             re.search(
                 r"\b(perform(?:ing|ed|ance)?|overview|stats|statistics|profile|contribut(?:e[ds]?|ing|ions?)|assessment|all[ -](?:around|round)|scoring|shooting|playmaking|rebounding|defen[cs]e|defend(?:ed|ing)?)\b"
-                r"|\bhow\b[^?\n]*\b(?:play(?:ed|ing)?|do(?:ing)?|done|fare[ds]?)\b",
+                r"|\bhow\b[^?\n]*\b(?:play(?:ed|ing)?|do(?:ing)?|done|fare[ds]?)\b"
+                # No statistic named: "How was X", "How good was X", "What kind of
+                # season did X have" default to the all-category overview.
+                r"|^\s*how\s+(?:good|well|(?:was|is|has)\b(?![^?\n]*\b(?:many|much|often|long|old|tall)\b))"
+                r"|\bwhat\s+(?:kind|sort)\s+of\s+(?:a\s+)?(?:season|year)\b"
+                r"|\b(?:tell me about|summari[sz]e)\b[^?\n]*\b(?:season|year)\b",
                 original,
                 re.I,
             )

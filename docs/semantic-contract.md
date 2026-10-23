@@ -66,7 +66,12 @@ averages are described as lower rather than an overall playmaking advantage.
 ## Qualification and supported answers
 
 The default count-ranking threshold is five appearances, a project policy rather
-than official NBA qualification. Shooting rankings require an explicit attempt
+than official NBA qualification. A question that is exactly “who led/leads the
+league in <counting stat> [season] [phase]” is planned without the model as a
+per-game ranking; regular-season leaders require appearances in at least 70% of
+the most games any team has in the scoped evidence (58 of 82), the NBA's
+per-game leader standard. A model plan that compares two seasons' leaderboards
+for a one-period question without comparison wording keeps the selected season. Shooting rankings require an explicit attempt
 threshold or clarification. Ties share rank; player IDs give stable display order.
 Percentiles disclose their eligible cohort; singleton cohorts are unavailable.
 Turnover direction distinguishes ball security from a request for most turnovers.
