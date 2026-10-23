@@ -135,3 +135,14 @@ def test_candidate_eval_forwards_provider_and_model_and_preserves_reports(
     reports = list((tmp_path / "reports").glob("*.json"))
     assert len(reports) == 2
     assert json.loads(reports[0].read_text())["status"] == "passed"
+
+
+def test_openai_ask_default_is_luna(monkeypatch):
+    from app.config import OPENAI_AGENT_MODEL_VALUES, Settings, get_settings
+
+    monkeypatch.delenv("OPENAI_AGENT_MODEL", raising=False)
+    assert get_settings().openai_agent_model == "gpt-5.6-luna"
+    assert Settings.__dataclass_fields__["openai_agent_model"].default == "gpt-5.6-luna"
+    assert "gpt-5.6-luna" in OPENAI_AGENT_MODEL_VALUES
+    monkeypatch.setenv("OPENAI_AGENT_MODEL", "gpt-5.4-mini")
+    assert get_settings().openai_agent_model == "gpt-5.4-mini"
