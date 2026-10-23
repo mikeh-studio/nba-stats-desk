@@ -10,7 +10,11 @@ from dataclasses import dataclass, field
 from functools import wraps
 
 from app.agent.player_resolver import normalize_player_text
-from app.agent.player_suggestions import _CONTEXT_WORDS, resolve_player_name
+from app.agent.player_suggestions import (
+    _CONTEXT_WORDS,
+    _rank_matches,
+    resolve_player_name,
+)
 
 # Task vocabulary bounds name spans. Unknown prose remains for the route's scope
 # validator; this is not a general named-entity model or a permissive query parser.
@@ -45,6 +49,8 @@ denver nuggets minnesota timberwolves oklahoma city thunder portland trail blaze
 utah jazz golden state warriors los angeles clippers lakers phoenix suns sacramento
 kings dallas mavericks houston rockets memphis grizzlies orleans pelicans san antonio
 spurs selected clarification player use using compared played playing performing
+box scores there any game where scored blocked shots dunks dunk layups layup jumpers
+heaves putbacks floaters hooks corner catch pullup pullups
 """.split()
 )
 _WORD = re.compile(r"[^\W\d_]+(?:['’.-][^\W\d_]+)*", re.UNICODE)
@@ -125,9 +131,13 @@ def _spans(question, players):
             )
             result = resolve_player_name(raw, players)
             # Don't expand a shorter matching name across an unrelated token.
-            if result["matches"] and all(
-                len(normalize_player_text(p["player_name"]).split()) == width
-                for p in result["matches"]
+            _, ranked = _rank_matches(raw, players)
+            if (
+                result["matches"]
+                and ranked
+                and all(
+                    matched == normalize_player_text(raw) for _, _, _, matched in ranked
+                )
             ):
                 exact.append((group[0].start(), group[0].start() + len(raw)))
     for player in players:

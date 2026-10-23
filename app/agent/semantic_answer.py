@@ -1140,9 +1140,14 @@ class SemanticAsk:
                             if exc.code == "unsupported_coverage":
                                 continue
                             raise
-                        candidate_players = prepare_names(
-                            question, source_players(candidate_evidence)
-                        )[1]
+                        try:
+                            candidate_players = prepare_names(
+                                question, source_players(candidate_evidence)
+                            )[1]
+                        except PlayerNameError:
+                            # A player absent from an older roster cannot turn a
+                            # valid current identity into an unavailable player.
+                            continue
                         candidate_plan = {
                             **plan,
                             "queries": [dict(q, season=older) for q in plan["queries"]],
@@ -1250,6 +1255,9 @@ class SemanticAsk:
                 }
             ]
         except PlayerNameError as exc:
+            # Replay raw wording so time defaults and conversation context are
+            # resolved once again, with their original disclosures intact.
+            question = original
             payload = identity_payload(
                 exc,
                 question,

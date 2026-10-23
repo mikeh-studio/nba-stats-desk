@@ -946,3 +946,8 @@ season-reload selection validation, and source-season team labels. The endpoint
 route matrix runs with claim enforcement and includes similarity resume.
 Browser-unit checks refuse indistinguishable name/team buttons without exposing
 IDs. The overview scope guard distinguishes ordinary “playing” from play-in.
+Follow-up cases also preserve metric words beside suffix-free names, keep a
+rookie's current-season no-observations result when older rosters omit them, and
+replay raw relative-date wording after identity selection so time disclosures
+remain visible. Name span replacement requires the entire span to match the
+ranked name window; unrelated trailing words are not replaced.

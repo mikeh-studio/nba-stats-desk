@@ -324,3 +324,156 @@ def test_nonidentity_clarification_keeps_visible_coverage_note(preview, monkeypa
     result = ask(client, "Avery Finch points per game in 2025-26", "")
     assert result["status"] == "clarification_required", result
     assert "Synthetic partial coverage." in result["answer"]
+
+
+@pytest.mark.parametrize(
+    "question, expected",
+    [
+        (
+            "Michael Porter dunks per game in 2025-26",
+            "Michael Porter Jr. dunks per game in 2025-26",
+        ),
+        (
+            "Michael Porter unusualmetric per game",
+            "Michael Porter Jr. unusualmetric per game",
+        ),
+        ("Jaren Jackson blocked shots", "Jaren Jackson Jr. blocked shots"),
+    ],
+)
+def test_suffix_rewrite_never_consumes_metric_words(question, expected):
+    roster = [
+        {"player_id": 1, "player_name": "Michael Porter Jr."},
+        {"player_id": 2, "player_name": "Jaren Jackson Jr."},
+    ]
+    assert prepare_names(question, roster)[0] == expected
+
+
+@pytest.mark.parametrize(
+    "question, expected",
+    [
+        (
+            "Show box scores for Avery Finch in 2025-26",
+            "Show box scores for Avery Finch in 2025-26",
+        ),
+        (
+            "Is there any game where Avery Finch scored 30 points?",
+            "Is there any game where Avery Finch scored 30 points?",
+        ),
+        ("Steph dunks this season", "Stephen Curry dunks this season"),
+    ],
+)
+def test_query_grammar_surrounding_names_is_preserved(question, expected):
+    roster = [
+        {"player_id": 1, "player_name": "Avery Finch"},
+        {"player_id": 2, "player_name": "Stephen Curry"},
+    ]
+    assert prepare_names(question, roster)[0] == expected
+
+
+@pytest.mark.parametrize("transport", ["", "/stream"])
+def test_identity_resume_preserves_raw_relative_date(preview, transport, monkeypatch):  # noqa: F811
+    client, _, store, _ = preview
+    from datetime import date
+
+    monkeypatch.setattr(
+        "app.agent.time_defaults.semantic_today", lambda: date(2026, 10, 22)
+    )
+    monkeypatch.setattr(
+        "app.agent.semantic_answer.plan_question",
+        lambda *a, **k: {
+            "status": "query",
+            "model_calls": 0,
+            "message": "",
+            "queries": [
+                {
+                    "metric": "pts",
+                    "operation": "summary",
+                    "aggregation": "average",
+                    "season": "2025-26",
+                    "season_type": "Regular Season",
+                    "window": "season_to_date",
+                    "player_name": "Avery Finch",
+                }
+            ],
+        },
+    )
+    question = "Avery points per game last season"
+    first = ask(client, question, transport, conversation_id="raw-date")
+    assert first["status"] == "clarification_required", first
+    assert store.get_pending_clarification("raw-date").question == question
+    selected = first["clarification_options"][0]
+    result = ask(
+        client,
+        selected["player_name"],
+        transport,
+        conversation_id="raw-date",
+        selected_player_id=selected["player_id"],
+        selected_player_name=selected["player_name"],
+    )
+    assert result["status"] == "ok", result
+    assert any("last season" in a for a in result["assumptions"]), result
+
+
+def test_rookie_absent_from_older_roster_keeps_no_observations(monkeypatch):
+    from app.agent.semantic_answer import SemanticAsk
+    from tests.test_comparison_wording import facts
+
+    current, older = facts(), facts()
+    current.rows[:] = [
+        r
+        for r in current.rows
+        if not (r["player_id"] == 8101 and r["season_type"] == "Playoffs")
+    ]
+    older.rows[:] = [
+        {**r, "season": "2024-25"} for r in older.rows if r["player_id"] != 8101
+    ]
+    from dataclasses import replace
+
+    older = replace(
+        older,
+        covered_scopes=frozenset(
+            ("2024-25", phase) for phase in ("Regular Season", "Playoffs")
+        ),
+        data_through={
+            ("2024-25", phase): "2025-05-01" for phase in ("Regular Season", "Playoffs")
+        },
+        rows=[
+            {**r, "game_date": str(int(r["game_date"][:4]) - 1) + r["game_date"][4:]}
+            for r in older.rows
+        ],
+    )
+    loads = []
+
+    def load(seasons):
+        loads.append(seasons)
+        return {"capture": {}}, current if "2025-26" in seasons else older
+
+    def planner(*args, **kwargs):
+        return {
+            "status": "query",
+            "model_calls": 0,
+            "message": "",
+            "queries": [
+                {
+                    "metric": "pts",
+                    "operation": "summary",
+                    "aggregation": "average",
+                    "season": "2025-26",
+                    "season_type": "Playoffs",
+                    "window": "season_to_date",
+                    "player_name": "Avery Finch",
+                }
+            ],
+        }
+
+    monkeypatch.setattr("app.agent.semantic_answer.plan_question", planner)
+    service = SemanticAsk(
+        SimpleNamespace(season="2025-26", agent_conversation_max_turns=6),
+        SimpleNamespace(load=load),
+    )
+    result = service.answer(
+        "Avery Finch playoff points per game", client=None, model="fixture"
+    )
+    assert result["status"] == "no_observations", result
+    assert ["2024-25"] in loads
+    assert "No matching player" not in result["answer"]
