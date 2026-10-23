@@ -35,7 +35,11 @@ from app.agent.player_splits import answer_split
 from app.agent.question_intent import question_intent, split_kind
 from app.agent.route_labels import route_hint, status_reason
 from app.agent.routes import supersedes_pending
-from app.agent.semantic_planner import execute_plan, explicit_scope, plan_question
+from app.agent.semantic_planner import (
+    execute_plan,
+    explicit_scope,
+    plan_question,
+)
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,

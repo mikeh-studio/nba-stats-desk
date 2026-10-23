@@ -1,0 +1,160 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "publication_id",
+    "policy_version",
+    "contract_version",
+    "contract_digest",
+    "source_snapshot_id",
+    "source_lineage",
+    "relation_version",
+    "built_at",
+    "expires_at",
+    "freshness_policy",
+    "validation_status",
+    "metrics",
+    "scopes",
+    "summary_count",
+    "summary_digest",
+    "source_timestamp"
+  ],
+  "properties": {
+    "version": {
+      "const": "ask_serving_publication/1"
+    },
+    "publication_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_version": {
+      "const": "ask_serving_scope/1"
+    },
+    "contract_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "contract_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_lineage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "relation_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "built_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expires_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "freshness_policy": {
+      "const": "reject_expired"
+    },
+    "validation_status": {
+      "const": "candidate"
+    },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "scopes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "season",
+          "phase",
+          "start",
+          "end",
+          "data_through",
+          "player_count",
+          "player_ids",
+          "player_digest",
+          "appearance_count",
+          "appearance_digest"
+        ],
+        "properties": {
+          "season": {
+            "type": "string",
+            "pattern": "^20[0-9]{2}-[0-9]{2}$"
+          },
+          "phase": {
+            "enum": [
+              "Regular Season",
+              "Playoffs"
+            ]
+          },
+          "start": {
+            "type": "string",
+            "minLength": 1
+          },
+          "end": {
+            "type": "string",
+            "minLength": 1
+          },
+          "data_through": {
+            "type": "string",
+            "minLength": 1
+          },
+          "player_count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "player_ids": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "player_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "appearance_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "appearance_digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "summary_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "summary_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_timestamp": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -763,3 +763,26 @@ def test_research_contract_failures_keep_planning_classification(name):
         create_response(client, settings=_settings(), text={"format": {"name": name}})
     assert raised.value.code == "invalid_plan"
     assert observed_stages == ["planning"]
+
+
+def test_exclusive_stages_partition_nested_work_even_on_failure(clock):
+    trace = AgentTrace("test", "", "test")
+    with request_policy(_settings(), "openai", trace):
+        with stage("comparison"):
+            clock.now += 0.1
+            with stage("overview"):
+                clock.now += 0.2
+                with stage("overview"):
+                    clock.now += 0.3
+            with pytest.raises(ValueError):
+                with stage("evidence"):
+                    clock.now += 0.4
+                    raise ValueError("fixture failure")
+    assert trace.stage_exclusive_latency_ms == pytest.approx(
+        {"comparison": 100, "overview": 500, "evidence": 400}
+    )
+    assert sum(trace.stage_exclusive_latency_ms.values()) == pytest.approx(1000)
+    assert trace.stage_latency_ms["comparison"] == pytest.approx(1000)
+    assert execution.STAGE_CHILDREN.get() is None
+    assert execution.ACTIVE_STAGES.get() == ()
+    assert "stage_exclusive_latency_ms" in trace.to_log_dict()

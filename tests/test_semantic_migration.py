@@ -263,7 +263,7 @@ def test_snapshot_cache_retries_invalid_capture_and_expires(monkeypatch):
     def validate(snapshot):
         if not snapshot["valid"]:
             raise SemanticError("incomplete_source", "Invalid capture")
-        return "validated"
+        return SimpleNamespace(rows=[], snapshot_id="fixture-snapshot")
 
     monkeypatch.setattr(semantic_serving, "monotonic", lambda: now[0])
     monkeypatch.setattr(semantic_serving, "snapshot_evidence", validate)
@@ -273,7 +273,7 @@ def test_snapshot_cache_retries_invalid_capture_and_expires(monkeypatch):
     with pytest.raises(SemanticError):
         warehouse.load(["2024-25"])
     first, evidence = warehouse.load(["2024-25"])
-    assert evidence == "validated"
+    assert evidence.snapshot_id == "fixture-snapshot"
     assert warehouse.load(["2024-25"])[0] is first
     assert len(calls) == 2
     now[0] = 11

@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from app.agent.availability_ask import METRICS, _identities
 from app.agent.clock import today as semantic_today
+from app.agent.execution import timed
 from app.agent.metric_presentation import (
     GAME_COVERAGE_NOTE,
     game_coverage,
@@ -263,6 +264,7 @@ def parse_split(question, players, season):
     )
 
 
+@timed("split")
 def answer_split(question, evidence, players, season):
     request = parse_split(question, players, season)
     teams = {r.get("opponent_abbr") for r in evidence.rows}

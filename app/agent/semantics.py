@@ -152,6 +152,7 @@ class Evidence:
     position_context: Mapping[str, Any] | None = None
     cohort_complete: bool = True
 
+    @timed("validation")
     def validate(self) -> None:
         if not self.complete:
             raise SemanticError(

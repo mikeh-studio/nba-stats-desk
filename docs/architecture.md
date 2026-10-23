@@ -175,10 +175,14 @@ cutoffs, coverage rules, and the offline integration boundary.
 
 The FastAPI service reads from gold, agent, and metadata tables. Player detail,
 compare, performance, dashboards, and freshness use curated
-gold read models. Player resolution for search and `/ask` starts from
+gold read models. Repository search and compatibility agent tools use
 `nba_agent.agent_player_search`, which denormalizes qualified player identity,
 season averages, percentiles, trend state, availability, and an answer-context
-string into one agent-specific table. Governed metric queries use the
+string. Governed Ask metrics and overviews instead use `SemanticWarehouse` to
+capture complete season facts and resolve identities from that evidence. The
+[Phase 1 serving contract](ask-serving-contract.md) defines offline aggregate and
+publication validation; it does not switch those routes to serving tables.
+Governed metric queries use the
 [semantic contract](semantic-contract.md). The stats agent reaches data only
 through allowlisted application tools before calling the selected OpenAI API or
 Claude API model, and it does not get arbitrary SQL access.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date
 
+from app.agent.execution import timed
 from app.agent.performance_overview import (
     METRICS,
     build_overview,
@@ -155,6 +156,7 @@ def comparison_scope(question, season, today=None):
     return scope
 
 
+@timed("comparison")
 def build_comparison(question, evidence, players, scope, selected=None, choices=None):
     sides = comparison_sides(question)
     if not sides:

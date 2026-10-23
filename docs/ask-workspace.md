@@ -975,3 +975,10 @@ link exact sources to exact destinations. After visualization enrichment,
 records invalid reports while preserving content. See the [observation rollout](ask-claim-bindings.md#observation-rollout)
 for activation and loss boundaries. Unbound surfaces remain explicitly incomplete;
 existing non-binding safeguards remain enforced in both modes.
+
+## Agent serving preparation
+
+See the [Phase 1 serving contract](ask-serving-contract.md) for the offline metric
+inventory, publication validation, telemetry, and parity checks. Production Ask
+retrieval remains unchanged; serving routing and live performance measurement are
+subsequent phases.

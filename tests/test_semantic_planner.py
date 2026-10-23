@@ -401,3 +401,39 @@ def test_fantasy_context_only_allows_metric_preserving_followup(question, allowe
         conversation_context={"metrics": ["fantasy_proxy_weighted"]},
     )
     assert bool(plan["queries"]) is allowed
+
+
+def test_identical_rank_plan_is_one_rank_but_distinct_scopes_still_rejected():
+    source = json.loads(SOURCE.read_text())
+    evidence = Evidence(
+        source["rows"],
+        frozenset((s, p) for s, p, _ in source["coverage"]),
+        "fixture",
+        "test",
+        {(s, p): d for s, p, d in source["coverage"]},
+        complete=True,
+    )
+    rank = dict(
+        metric="ast",
+        season="2024-25",
+        aggregation="average",
+        operation="rank",
+        min_games=1,
+        limit=10,
+        season_type="Regular Season",
+    )
+    plan = dict(status="compare", queries=[dict(rank), dict(rank)])
+    from app.agent.semantic_planner import normalize_duplicate_rank_plan
+
+    actual = execute_plan(
+        normalize_duplicate_rank_plan(plan), evidence, source["players"]
+    )
+    expected = execute_plan(
+        dict(status="query", queries=[rank]), evidence, source["players"]
+    )
+    assert actual == expected
+    assert len(actual["resolved_queries"]) == 1
+    plan["queries"][1]["min_games"] = 20
+    different = execute_plan(plan, evidence, source["players"])
+    assert different["status"] == "invalid_scope"
+    assert different["evidence"] is None

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.agent.execution import bounded_timeout
+from app.agent.execution import bounded_timeout, record_data_read, timed
 from app.agent.semantics import COMPONENTS, PHASES, Evidence, SemanticError
 from app.seasons import dataset_for_season, validate_season
 
@@ -27,6 +27,7 @@ def snapshot_digest(snapshot: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+@timed("validation")
 def snapshot_evidence(snapshot: dict[str, Any]) -> Evidence:
     if snapshot.get("sha256") != snapshot_digest(snapshot):
         raise SemanticError("invalid_evidence", "Snapshot checksum mismatch")
@@ -143,10 +144,15 @@ class BigQuerySemanticSource:
             labels={"purpose": "semantic-evaluation"},
         )
         started = datetime.now(timezone.utc)
+        job = None
+        rows = None
+        read_status = "error"
+        submission_timeout = bounded_timeout(30)
         try:
-            job = self.client.query(sql, job_config=config, timeout=bounded_timeout(30))
+            job = self.client.query(sql, job_config=config, timeout=submission_timeout)
             result = job.result(timeout=bounded_timeout(120))
             rows = [dict(row) for row in result]
+            read_status = "ok"
         except Forbidden as exc:
             raise SemanticError(
                 "access_denied", "Historical source access denied"
@@ -157,6 +163,15 @@ class BigQuerySemanticSource:
             ) from exc
         except (GoogleAPICallError, TimeoutError) as exc:
             raise SemanticError("source_unavailable", "Historical read failed") from exc
+        finally:
+            record_data_read(
+                kind="warehouse",
+                status=read_status,
+                rows=len(rows) if rows is not None else None,
+                bytes_processed=getattr(job, "total_bytes_processed", None),
+                bytes_billed=getattr(job, "total_bytes_billed", None),
+                cache_hit=getattr(job, "cache_hit", None),
+            )
         if not rows:
             raise SemanticError("unsupported_coverage", "Empty source snapshot")
         if len(rows) > self.max_rows:
@@ -188,6 +203,7 @@ class BigQuerySemanticSource:
         snapshot = {
             "version": 1,
             "evidence_kind": "historical",
+            "cohort_complete": True,
             "sources": sources,
             "source_timestamp": captured_at,
             "coverage": coverage,
