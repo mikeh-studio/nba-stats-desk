@@ -119,6 +119,8 @@ class OpenRouterResponsesClient:
                 input_tokens=u.prompt_tokens,
                 output_tokens=u.completion_tokens,
                 total_tokens=u.total_tokens,
+                input_tokens_details=getattr(u, "prompt_tokens_details", None),
+                output_tokens_details=getattr(u, "completion_tokens_details", None),
             )
             if u
             else None

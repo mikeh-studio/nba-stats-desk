@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import ast
+from contextlib import contextmanager
+from contextvars import ContextVar
+from functools import lru_cache
 from typing import Any
 
 
@@ -12,7 +15,28 @@ _ALLOWED_BINARY_OPS = (ast.Add, ast.Sub, ast.Mult, ast.Div)
 _ALLOWED_UNARY_OPS = (ast.UAdd, ast.USub)
 
 
+FORMULA_CACHE: ContextVar[bool] = ContextVar("formula_metadata_cache", default=False)
+
+
+@contextmanager
+def formula_metadata_cache(enabled: bool):
+    token = FORMULA_CACHE.set(enabled)
+    try:
+        yield
+    finally:
+        FORMULA_CACHE.reset(token)
+
+
 def _parse_formula(formula: str) -> ast.Expression:
+    return _cached_parse(formula) if FORMULA_CACHE.get() else _uncached_parse(formula)
+
+
+@lru_cache(maxsize=128)
+def _cached_parse(formula: str) -> ast.Expression:
+    return _uncached_parse(formula)
+
+
+def _uncached_parse(formula: str) -> ast.Expression:
     try:
         parsed = ast.parse(formula, mode="eval")
     except SyntaxError as exc:
@@ -44,8 +68,18 @@ def _validate_node(node: ast.AST) -> None:
 
 
 def extract_formula_variables(formula: str) -> set[str]:
-    parsed = _parse_formula(formula)
-    return {node.id for node in ast.walk(parsed) if isinstance(node, ast.Name)}
+    if FORMULA_CACHE.get():
+        return set(_cached_variables(formula))
+    return set(_variables(_parse_formula(formula)))
+
+
+def _variables(parsed):
+    return frozenset(node.id for node in ast.walk(parsed) if isinstance(node, ast.Name))
+
+
+@lru_cache(maxsize=128)
+def _cached_variables(formula: str) -> frozenset[str]:
+    return _variables(_cached_parse(formula))
 
 
 def evaluate_formula(formula: str, values: dict[str, Any]) -> float | None:

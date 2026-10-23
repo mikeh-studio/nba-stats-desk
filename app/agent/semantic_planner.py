@@ -239,10 +239,19 @@ def plan_question(
     conversation_context: Mapping[str, Any] | None = None,
     dated_points_eligible: bool = True,
     dated_points_question: str | None = None,
+    deterministic: bool = False,
 ) -> dict[str, Any]:
     validate_season(selected_season)
     if not question.strip() or len(question) > 2000:
         raise SemanticError("invalid_scope", "Question must contain 1..2000 characters")
+    if deterministic and dated_points_eligible:
+        from app.agent.common_planner import common_plan
+
+        recognized = common_plan(
+            question, players=players, conversation_context=conversation_context
+        )
+        if recognized is not None:
+            return recognized
     from app.agent.availability_ask import wants_availability
     from app.agent.question_intent import question_intent, split_kind
 
@@ -545,7 +554,12 @@ def normalize_duplicate_rank_plan(plan):
 
 @timed("calculation")
 def execute_plan(
-    plan: Mapping[str, Any], evidence: Evidence, players: Sequence[Mapping[str, Any]]
+    plan: Mapping[str, Any],
+    evidence: Evidence | None,
+    players: Sequence[Mapping[str, Any]],
+    *,
+    shadow=None,
+    query_runner=None,
 ) -> dict[str, Any]:
     if plan["status"] in ("clarification_required", "unsupported"):
         return {
@@ -589,8 +603,20 @@ def execute_plan(
             query.validate(metric)
             queries.append(query)
         if plan["status"] == "query" and len(queries) == 1:
-            result = run_query(evidence, queries[0])
+            if query_runner is not None:
+                try:
+                    result = query_runner(queries[0])
+                except (KeyError, TypeError) as exc:
+                    raise SemanticError(
+                        "invalid_evidence", "Invalid serving execution"
+                    ) from exc
+            else:
+                assert evidence is not None
+                result = run_query(evidence, queries[0])
+            if shadow is not None:
+                shadow.compare(queries[0], result)
         elif plan["status"] == "compare" and len(queries) == 2:
+            assert evidence is not None
             result = compare_queries(evidence, *queries)
         else:
             raise SemanticError("invalid_plan", "Invalid query count/status")

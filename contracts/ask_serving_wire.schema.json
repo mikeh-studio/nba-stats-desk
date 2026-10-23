@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "physical_relation",
+    "approval",
+    "summary_count",
+    "metadata_digest",
+    "detail_digest",
+    "detail_count",
+    "detail_header",
+    "metric_inventory",
+    "validation_results",
+    "player_details"
+  ],
+  "properties": {
+    "version": {
+      "const": "ask_serving_wire/3"
+    },
+    "physical_relation": {
+      "type": "string",
+      "pattern": "^ask_serving_[0-9a-f]{32}$"
+    },
+    "approval": {
+      "type": "object",
+      "required": [
+        "publication_id",
+        "source_snapshot_id",
+        "scopes",
+        "metrics",
+        "built_at",
+        "expires_at",
+        "contract_digest",
+        "summary_digest",
+        "relation_version"
+      ]
+    },
+    "summary_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "metadata_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "detail_digest": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "detail_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "detail_header": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "metric_inventory": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "count",
+          "digest"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "validation_results": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "method",
+        "source_snapshot_id",
+        "summary_digest",
+        "contract_digest"
+      ],
+      "properties": {
+        "method": {
+          "const": "source_reconstruction/1"
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "summary_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "contract_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "player_details": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "count",
+          "digest"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "digest": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    }
+  }
+}

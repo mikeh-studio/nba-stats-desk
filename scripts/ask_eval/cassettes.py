@@ -168,6 +168,17 @@ def settings_binding(settings):
     from datetime import date
 
     values = asdict(settings)
+    defaults = {
+        "ask_deterministic_planning_enabled": False,
+        "ask_formula_cache_enabled": False,
+        "ask_cohort_cache_enabled": False,
+        "ask_serving_families": ("points",),
+        "ask_serving_mode": "off",
+        "ask_serving_reference_path": None,
+    }
+    if all(values.get(key) == value for key, value in defaults.items()):
+        for key in defaults:
+            values.pop(key, None)
     # Diagnostic storage cannot affect generation or scope. Explicit names keep
     # every present/future execution setting bound by default, and preserve
     # recordings made before these trace-only fields existed.
@@ -276,9 +287,11 @@ class CassetteStore:
                 verify_legacy(self.directory)
             # Adapter/code revisions are provenance, not replay compatibility gates.
             for key, value in binding.items():
-                if (
-                    key not in ("adapter_revision", "corpus_sha256")
-                    and self.manifest.get(key) != value
+                if key not in ("adapter_revision", "corpus_sha256") and (
+                    normalized_phase2_flags(self.manifest.get(key))
+                    != normalized_phase2_flags(value)
+                    if key == "phase2_flags"
+                    else self.manifest.get(key) != value
                 ):
                     raise CassetteError("manifest_mismatch:" + key)
             terminal = json.loads((self.directory / "terminal.json").read_text())
@@ -517,3 +530,22 @@ def install_network_guard(on_failure):
             on_failure("replay_network_escape")
 
     sys.addaudithook(audit)
+
+
+PHASE2_FLAG_KEYS = (
+    "serving_fixture",
+    "deterministic_common",
+    "formula_cache",
+    "cohort_cache",
+)
+
+
+def normalized_phase2_flags(value):
+    value = {} if value is None else value
+    if (
+        not isinstance(value, dict)
+        or set(value) - set(PHASE2_FLAG_KEYS)
+        or any(type(v) is not bool for v in value.values())
+    ):
+        raise CassetteError("manifest_mismatch:phase2_flags")
+    return {key: value.get(key, False) for key in PHASE2_FLAG_KEYS}

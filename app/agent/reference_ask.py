@@ -492,7 +492,9 @@ def answer_reference(
                 "unsupported_coverage",
                 "The similarity publication must match the selected season.",
             )
-        _, source = agent.semantic_agent.warehouse.load(seasons)
+        warehouse = agent.semantic_agent.warehouse
+        # These reference/similarity routes are not part of the rich serving gate.
+        _, source = getattr(warehouse, "facts", warehouse).load(seasons)
         if not source.cohort_complete:
             raise SemanticError(
                 "unsupported_coverage",

@@ -379,7 +379,8 @@ league cohort claims and preserves provider-specific game keys.
 
 ## Agent serving preparation
 
-See the [Phase 1 serving contract](ask-serving-contract.md) for the offline metric
-inventory, publication validation, telemetry, and parity checks. Production Ask
-retrieval remains unchanged; serving routing and live performance measurement are
-subsequent phases.
+See the [Ask serving contract](ask-serving-contract.md) for source-certified
+publications, the metric inventory, opt-in Phase 2 routing, request telemetry,
+and parity checks. Routing and deterministic planning remain off by default.
+Activation requires the contract's fresh measurements and explicit rollout gates;
+local and fixture validation do not establish production readiness.

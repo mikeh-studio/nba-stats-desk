@@ -118,7 +118,10 @@ class SnapshotSource(Protocol):
 
 
 class SemanticWarehouse:
-    def __init__(self, source: SnapshotSource, ttl_seconds: int = 300):
+    def __init__(
+        self, source: SnapshotSource, ttl_seconds: int = 300, *, serving_shadow=None
+    ):
+        self.serving_shadow = serving_shadow
         self.source = source
         self.ttl_seconds = ttl_seconds
         self._lock = Lock()
@@ -160,11 +163,16 @@ class SemanticWarehouse:
         return snapshot, evidence
 
 
-@timed("identity")
 def source_players(evidence: Evidence) -> list[dict[str, Any]]:
+    return players_from_rows(evidence.rows)
+
+
+@timed("identity")
+def players_from_rows(rows) -> list[dict[str, Any]]:
+    """Resolve identities from observed rows or bound appearance metadata."""
     players: dict[int, dict[str, Any]] = {}
     latest_teams: dict[int, tuple[str, str]] = {}
-    for row in evidence.rows:
+    for row in rows:
         player = players.setdefault(
             row["player_id"],
             {
@@ -197,7 +205,7 @@ def source_players(evidence: Evidence) -> list[dict[str, Any]]:
 _factory_lock = Lock()
 
 
-def warehouse_for_repository(repo: Any) -> SemanticWarehouse:
+def warehouse_for_repository(repo: Any) -> Any:
     with _factory_lock:
         warehouse = getattr(repo, "_governed_warehouse", None)
         if warehouse is None:
@@ -218,5 +226,21 @@ def warehouse_for_repository(repo: Any) -> SemanticWarehouse:
                 from app.agent.espn_dev_source import ESPNDevSource
 
                 warehouse.source = ESPNDevSource(warehouse.source)
+            if settings.ask_serving_mode != "off":
+                from datetime import datetime
+
+                from app.agent.semantic_source import capture_timestamp
+                from app.agent.serving_warehouse import RefreshingServingWarehouse
+
+                warehouse = RefreshingServingWarehouse(
+                    warehouse,
+                    repo.client,
+                    settings.ask_serving_reference_path,
+                    lambda: datetime.fromisoformat(capture_timestamp()),
+                    project=settings.project_id,
+                    mode=settings.ask_serving_mode,
+                    reuse_cohort=settings.ask_cohort_cache_enabled,
+                    families=settings.ask_serving_families,
+                )
             repo._governed_warehouse = warehouse
         return warehouse

@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, fields
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -18,7 +18,7 @@ from typing import Any, Sequence
 import jsonschema
 
 from app.agent.semantic_source import snapshot_evidence
-from app.agent.semantics import Evidence, Query, SemanticError, load_contract
+from app.agent.semantics import Contract, Evidence, Query, SemanticError, load_contract
 from app.agent.serving_contract import MetricSummary, metric_matrix, summarize_rows
 from app.seasons import season_bounds
 
@@ -36,8 +36,10 @@ def digest(value: Any) -> str:
 
 
 def _summary_records(summaries: Sequence[MetricSummary]) -> list[dict[str, Any]]:
+    # JSON hashing immediately consumes these values; recursively copying every
+    # membership ID changes no serialized bytes and adds work per request.
     return sorted(
-        (asdict(s) for s in summaries),
+        ({f.name: getattr(s, f.name) for f in fields(s)} for s in summaries),
         key=lambda s: (s["season"], s["phase"], s["player_id"], s["metric"]),
     )
 
@@ -163,11 +165,14 @@ class ValidatedPublication:
 
     def supports(self, query: Query, *, now: datetime) -> bool:
         """Prospective pilot eligibility, not a routing or payload-parity approval."""
+        contract = load_contract()
+        if self.contract_digest != digest(metric_matrix(contract)):
+            return False
+        return self._supports(query, now=now, contract=contract)
+
+    def _supports(self, query: Query, *, now: datetime, contract: Contract) -> bool:
         if now.tzinfo is None or not self.built_at <= now < self.expires_at:
             return False
-        if self.contract_digest != digest(metric_matrix()):
-            return False
-        contract = load_contract()
         try:
             query.validate(contract.metric(query.metric))
         except (SemanticError, ValueError, TypeError):
@@ -212,16 +217,51 @@ class ValidatedPublication:
         now: datetime,
     ) -> None:
         """Recheck immutable full-publication binding before future consumption."""
+        self._verify_binding(
+            summaries,
+            relation_version=relation_version,
+            now=now,
+            contract=load_contract(),
+        )
+
+    def _verify_binding(self, summaries, *, relation_version, now, contract):
         if (
             now.tzinfo is None
             or not self.built_at <= now < self.expires_at
-            or self.contract_digest != digest(metric_matrix())
+            or self.contract_digest != digest(metric_matrix(contract))
             or relation_version != self.relation_version
             or digest(_summary_records(summaries)) != self.summary_digest
         ):
             raise SemanticError(
                 "invalid_evidence", "Publication binding changed or expired"
             )
+
+    def validate_contract_binding(
+        self,
+        summaries: Sequence[MetricSummary],
+        *,
+        relation_version: str,
+        now: datetime,
+    ) -> Contract:
+        contract = load_contract()
+        self._verify_binding(
+            summaries, relation_version=relation_version, now=now, contract=contract
+        )
+        return contract
+
+    def validate_query_binding(
+        self,
+        query: Query,
+        summaries: Sequence[MetricSummary],
+        *,
+        relation_version: str,
+        now: datetime,
+    ) -> Contract | None:
+        """Use one freshly checked contract; never cache approval across requests."""
+        contract = self.validate_contract_binding(
+            summaries, relation_version=relation_version, now=now
+        )
+        return contract if self._supports(query, now=now, contract=contract) else None
 
 
 def validate_publication(

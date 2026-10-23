@@ -1,4 +1,4 @@
-"""Offline aggregate contract primitives; not connected to Ask routing.
+"""Source-certified aggregate primitives for opt-in Ask serving.
 
 Summaries are metric-specific complete-case sufficient statistics. They are
 never disguised as game-grain Evidence. Publication membership validation is a
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from app.agent.formulas import evaluate_formula
-from app.agent.semantics import Metric, SemanticError, _number, load_contract
+from app.agent.semantics import Contract, Metric, SemanticError, _number, load_contract
 
 
 @dataclass(frozen=True)
@@ -25,6 +25,7 @@ class MetricSummary:
     game_ids: tuple[str, ...]
     valid_game_ids: tuple[str, ...]
     components: Mapping[str, float]
+    component_partials: Mapping[str, tuple[float, ...]]
 
     def validate(self, metric: Metric) -> None:
         from app.agent.semantics import PHASES
@@ -38,6 +39,7 @@ class MetricSummary:
             or self.player_id < 1
             or self.metric != metric.key
             or set(self.components) != metric.components
+            or set(self.component_partials) != metric.components
         ):
             raise SemanticError(
                 "invalid_evidence", "Invalid summary identity or metric"
@@ -58,10 +60,41 @@ class MetricSummary:
                 raise SemanticError(
                     "invalid_evidence", "Components without valid games"
                 )
+        for key, partials in self.component_partials.items():
+            if (
+                not isinstance(partials, tuple)
+                or any(type(v) is not float or not math.isfinite(v) for v in partials)
+                or math.fsum(partials) != self.components[key]
+            ):
+                raise SemanticError(
+                    "invalid_evidence", "Invalid aggregate precision binding"
+                )
         for made, attempted in (("fgm", "fga"), ("fg3m", "fg3a"), ("ftm", "fta")):
             if made in self.components and attempted in self.components:
                 if self.components[made] > self.components[attempted]:
                     raise SemanticError("invalid_evidence", "Makes exceed attempts")
+
+
+def _sum_partials(values):
+    """Retain the exact binary sum so composing phases rounds only once.
+
+    An error-free TwoSum expansion stores residuals lost by a rounded phase
+    subtotal. Source reconstruction and the publication digest bind every term.
+    """
+    partials = []
+    for x in values:
+        i = 0
+        for y in partials:
+            if abs(x) < abs(y):
+                x, y = y, x
+            hi = x + y
+            lo = y - (hi - x)
+            if lo:
+                partials[i] = lo
+                i += 1
+            x = hi
+        partials[i:] = [x]
+    return tuple(partials)
 
 
 def summarize_rows(
@@ -89,6 +122,7 @@ def summarize_rows(
         tuple(r["game_id"] for r in rows),
         tuple(r["game_id"] for r in valid),
         {c: math.fsum(float(r[c]) for r in valid) for c in metric.components},
+        {c: _sum_partials(float(r[c]) for r in valid) for c in metric.components},
     )
     result.validate(metric)
     return result
@@ -117,7 +151,8 @@ def aggregate_summaries(
         )
     valid = sum(len(s.valid_game_ids) for s in summaries)
     totals = {
-        c: math.fsum(s.components[c] for s in summaries) for c in metric.components
+        c: math.fsum(v for s in summaries for v in s.component_partials[c])
+        for c in metric.components
     }
     numerator = (
         (valid if metric.key == "gp" else evaluate_formula(metric.numerator, totals))
@@ -151,9 +186,9 @@ def aggregate_summaries(
     )
 
 
-def metric_matrix() -> list[dict[str, Any]]:
-    """Complete catalog inventory; only points is eligible for the future pilot."""
-    contract = load_contract()
+def metric_matrix(contract: Contract | None = None) -> list[dict[str, Any]]:
+    """Catalog defaults, not live flag state; points marks the narrow A2 pilot."""
+    contract = contract if contract is not None else load_contract()
     return [
         dict(
             **metric.public(),
@@ -167,3 +202,41 @@ def metric_matrix() -> list[dict[str, Any]]:
         )
         for metric in contract.metrics.values()
     ]
+
+
+def metric_content_digest(rows, metric):
+    """Canonical full-cohort identity, membership and metric inputs for one scope."""
+    import hashlib
+    import json
+
+    identities = (
+        "season",
+        "season_type",
+        "player_id",
+        "game_id",
+        "game_date",
+        "player_name",
+        "team_abbr",
+        "opponent_abbr",
+        "home_away",
+    )
+    values = [
+        {
+            **{k: row.get(k) for k in identities},
+            **{k: _number(row.get(k)) for k in metric.components},
+        }
+        for row in rows
+    ]
+    values.sort(
+        key=lambda row: (
+            row["season"],
+            row["season_type"],
+            row["player_id"],
+            row["game_id"],
+        )
+    )
+    return hashlib.sha256(
+        json.dumps(
+            values, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()
+    ).hexdigest()

@@ -118,7 +118,7 @@ def test_failed_warehouse_attempt_is_recorded_without_error_body():
             Client(error=Forbidden("sensitive")), project="test-project"
         ).capture(["2024-25"])
     assert trace.data_reads[0]["status"] == "error"
-    assert trace.data_reads[0]["bytes_billed"] is None
+    assert trace.data_reads[0]["bytes_billed"] == 0  # definitive pre-execution denial
     assert "sensitive" not in json.dumps(trace.to_log_dict())
 
 
@@ -142,5 +142,42 @@ def test_cost_telemetry_exposes_usage_and_read_coverage():
     trace.add_usage(SimpleNamespace(input_tokens=2, output_tokens=3))
     log = trace.to_log_dict()
     assert log["usage_reported_calls"] == 1
-    assert log["data_read_coverage"] == "semantic_fact_source_only"
+    assert log["data_read_coverage"] == "ask_warehouse_reads/2"
     assert log["token_detail_calls"] == {}
+
+
+def test_anthropic_cache_usage_includes_reads_and_writes_once():
+    from types import SimpleNamespace
+
+    trace = AgentTrace("id", "private", "claude")
+    trace.add_usage(
+        SimpleNamespace(
+            input_tokens=10,
+            output_tokens=5,
+            cache_read_input_tokens=80,
+            cache_creation_input_tokens=20,
+        )
+    )
+    assert trace.prompt_tokens == 110 and trace.total_tokens == 115
+    assert trace.cached_input_tokens == 80 and trace.cache_creation_input_tokens == 20
+    assert trace.token_detail_calls["cached_input_tokens"] == 1
+
+
+def test_shared_byte_budget_survives_optional_deadline_scope():
+    import pytest
+    from app.agent.execution import (
+        ExecutionFailure,
+        optional_model_budget,
+        record_data_read,
+        request_policy,
+        warehouse_budget,
+    )
+    from tests.test_agent_service import _settings
+
+    with request_policy(_settings(), "openai"):
+        with optional_model_budget(1):
+            record_data_read(kind="warehouse", status="ok", bytes_billed=70_000_000)
+        assert warehouse_budget(100_000_000) == 30_000_000
+        record_data_read(kind="warehouse", status="error", budget_ceiling=30_000_000)
+        with pytest.raises(ExecutionFailure, match="query_budget_exceeded"):
+            warehouse_budget(100_000_000)

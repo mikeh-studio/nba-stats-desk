@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from math import sqrt
@@ -12,6 +13,17 @@ from typing import Any
 from google.api_core.exceptions import GoogleAPIError as BQAPIError
 from google.cloud import bigquery
 
+from app.agent.execution import (
+    ACTIVE_STAGES,
+    CURRENT,
+    STAGE_CHILDREN,
+    bounded_timeout,
+    record_data_read,
+    serialized_warehouse_read,
+    timed,
+    warehouse_budget,
+    warehouse_bytes_billed,
+)
 from app.config import Settings
 from app.repository._constants import (
     COMPARE_FOCUS_CONFIG,
@@ -80,6 +92,29 @@ from app.what_changed import ComparisonPeriod, SeasonPhase
 _PLAYER_QUERY_POOL = ThreadPoolExecutor(
     max_workers=8, thread_name_prefix="player-query"
 )
+
+
+def _submit_player_query(fn, *args, **kwargs):
+    if CURRENT.get() is not None:
+        future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except Exception as exc:
+            future.set_exception(exc)
+        return future
+    context = copy_context()
+
+    def run():
+        # Preserve policy/trace/deadline, but detach parallel stage nesting.
+        active = ACTIVE_STAGES.set(())
+        children = STAGE_CHILDREN.set(None)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            STAGE_CHILDREN.reset(children)
+            ACTIVE_STAGES.reset(active)
+
+    return _PLAYER_QUERY_POOL.submit(context.run, run)
 
 
 @dataclass
@@ -182,19 +217,53 @@ class BigQueryWarehouseRepository:
             as_of=as_of,
         )
 
+    @timed("repository_retrieval")
+    @serialized_warehouse_read
     def _query(
         self, sql: str, params: list[bigquery.ScalarQueryParameter] | None = None
     ) -> list[dict[str, Any]]:
-        job_config = None
-        if params:
-            job_config = bigquery.QueryJobConfig(query_parameters=params)
-        # __post_init__ always sets the client; assert documents the invariant.
+        job_config = (
+            bigquery.QueryJobConfig(query_parameters=params or []) if params else None
+        )
         assert self.client is not None
-        result = self.client.query(sql, job_config=job_config).result()
-        rows: list[dict[str, Any]] = []
-        for row in result:
-            rows.append({key: _to_iso(value) for key, value in dict(row).items()})
-        return rows
+        policy = CURRENT.get()
+        if policy:
+            job_config = job_config or bigquery.QueryJobConfig()
+            job_config.maximum_bytes_billed = warehouse_budget(100_000_000)
+        job = None
+        failure = None
+        rows: list[dict[str, Any]] | None = None
+        status = "error"
+        timeout = bounded_timeout(30) if policy else None
+        try:
+            if policy:
+                job = self.client.query(sql, job_config=job_config, timeout=timeout)
+                result = job.result(timeout=bounded_timeout(120))
+            else:
+                job = self.client.query(sql, job_config=job_config)
+                result = job.result()
+            rows = []
+            for row in result:
+                if policy and len(rows) >= 100000:
+                    raise ValueError("Repository query row budget exceeded")
+                rows.append({key: _to_iso(value) for key, value in dict(row).items()})
+            status = "ok"
+            return rows
+        except Exception as exc:
+            failure = exc
+            raise
+        finally:
+            record_data_read(
+                kind="warehouse",
+                status=status,
+                rows=len(rows) if rows is not None else None,
+                budget_ceiling=job_config.maximum_bytes_billed
+                if job_config is not None and policy
+                else None,
+                bytes_processed=getattr(job, "total_bytes_processed", None),
+                bytes_billed=warehouse_bytes_billed(job, failure),
+                cache_hit=getattr(job, "cache_hit", None),
+            )
 
     def _dashboard_table(self) -> str:
         return f"`{self.settings.project_id}.{self.settings.gold_dataset}.workbench_dashboard`"
@@ -251,18 +320,56 @@ class BigQueryWarehouseRepository:
         table_id = self._recent_performance_table_id()
         # tabledata.list returns selected columns in physical schema order.
         # Supply that same order to the decoder, including after dbt rebuilds.
-        table = self.client.get_table(table_id)
+        policy = CURRENT.get()
+        table = None
+        try:
+            table = (
+                self.client.get_table(table_id, timeout=bounded_timeout(30))
+                if policy
+                else self.client.get_table(table_id)
+            )
+        finally:
+            record_data_read(
+                kind="warehouse",
+                status="ok" if table is not None else "error",
+                rows=0,
+                bytes_processed=0,
+                bytes_billed=0,
+            )
         wanted = {field.name for field in RECENT_PERFORMANCE_TABLE_FIELDS}
         selected_fields = [field for field in table.schema if field.name in wanted]
-        row_iter = self.client.list_rows(
-            table_id,
-            selected_fields=selected_fields,
-            max_results=RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS,
-        )
-        rows = [
-            {key: _to_iso(value) for key, value in dict(row).items()}
-            for row in row_iter
-        ]
+        rows = []
+        success = False
+        try:
+            if policy:
+                row_iter = self.client.list_rows(
+                    table_id,
+                    selected_fields=selected_fields,
+                    max_results=RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS,
+                    timeout=bounded_timeout(30),
+                )
+            else:
+                row_iter = self.client.list_rows(
+                    table_id,
+                    selected_fields=selected_fields,
+                    max_results=RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS,
+                )
+            for row in row_iter:
+                if policy:
+                    bounded_timeout(30)
+                if len(rows) >= RECENT_PERFORMANCE_TABLE_ROW_MAX_RESULTS:
+                    return None
+                rows.append({key: _to_iso(value) for key, value in dict(row).items()})
+            success = True
+        finally:
+            # Metadata/tabledata reads do not create on-demand SQL query charges.
+            record_data_read(
+                kind="warehouse",
+                status="ok" if success else "error",
+                rows=len(rows),
+                bytes_processed=0,
+                bytes_billed=0,
+            )
         total_rows = getattr(row_iter, "total_rows", None)
         if isinstance(total_rows, int) and total_rows > len(rows):
             # list_rows has no ordering guarantee, so a truncated page would
@@ -1942,14 +2049,14 @@ class BigQueryWarehouseRepository:
             state, reason, players = self._get_similar_players(player_id, anchor=anchor)
             return anchor, state, reason, players
 
-        # Identity gates unknown IDs. Remaining independent reads overlap; the
-        # shared executor caps warehouse concurrency rather than spawning per request.
-        row_future = _PLAYER_QUERY_POOL.submit(self._fetch_player_detail_row, player_id)
-        game_log_future = _PLAYER_QUERY_POOL.submit(
+        # Identity gates unknown IDs. Ask runs these on its caller under the
+        # shared request budget; ordinary pages retain bounded pool concurrency.
+        row_future = _submit_player_query(self._fetch_player_detail_row, player_id)
+        game_log_future = _submit_player_query(
             self._fetch_player_game_log_payload, identity, limit=30
         )
-        trends_future = _PLAYER_QUERY_POOL.submit(self._fetch_player_trends, player_id)
-        similarity_future = _PLAYER_QUERY_POOL.submit(fetch_similarity)
+        trends_future = _submit_player_query(self._fetch_player_trends, player_id)
+        similarity_future = _submit_player_query(fetch_similarity)
         row = row_future.result()
         baseline_fallback = (
             {} if _has_chart_baselines(row) else self._fetch_chart_baseline_row()

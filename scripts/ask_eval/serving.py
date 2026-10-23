@@ -5,6 +5,7 @@ This companion does not enable serving routes or measure deployment latency.
 
 from __future__ import annotations
 
+import json
 import math
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -132,4 +133,164 @@ def evaluate(source: dict[str, Any], variant: str = "complete") -> dict[str, Any
         checks=checks,
         passed=all(c["passed"] for c in checks),
         manifest=manifest,
+    )
+
+
+def measure_pilot(snapshot: dict, *, now: datetime, repetitions: int = 30) -> dict:
+    """Paired offline full-result benchmark; excludes endpoints, models and BigQuery.
+
+    Construction is measured separately. Caller owns the private result artifact.
+    """
+    import statistics
+    from time import perf_counter
+
+    from app.agent.semantics import Query, run_query
+    from app.agent.serving_runtime import PilotPublication
+
+    if type(repetitions) is not int or not 2 <= repetitions <= 100:
+        raise ValueError("Repetitions must be 2..100")
+    source = snapshot_evidence(snapshot)
+    started = perf_counter()
+    publication = PilotPublication.build(
+        snapshot,
+        expected_snapshot_id=source.snapshot_id,
+        publication_id="offline-pilot",
+        relation_version="offline-pilot/1",
+        now=now,
+    )
+    build_ms = (perf_counter() - started) * 1000
+    player = source.rows[0]["player_id"]
+    records = []
+    for phase in ("Regular Season", "Playoffs", "Both"):
+        for aggregation in ("average", "total"):
+            query = Query(
+                metric="pts",
+                season=source.rows[0]["season"],
+                season_type=phase,
+                aggregation=aggregation,
+                player_id=player,
+            )
+            if not publication.approval.supports(query, now=now):
+                continue
+            for attempt in range(repetitions):
+                values = {}
+                timings = {}
+                arms = (
+                    ("facts", "serving") if attempt % 2 == 0 else ("serving", "facts")
+                )
+                for arm in arms:
+                    started = perf_counter()
+                    values[arm] = (
+                        run_query(source, query)
+                        if arm == "facts"
+                        else publication.run(query, now=now)
+                    )
+                    timings[arm] = (perf_counter() - started) * 1000
+                records.append(
+                    dict(
+                        phase=phase,
+                        aggregation=aggregation,
+                        attempt=attempt,
+                        passed=equivalent(values["facts"], values["serving"]),
+                        **timings,
+                    )
+                )
+    return dict(
+        kind="offline_full_result_pilot",
+        source_snapshot_id=source.snapshot_id,
+        endpoint_latency_measured=False,
+        warehouse_cost_measured=False,
+        clock="controlled_synthetic",
+        build_ms=build_ms,
+        records=records,
+        passed=bool(records) and all(r["passed"] for r in records),
+        median_facts_ms=statistics.median(r["facts"] for r in records)
+        if records
+        else None,
+        median_serving_ms=statistics.median(r["serving"] for r in records)
+        if records
+        else None,
+    )
+
+
+def measure_endpoint_arms(
+    factories: dict, *, question: str, season: str, warm: int = 30, cold: int = 10
+) -> dict:
+    """Paired real JSON/SSE handler measurements using caller-owned test clients.
+
+    Factories are context managers accepting cold=True/False. Transport/network
+    mode, source trust, read/provider budgets and trace capture belong to the
+    owning evaluator. This helper never changes environment or starts resources.
+    """
+    import statistics
+    from time import perf_counter
+
+    if not 1 <= warm <= 100 or not 0 <= cold <= 30 or not 2 <= len(factories) <= 5:
+        raise ValueError("Endpoint pilot exceeds bounded sample/arm counts")
+    records = []
+    payloads = []
+    for cache, count in (("warm", warm), ("cold", cold)):
+        for suffix in ("", "/stream"):
+            for attempt in range(count):
+                names = list(factories)
+                if attempt % 2:
+                    names.reverse()
+                pair = {}
+                for name in names:
+                    with factories[name](cold=cache == "cold") as client:
+                        started = perf_counter()
+                        response = client.post(
+                            "/api/agent/ask" + suffix + "?season=" + season,
+                            json={"question": question},
+                        )
+                        response.raise_for_status()
+                        if suffix:
+                            events = [
+                                json.loads(line[6:])
+                                for line in response.text.splitlines()
+                                if line.startswith("data: ")
+                            ]
+                            payload = next(
+                                e["payload"] for e in events if e.get("type") == "final"
+                            )
+                        else:
+                            payload = response.json()
+                        elapsed = (perf_counter() - started) * 1000
+                        records.append(
+                            dict(
+                                arm=name,
+                                cache=cache,
+                                transport="sse" if suffix else "json",
+                                attempt=attempt,
+                                status=payload["status"],
+                                elapsed_ms=elapsed,
+                                model_calls=payload.get("semantic_plan", {}).get(
+                                    "model_calls"
+                                ),
+                            )
+                        )
+                        pair[name] = payload
+                payloads.append(
+                    dict(cache=cache, transport=suffix, attempt=attempt, arms=pair)
+                )
+    summary = []
+    for name in factories:
+        for cache in ("warm", "cold"):
+            rows = [r for r in records if r["arm"] == name and r["cache"] == cache]
+            if rows:
+                summary.append(
+                    dict(
+                        arm=name,
+                        cache=cache,
+                        attempts=len(rows),
+                        successes=sum(r["status"] == "ok" for r in rows),
+                        median_ms=statistics.median(r["elapsed_ms"] for r in rows),
+                    )
+                )
+    return dict(
+        records=records,
+        payloads=payloads,
+        summary=summary,
+        bounded_pilot=True,
+        p95_commitment=False,
     )

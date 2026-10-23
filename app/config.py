@@ -76,6 +76,12 @@ class Settings:
     ask_claim_enforcement: str = "log"
 
     ask_local_espn_dev: bool = False
+    ask_deterministic_planning_enabled: bool = False
+    ask_formula_cache_enabled: bool = False
+    ask_cohort_cache_enabled: bool = False
+    ask_serving_families: tuple[str, ...] = ("points",)
+    ask_serving_mode: str = "off"
+    ask_serving_reference_path: str | None = None
     season: str = SUPPORTED_SEASON
     agent_dataset: str = "nba_agent"
     openai_api_key: str | None = None
@@ -133,6 +139,20 @@ class Settings:
     next_regular_season_start: date = date(2026, 10, 20)
 
     def __post_init__(self) -> None:
+        if not set(self.ask_serving_families) <= {
+            "points",
+            "metrics",
+            "rankings",
+            "detail",
+            "rich",
+        }:
+            raise ValueError("Unsupported serving query family")
+        if self.ask_serving_mode not in {"off", "shadow", "serve"}:
+            raise ValueError("ASK_SERVING_MODE must be off, shadow or serve")
+        if self.ask_serving_mode != "off" and not self.ask_serving_reference_path:
+            raise ValueError("Serving mode requires a trusted reference path")
+        if self.ask_serving_mode == "serve" and self.ask_local_espn_dev:
+            raise ValueError("Cannot mix promoted serving and local ESPN evidence")
         if self.ask_claim_enforcement not in {"log", "enforce"}:
             raise ValueError("ASK_CLAIM_ENFORCEMENT must be log or enforce")
         for name in (
@@ -164,6 +184,18 @@ class Settings:
 def get_settings() -> Settings:
     return Settings(
         ask_local_espn_dev=_env_bool("ASK_LOCAL_ESPN_DEV", False),
+        ask_serving_mode=os.getenv("ASK_SERVING_MODE", "off"),
+        ask_serving_families=tuple(
+            x.strip()
+            for x in os.getenv("ASK_SERVING_FAMILIES", "points").split(",")
+            if x.strip()
+        ),
+        ask_formula_cache_enabled=_env_bool("ASK_FORMULA_CACHE_ENABLED", False),
+        ask_cohort_cache_enabled=_env_bool("ASK_COHORT_CACHE_ENABLED", False),
+        ask_serving_reference_path=os.getenv("ASK_SERVING_REFERENCE_PATH") or None,
+        ask_deterministic_planning_enabled=_env_bool(
+            "ASK_DETERMINISTIC_PLANNING_ENABLED", False
+        ),
         ask_claim_enforcement=os.getenv("ASK_CLAIM_ENFORCEMENT", "log"),
         project_id=os.getenv("BQ_PROJECT", os.getenv("GCP_PROJECT_ID", "")),
         gold_dataset=os.getenv("BQ_DATASET_GOLD", "nba_gold"),

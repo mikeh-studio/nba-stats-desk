@@ -270,3 +270,20 @@ def test_single_player_pilot_requires_cohort_and_empty_status_parity(publication
     assert (
         run_query(source, replace(query, player_id=999))["status"] == "no_observations"
     )
+
+
+def test_shallow_checksum_serialization_preserves_manifest_bytes(publication):
+    from dataclasses import asdict
+
+    from app.agent.serving_publication import _summary_records, digest
+
+    _, summaries, manifest, _ = publication
+    records = sorted(
+        (asdict(s) for s in summaries),
+        key=lambda s: (s["season"], s["phase"], s["player_id"], s["metric"]),
+    )
+    assert (
+        digest(_summary_records(summaries))
+        == digest(records)
+        == manifest["summary_digest"]
+    )

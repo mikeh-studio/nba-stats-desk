@@ -291,3 +291,72 @@ class FixtureAttachments:
                 base,
                 **{ATTACHMENT_SETTINGS[key]: self.paths[key] for key in attachments},
             )
+
+
+def prepared_fixture_repository(repository, source, variant):
+    """Extend frozen endpoint evaluation with certified serving; no cloud reads."""
+    from dataclasses import replace
+    from datetime import datetime
+
+    from app.agent.semantic_serving import source_players
+    from app.agent.semantic_source import snapshot_digest
+    from app.agent.semantics import load_contract
+    from app.agent.serving_runtime import PilotPublication
+    from app.agent.serving_warehouse import ServingWarehouse
+
+    if variant != "complete":
+        return repository  # adversarial variants keep their original source failure
+    facts = repository._governed_warehouse
+    _, evidence = facts.load([source.get("season", "2024-25")])
+    captured = "2026-10-22T00:00:00+00:00"
+    now = datetime.fromisoformat(captured)
+    snapshot = dict(
+        rows=list(evidence.rows),
+        sources=[evidence.source],
+        source_timestamp=captured,
+        coverage=[
+            dict(
+                season=s,
+                phase=p,
+                rows=sum(
+                    r["season"] == s and r["season_type"] == p for r in evidence.rows
+                ),
+                data_through=d,
+            )
+            for (s, p), d in evidence.data_through.items()
+        ],
+        cohort_complete=True,
+        position_context=evidence.position_context,
+        capture={"query_count": 0},
+    )
+    snapshot["sha256"] = snapshot_digest(snapshot)
+    pub = PilotPublication.build(
+        snapshot,
+        expected_snapshot_id=snapshot["sha256"],
+        publication_id="frozen-evaluation",
+        relation_version="frozen-evaluation/2",
+        now=now,
+        metrics=list(load_contract().metrics),
+        include_detail=True,
+    )
+
+    class Reader:
+        def load(self, *, now, include_detail=False):
+            return pub if include_detail else replace(pub, detail_json=None)
+
+    class Facts:
+        def load(self, seasons):
+            return facts.load(seasons)
+
+        def players(self, evidence):
+            return source_players(evidence)
+
+    repository._governed_warehouse = ServingWarehouse(
+        Facts(),
+        Reader(),
+        lambda: now,
+        mode="serve",
+        reuse_cohort=repository.settings.ask_cohort_cache_enabled,
+        families=("points", "metrics", "rankings", "detail", "rich"),
+    )
+    return repository

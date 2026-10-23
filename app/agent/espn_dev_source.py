@@ -8,6 +8,13 @@ from collections import Counter
 
 from scripts.espn_corrections import validate as validate_box
 
+from app.agent.execution import (
+    bounded_timeout,
+    record_data_read,
+    serialized_warehouse_read,
+    warehouse_budget,
+    warehouse_bytes_billed,
+)
 from app.agent.semantic_source import (
     BigQuerySemanticSource,
     capture_timestamp,
@@ -222,6 +229,7 @@ class ESPNDevSource:
         retained["sha256"] = snapshot_digest(retained)
         return retained
 
+    @serialized_warehouse_read
     def capture(self, seasons):
         if DEFAULT_SEASON not in seasons:
             return self.historical_capture(seasons)
@@ -237,17 +245,39 @@ class ESPNDevSource:
         p = f"{self.base.project}.{DEV_DATASET}"
         sql = f"""SELECT ARRAY(SELECT AS STRUCT c.*,b.payload FROM `{p}.espn_layer_readiness` c LEFT JOIN `{p}.espn_layer_current` b ON c.source_game_id=b.source_game_id AND b.layer='box' WHERE c.season=@season ORDER BY c.source_game_id LIMIT 1501) games,
 ARRAY(SELECT AS STRUCT source_player_id,nba_player_id FROM `{p}.espn_player_mappings` ORDER BY source_player_id LIMIT 1001) mappings"""
-        job = self.base.client.query(
-            sql,
-            job_config=bigquery.QueryJobConfig(
-                query_parameters=[
-                    bigquery.ScalarQueryParameter("season", "STRING", DEFAULT_SEASON)
-                ],
-                maximum_bytes_billed=100_000_000,
-                labels={"purpose": "ask-dev-review"},
-            ),
-        )
-        bundle = dict(next(iter(job.result(timeout=60))))
+        ceiling = warehouse_budget(100_000_000)
+        timeout = bounded_timeout(30)
+        job = None
+        failure: Exception | None = None
+        bundle = None
+        try:
+            job = self.base.client.query(
+                sql,
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter(
+                            "season", "STRING", DEFAULT_SEASON
+                        )
+                    ],
+                    maximum_bytes_billed=ceiling,
+                    labels={"purpose": "ask-dev-review"},
+                ),
+                timeout=timeout,
+            )
+            bundle = dict(next(iter(job.result(timeout=bounded_timeout(60)))))
+        except Exception as exc:
+            failure = exc
+            raise
+        finally:
+            record_data_read(
+                kind="warehouse",
+                status="ok" if bundle is not None else "error",
+                rows=1 if bundle is not None else None,
+                budget_ceiling=ceiling,
+                bytes_processed=getattr(job, "total_bytes_processed", None),
+                bytes_billed=warehouse_bytes_billed(job, failure),
+                cache_hit=getattr(job, "cache_hit", None),
+            )
         return snapshot(
             bundle, DEFAULT_SEASON, p + ".espn_layer_player_box_scores", job.job_id
         )

@@ -58,11 +58,16 @@ class AgentTrace:
     total_tokens: int = 0
     cached_input_tokens: int | None = None
     reasoning_output_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
     token_detail_calls: dict[str, int] = field(default_factory=dict)
     data_reads_dropped: int = 0
     data_reads: list[dict[str, Any]] = field(default_factory=list)
+    serving_shadow: list[dict[str, str]] = field(default_factory=list)
+    serving_shadow_dropped: int = 0
     usage_reported_calls: int = 0
     model_calls: int = 0
+    models_used: dict[str, int] = field(default_factory=dict)
+    models_used_dropped: bool = False
     provider_failures: int = 0
     stage_latency_ms: dict[str, float] = field(default_factory=dict)
     stage_exclusive_latency_ms: dict[str, float] = field(default_factory=dict)
@@ -110,6 +115,20 @@ class AgentTrace:
             or getattr(usage, "completion_tokens", None)
             or 0
         )
+        # Anthropic reports cache reads/writes outside input_tokens.
+        cache_read = getattr(usage, "cache_read_input_tokens", None)
+        cache_write = getattr(usage, "cache_creation_input_tokens", None)
+        if cache_read is not None or cache_write is not None:
+            for value, attr in (
+                (cache_read, "cached_input_tokens"),
+                (cache_write, "cache_creation_input_tokens"),
+            ):
+                if type(value) is int and value >= 0:
+                    prompt += value
+                    setattr(self, attr, (getattr(self, attr) or 0) + value)
+                    self.token_detail_calls[attr] = (
+                        self.token_detail_calls.get(attr, 0) + 1
+                    )
         total = getattr(usage, "total_tokens", None) or int(prompt) + int(completion)
         self.prompt_tokens += int(prompt)
         self.completion_tokens += int(completion)
@@ -154,6 +173,8 @@ class AgentTrace:
             "model": self.model,
             "total_tool_calls": len(self.tools),
             "model_calls": self.model_calls,
+            "models_used": dict(self.models_used),
+            "models_used_dropped": self.models_used_dropped,
             "provider_failures": self.provider_failures,
             "stage_latency_ms": {
                 key: round(value, 3) for key, value in self.stage_latency_ms.items()
@@ -162,10 +183,12 @@ class AgentTrace:
                 key: round(value, 3)
                 for key, value in self.stage_exclusive_latency_ms.items()
             },
-            "data_read_coverage": "semantic_fact_source_only",
+            "data_read_coverage": "ask_warehouse_reads/2",
             "data_reads": list(self.data_reads),
             "usage_reported_calls": self.usage_reported_calls,
             "data_reads_dropped": self.data_reads_dropped,
+            "serving_shadow": list(self.serving_shadow),
+            "serving_shadow_dropped": self.serving_shadow_dropped,
             "token_detail_calls": dict(self.token_detail_calls),
             "capacity": dict(self.capacity),
             "tool_latency_ms": sum(tool["duration_ms"] for tool in self.tools),
@@ -176,6 +199,7 @@ class AgentTrace:
                 "total": self.total_tokens,
                 "cached_input": self.cached_input_tokens,
                 "reasoning_output": self.reasoning_output_tokens,
+                "cache_creation_input": self.cache_creation_input_tokens,
             },
             "outcome": self.outcome,
             "error_type": self.error_type,

@@ -24,6 +24,7 @@ from app.agent.name_matching import (
     PlayerNameError,
     identity_payload,
     name_matching_entrypoint,
+    prepare_names,
 )
 from app.agent.performance_overview import (
     build_overview,
@@ -54,6 +55,7 @@ from app.agent.semantic_serving import (
     seasons_in_dates,
     source_players,
 )
+from app.agent.semantic_source import capture_timestamp
 from app.agent.semantics import Query, SemanticError, run_query
 from app.seasons import season_bounds
 
@@ -65,6 +67,73 @@ SEMANTIC_LABELS = {
     "overview": "player_overview",
     "metrics": "governed_metrics",
 }
+
+
+def normalize_metric_plan_scope(
+    plan,
+    *,
+    metric_window,
+    appearances,
+    question,
+    time_assumptions,
+    window_seasons,
+    inherited,
+):
+    """One date/exclusion normalization path for facts and prepared execution."""
+    validated_points_scope = plan.pop("validated_points_scope", None)
+    for query in plan.get("queries", []):
+        if metric_window.get("window") == "date_range":
+            query.update(metric_window)
+        if validated_points_scope:
+            query.update(validated_points_scope)
+        if query.get("window") == "date_range":
+            # Fresh metric requests need the same full-window coverage as
+            # inherited ones. Missing required archives must fail closed.
+            end = query.get("as_of") or max(
+                (
+                    str(r["game_date"])
+                    for r in appearances
+                    if r["season"] == query["season"]
+                    and (
+                        query.get("season_type", "Regular Season") == "Both"
+                        or r["season_type"]
+                        == query.get("season_type", "Regular Season")
+                    )
+                ),
+                default=semantic_today().isoformat(),
+            )
+            if metric_window.get("window") != "date_range":
+                anchor_match = re.search(
+                    r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b",
+                    question,
+                    re.I,
+                )
+                upper = (
+                    min(
+                        semantic_today(),
+                        date.fromisoformat(anchor_match[1]),
+                    )
+                    if anchor_match
+                    else semantic_today()
+                )
+                if date.fromisoformat(end) > upper:
+                    end = upper.isoformat()
+                    note = f"Using {end} as the latest allowed date for this request."
+                    if note not in time_assumptions:
+                        time_assumptions.append(note)
+            query["seasons"] = window_seasons(query.get("start_date"), end)
+            query["as_of"] = end
+            if query.get("season") not in query["seasons"]:
+                query["season"] = query["seasons"][0]
+        if inherited.get("excluded_player_ids"):
+            if query.get("operation") != "rank":
+                raise SemanticError(
+                    "clarification_required",
+                    "Should I rank other players, excluding the player discussed above?",
+                )
+            query["player_name"] = None
+            query["excluded_player_ids"] = inherited["excluded_player_ids"]
+    return plan
 
 
 def contextual_leader_plan(question, context, season):
@@ -812,388 +881,458 @@ class SemanticAsk:
             allow_fallback = (
                 not has_time_scope(question) and not inherited and not pending
             )
-            if allow_fallback:
-                used = self.settings.season
-                try:
-                    snapshot, evidence = self.warehouse.load(seasons)
-                    evidence.validate()
-                    if not any(r["season"] == used for r in evidence.rows):
-                        raise SemanticError(
-                            "unsupported_coverage", f"No evidence for {used}"
-                        )
-                except SemanticError as exc:
-                    if exc.code != "unsupported_coverage":
-                        raise
-                    snapshot, evidence, used = load_available_season(
-                        self.warehouse.load,
-                        season_candidates(question, self.settings.season),
-                    )
-                    seasons = [used]
-                if overview and used != self.settings.season:
-                    overview = (
-                        comparison_scope(question, used)
-                        if comparison
-                        else overview_scope(
-                            question, used, comparison=requested_comparison
-                        )
-                    )
-                    overview["seasons"] = seasons
-                if used != self.settings.season:
-                    notice = fallback_notice(self.settings.season, used)
-            else:
-                try:
-                    snapshot, evidence = self.warehouse.load(seasons)
-                except SemanticError as exc:
-                    primary_seasons = [
-                        s
-                        for s in seasons
-                        if overview
-                        and season_bounds(s)[0] <= overview["end"]
-                        and season_bounds(s)[1] >= overview["start"]
-                    ]
-                    if (
-                        exc.code != "unsupported_coverage"
-                        or not primary_seasons
-                        or primary_seasons == seasons
-                    ):
-                        raise
-                    # The requested period stays fixed; only an unavailable baseline
-                    # is omitted. build_overview withholds its comparisons.
-                    snapshot, evidence = self.warehouse.load(primary_seasons)
-            players = (
-                self.warehouse.players(evidence)
-                if hasattr(self.warehouse, "players")
-                else source_players(evidence)
-            )
-            dev_phase_notice = None
+            prepared_attempt = None
             if (
-                not evidence.cohort_complete
-                and overview
-                and not re.search(
-                    r"\b(playoffs?|postseason|both|all phases)\b", question, re.I
+                hasattr(self.warehouse, "prepare")
+                and not overview
+                and not split
+                and not award
+                and not pending
+                and not inherited
+                and not selected_player
+                and not context
+                and not allow_fallback
+                and all(
+                    season_bounds(s)[1] < date.fromisoformat(capture_timestamp()[:10])
+                    for s in seasons
                 )
             ):
-                overview = {
-                    **overview,
-                    "phases": ["Regular Season"],
-                    "previous_phases": ["Regular Season"],
-                }
-                dev_phase_notice = "This preview covers regular-season box scores only; this overview uses the regular season."
-            if not evidence.cohort_complete and (
-                comparison
-                or split
-                or position_group
-                or re.search(
-                    r"\b(rank|rankings|percentiles?|baseline|cohort|peers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
-                    question,
-                    re.I,
-                )
-            ):
-                raise SemanticError(
-                    "unsupported_coverage",
-                    "League and peer comparisons are unavailable for partial ESPN dev coverage. Ask for a player's recorded box-score metrics.",
-                )
-            if context.get("browser_recovered") and any(
-                not any(
-                    p["player_id"] == hint["player_id"]
-                    and p["player_name"].casefold() == hint["player_name"].casefold()
-                    for p in players
-                )
-                for hint in context.get("players", [])
-            ):
-                raise SemanticError(
-                    "unsupported_coverage",
-                    "Saved player context does not match this source. Please restate the full player name and dates.",
-                )
-            if pending and not selected_player and not overview:
-                from app.agent.planner import explicit_metric_mentions
 
+                def plan_prepared(identities, teams):
+                    nonlocal question
+                    question, identities = prepare_names(question, identities)
+                    return plan_question(
+                        client,
+                        model=model,
+                        question=question,
+                        selected_season=seasons[0]
+                        if len(seasons) == 1
+                        else self.settings.season,
+                        players=identities,
+                        teams=teams,
+                        usage_callback=trace.add_usage if trace else None,
+                        deterministic=getattr(
+                            self.settings, "ask_deterministic_planning_enabled", False
+                        ),
+                        dated_points_eligible=dated_points_eligible,
+                        dated_points_question=(
+                            prepare_names(original, identities, strict=False)[0]
+                            if dated_points_eligible
+                            else original
+                        ),
+                    )
+
+                prepared_attempt = self.warehouse.prepare(
+                    plan_prepared,
+                    seasons=seasons,
+                    question=question,
+                    normalizer=lambda plan, appearances: normalize_metric_plan_scope(
+                        plan,
+                        metric_window=metric_window,
+                        appearances=appearances,
+                        question=question,
+                        time_assumptions=time_assumptions,
+                        window_seasons=window_seasons,
+                        inherited=inherited,
+                    ),
+                )
+            load_evidence = (
+                self.warehouse.facts.load
+                if prepared_attempt is not None and prepared_attempt.result is None
+                else (
+                    lambda requested: self.warehouse.load_for_request(
+                        requested, rich=bool(overview or split)
+                    )
+                )
+                if hasattr(self.warehouse, "load_for_request")
+                else self.warehouse.load
+            )
+            if prepared_attempt is not None and prepared_attempt.result is not None:
+                seasons = list(prepared_attempt.required_seasons) or seasons
+                plan, result, players = (
+                    prepared_attempt.plan,
+                    prepared_attempt.result,
+                    prepared_attempt.players,
+                )
+                payload = render_answer(result, players)
+                if payload.get("player_profile"):
+                    payload["player_profile"] = identity_profile(
+                        payload["player_profile"]["player"],
+                        prepared_attempt.appearances,
+                    )
+                snapshot = {"capture": prepared_attempt.source_query}
+                dev_phase_notice = None
+            else:
+                if allow_fallback:
+                    used = self.settings.season
+                    try:
+                        snapshot, evidence = load_evidence(seasons)
+                        evidence.validate()
+                        if not any(r["season"] == used for r in evidence.rows):
+                            raise SemanticError(
+                                "unsupported_coverage", f"No evidence for {used}"
+                            )
+                    except SemanticError as exc:
+                        if exc.code != "unsupported_coverage":
+                            raise
+                        snapshot, evidence, used = load_available_season(
+                            load_evidence,
+                            season_candidates(question, self.settings.season),
+                        )
+                        seasons = [used]
+                    if overview and used != self.settings.season:
+                        overview = (
+                            comparison_scope(question, used)
+                            if comparison
+                            else overview_scope(
+                                question, used, comparison=requested_comparison
+                            )
+                        )
+                        overview["seasons"] = seasons
+                    if used != self.settings.season:
+                        notice = fallback_notice(self.settings.season, used)
+                else:
+                    try:
+                        snapshot, evidence = load_evidence(seasons)
+                    except SemanticError as exc:
+                        primary_seasons = [
+                            s
+                            for s in seasons
+                            if overview
+                            and season_bounds(s)[0] <= overview["end"]
+                            and season_bounds(s)[1] >= overview["start"]
+                        ]
+                        if (
+                            exc.code != "unsupported_coverage"
+                            or not primary_seasons
+                            or primary_seasons == seasons
+                        ):
+                            raise
+                        # The requested period stays fixed; only an unavailable baseline
+                        # is omitted. build_overview withholds its comparisons.
+                        snapshot, evidence = load_evidence(primary_seasons)
+                players = (
+                    self.warehouse.players(evidence)
+                    if hasattr(self.warehouse, "players")
+                    else source_players(evidence)
+                )
+                dev_phase_notice = None
                 if (
-                    explicit_metric_mentions(original) == {"pts"}
-                    and explicit_scope(original).get("window") == "date_range"
-                    and len(resolve_overview_player(original, players, evidence.rows))
-                    == 1
+                    not evidence.cohort_complete
+                    and overview
+                    and not re.search(
+                        r"\b(playoffs?|postseason|both|all phases)\b", question, re.I
+                    )
                 ):
-                    # A complete new dated request is not a terse scope reply.
-                    pending = None
-                    question = original
-                    dated_points_eligible = True
-            if pending and not selected_player and not overview:
-                resolved = resolve_overview_player(question, players, evidence.rows)
-                if len(resolved) == 1:
-                    selected_player = resolved[0]
-            if selected_player and not comparison:
-                matches = [
-                    p
-                    for p in players
-                    if p["player_id"] == selected_player.get("player_id")
-                ]
-                if not matches:
+                    overview = {
+                        **overview,
+                        "phases": ["Regular Season"],
+                        "previous_phases": ["Regular Season"],
+                    }
+                    dev_phase_notice = "This preview covers regular-season box scores only; this overview uses the regular season."
+                if not evidence.cohort_complete and (
+                    comparison
+                    or split
+                    or position_group
+                    or re.search(
+                        r"\b(rank|rankings|percentiles?|baseline|cohort|peers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
+                        question,
+                        re.I,
+                    )
+                ):
                     raise SemanticError(
                         "unsupported_coverage",
-                        "Selected player is absent from this source scope",
+                        "League and peer comparisons are unavailable for partial ESPN dev coverage. Ask for a player's recorded box-score metrics.",
                     )
-                # A selection resolves ambiguous aliases only to this source ID.
-                chosen = matches[0]
-                if (
-                    award
-                    and unicodedata.normalize("NFKD", chosen["player_name"])
-                    .encode("ascii", "ignore")
-                    .lower()
-                    != unicodedata.normalize("NFKD", award["player_name"])
-                    .encode("ascii", "ignore")
-                    .lower()
+                if context.get("browser_recovered") and any(
+                    not any(
+                        p["player_id"] == hint["player_id"]
+                        and p["player_name"].casefold()
+                        == hint["player_name"].casefold()
+                        for p in players
+                    )
+                    for hint in context.get("players", [])
                 ):
                     raise SemanticError(
-                        "invalid_evidence",
-                        "Award identity does not match the warehouse player record.",
+                        "unsupported_coverage",
+                        "Saved player context does not match this source. Please restate the full player name and dates.",
                     )
-                players = [
-                    dict(
-                        p,
-                        aliases=[]
-                        if p["player_id"] != chosen["player_id"]
-                        else p["aliases"],
-                    )
-                    for p in players
-                    if p["player_id"] == chosen["player_id"]
-                    or p["player_name"].casefold() != chosen["player_name"].casefold()
-                ]
-            from app.agent.name_matching import prepare_names
+                if pending and not selected_player and not overview:
+                    from app.agent.planner import explicit_metric_mentions
 
-            if not overview:
-                question, players = prepare_names(question, players)
-            if split:
-                payload = answer_split(question, evidence, players, seasons[0])
-                plan = payload["semantic_plan"]
-                result = {"status": payload["status"]}
-            elif overview:
-                if comparison:
-                    payload = build_comparison(
-                        question,
-                        evidence,
-                        players,
-                        overview,
-                        selected_player,
-                        (pending.query_plan or {}).get("comparison_choices")
-                        if pending
-                        else None,
-                    )
-                else:
-                    payload = build_overview(
-                        question, evidence, players, overview, selected_player
-                    )
-                plan = {
-                    "status": payload["status"],
-                    "queries": [],
-                    "message": "Player comparison"
-                    if comparison
-                    else "Performance overview",
-                    "model_calls": 0,
-                    "comparison_choices": payload.get("comparison_choices", {}),
-                }
-                result = {"status": payload["status"]}
-            else:
-                plan = leader_plan or plan_question(
-                    client,
-                    model=model,
-                    question=question,
-                    dated_points_eligible=dated_points_eligible,
-                    dated_points_question=(
-                        prepare_names(original, players, strict=False)[0]
-                        if dated_points_eligible
-                        else original
-                    ),
-                    selected_season=seasons[0]
-                    if len(seasons) == 1
-                    else self.settings.season,
-                    usage_callback=trace.add_usage if trace else None,
-                    players=players,
-                    # Stored route labels are routing state, not planner context.
-                    conversation_context={
-                        k: v for k, v in context.items() if k != "route"
-                    },
-                    teams=sorted(
-                        {
-                            r[k]
-                            for r in evidence.rows
-                            for k in ("team_abbr", "opponent_abbr")
-                            if r.get(k)
-                        }
-                    ),
-                )
-                if pending:
-                    from app.agent.question_intent import explicit_aggregation
-
-                    if not explicit_aggregation(question) and any(
-                        q.get("metric") == "pts"
-                        and q.get("operation", "summary") == "summary"
-                        and q.get("window") == "date_range"
-                        and q.get("aggregation") == "total"
-                        for q in plan.get("queries", [])
+                    if (
+                        explicit_metric_mentions(original) == {"pts"}
+                        and explicit_scope(original).get("window") == "date_range"
+                        and len(
+                            resolve_overview_player(original, players, evidence.rows)
+                        )
+                        == 1
+                    ):
+                        # A complete new dated request is not a terse scope reply.
+                        pending = None
+                        question = original
+                        dated_points_eligible = True
+                if pending and not selected_player and not overview:
+                    resolved = resolve_overview_player(question, players, evidence.rows)
+                    if len(resolved) == 1:
+                        selected_player = resolved[0]
+                if selected_player and not comparison:
+                    matches = [
+                        p
+                        for p in players
+                        if p["player_id"] == selected_player.get("player_id")
+                    ]
+                    if not matches:
+                        raise SemanticError(
+                            "unsupported_coverage",
+                            "Selected player is absent from this source scope",
+                        )
+                    # A selection resolves ambiguous aliases only to this source ID.
+                    chosen = matches[0]
+                    if (
+                        award
+                        and unicodedata.normalize("NFKD", chosen["player_name"])
+                        .encode("ascii", "ignore")
+                        .lower()
+                        != unicodedata.normalize("NFKD", award["player_name"])
+                        .encode("ascii", "ignore")
+                        .lower()
                     ):
                         raise SemanticError(
-                            "clarification_required",
-                            "Please restate the player and date interval, or specify total points versus points per game.",
+                            "invalid_evidence",
+                            "Award identity does not match the warehouse player record.",
                         )
-                plan = normalize_reference_plan(
-                    plan, inherited.get("excluded_player_ids", []), players
-                )
-                validated_points_scope = plan.pop("validated_points_scope", None)
-                for query in plan.get("queries", []):
-                    if metric_window.get("window") == "date_range":
-                        query.update(metric_window)
-                    if validated_points_scope:
-                        query.update(validated_points_scope)
-                    if query.get("window") == "date_range":
-                        # Fresh metric requests need the same full-window coverage as
-                        # inherited ones. Missing required archives must fail closed.
-                        end = query.get("as_of") or max(
-                            (
-                                str(r["game_date"])
-                                for r in evidence.rows
-                                if r["season"] == query["season"]
-                                and (
-                                    query.get("season_type", "Regular Season") == "Both"
-                                    or r["season_type"]
-                                    == query.get("season_type", "Regular Season")
-                                )
+                    players = [
+                        dict(
+                            p,
+                            aliases=[]
+                            if p["player_id"] != chosen["player_id"]
+                            else p["aliases"],
+                        )
+                        for p in players
+                        if p["player_id"] == chosen["player_id"]
+                        or p["player_name"].casefold()
+                        != chosen["player_name"].casefold()
+                    ]
+                if not overview:
+                    question, players = prepare_names(question, players)
+                if split:
+                    payload = answer_split(question, evidence, players, seasons[0])
+                    plan = payload["semantic_plan"]
+                    result = {"status": payload["status"]}
+                elif overview:
+                    if comparison:
+                        payload = build_comparison(
+                            question,
+                            evidence,
+                            players,
+                            overview,
+                            selected_player,
+                            (pending.query_plan or {}).get("comparison_choices")
+                            if pending
+                            else None,
+                        )
+                    else:
+                        payload = build_overview(
+                            question, evidence, players, overview, selected_player
+                        )
+                    plan = {
+                        "status": payload["status"],
+                        "queries": [],
+                        "message": "Player comparison"
+                        if comparison
+                        else "Performance overview",
+                        "model_calls": 0,
+                        "comparison_choices": payload.get("comparison_choices", {}),
+                    }
+                    result = {"status": payload["status"]}
+                else:
+                    plan = (
+                        leader_plan
+                        or (prepared_attempt.plan if prepared_attempt else None)
+                        or plan_question(
+                            client,
+                            model=model,
+                            question=question,
+                            dated_points_eligible=dated_points_eligible,
+                            deterministic=getattr(
+                                self.settings,
+                                "ask_deterministic_planning_enabled",
+                                False,
                             ),
-                            default=semantic_today().isoformat(),
+                            dated_points_question=(
+                                prepare_names(original, players, strict=False)[0]
+                                if dated_points_eligible
+                                else original
+                            ),
+                            selected_season=seasons[0]
+                            if len(seasons) == 1
+                            else self.settings.season,
+                            usage_callback=trace.add_usage if trace else None,
+                            players=players,
+                            # Stored route labels are routing state, not planner context.
+                            conversation_context={
+                                k: v for k, v in context.items() if k != "route"
+                            },
+                            teams=sorted(
+                                {
+                                    r[k]
+                                    for r in evidence.rows
+                                    for k in ("team_abbr", "opponent_abbr")
+                                    if r.get(k)
+                                }
+                            ),
                         )
-                        if metric_window.get("window") != "date_range":
-                            anchor_match = re.search(
-                                r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I
-                            )
-                            upper = (
-                                min(
-                                    semantic_today(),
-                                    date.fromisoformat(anchor_match[1]),
-                                )
-                                if anchor_match
-                                else semantic_today()
-                            )
-                            if date.fromisoformat(end) > upper:
-                                end = upper.isoformat()
-                                note = f"Using {end} as the latest allowed date for this request."
-                                if note not in time_assumptions:
-                                    time_assumptions.append(note)
-                        query["seasons"] = window_seasons(query.get("start_date"), end)
-                        query["as_of"] = end
-                        if query.get("season") not in query["seasons"]:
-                            query["season"] = query["seasons"][0]
-                    if inherited.get("excluded_player_ids"):
-                        if query.get("operation") != "rank":
+                    )
+                    if pending:
+                        from app.agent.question_intent import explicit_aggregation
+
+                        if not explicit_aggregation(question) and any(
+                            q.get("metric") == "pts"
+                            and q.get("operation", "summary") == "summary"
+                            and q.get("window") == "date_range"
+                            and q.get("aggregation") == "total"
+                            for q in plan.get("queries", [])
+                        ):
                             raise SemanticError(
                                 "clarification_required",
-                                "Should I rank other players, excluding the player discussed above?",
+                                "Please restate the player and date interval, or specify total points versus points per game.",
                             )
-                        query["player_name"] = None
-                        query["excluded_player_ids"] = inherited["excluded_player_ids"]
-                required_seasons = sorted(
-                    set(seasons).union(
-                        s
-                        for q in plan.get("queries", [])
-                        if q.get("window") == "date_range"
-                        for s in q["seasons"]
-                    ),
-                    reverse=True,
-                )
-                if required_seasons and not set(required_seasons).issubset(seasons):
-                    snapshot, evidence = self.warehouse.load(required_seasons)
-                    seasons = required_seasons
-                    players = (
-                        self.warehouse.players(evidence)
-                        if hasattr(self.warehouse, "players")
-                        else source_players(evidence)
+                    plan = normalize_reference_plan(
+                        plan, inherited.get("excluded_player_ids", []), players
                     )
-                    if selected_player:
-                        players = [
-                            p
-                            for p in players
-                            if p["player_id"] == selected_player["player_id"]
-                            or p["player_name"].casefold()
-                            != selected_player["player_name"].casefold()
-                        ]
-                question, players = prepare_names(question, players)
-                result = execute_plan(plan, evidence, players)
-                # Reuse the validated scope plan; only the default season changes.
-                # No additional model calls, threshold relaxation, or date changes.
-                retryable_plan = bool(plan.get("queries")) and all(
-                    q.get("season") == seasons[0]
-                    and not q.get("seasons")
-                    and q.get("window", "season_to_date") == "season_to_date"
-                    and not q.get("as_of")
-                    and not q.get("start_date")
-                    for q in plan["queries"]
-                )
-                if allow_fallback and retryable_plan:
-                    for older in season_candidates(question, self.settings.season):
-                        if older >= seasons[0] or result["status"] not in (
-                            "unsupported_coverage",
-                            "no_observations",
-                        ):
-                            continue
-                        try:
-                            candidate_snapshot, candidate_evidence, _ = (
-                                load_available_season(self.warehouse.load, [older])
-                            )
-                        except SemanticError as exc:
-                            if exc.code == "unsupported_coverage":
-                                continue
-                            raise
-                        try:
-                            candidate_players = prepare_names(
-                                question, source_players(candidate_evidence)
-                            )[1]
-                        except PlayerNameError:
-                            # A player absent from an older roster cannot turn a
-                            # valid current identity into an unavailable player.
-                            continue
-                        candidate_plan = {
-                            **plan,
-                            "queries": [dict(q, season=older) for q in plan["queries"]],
-                        }
-                        candidate_result = execute_plan(
-                            candidate_plan, candidate_evidence, candidate_players
+                    plan = normalize_metric_plan_scope(
+                        plan,
+                        metric_window=metric_window,
+                        appearances=evidence.rows,
+                        question=question,
+                        time_assumptions=time_assumptions,
+                        window_seasons=window_seasons,
+                        inherited=inherited,
+                    )
+                    required_seasons = sorted(
+                        set(seasons).union(
+                            s
+                            for q in plan.get("queries", [])
+                            if q.get("window") == "date_range"
+                            for s in q["seasons"]
+                        ),
+                        reverse=True,
+                    )
+                    if required_seasons and not set(required_seasons).issubset(seasons):
+                        snapshot, evidence = load_evidence(required_seasons)
+                        seasons = required_seasons
+                        players = (
+                            self.warehouse.players(evidence)
+                            if hasattr(self.warehouse, "players")
+                            else source_players(evidence)
                         )
-                        if candidate_result["status"] == "ok":
-                            plan, result = candidate_plan, candidate_result
-                            snapshot, evidence, players = (
-                                candidate_snapshot,
-                                candidate_evidence,
-                                candidate_players,
-                            )
-                            seasons = [older]
-                            notice = fallback_notice(self.settings.season, older)
-                            break
-                        if candidate_result["status"] not in (
-                            "unsupported_coverage",
-                            "no_observations",
-                        ):
-                            break
-                payload = render_answer(result, players)
-                if (
-                    payload["status"] == "ok"
-                    and len(inherited.get("excluded_player_ids", [])) == 1
-                ):
-                    add_leaderboard_reference(
-                        payload,
-                        result,
+                        if selected_player:
+                            players = [
+                                p
+                                for p in players
+                                if p["player_id"] == selected_player["player_id"]
+                                or p["player_name"].casefold()
+                                != selected_player["player_name"].casefold()
+                            ]
+                    question, players = prepare_names(question, players)
+                    result = execute_plan(
+                        plan,
                         evidence,
                         players,
-                        inherited["excluded_player_ids"][0],
+                        **(
+                            {"shadow": self.warehouse.serving_shadow}
+                            if getattr(self.warehouse, "serving_shadow", None)
+                            is not None
+                            else {}
+                        ),
                     )
-                if inherited.get("assumption") and payload["status"] == "ok":
-                    payload["assumptions"].append(inherited["assumption"])
-                    payload["answer"] = (
-                        inherited["assumption"] + "\n\n" + payload["answer"]
+                    # Reuse the validated scope plan; only the default season changes.
+                    # No additional model calls, threshold relaxation, or date changes.
+                    retryable_plan = bool(plan.get("queries")) and all(
+                        q.get("season") == seasons[0]
+                        and not q.get("seasons")
+                        and q.get("window", "season_to_date") == "season_to_date"
+                        and not q.get("as_of")
+                        and not q.get("start_date")
+                        for q in plan["queries"]
                     )
-                if payload.get("player_profile"):
-                    player = payload["player_profile"]["player"]
-                    payload["player_profile"] = identity_profile(player, evidence.rows)
+                    if allow_fallback and retryable_plan:
+                        for older in season_candidates(question, self.settings.season):
+                            if older >= seasons[0] or result["status"] not in (
+                                "unsupported_coverage",
+                                "no_observations",
+                            ):
+                                continue
+                            try:
+                                candidate_snapshot, candidate_evidence, _ = (
+                                    load_available_season(load_evidence, [older])
+                                )
+                            except SemanticError as exc:
+                                if exc.code == "unsupported_coverage":
+                                    continue
+                                raise
+                            try:
+                                candidate_players = prepare_names(
+                                    question, source_players(candidate_evidence)
+                                )[1]
+                            except PlayerNameError:
+                                # Missing older-roster identity must not replace the current result.
+                                continue
+                            candidate_plan = {
+                                **plan,
+                                "queries": [
+                                    dict(q, season=older) for q in plan["queries"]
+                                ],
+                            }
+                            candidate_result = execute_plan(
+                                candidate_plan, candidate_evidence, candidate_players
+                            )
+                            if candidate_result["status"] == "ok":
+                                plan, result = candidate_plan, candidate_result
+                                snapshot, evidence, players = (
+                                    candidate_snapshot,
+                                    candidate_evidence,
+                                    candidate_players,
+                                )
+                                seasons = [older]
+                                notice = fallback_notice(self.settings.season, older)
+                                break
+                            if candidate_result["status"] not in (
+                                "unsupported_coverage",
+                                "no_observations",
+                            ):
+                                break
+                    payload = render_answer(result, players)
+                    if (
+                        payload["status"] == "ok"
+                        and len(inherited.get("excluded_player_ids", [])) == 1
+                    ):
+                        add_leaderboard_reference(
+                            payload,
+                            result,
+                            evidence,
+                            players,
+                            inherited["excluded_player_ids"][0],
+                        )
+                    if inherited.get("assumption") and payload["status"] == "ok":
+                        payload["assumptions"].append(inherited["assumption"])
+                        payload["answer"] = (
+                            inherited["assumption"] + "\n\n" + payload["answer"]
+                        )
+                    if payload.get("player_profile"):
+                        player = payload["player_profile"]["player"]
+                        payload["player_profile"] = identity_profile(
+                            player, evidence.rows
+                        )
+            option_rows = (
+                prepared_attempt.appearances
+                if prepared_attempt is not None and prepared_attempt.result is not None
+                else evidence.rows
+            )
+            if not overview and not split:
                 for option in payload.get("clarification_options", []):
-                    option["team_abbr"] = identity_profile(option, evidence.rows)[
+                    option["team_abbr"] = identity_profile(option, option_rows)[
                         "player"
                     ].get("team_abbr")
                     option["label"] = option["player_name"]
@@ -1238,8 +1377,6 @@ class SemanticAsk:
                     payload.setdefault("scope_assumptions", []).extend(
                         snapshot.get("scope_assumptions", [])
                     )
-                # Identity confirmation is the immediate action; retain source
-                # disclosures in metadata and show them with the final answer.
                 payload["assumptions"].extend(snapshot["coverage_notes"])
                 payload["source_coverage"] = snapshot.get("review_metadata")
             payload["source_query"] = {
@@ -1257,6 +1394,9 @@ class SemanticAsk:
                 }
             ]
         except PlayerNameError as exc:
+            source_query = getattr(exc, "source_query", None)
+            if source_query:
+                snapshot = {"capture": source_query}
             # Replay raw wording so time defaults and conversation context are
             # resolved once again, with their original disclosures intact.
             question = identity_replay_question
