@@ -343,13 +343,27 @@ def resolve_overview_player(question, players, rows, selected=None):
     original = original.split("\nSelected player:", 1)[0]
 
     def mentioned(text):
+        from app.agent.name_matching import _spans
+        from app.agent.player_suggestions import resolve_player_name
+
+        spans = _spans(text, players)
         hits = []
         for p in players:
             for name in (p["player_name"], *p.get("aliases", [])):
                 for match in re.finditer(
                     r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I
                 ):
-                    hits.append((match.start(), match.end(), p))
+                    # A short alias cannot discard a misspelled or unknown
+                    # surname. Let the full-name policy handle that span.
+                    if any(
+                        a <= match.start()
+                        and b >= match.end()
+                        and b - a > match.end() - match.start()
+                        for a, b in spans
+                    ):
+                        continue
+                    for candidate in resolve_player_name(name, players)["matches"]:
+                        hits.append((match.start(), match.end(), candidate))
         return list(
             {
                 p["player_id"]: p
@@ -362,7 +376,12 @@ def resolve_overview_player(question, players, rows, selected=None):
 
     candidates = mentioned(original)
     if selected:
-        allowed = candidates or players
+        from app.agent.player_suggestions import _rank_matches
+
+        # Validate against the full credible pool, not the five-option display
+        # limit, so an explicit full-name selection can reach a later match.
+        _, ranked = _rank_matches(original, players)
+        allowed = candidates or [p for _, p, _, _ in ranked]
         return [p for p in allowed if p["player_id"] == selected.get("player_id")]
     if reply and candidates:
         direct = mentioned(reply)

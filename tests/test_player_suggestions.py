@@ -250,3 +250,52 @@ def test_suggestion_confirmation_at_endpoints(suffix, kind):
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous)
+
+
+@pytest.mark.parametrize("comparison", [False, True])
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("LeBron Jams", "ok"),
+        ("LeBron Zqxv", "not_found"),
+    ],
+)
+def test_short_alias_cannot_discard_unknown_surname(comparison, name, expected):
+    from app.agent.performance_overview import build_overview, overview_scope
+    from app.agent.player_comparison import build_comparison, comparison_scope
+    from app.agent.semantic_serving import source_players
+
+    evidence = facts()
+    for row in evidence.rows:
+        if row["player_id"] == 8101:
+            row["player_name"] = "LeBron James"
+    players = source_players(evidence)
+    question = f"How did {name} perform in the 2025-26 regular season?"
+    if comparison:
+        question = f"{name} vs Blake Reed in the 2025-26 regular season"
+        result = build_comparison(
+            question, evidence, players, comparison_scope(question, "2025-26")
+        )
+    else:
+        result = build_overview(
+            question, evidence, players, overview_scope(question, "2025-26")
+        )
+    assert result["status"] == expected
+    if expected == "ok":
+        assert "Using LeBron James" in result["answer"]
+    else:
+        assert not result["tables"]
+
+
+def test_short_alias_collision_and_selection_use_credible_candidates():
+    from app.agent.performance_overview import resolve_overview_player
+
+    players = [
+        {"player_id": 1, "player_name": "Jalen Duren", "aliases": ["Jalen"]},
+        {"player_id": 2, "player_name": "Jalen Brunson", "aliases": []},
+        {"player_id": 3, "player_name": "Blake Reed", "aliases": []},
+    ]
+    assert len(resolve_overview_player("Jalen performance", players, [])) == 2
+    assert not resolve_overview_player(
+        "Jalen Duran performance", players, [], {"player_id": 3}
+    )
