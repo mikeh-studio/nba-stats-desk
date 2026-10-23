@@ -1,5 +1,5 @@
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261022-saved-response-retry-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261022-saved-response-retry-v1";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261022-shared-name-matching-v2";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261022-shared-name-matching-v2";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -8,7 +8,7 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261022-saved-response-retry-v1";
+} from "./ask_comparison.js?v=20261022-shared-name-matching-v2";
 import {
   normalizeTabs,
   openTab,
@@ -22,8 +22,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261022-saved-response-retry-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261022-saved-response-retry-v1";
+} from "./ask_presentation.js?v=20261022-shared-name-matching-v2";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261022-shared-name-matching-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -972,6 +972,10 @@ function resetAuxiliaryPanels() {
 function renderClarifyOptions(payload) {
   const options = asArray(payload.clarification_options);
   if (!options.length) return "";
+  const labels = options.map(option => `${String(option.player_name || "").trim().toLowerCase()}|${String(option.team_abbr || "").trim().toLowerCase()}`);
+  if (new Set(labels).size !== labels.length) {
+    return `<p class="agent-clarify-options">Some source records have the same player name and team, so these choices cannot be distinguished. Please narrow the season or team before selecting a player.</p>`;
+  }
   return `
     <div class="agent-clarify-options">
       ${options
@@ -981,8 +985,7 @@ function renderClarifyOptions(payload) {
           const team = option.team_abbr
             ? ` &middot; ${escHtml(option.team_abbr)}`
             : "";
-          const label = String(option.label || name);
-          return `<button class="button secondary" type="button" data-agent-player-option data-player-id="${escHtml(option.player_id ?? "")}" data-player-name="${escHtml(name)}">${escHtml(label)}${team}</button>`;
+          return `<button class="button secondary" type="button" data-agent-player-option data-player-id="${escHtml(option.player_id ?? "")}" data-player-name="${escHtml(name)}">${escHtml(name)}${team}</button>`;
         })
         .join("")}
     </div>

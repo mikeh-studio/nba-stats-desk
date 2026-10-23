@@ -595,8 +595,7 @@ def answer_reference(
 
             options = resolve_overview_player(question, players, source.rows)
             payload["clarification_options"] = [
-                dict(p, label=f"{p['player_name']} (ID {p['player_id']})")
-                for p in options
+                dict(p, label=p["player_name"]) for p in options
             ]
     payload["visualization"] = {
         "selection": "rule",

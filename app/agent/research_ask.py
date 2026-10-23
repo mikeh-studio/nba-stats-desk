@@ -528,6 +528,9 @@ def _answer_research(
                                 "aliases": list(names[index]),
                             }
                         )
+            from app.agent.name_matching import prepare_names
+
+            question, players = prepare_names(question, players)
             stage = "planning"
             response = agent._create_response(
                 client=agent._get_client(provider),

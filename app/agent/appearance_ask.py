@@ -200,7 +200,9 @@ def answer_appearances(agent, question, context, conversation_id, trace=None):
             appearance_evidence=results,
         )
         from app.agent.claim_renderers import appearance_table
+        from app.agent.name_matching import apply_name_notices
 
+        apply_name_notices(payload)
         appearance_table(payload, identities, bool(context.get("availability_scope")))
         route_hint(payload, route="appearances")
         if conversation_id and agent.conversation_store:

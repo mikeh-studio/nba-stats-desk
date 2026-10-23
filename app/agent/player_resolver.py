@@ -12,21 +12,6 @@ from pydantic import BaseModel, Field
 from app.agent.execution import timed
 from app.repository import WarehouseRepository
 
-try:  # pragma: no cover - exercised when dependency is installed in prod.
-    from rapidfuzz import fuzz
-
-    def _token_sort_ratio(a: str, b: str) -> float:
-        return float(fuzz.token_sort_ratio(a, b))
-
-except ImportError:  # pragma: no cover - local fallback for constrained envs.
-    from difflib import SequenceMatcher
-
-    def _token_sort_ratio(a: str, b: str) -> float:
-        left = " ".join(sorted(a.split()))
-        right = " ".join(sorted(b.split()))
-        return SequenceMatcher(None, left, right).ratio() * 100
-
-
 ALIAS_PATH = Path(__file__).with_name("player_aliases.yml")
 
 
@@ -100,38 +85,6 @@ def _candidate_from_row(
     )
 
 
-def _dedupe_candidates(candidates: list[PlayerCandidate]) -> list[PlayerCandidate]:
-    by_key: dict[int | str, PlayerCandidate] = {}
-    for candidate in candidates:
-        key: int | str = candidate.player_id or normalize_player_text(
-            candidate.player_name
-        )
-        existing = by_key.get(key)
-        if existing is None or candidate.confidence > existing.confidence:
-            by_key[key] = candidate
-    return sorted(
-        by_key.values(),
-        key=lambda item: (
-            -item.confidence,
-            item.overall_rank is None,
-            item.overall_rank or 999999,
-            item.player_name,
-        ),
-    )
-
-
-def _candidate_score(query: str, player_name: str) -> float:
-    query_norm = normalize_player_text(query)
-    name_norm = normalize_player_text(player_name)
-    if not query_norm or not name_norm:
-        return 0.0
-    if query_norm == name_norm:
-        return 1.0
-    if name_norm.startswith(query_norm) or query_norm in name_norm:
-        return 0.9
-    return _token_sort_ratio(query_norm, name_norm) / 100
-
-
 class PlayerResolver:
     def __init__(
         self,
@@ -141,7 +94,8 @@ class PlayerResolver:
         alias_map: dict[str, str] | None = None,
     ) -> None:
         self.repo = repo
-        self.min_confidence = min_confidence
+        # Retained constructor argument for configuration compatibility. Identity
+        # decisions use the shared versioned policy, never a route-specific cutoff.
         self.alias_map = alias_map or load_player_aliases()
 
     @timed("identity")
@@ -149,79 +103,56 @@ class PlayerResolver:
         query = str(raw_name or "").strip()
         if not query:
             return PlayerResolution(raw_name=query, status="not_found", confidence=0)
-        candidates: list[PlayerCandidate] = []
-        query_norm = normalize_player_text(query)
-        alias_target = self.alias_map.get(query_norm)
-        search_terms = [query]
-        if alias_target and normalize_player_text(alias_target) != query_norm:
-            search_terms.insert(0, alias_target)
+        from app.agent.name_matching import record_resolution
+        from app.agent.player_suggestions import resolve_player_name
 
-        for index, term in enumerate(search_terms):
-            method = "alias" if index == 0 and alias_target else "search"
-            try:
-                rows = self.repo.search_players(term, limit=limit)
-            except Exception:
-                rows = []
-            for row in rows:
-                score = _candidate_score(
-                    alias_target or query, str(row.get("player_name") or "")
-                )
-                if method == "alias":
-                    score = max(score, 0.96)
-                candidates.append(
-                    _candidate_from_row(row, confidence=score, method=method)
-                )
-
-        candidates.extend(self._fuzzy_candidates(query, limit=limit))
-        candidates = _dedupe_candidates(candidates)[:limit]
-        if not candidates:
-            return PlayerResolution(raw_name=query, status="not_found", confidence=0)
-
-        top = candidates[0]
-        second = candidates[1] if len(candidates) > 1 else None
-        if top.confidence < self.min_confidence:
-            return PlayerResolution(
-                raw_name=query,
-                status="not_found",
-                confidence=top.confidence,
-                candidates=candidates,
+        getter = getattr(self.repo, "list_agent_player_candidates", None)
+        rows = list(getter(limit=1000) or []) if callable(getter) else []
+        # Search supplements a bounded roster; a provider error must not create
+        # false certainty by silently removing competing identities.
+        terms = {query, self.alias_map.get(normalize_player_text(query), query)}
+        for term in terms:
+            rows.extend(self.repo.search_players(term, limit=1000))
+        players = {}
+        for row in rows:
+            if row.get("player_id") is None or not row.get("player_name"):
+                continue
+            player = dict(row)
+            canonical = normalize_player_text(player["player_name"])
+            player["aliases"] = sorted(
+                set(player.get("aliases", []))
+                | {
+                    alias
+                    for alias, target in self.alias_map.items()
+                    if normalize_player_text(target) == canonical
+                }
             )
-        if (
-            second is not None
-            and second.confidence >= self.min_confidence
-            and (top.confidence - second.confidence < 0.05)
-        ):
-            return PlayerResolution(
-                raw_name=query,
-                status="ambiguous",
-                confidence=top.confidence,
-                candidates=candidates,
+            players[player["player_id"]] = player
+        result = record_resolution(
+            query, resolve_player_name(query, list(players.values()))
+        )
+        method = result.get("resolution", {}).get("method", "exact_or_alias")
+        candidates = [
+            _candidate_from_row(
+                p,
+                confidence=1 if method == "exact_or_alias" else 0.9,
+                method=method if result["status"] == "ok" else "spelling_suggestion",
             )
+            for p in result["matches"][:limit]
+        ]
+        status = (
+            "ambiguous"
+            if result["status"] == "clarification_required"
+            else result["status"]
+        )
         return PlayerResolution(
             raw_name=query,
-            status="ok",
-            confidence=top.confidence,
-            player=top,
+            status=status,
+            confidence=candidates[0].confidence if candidates else 0,
+            player=candidates[0] if status == "ok" else None,
             candidates=candidates,
-            resolution_method=top.match_method,
+            resolution_method=method if status == "ok" else None,
         )
-
-    def _fuzzy_candidates(self, query: str, *, limit: int) -> list[PlayerCandidate]:
-        rows: list[dict[str, Any]] = []
-        getter = getattr(self.repo, "list_agent_player_candidates", None)
-        if callable(getter):
-            try:
-                rows = list(getter(limit=1000))
-            except Exception:
-                rows = []
-        candidates = []
-        for row in rows:
-            score = _candidate_score(query, str(row.get("player_name") or ""))
-            if score >= max(0.7, self.min_confidence - 0.08):
-                candidates.append(
-                    _candidate_from_row(row, confidence=score, method="fuzzy")
-                )
-        return _dedupe_candidates(candidates)[:limit]
 
     def resolve_many(
         self, raw_names: list[str], *, limit: int = 5

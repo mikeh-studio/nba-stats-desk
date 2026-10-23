@@ -20,6 +20,11 @@ from app.agent.metric_presentation import (
     GAMES_WITH_DATA,
     game_coverage,
 )
+from app.agent.name_matching import (
+    PlayerNameError,
+    identity_payload,
+    name_matching_entrypoint,
+)
 from app.agent.performance_overview import (
     build_overview,
     identity_profile,
@@ -466,6 +471,7 @@ class SemanticAsk:
         self.warehouse = warehouse
         self.store = conversation_store
 
+    @name_matching_entrypoint
     def answer(
         self,
         question: str,
@@ -561,11 +567,13 @@ class SemanticAsk:
         dated_points_eligible = not (
             pending or resumed_overview or selected_player or award_request
         )
+        identity_replay_question = question if resumed_overview else original
         if pending:
             if selected_player:
                 question = pending.question
             else:
                 question = f"{pending.question}\nClarification: {question}"
+            identity_replay_question = question
         elif store and not context and not resumed_overview:
             if turns and re.search(
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
@@ -599,6 +607,7 @@ class SemanticAsk:
             )
         request_question = question
         overview_pending = None
+        snapshot, plan = {}, {}
         try:
             if resume_error:
                 raise resume_error
@@ -950,6 +959,10 @@ class SemanticAsk:
                     if p["player_id"] == chosen["player_id"]
                     or p["player_name"].casefold() != chosen["player_name"].casefold()
                 ]
+            from app.agent.name_matching import prepare_names
+
+            if not overview:
+                question, players = prepare_names(question, players)
             if split:
                 payload = answer_split(question, evidence, players, seasons[0])
                 plan = payload["semantic_plan"]
@@ -986,7 +999,11 @@ class SemanticAsk:
                     model=model,
                     question=question,
                     dated_points_eligible=dated_points_eligible,
-                    dated_points_question=original,
+                    dated_points_question=(
+                        prepare_names(original, players, strict=False)[0]
+                        if dated_points_eligible
+                        else original
+                    ),
                     selected_season=seasons[0]
                     if len(seasons) == 1
                     else self.settings.season,
@@ -1098,6 +1115,7 @@ class SemanticAsk:
                             or p["player_name"].casefold()
                             != selected_player["player_name"].casefold()
                         ]
+                question, players = prepare_names(question, players)
                 result = execute_plan(plan, evidence, players)
                 # Reuse the validated scope plan; only the default season changes.
                 # No additional model calls, threshold relaxation, or date changes.
@@ -1124,7 +1142,14 @@ class SemanticAsk:
                             if exc.code == "unsupported_coverage":
                                 continue
                             raise
-                        candidate_players = source_players(candidate_evidence)
+                        try:
+                            candidate_players = prepare_names(
+                                question, source_players(candidate_evidence)
+                            )[1]
+                        except PlayerNameError:
+                            # A player absent from an older roster cannot turn a
+                            # valid current identity into an unavailable player.
+                            continue
                         candidate_plan = {
                             **plan,
                             "queries": [dict(q, season=older) for q in plan["queries"]],
@@ -1171,9 +1196,7 @@ class SemanticAsk:
                     option["team_abbr"] = identity_profile(option, evidence.rows)[
                         "player"
                     ].get("team_abbr")
-                    option["label"] = (
-                        f"{option['player_name']} (ID {option['player_id']})"
-                    )
+                    option["label"] = option["player_name"]
             if award:
                 payload["answer"] = award_intro(award) + "\n\n" + payload["answer"]
                 payload["award_evidence"] = award
@@ -1188,7 +1211,7 @@ class SemanticAsk:
                 "ok",
                 "unsupported_coverage",
             ):
-                payload["scope_assumptions"] = time_assumptions
+                payload.setdefault("scope_assumptions", []).extend(time_assumptions)
                 payload["period_options"] = period_options
                 payload["assumptions"].extend(time_assumptions)
             payload["semantic_plan"] = plan
@@ -1205,11 +1228,19 @@ class SemanticAsk:
                     snapshot["coverage_notes"]
                     + ([dev_phase_notice] if dev_phase_notice else [])
                 )
-                payload["answer"] = note + "\n\n" + payload["answer"]
-                payload["assumptions"].extend(snapshot["coverage_notes"])
-                payload.setdefault("scope_assumptions", []).extend(
-                    snapshot.get("scope_assumptions", [])
+                identity_clarification = (
+                    bool(payload.get("clarification_options"))
+                    or payload["status"] == "not_found"
+                    or payload.get("semantic_plan", {}).get("name_matching")
                 )
+                if not identity_clarification:
+                    payload["answer"] = note + "\n\n" + payload["answer"]
+                    payload.setdefault("scope_assumptions", []).extend(
+                        snapshot.get("scope_assumptions", [])
+                    )
+                # Identity confirmation is the immediate action; retain source
+                # disclosures in metadata and show them with the final answer.
+                payload["assumptions"].extend(snapshot["coverage_notes"])
                 payload["source_coverage"] = snapshot.get("review_metadata")
             payload["source_query"] = {
                 k: v for k, v in snapshot.get("capture", {}).items() if k != "sql"
@@ -1223,6 +1254,29 @@ class SemanticAsk:
                         "contract": "nba_semantics/0.1",
                         "source_query": payload["source_query"],
                     },
+                }
+            ]
+        except PlayerNameError as exc:
+            # Replay raw wording so time defaults and conversation context are
+            # resolved once again, with their original disclosures intact.
+            question = identity_replay_question
+            payload = identity_payload(
+                exc,
+                question,
+                conversation_id,
+                trace.model_calls if trace else plan.get("model_calls", 0),
+            )
+            payload["assumptions"].extend(snapshot.get("coverage_notes", []))
+            payload["source_coverage"] = snapshot.get("review_metadata")
+            payload["source_query"] = {
+                k: v for k, v in snapshot.get("capture", {}).items() if k != "sql"
+            }
+            payload["tool_calls"] = [
+                {
+                    "name": "governed_metrics",
+                    "args": {"seasons": seasons},
+                    "status": payload["status"],
+                    "result": {"source_query": payload["source_query"]},
                 }
             ]
         except SemanticError as exc:

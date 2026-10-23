@@ -13,7 +13,6 @@ from app.agent.catalog import (
 )
 from app.agent.formulas import evaluate_formula
 from app.repository import WarehouseRepository
-from app.seasons import DEFAULT_SEASON
 
 
 class _TtlCache:
@@ -973,45 +972,14 @@ class StatsToolRunner:
         if not query:
             return {"status": "error", "message": "Player name is required."}
         max_rows = _coerce_limit(limit, default=5, minimum=1, maximum=8)
-        settings = getattr(self.repo, "settings", None)
-        scope = (
-            getattr(settings, "project_id", ""),
-            getattr(settings, "gold_dataset", ""),
-            getattr(settings, "season", DEFAULT_SEASON),
-        )
-        cache_key = ("resolve_player", scope, query.casefold(), max_rows)
-        cached = _resolve_player_cache.get(cache_key, self.cache_ttl_seconds)
-        if cached is not None:
-            return cached
-        rows = self.repo.search_players(
-            query,
-            limit=max_rows,
-        )
-        matches = [_compact_player(row) for row in rows]
-        if not matches:
-            payload: dict[str, Any] = {
-                "status": "not_found",
-                "query": query,
-                "matches": [],
-            }
-            _resolve_player_cache.set(cache_key, payload, self.cache_ttl_seconds)
-            return payload
-        exact = [
-            match
-            for match in matches
-            if str(match.get("player_name") or "").lower() == query.lower()
-        ]
-        if len(matches) == 1 or len(exact) == 1:
-            payload = {
-                "status": "ok",
-                "query": query,
-                "player": exact[0] if exact else matches[0],
-                "matches": matches,
-            }
-            _resolve_player_cache.set(cache_key, payload, self.cache_ttl_seconds)
-            return payload
-        payload = {"status": "ambiguous", "query": query, "matches": matches}
-        _resolve_player_cache.set(cache_key, payload, self.cache_ttl_seconds)
+        from app.agent.player_resolver import PlayerResolver
+
+        resolution = PlayerResolver(self.repo).resolve(query, limit=max_rows)
+        matches = [_compact_player(p.model_dump()) for p in resolution.candidates]
+        payload = {"status": resolution.status, "query": query, "matches": matches}
+        if resolution.player:
+            payload["player"] = _compact_player(resolution.player.model_dump())
+        # Do not cache request-local selections or suppress correction notices.
         return payload
 
     def get_player_summary(self, player_id: Any) -> dict[str, Any]:

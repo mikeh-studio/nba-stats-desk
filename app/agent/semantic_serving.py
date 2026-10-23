@@ -163,6 +163,7 @@ class SemanticWarehouse:
 @timed("identity")
 def source_players(evidence: Evidence) -> list[dict[str, Any]]:
     players: dict[int, dict[str, Any]] = {}
+    latest_teams: dict[int, tuple[str, str]] = {}
     for row in evidence.rows:
         player = players.setdefault(
             row["player_id"],
@@ -173,8 +174,15 @@ def source_players(evidence: Evidence) -> list[dict[str, Any]]:
             },
         )
         player["aliases"].add(row["player_name"])
+        team = str(row.get("team_abbr") or "")
+        if team:
+            latest_teams[row["player_id"]] = max(
+                latest_teams.get(row["player_id"], ("", "")),
+                (str(row.get("game_date") or ""), team),
+            )
     aliases = load_player_aliases()
     for player in players.values():
+        player["team_abbr"] = latest_teams.get(player["player_id"], ("", ""))[1] or None
         canonical = {normalize_player_text(n) for n in player["aliases"]}
         player["aliases"].update(
             alias

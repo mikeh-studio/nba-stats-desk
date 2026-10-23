@@ -923,3 +923,31 @@ See the [Phase 1 serving contract](ask-serving-contract.md) for the offline metr
 inventory, publication validation, telemetry, and parity checks. Production Ask
 retrieval remains unchanged; serving routing and live performance measurement are
 subsequent phases.
+
+## Shared player-name matching regressions
+
+`tests/test_name_matching_routes.py` exercises JSON and SSE endpoints with
+synthetic source evidence across appearances, splits, similarity, league
+baselines, planned summaries/game logs/ranks/percentiles, research, and study
+identity handling. Corrected queries must return the same statistics and scope
+as canonical-name controls. Partial names clarify; unrelated names return
+`not_found`, without tables or a planning call. Selection and typed replies
+resume the original filters, duplicate names retain distinct IDs, and team/metric
+words must not become player candidates. Overview/comparison controls remain in
+`tests/test_player_suggestions.py`. These checks establish fixture behavior;
+local live-source probes and browser checks are reported separately.
+
+`tests/test_name_matching_review.py` covers independent-review regressions:
+claim-enforced appearance corrections and selections, answer mutation rejection,
+suffix omission/collisions, realistic partial-name prose and possessives,
+non-name wording, curated study nicknames, disclosures on non-success results,
+source metadata/tool completion, actual model-call counts, changed-player replies,
+season-reload selection validation, and source-season team labels. The endpoint
+route matrix runs with claim enforcement and includes similarity resume.
+Browser-unit checks refuse indistinguishable name/team buttons without exposing
+IDs. The overview scope guard distinguishes ordinary “playing” from play-in.
+Follow-up cases also preserve metric words beside suffix-free names, keep a
+rookie's current-season no-observations result when older rosters omit them, and
+replay raw relative-date wording after identity selection so time disclosures
+remain visible. Name span replacement requires the entire span to match the
+ranked name window; unrelated trailing words are not replaced.

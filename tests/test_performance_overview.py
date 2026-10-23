@@ -123,7 +123,12 @@ def test_duplicate_names_require_selection_or_chat(evidence):
     assert first["status"] == "clarification_required"
     assert first["player_profile"] is None
     assert len(first["clarification_options"]) == 2
-    assert len({p["label"] for p in first["clarification_options"]}) == 2
+    assert (
+        len(
+            {(p["player_name"], p["team_abbr"]) for p in first["clarification_options"]}
+        )
+        == 2
+    )
     for reply in ("ATL", "1"):
         result = build_overview(
             "Same Name performance\nClarification: " + reply, evidence, players, scope()

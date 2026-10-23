@@ -1,5 +1,5 @@
-import {claimMode} from "./ask_claim_rollout.js?v=20261022-saved-response-retry-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261022-saved-response-retry-v1";
+import {claimMode} from "./ask_claim_rollout.js?v=20261022-shared-name-matching-v2";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261022-shared-name-matching-v2";
 // Render server-owned distributions; no client-side statistical estimates.
 const esc = v => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const ordinal = n => {const v=Math.round(n), rem=v%100; return v + (rem>=11 && rem<=13 ? 'th' : ({1:'st',2:'nd',3:'rd'})[v%10] || 'th');};

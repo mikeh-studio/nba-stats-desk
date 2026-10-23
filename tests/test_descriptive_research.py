@@ -283,7 +283,9 @@ def test_ambiguous_identity_and_prior_study_not_reinterpreted(setup, transport):
     payload = request(
         client, "Research Morgan Fiction points at home in 2025-26", transport
     )
-    assert payload["research_status"] == "unsupported"
+    assert payload["status"] == "clarification_required"
+    assert len(payload["clarification_options"]) == 2
+    assert planner.calls == 0
     for row in source.rows:
         row["player_name"] = (
             "Morgan Fiction" if row["player_id"] == 1 else "Taylor Invented"

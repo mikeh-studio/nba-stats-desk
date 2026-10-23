@@ -164,14 +164,20 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
             "clarification_required", "Name two players separated by vs."
         )
     resolved = []
+    name_notes, name_resolutions = [], []
     choices = dict(choices or {})
     reply = question.partition("\nClarification:")[2]
     for index, side in enumerate(sides):
+        from app.agent.name_matching import match_name_question
+
         candidates = resolve_overview_player(side, players, evidence.rows)
+        name_match = match_name_question(side, players) if not candidates else None
+        if name_match and name_match["status"] == "ok":
+            candidates = name_match["matches"]
         if str(index) in choices:
-            candidates = [
-                p for p in candidates if p["player_id"] == choices[str(index)]
-            ]
+            candidates = resolve_overview_player(
+                side, players, evidence.rows, {"player_id": choices[str(index)]}
+            )
         if len(candidates) != 1:
             narrowed = resolve_overview_player(
                 side + ("\nClarification: " + reply if reply else ""),
@@ -184,9 +190,19 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
                 selected = None
                 reply = ""
         if len(candidates) != 1:
+            suggestions = name_match["matches"] if name_match else []
             return {
-                "status": "clarification_required",
-                "answer": f"Which player do you mean by ‘{side.strip()}’? Select a player or reply with their full name or ID.",
+                "status": name_match["status"]
+                if name_match and name_match["status"] != "ok"
+                else "clarification_required",
+                "answer": (
+                    name_match.get(
+                        "message",
+                        "The previous player selection is no longer available. Please confirm the intended player.",
+                    )
+                    if name_match
+                    else "More than one player matches that name. Select a player or provide their full name and team."
+                ),
                 "assumptions": [],
                 "tables": [],
                 "charts": [],
@@ -196,11 +212,17 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
                 "metric_definitions": [],
                 "comparison_choices": choices,
                 "clarification_options": [
-                    {**p, "label": f"{p['player_name']} (ID {p['player_id']})"}
-                    for p in candidates
+                    {**p, "label": p["player_name"]} for p in candidates or suggestions
                 ],
             }
         resolved.append(candidates[0])
+        if (
+            name_match
+            and name_match.get("notice")
+            and candidates[0]["player_id"] == name_match["resolution"]["player_id"]
+        ):
+            name_notes.append(name_match["notice"])
+            name_resolutions.append(name_match["resolution"])
         choices[str(index)] = candidates[0]["player_id"]
     if resolved[0]["player_id"] == resolved[1]["player_id"]:
         raise SemanticError(
@@ -305,7 +327,9 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
         "status": "ok"
         if all(s["status"] == "ok" for s in summaries)
         else "no_observations",
-        "answer": "\n\n".join(paragraphs),
+        "answer": "\n\n".join(name_notes + paragraphs),
+        "scope_assumptions": name_notes,
+        "name_resolutions": name_resolutions,
         "player_profile": None,
         "player_profiles": profiles,
         "clarification_options": [],

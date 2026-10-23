@@ -893,3 +893,24 @@ test("unresolved clarification blocks older successful browser context", async (
   agent.persistHistoryTurn("Blair in 2024-25", {conversation_id:id,status:"ok",conversation_context:{players:[{player_id:202,player_name:"Blair Sample"}],scope:{start:"2024-07-01",end:"2025-06-30"}}});
   assert.equal(agent.buildAskBody("his scoring").previous_context.players[0].player_id,202);
 });
+
+test("player choices show name and team, ignoring IDs in old saved labels", async () => {
+  const agent = await loadAgentModule();
+  const target = new FakeElement();
+  agent.renderAnswerPayload({status: "clarification_required", answer: "Which player?",
+    clarification_options: [{player_id: 811, player_name: "Avery Finch", team_abbr: "AAA", label: "Avery Finch (ID 811)"}]}, target);
+  assert.match(target.innerHTML, />Avery Finch &middot; AAA<\/button>/);
+  assert.doesNotMatch(target.innerHTML, /\(ID 811\)/);
+  assert.match(target.innerHTML, /data-player-id="811"/);
+});
+
+test("indistinguishable player choices ask for scope instead of identical buttons", async () => {
+  const agent = await loadAgentModule();
+  const target = new FakeElement();
+  agent.renderAnswerPayload({status:"clarification_required", answer:"Which player?", clarification_options:[
+    {player_id:1, player_name:"Same Name", team_abbr:"AAA"},
+    {player_id:2, player_name:"Same Name", team_abbr:"AAA"},
+  ]}, target);
+  assert.match(target.innerHTML, /choices cannot be distinguished/);
+  assert.doesNotMatch(target.innerHTML, /data-agent-player-option/);
+});

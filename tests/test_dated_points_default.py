@@ -551,7 +551,15 @@ def test_conversation_selected_player_resume_preserves_existing_average(conversa
     )
     assert selected["status"] == "ok", selected
     assert selected["semantic_evidence"]["rows"][0]["value"] == 12
-    assert "aggregation_policy" not in selected["query_plan"]
+    # Identity preflight now precedes planning; the resumed original question
+    # keeps its explicit average while recording the normal dated-query policy.
+    assert (
+        selected["query_plan"]["aggregation_policy"]["chosen_aggregation"] == "average"
+    )
+    assert (
+        selected["query_plan"]["aggregation_policy"]["model_aggregation_source"]
+        == "explicit"
+    )
     assert store.get_pending_clarification("dated-policy") is None
 
 

@@ -7,6 +7,7 @@ import pytest
 from app import main
 from app.agent.availability_ask import parse_request, render_answer, wants_availability
 from app.agent.conversation import InMemoryConversationStore
+from app.agent.name_matching import PlayerNameError
 from app.agent.semantic_planner import plan_question
 from app.agent.semantic_serving import source_players
 from app.agent.semantic_source import snapshot_digest
@@ -296,7 +297,7 @@ def test_alias_roles_and_ambiguity_are_data_driven(bundle):
     loaded = load_availability(str(bundle[0]))
     players = source_players(loaded[1])
     players[0]["aliases"].append("Ace")
-    q = parse_request("How did Ace play when Blake was out?", players, "2025-26")
+    q = parse_request("How did Ace play when Blake Reed was out?", players, "2025-26")
     assert (q["player_id"], q["teammate_id"]) == (811, 822)
     reverse = parse_request(
         "How did Blake Reed play when Avery Finch was out?", players, "2025-26"
@@ -304,19 +305,18 @@ def test_alias_roles_and_ambiguity_are_data_driven(bundle):
     assert (reverse["player_id"], reverse["teammate_id"]) == (822, 811)
     assert compare_availability(loaded, reverse)["groups"]["did_not_play"] == []
     players.append(dict(player_id=833, player_name="Blake Swift", aliases=[]))
-    with pytest.raises(SemanticError, match="full names"):
+    with pytest.raises(PlayerNameError, match="Select the intended player"):
         parse_request(
             "How did Avery Finch play when Blake was out?", players, "2025-26"
         )
     players[0]["observed_teams"] = ["ATL"]
     players[1]["observed_teams"] = ["ATL"]
     players[2]["observed_teams"] = ["BOS"]
-    assert (
+    # Team context is not permission to choose between ambiguous identities.
+    with pytest.raises(PlayerNameError, match="Select the intended player"):
         parse_request(
             "How did Avery Finch play when Blake was out?", players, "2025-26"
-        )["teammate_id"]
-        == 822
-    )
+        )
 
 
 def test_checksum_and_schedule_fail_closed(bundle, tmp_path):

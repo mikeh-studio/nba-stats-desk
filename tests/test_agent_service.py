@@ -629,7 +629,7 @@ def test_ambiguous_player_stores_pending_clarification_with_options() -> None:
     payload = agent.answer("How is Jalen trending?", conversation_id="thread-1")
 
     names = [option["player_name"] for option in payload["clarification_options"]]
-    assert names == ["Jalen Williams", "Jalen Green"]
+    assert names == ["Jalen Green", "Jalen Williams"]
     assert payload["answer"] == "Which player did you mean?"
     pending = store.get_pending_clarification("thread-1")
     assert pending is not None

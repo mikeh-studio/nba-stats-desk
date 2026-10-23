@@ -240,7 +240,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             ["Playoffs"] if playoffs else []
         )
     if re.search(
-        r"\b(preseason|play-in|playin|play in tournament|summer league|quarter|injur)\w*",
+        r"\b(?:(?:preseason|play-in|playin|play in tournament|summer league)\b|(?:quarter|injur)\w*)",
         question,
         re.I,
     ):
@@ -343,13 +343,27 @@ def resolve_overview_player(question, players, rows, selected=None):
     original = original.split("\nSelected player:", 1)[0]
 
     def mentioned(text):
+        from app.agent.name_matching import _spans
+        from app.agent.player_suggestions import resolve_player_name
+
+        spans = _spans(text, players)
         hits = []
         for p in players:
             for name in (p["player_name"], *p.get("aliases", [])):
                 for match in re.finditer(
                     r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I
                 ):
-                    hits.append((match.start(), match.end(), p))
+                    # A short alias cannot discard a misspelled or unknown
+                    # surname. Let the full-name policy handle that span.
+                    if any(
+                        a <= match.start()
+                        and b >= match.end()
+                        and b - a > match.end() - match.start()
+                        for a, b in spans
+                    ):
+                        continue
+                    for candidate in resolve_player_name(name, players)["matches"]:
+                        hits.append((match.start(), match.end(), candidate))
         return list(
             {
                 p["player_id"]: p
@@ -362,7 +376,12 @@ def resolve_overview_player(question, players, rows, selected=None):
 
     candidates = mentioned(original)
     if selected:
-        allowed = candidates or players
+        from app.agent.player_suggestions import _rank_matches
+
+        # Validate against the full credible pool, not the five-option display
+        # limit, so an explicit full-name selection can reach a later match.
+        _, ranked = _rank_matches(original, players)
+        allowed = candidates or [p for _, p, _, _ in ranked]
         return [p for p in allowed if p["player_id"] == selected.get("player_id")]
     if reply and candidates:
         direct = mentioned(reply)
@@ -386,6 +405,14 @@ def resolve_overview_player(question, players, rows, selected=None):
 def build_overview(question, evidence, players, scope, selected=None):
     evidence.validate()
     candidates = resolve_overview_player(question, players, evidence.rows, selected)
+    from app.agent.name_matching import match_name_question
+
+    name_match = match_name_question(question, players) if not candidates else None
+    if name_match and name_match["status"] == "ok":
+        candidates = name_match["matches"]
+    name_notes = (
+        [name_match["notice"]] if name_match and name_match.get("notice") else []
+    )
     empty = dict(
         assumptions=[],
         tables=[],
@@ -397,10 +424,15 @@ def build_overview(question, evidence, players, scope, selected=None):
         semantic_evidence=None,
     )
     if len(candidates) != 1:
+        suggestions = name_match["matches"] if name_match else []
         return {
             **empty,
-            "status": "clarification_required",
-            "answer": "Which player do you mean? Select an option, or reply with their full name, team abbreviation, or player ID.",
+            "status": name_match["status"] if name_match else "clarification_required",
+            "answer": (
+                name_match["message"]
+                if name_match
+                else "More than one player matches that name. Select a player or provide their full name and team."
+            ),
             "clarification_options": [
                 {
                     "player_id": p["player_id"],
@@ -408,9 +440,9 @@ def build_overview(question, evidence, players, scope, selected=None):
                     "team_abbr": identity_profile(p, evidence.rows)["player"].get(
                         "team_abbr"
                     ),
-                    "label": f"{p['player_name']} (ID {p['player_id']})",
+                    "label": p["player_name"],
                 }
-                for p in candidates
+                for p in candidates or suggestions
             ],
         }
     player = candidates[0]
@@ -663,7 +695,9 @@ def build_overview(question, evidence, players, scope, selected=None):
     return {
         **empty,
         "status": "ok" if own else "no_observations",
-        "answer": answer,
+        "answer": "\n\n".join(name_notes + [answer]),
+        "scope_assumptions": name_notes,
+        "name_resolutions": [name_match["resolution"]] if name_notes else [],
         "clarification_options": [],
         "player_profile": identity_profile(player, own),
         "tables": [
