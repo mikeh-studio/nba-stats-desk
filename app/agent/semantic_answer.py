@@ -567,11 +567,13 @@ class SemanticAsk:
         dated_points_eligible = not (
             pending or resumed_overview or selected_player or award_request
         )
+        identity_replay_question = question if resumed_overview else original
         if pending:
             if selected_player:
                 question = pending.question
             else:
                 question = f"{pending.question}\nClarification: {question}"
+            identity_replay_question = question
         elif store and not context and not resumed_overview:
             if turns and re.search(
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
@@ -1257,7 +1259,7 @@ class SemanticAsk:
         except PlayerNameError as exc:
             # Replay raw wording so time defaults and conversation context are
             # resolved once again, with their original disclosures intact.
-            question = original
+            question = identity_replay_question
             payload = identity_payload(
                 exc,
                 question,

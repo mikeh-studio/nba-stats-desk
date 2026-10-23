@@ -477,3 +477,63 @@ def test_rookie_absent_from_older_roster_keeps_no_observations(monkeypatch):
     assert result["status"] == "no_observations", result
     assert ["2024-25"] in loads
     assert "No matching player" not in result["answer"]
+
+
+@pytest.mark.parametrize("transport", ["", "/stream"])
+def test_scope_clarification_then_ambiguous_name_retains_task(
+    preview,  # noqa: F811
+    transport,
+    monkeypatch,
+):
+    from datetime import date
+
+    client, _, store, _ = preview
+    planned = []
+    monkeypatch.setattr(
+        "app.agent.time_defaults.semantic_today", lambda: date(2026, 10, 22)
+    )
+
+    def planner(client, *, question, **kwargs):
+        planned.append(question)
+        return {
+            "status": "query",
+            "model_calls": 0,
+            "message": "",
+            "queries": [
+                {
+                    "metric": "pts",
+                    "operation": "summary",
+                    "aggregation": "average",
+                    "season": "2025-26",
+                    "season_type": "Regular Season",
+                    "window": "season_to_date",
+                    "player_name": "Avery Finch" if "Avery Finch" in question else None,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("app.agent.semantic_answer.plan_question", planner)
+    first = ask(
+        client, "points per game last season", transport, conversation_id="scope-name"
+    )
+    assert first["status"] == "clarification_required", first
+    assert not first["clarification_options"]
+    second = ask(client, "Avery", transport, conversation_id="scope-name")
+    assert second["status"] == "clarification_required", second
+    pending = store.get_pending_clarification("scope-name")
+    assert "points per game" in pending.question
+    assert "Clarification: Avery" in pending.question
+    selected = second["clarification_options"][0]
+    result = ask(
+        client,
+        selected["player_name"],
+        transport,
+        conversation_id="scope-name",
+        selected_player_id=selected["player_id"],
+        selected_player_name=selected["player_name"],
+    )
+    assert result["status"] == "ok", result
+    assert "points per game" in planned[-1] and "2025-26" in planned[-1]
+    assert result["semantic_evidence"]["scope"]["season"] == "2025-26"
+    assert result["semantic_evidence"]["metric"]["key"] == "pts"
+    assert store.get_pending_clarification("scope-name") is None
