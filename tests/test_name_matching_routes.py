@@ -29,6 +29,7 @@ def preview(monkeypatch, bundle):  # noqa: F811 - imported pytest fixture
     config = replace(
         settings("2025-26"),
         performance_cache_prewarm_enabled=False,
+        ask_claim_enforcement="enforce",
         research_availability_path=str(bundle[0]),
     )
     repo = BigQueryWarehouseRepository(config, client=SimpleNamespace())
@@ -91,6 +92,7 @@ def test_typo_preserves_answer_and_source_scope(preview, transport, route, templ
     client, _, _, _ = preview
     canonical = ask(client, template.format(name="Avery Finch"), transport)
     corrected = ask(client, template.format(name="Avrey Finch"), transport)
+    assert corrected["claim_validation"]["errors"] == []
     assert corrected["ask_route"]["route"] == route
     assert corrected.get("status", "ok") == canonical.get("status", "ok")
     assert canonical["tables"], canonical["answer"]
@@ -127,7 +129,7 @@ def test_ambiguous_or_unavailable_blocks_before_model(
 
 
 @pytest.mark.parametrize("transport", ["", "/stream"])
-@pytest.mark.parametrize("route,template", ROUTES[:3] + ROUTES[4:])
+@pytest.mark.parametrize("route,template", ROUTES)
 @pytest.mark.parametrize("typed", [False, True])
 def test_clarification_resumes_original_analysis(
     preview, transport, route, template, typed

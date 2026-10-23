@@ -107,8 +107,11 @@ automatically only when exactly one token of at least four letters differs by
 one insertion, deletion, substitution or adjacent transposition, the mean token
 similarity is at least 0.90, and the lead over the next credible identity is at
 least 0.08. These are conservative spelling heuristics, not probabilities.
-The result names the player used in the API answer. Overviews and comparisons
-also show the correction in their scope notes.
+An omitted generational suffix (Jr., Sr., II, III, IV) also resolves when its
+full base name identifies one credible source player; competing base names
+require clarification. The result names the player used in the API answer,
+including when the resolved scope has no observations or unsupported coverage.
+Overviews and comparisons also show the correction in their scope notes.
 Partial names and competing identities require confirmation, including duplicate
 canonical names. With no credible match, the response is `not_found` with no
 statistics; unmatched full names do not fall back to just their first/surname.
@@ -123,10 +126,16 @@ metrics, dates, phases, and other constraints remain intact. Clarification
 choices are revalidated against source IDs when the original query resumes.
 A teammate's team is not used to silently break an identity tie. Choices show
 player names and source-backed team abbreviations. IDs remain internal, and the
-answer identifies the user's selection by name and team.
+answer identifies the user's selection by name and team. Candidate teams come
+from the relevant source season when available. Indistinguishable name/team
+labels ask for a narrower season or team instead of displaying identical buttons.
 
 Identity clarification leads with the confirmation question. Source-coverage
 disclosures remain in response metadata and appear with the completed answer.
+Other scope clarifications retain visible coverage notices. Identity failures
+retain source-query metadata, tool completion, and actual model-call counts.
+Appearance correction and selection notices are attached before claim binding
+and remain valid under enforcement; numeric answer mutations still fail.
 `Compare A to B`, `How does A compare with B?`, and a performance question
 followed by `How does he compare to B?` also use this scorecard when A is named
 in the same question. Both players share the question's stated dates and phases.

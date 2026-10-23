@@ -93,6 +93,10 @@ def contracts(payload):
         request = ["claim_evidence", "appearance_request"]
         if payload["claim_evidence"]["appearance_request"]["prior_availability"]:
             template += " The prior teammate-availability filter is not applied."
+        if payload["claim_evidence"].get("name_resolution_notice"):
+            template = "{" + str(len(sources)) + "}\n\n" + template
+            sources.append(["claim_evidence", "name_resolution_notice"])
+            formats.append("identity")
         add(
             ["answer"],
             sources,

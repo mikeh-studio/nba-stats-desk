@@ -903,3 +903,14 @@ test("player choices show name and team, ignoring IDs in old saved labels", asyn
   assert.doesNotMatch(target.innerHTML, /\(ID 811\)/);
   assert.match(target.innerHTML, /data-player-id="811"/);
 });
+
+test("indistinguishable player choices ask for scope instead of identical buttons", async () => {
+  const agent = await loadAgentModule();
+  const target = new FakeElement();
+  agent.renderAnswerPayload({status:"clarification_required", answer:"Which player?", clarification_options:[
+    {player_id:1, player_name:"Same Name", team_abbr:"AAA"},
+    {player_id:2, player_name:"Same Name", team_abbr:"AAA"},
+  ]}, target);
+  assert.match(target.innerHTML, /choices cannot be distinguished/);
+  assert.doesNotMatch(target.innerHTML, /data-agent-player-option/);
+});

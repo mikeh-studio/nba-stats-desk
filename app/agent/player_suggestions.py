@@ -1,5 +1,6 @@
 """Conservative, source-roster name matching shared by Ask routes."""
 
+import re
 from difflib import SequenceMatcher
 
 from app.agent.player_resolver import normalize_player_text
@@ -14,8 +15,17 @@ _CONTEXT_WORDS = frozenset(
     "steals blocks stats statistics average averaged per in on at of the a an "
     "for from through between during since until please overview summary "
     "can could would you give review an analysis of among guards wings centers forwards "
-    "scoring rebounding playmaking shooting efficiency fare".split()
+    "scoring rebounding playmaking shooting efficiency fare been assist rebound steal block "
+    "three threes leaders leader christmas day".split()
 )
+
+
+_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
+
+
+def name_base(name):
+    parts = normalize_player_text(name).split()
+    return " ".join(parts[:-1] if len(parts) > 2 and parts[-1] in _SUFFIXES else parts)
 
 
 def suggestion_prompt(players):
@@ -55,7 +65,9 @@ def _rank_matches(question, players):
     heuristics, not calibrated probabilities. Full-name minor edits can resolve
     only with a clear margin; partial names never auto-resolve.
     """
-    original = question.split("\nSelected player:", 1)[0]
+    original = re.sub(r"['’]s\b", "", question, flags=re.I).split(
+        "\nSelected player:", 1
+    )[0]
     original, _, reply = original.partition("\nClarification:")
     tokens = [
         t
@@ -67,7 +79,10 @@ def _rank_matches(question, players):
         best_full = best_partial = 0.0
         minor = False
         matched = ""
-        for name in (player["player_name"], *player.get("aliases", [])):
+        names = (player["player_name"], *player.get("aliases", []))
+        for name in dict.fromkeys(
+            n for value in names for n in (value, name_base(value))
+        ):
             parts = normalize_player_text(name).split()
             if not parts or len(parts) > 5:
                 continue
@@ -127,14 +142,21 @@ def match_player_name(question, players):
     if ranked:
         score, player, minor, matched = ranked[0]
         margin = score - ranked[1][0] if len(ranked) > 1 else 1.0
-        if minor and score >= 0.9 and margin >= 0.08:
+        suffix_match = matched == name_base(
+            player["player_name"]
+        ) and matched != normalize_player_text(player["player_name"])
+        if (minor or suffix_match) and score >= 0.9 and margin >= 0.08:
             return {
                 "status": "ok",
                 "matches": [player],
-                "notice": f"Using {player['player_name']} for the minor misspelling ‘{matched}’.",
+                "notice": (
+                    f"Using {player['player_name']} for ‘{matched}’."
+                    if suffix_match
+                    else f"Using {player['player_name']} for the minor misspelling ‘{matched}’."
+                ),
                 "resolution": {
                     "policy": "player_name_match/1",
-                    "method": "minor_typo",
+                    "method": "name_suffix" if suffix_match else "minor_typo",
                     "input_name": matched,
                     "player_id": player["player_id"],
                     "player_name": player["player_name"],
@@ -166,6 +188,13 @@ def resolve_player_name(name, players):
         and key
         in {normalize_player_text(n) for n in (p["player_name"], *p.get("aliases", []))}
     }
+    # A suffix-free exact name must not hide a same-base suffixed identity.
+    if key and name_base(key) == key:
+        variants = {
+            p["player_id"]: p for p in players if name_base(p["player_name"]) == key
+        }
+        if matches:
+            matches.update(variants)
     if matches:
         # An explicit one-word alias must not hide another player with that
         # same first/last name (e.g. a roster containing several Jalens).

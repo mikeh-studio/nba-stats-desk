@@ -20,7 +20,11 @@ from app.agent.metric_presentation import (
     GAMES_WITH_DATA,
     game_coverage,
 )
-from app.agent.name_matching import name_matching_entrypoint
+from app.agent.name_matching import (
+    PlayerNameError,
+    identity_payload,
+    name_matching_entrypoint,
+)
 from app.agent.performance_overview import (
     build_overview,
     identity_profile,
@@ -601,6 +605,7 @@ class SemanticAsk:
             )
         request_question = question
         overview_pending = None
+        snapshot, plan = {}, {}
         try:
             if resume_error:
                 raise resume_error
@@ -1108,6 +1113,7 @@ class SemanticAsk:
                             or p["player_name"].casefold()
                             != selected_player["player_name"].casefold()
                         ]
+                question, players = prepare_names(question, players)
                 result = execute_plan(plan, evidence, players)
                 # Reuse the validated scope plan; only the default season changes.
                 # No additional model calls, threshold relaxation, or date changes.
@@ -1134,7 +1140,9 @@ class SemanticAsk:
                             if exc.code == "unsupported_coverage":
                                 continue
                             raise
-                        candidate_players = source_players(candidate_evidence)
+                        candidate_players = prepare_names(
+                            question, source_players(candidate_evidence)
+                        )[1]
                         candidate_plan = {
                             **plan,
                             "queries": [dict(q, season=older) for q in plan["queries"]],
@@ -1213,7 +1221,12 @@ class SemanticAsk:
                     snapshot["coverage_notes"]
                     + ([dev_phase_notice] if dev_phase_notice else [])
                 )
-                if payload["status"] not in {"clarification_required", "not_found"}:
+                identity_clarification = (
+                    bool(payload.get("clarification_options"))
+                    or payload["status"] == "not_found"
+                    or payload.get("semantic_plan", {}).get("name_matching")
+                )
+                if not identity_clarification:
                     payload["answer"] = note + "\n\n" + payload["answer"]
                     payload.setdefault("scope_assumptions", []).extend(
                         snapshot.get("scope_assumptions", [])
@@ -1234,6 +1247,26 @@ class SemanticAsk:
                         "contract": "nba_semantics/0.1",
                         "source_query": payload["source_query"],
                     },
+                }
+            ]
+        except PlayerNameError as exc:
+            payload = identity_payload(
+                exc,
+                question,
+                conversation_id,
+                trace.model_calls if trace else plan.get("model_calls", 0),
+            )
+            payload["assumptions"].extend(snapshot.get("coverage_notes", []))
+            payload["source_coverage"] = snapshot.get("review_metadata")
+            payload["source_query"] = {
+                k: v for k, v in snapshot.get("capture", {}).items() if k != "sql"
+            }
+            payload["tool_calls"] = [
+                {
+                    "name": "governed_metrics",
+                    "args": {"seasons": seasons},
+                    "status": payload["status"],
+                    "result": {"source_query": payload["source_query"]},
                 }
             ]
         except SemanticError as exc:

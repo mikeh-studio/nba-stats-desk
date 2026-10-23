@@ -68,7 +68,11 @@ _session: ContextVar[NameSession | None] = ContextVar("ask_name_matching", defau
 
 
 def player_display_name(player):
-    team = player.get("team_abbr") or player.get("latest_team_abbr")
+    team = (
+        "/".join(player["observed_teams"])
+        if "observed_teams" in player
+        else player.get("team_abbr") or player.get("latest_team_abbr")
+    )
     return f"{player['player_name']} · {team}" if team else player["player_name"]
 
 
@@ -178,15 +182,23 @@ def _spans(question, players):
         result = resolve_player_name(raw, players)
         # A full unknown personal name must fail closed, including lowercase
         # names in explicit player slots. Other unfamiliar prose is left intact.
-        proper = len(group) >= 2 and all(m.group()[0].isupper() for m in group)
-        slot = a == 0 or bool(
+        slot = (
+            a == 0
+            and bool(
+                re.match(
+                    r"\s+(?:points?|rebounds?|assists?|stats?|performance|play|played|games?|shooting|overview)\b",
+                    question[b:],
+                    re.I,
+                )
+            )
+        ) or bool(
             re.search(
-                r"(?:\b(?:did|does|for|without|about|player|to|with)|^how)\s*$",
+                r"(?:\b(?:did|does|has|have|is|was|for|without|about|player|to|with|of|show|compare|research|analyze|review|summarize)|^how)\s*$",
                 question[:a],
                 re.I,
             )
         )
-        if result["matches"] or proper or (slot and 2 <= len(group) <= 4):
+        if result["matches"] or (slot and 2 <= len(group) <= 4):
             spans.append((a, b))
     return sorted(set(spans))
 
@@ -201,7 +213,24 @@ def prepare_names(question, players, *, strict=True):
     # Legacy selected-player paths pass the choice through their own roster
     # validation. The common request wrapper handles new clarifications.
     replacements = []
-    roster = list(players)
+    from app.agent.player_resolver import load_player_aliases
+
+    aliases = load_player_aliases()
+    roster = [
+        dict(
+            p,
+            aliases=sorted(
+                set(p.get("aliases", []))
+                | {
+                    a
+                    for a, target in aliases.items()
+                    if normalize_player_text(target)
+                    == normalize_player_text(p["player_name"])
+                }
+            ),
+        )
+        for p in players
+    ]
     for start, end in _spans(question, roster):
         raw = question[start:end]
         key = normalize_player_text(raw)
@@ -257,6 +286,90 @@ def prepare_names(question, players, *, strict=True):
     return question, roster
 
 
+def match_name_question(question, players):
+    """Apply fallback matching to extracted names, not surrounding prose."""
+    from app.agent.player_suggestions import match_player_name
+
+    original = question.split("\nSelected player:", 1)[0].split("\nClarification:", 1)[
+        0
+    ]
+    spans = _spans(original, players)
+    if len(spans) == 1:
+        a, b = spans[0]
+        return resolve_player_name(original[a:b], players)
+    if spans:
+        results = [resolve_player_name(original[a:b], players) for a, b in spans]
+        missing = next((r for r in results if r["status"] == "not_found"), None)
+        if missing:
+            return missing
+        matches = {p["player_id"]: p for r in results for p in r["matches"]}
+        return {
+            "status": "clarification_required",
+            "matches": list(matches.values())[:5],
+            "message": "More than one player was named. Please clarify the intended player.",
+        }
+    return match_player_name(original, players)
+
+
+def apply_name_notices(payload):
+    """Disclose identity changes before renderer-owned claim binding."""
+    session = _session.get()
+    if not session:
+        return payload
+    applied = payload.setdefault("name_resolution_notices", [])
+    notes = [n for n in dict.fromkeys(session.notices) if n not in applied]
+    if notes:
+        prefix = " ".join(notes)
+        payload["answer"] = prefix + "\n\n" + payload["answer"]
+        payload.setdefault("assumptions", []).extend(notes)
+        applied.extend(notes)
+        if payload.get("appearance_evidence"):
+            payload.setdefault("claim_evidence", {})["name_resolution_notice"] = (
+                " ".join(applied)
+            )
+    payload.setdefault("name_resolutions", []).extend(
+        r for r in session.resolutions if r not in payload.get("name_resolutions", [])
+    )
+    return payload
+
+
+def identity_payload(error, question, conversation_id, model_calls=None):
+    from app.agent.payload import answer_payload
+
+    session = _session.get()
+    result = error.result
+    options = [
+        dict(
+            player_id=p["player_id"],
+            player_name=p["player_name"],
+            team_abbr=(
+                "/".join(p["observed_teams"])
+                if "observed_teams" in p
+                else p.get("team_abbr")
+            ),
+            label=p["player_name"],
+        )
+        for p in result["matches"]
+    ]
+    plan = {
+        "kind": "identity",
+        "name_matching": True,
+        "mention": error.mention,
+        "choices": session.choices if session else {},
+    }
+    if model_calls is not None:
+        plan["model_calls"] = model_calls
+    return answer_payload(
+        str(error),
+        status=result["status"],
+        conversation_id=conversation_id,
+        clarification_options=options,
+        identity=result,
+        semantic_plan=plan,
+        clarification_question=question,
+    )
+
+
 def name_matching_entrypoint(answer):
     """Give direct semantic callers the same resumable identity boundary."""
 
@@ -272,14 +385,16 @@ def name_matching_entrypoint(answer):
             lambda effective, selected: answer(
                 agent, effective, **{**kwargs, "selected_player": selected}
             ),
+            trace=kwargs.get("trace"),
         )
 
     return wrapped
 
 
-def run_name_matching(agent, question, selected_player, conversation_id, callback):
+def run_name_matching(
+    agent, question, selected_player, conversation_id, callback, *, trace=None
+):
     """Keep clarification replies on the original route and original scope."""
-    from app.agent.payload import answer_payload
     from app.agent.question_intent import name_reply, starts_new_question
 
     store = (
@@ -289,6 +404,21 @@ def run_name_matching(agent, question, selected_player, conversation_id, callbac
     )
     pending = store.get_pending_clarification(conversation_id) if store else None
     session = NameSession()
+    from app.agent.routes import supersedes_pending
+
+    if (
+        pending
+        and (pending.query_plan or {}).get("name_matching")
+        and not selected_player
+        and supersedes_pending(question, pending)
+        and not any(
+            str(p.get("team_abbr") or "").casefold() == question.strip().casefold()
+            for p in pending.candidates
+        )
+        and resolve_player_name(question, pending.candidates)["status"] != "ok"
+    ):
+        store.clear_pending_clarification(conversation_id)
+        pending = None
     if pending and (pending.query_plan or {}).get("name_matching"):
         if selected_player or (
             name_reply(question) and not starts_new_question(question)
@@ -331,31 +461,15 @@ def run_name_matching(agent, question, selected_player, conversation_id, callbac
             payload = callback(question, selected_player)
         except PlayerNameError as exc:
             result = exc.result
-            options = [
-                {
-                    "player_id": p["player_id"],
-                    "player_name": p["player_name"],
-                    "team_abbr": p.get("team_abbr")
-                    or "/".join(p.get("observed_teams", [])),
-                    "label": p["player_name"],
-                }
-                for p in result["matches"]
-            ]
-            payload = answer_payload(
-                str(exc),
-                status=result["status"],
-                conversation_id=conversation_id,
-                clarification_options=options,
-                identity=result,
-                semantic_plan={
-                    "kind": "identity",
-                    "model_calls": 0,
-                    "name_matching": True,
-                    "mention": exc.mention,
-                    "choices": session.choices,
-                },
-                clarification_question=question,
+            payload = identity_payload(
+                exc, question, conversation_id, trace.model_calls if trace else None
             )
+            if trace:
+                trace.outcome = (
+                    "clarified"
+                    if result["status"] == "clarification_required"
+                    else result["status"]
+                )
             if store and result["status"] == "clarification_required":
                 store.set_pending_clarification(
                     conversation_id,
@@ -365,12 +479,9 @@ def run_name_matching(agent, question, selected_player, conversation_id, callbac
                         "mention": exc.mention,
                         "choices": session.choices,
                     },
-                    candidates=options,
+                    candidates=payload["clarification_options"],
                 )
-        if session.notices and payload.get("status", "ok") == "ok":
-            payload["answer"] = " ".join(session.notices) + "\n\n" + payload["answer"]
-            payload.setdefault("assumptions", []).extend(session.notices)
-            payload.setdefault("name_resolutions", []).extend(session.resolutions)
+        apply_name_notices(payload)
         return payload
     finally:
         _session.reset(token)

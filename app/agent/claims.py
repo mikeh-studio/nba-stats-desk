@@ -237,6 +237,7 @@ def descriptor(payload, sources, context):
         "data_through": ("data_through", "date"),
         "missing_component_games": ("missing_component_games", "games"),
         "player_name": ("player_name", "label"),
+        "name_resolution_notice": ("name_resolution_notice", "label"),
         "player_id": ("player_id", "identifier"),
         "label": ("label", "label"),
         "game_date": ("game_date", "label"),

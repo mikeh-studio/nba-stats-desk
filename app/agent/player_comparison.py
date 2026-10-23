@@ -168,10 +168,10 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
     choices = dict(choices or {})
     reply = question.partition("\nClarification:")[2]
     for index, side in enumerate(sides):
-        from app.agent.player_suggestions import match_player_name
+        from app.agent.name_matching import match_name_question
 
         candidates = resolve_overview_player(side, players, evidence.rows)
-        name_match = match_player_name(side, players) if not candidates else None
+        name_match = match_name_question(side, players) if not candidates else None
         if name_match and name_match["status"] == "ok":
             candidates = name_match["matches"]
         if str(index) in choices:

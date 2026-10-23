@@ -936,3 +936,13 @@ resume the original filters, duplicate names retain distinct IDs, and team/metri
 words must not become player candidates. Overview/comparison controls remain in
 `tests/test_player_suggestions.py`. These checks establish fixture behavior;
 local live-source probes and browser checks are reported separately.
+
+`tests/test_name_matching_review.py` covers independent-review regressions:
+claim-enforced appearance corrections and selections, answer mutation rejection,
+suffix omission/collisions, realistic partial-name prose and possessives,
+non-name wording, curated study nicknames, disclosures on non-success results,
+source metadata/tool completion, actual model-call counts, changed-player replies,
+season-reload selection validation, and source-season team labels. The endpoint
+route matrix runs with claim enforcement and includes similarity resume.
+Browser-unit checks refuse indistinguishable name/team buttons without exposing
+IDs. The overview scope guard distinguishes ordinary “playing” from play-in.

@@ -240,7 +240,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             ["Playoffs"] if playoffs else []
         )
     if re.search(
-        r"\b(preseason|play-in|playin|play in tournament|summer league|quarter|injur)\w*",
+        r"\b(?:(?:preseason|play-in|playin|play in tournament|summer league)\b|(?:quarter|injur)\w*)",
         question,
         re.I,
     ):
@@ -405,9 +405,9 @@ def resolve_overview_player(question, players, rows, selected=None):
 def build_overview(question, evidence, players, scope, selected=None):
     evidence.validate()
     candidates = resolve_overview_player(question, players, evidence.rows, selected)
-    from app.agent.player_suggestions import match_player_name
+    from app.agent.name_matching import match_name_question
 
-    name_match = match_player_name(question, players) if not candidates else None
+    name_match = match_name_question(question, players) if not candidates else None
     if name_match and name_match["status"] == "ok":
         candidates = name_match["matches"]
     name_notes = (

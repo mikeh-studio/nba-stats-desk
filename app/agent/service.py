@@ -1447,6 +1447,7 @@ class StatsAgent:
                 model=model,
                 routing=routing,
             ),
+            trace=trace,
         )
         payload = finish_route(
             payload,

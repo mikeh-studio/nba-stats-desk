@@ -350,6 +350,7 @@ _MENTION_STOPWORDS = frozenset(
         "previous", "question", "tell", "give", "list", "find", "rank",
         "analyze",
         "summarize",
+        "did", "does", "has", "have", "is", "was",
         # League and cohort words.
         "nba", "league", "average", "baseline", "eastern", "western",
         "conference", "regular", "season", "playoffs", "team", "teams",
@@ -371,6 +372,12 @@ _MENTION_TRIM_PREFIXES = frozenset(
     {
         "analyze",
         "summarize",
+        "did",
+        "does",
+        "has",
+        "have",
+        "is",
+        "was",
         "compare",
         "show",
         "tell",
@@ -391,7 +398,11 @@ def _trim_mention_phrase(phrase: str) -> str:
 
 def _is_stopword_phrase(phrase: str) -> bool:
     words = phrase.casefold().split()
-    return bool(words) and all(word in _MENTION_STOPWORDS for word in words)
+    from app.agent.name_matching import _SCOPE_WORDS
+
+    return bool(words) and all(
+        word in _MENTION_STOPWORDS | _SCOPE_WORDS for word in words
+    )
 
 
 def _extract_player_mentions(question: str) -> list[str]:
