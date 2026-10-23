@@ -52,7 +52,13 @@ def settings(request: Request = None):
     # Settings() itself does not read the user's .env. No live source is used.
     base = Settings(
         project_id="fixture-project",
+        ask_formula_cache_enabled=os.environ.get("ASK_EVAL_FORMULA_CACHE") == "1",
+        ask_cohort_cache_enabled=os.environ.get("ASK_EVAL_COHORT_CACHE") == "1",
         ask_claim_enforcement=os.environ.get("ASK_EVAL_CLAIM_ENFORCEMENT", "log"),
+        ask_deterministic_planning_enabled=os.environ.get(
+            "ASK_EVAL_DETERMINISTIC_COMMON"
+        )
+        == "1",
         gold_dataset="fixture",
         metadata_dataset="fixture",
         freshness_threshold_hours=36,
@@ -237,6 +243,12 @@ def repository(request: Request):
             repositories[variant] = production_repository(settings(), source)
         else:
             repositories[variant] = frozen_repository(settings(), source, variant)
+        if os.environ.get("ASK_EVAL_SERVING_FIXTURE") == "1":
+            from scripts.ask_eval.fixtures import prepared_fixture_repository
+
+            repositories[variant] = prepared_fixture_repository(
+                repositories[variant], source, variant
+            )
     return repositories[variant]
 
 

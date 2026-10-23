@@ -865,3 +865,45 @@ def test_trace_only_field_set_requires_review_when_settings_expand():
     assert {
         f.name for f in fields(Settings) if f.name.startswith("agent_trace_")
     } == TRACE_ONLY_FIELDS
+
+
+def test_pre_phase2_v2_recording_accepts_only_default_flags(tmp_path):
+    from scripts.ask_eval.cassettes import normalized_phase2_flags
+
+    path = record(tmp_path)
+    defaults = normalized_phase2_flags(None)
+    CassetteStore(path, "replay", dict(BINDING, phase2_flags=defaults))
+    with pytest.raises(CassetteError, match="phase2_flags"):
+        CassetteStore(
+            path,
+            "replay",
+            dict(BINDING, phase2_flags=dict(defaults, cohort_cache=True)),
+        )
+
+
+def test_default_off_settings_preserve_pre_phase2_cassette_binding():
+    from dataclasses import fields, make_dataclass, replace
+
+    from scripts.ask_eval.cassettes import settings_binding
+    from tests.test_semantic_migration import settings
+
+    config = settings()
+    new = {
+        "ask_deterministic_planning_enabled",
+        "ask_formula_cache_enabled",
+        "ask_cohort_cache_enabled",
+        "ask_serving_families",
+        "ask_serving_mode",
+        "ask_serving_reference_path",
+    }
+    old = make_dataclass(
+        "PrePhase2Settings",
+        [(f.name, object) for f in fields(config) if f.name not in new],
+    )
+    previous = old(
+        **{f.name: getattr(config, f.name) for f in fields(config) if f.name not in new}
+    )
+    assert settings_binding(config) == settings_binding(previous)
+    assert settings_binding(
+        replace(config, ask_formula_cache_enabled=True)
+    ) != settings_binding(previous)

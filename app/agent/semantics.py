@@ -562,9 +562,49 @@ def run_query(
                 else None,
             }
         )
+    return finish_summaries(
+        summaries,
+        query,
+        metric,
+        contract,
+        minimum,
+        scopes,
+        seasons,
+        anchor,
+        start,
+        end,
+        evidence.data_through,
+        evidence.source,
+        evidence.snapshot_id,
+        evidence.model_built_at,
+        evidence.cohort_complete,
+    )
+
+
+def finish_summaries(
+    summaries,
+    query,
+    metric,
+    contract,
+    minimum,
+    scopes,
+    seasons,
+    anchor,
+    start,
+    end,
+    data_through,
+    source,
+    snapshot_id,
+    model_built_at,
+    cohort_complete,
+):
+    """Shared deterministic cohort qualification output for facts and aggregates.
+
+    Callers must validate scope, membership and publication before entering here.
+    """
     cohort = [s for s in summaries if s["eligible"]]
     direction = query.direction or metric.direction
-    for summary in cohort if evidence.cohort_complete else []:
+    for summary in cohort if cohort_complete else []:
         value = summary["value"]
         better = sum(
             (s["value"] > value if direction == "higher" else s["value"] < value)
@@ -593,7 +633,7 @@ def run_query(
     ]
     warnings = []
     through = {
-        (phase if len(seasons) == 1 else f"{season} {phase}"): evidence.data_through[
+        (phase if len(seasons) == 1 else f"{season} {phase}"): data_through[
             (season, phase)
         ]
         for season, phase in scopes
@@ -625,10 +665,10 @@ def run_query(
         "rows": output[: query.limit],
         "warnings": warnings,
         "provenance": {
-            "source": evidence.source,
-            "snapshot_id": evidence.snapshot_id,
+            "source": source,
+            "snapshot_id": snapshot_id,
             "data_through": through,
-            "model_built_at": evidence.model_built_at,
+            "model_built_at": model_built_at,
             "temporal_semantics": "retrospective_source_snapshot",
         },
     }

@@ -7,6 +7,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from functools import wraps
 from math import isfinite
+from threading import RLock
 from time import monotonic, sleep
 from typing import Any, Callable
 
@@ -27,6 +28,10 @@ class RequestPolicy:
     committing: bool = False
     retry_limit: int | None = None
     pending_clarifications: dict[tuple[int, str], Any] = field(default_factory=dict)
+    warehouse_ledger: dict[str, int] = field(default_factory=lambda: {"bytes_used": 0})
+    serving_state: dict[Any, dict[str, Any]] = field(default_factory=dict)
+    warehouse_lock: Any = field(default_factory=RLock)
+    warehouse_byte_limit: int = 100_000_000
 
     def remaining(self) -> float:
         remaining = self.deadline - monotonic()
@@ -72,10 +77,15 @@ def request_policy(settings, provider, trace=None):
     policy = RequestPolicy(
         settings, provider, trace, monotonic() + settings.agent_request_deadline_seconds
     )
+    from app.agent.formulas import formula_metadata_cache
+
     token = CURRENT.set(policy)
     try:
-        policy.remaining()
-        yield policy
+        with formula_metadata_cache(
+            getattr(settings, "ask_formula_cache_enabled", False)
+        ):
+            policy.remaining()
+            yield policy
     finally:
         CURRENT.reset(token)
 
@@ -239,6 +249,22 @@ def create_response(
             extra["timeout"] = timeout
         if policy.trace:
             policy.trace.model_calls += 1
+            import re
+
+            model_id = kwargs.get("model")
+            if not isinstance(model_id, str) or not re.fullmatch(
+                r"[A-Za-z0-9_.:/-]{1,120}", model_id
+            ):
+                model_id = "unknown"
+            if (
+                model_id in policy.trace.models_used
+                or len(policy.trace.models_used) < 8
+            ):
+                policy.trace.models_used[model_id] = (
+                    policy.trace.models_used.get(model_id, 0) + 1
+                )
+            else:
+                policy.trace.models_used_dropped = True
         schema_name = kwargs.get("text", {}).get("format", {}).get("name", "")
         try:
             with stage(
@@ -299,6 +325,16 @@ def create_response(
     raise AssertionError("unreachable")
 
 
+def warehouse_budget(cap: int) -> int:
+    policy = CURRENT.get()
+    if policy is None:
+        return cap
+    remaining = policy.warehouse_byte_limit - policy.warehouse_ledger["bytes_used"]
+    if remaining < 10 * 1024 * 1024:
+        raise ExecutionFailure("query_budget_exceeded")
+    return min(cap, remaining)
+
+
 def record_data_read(
     *,
     kind: str,
@@ -308,12 +344,25 @@ def record_data_read(
     bytes_billed: int | None = None,
     cache_hit: bool | None = None,
     source_version: str | None = None,
+    budget_ceiling: int | None = None,
+    transferred_bytes: int | None = None,
 ):
     """Bounded metadata only: never SQL, identifiers, question text or row values."""
     import re
 
     policy = CURRENT.get()
-    if policy is None or policy.trace is None:
+    if policy is None:
+        return
+    if kind == "warehouse":
+        charged = (
+            bytes_billed
+            if type(bytes_billed) is int and bytes_billed >= 0
+            else budget_ceiling
+        )
+        policy.warehouse_ledger["bytes_used"] += (
+            charged if type(charged) is int and charged >= 0 else 100_000_000
+        )
+    if policy.trace is None:
         return
     if kind not in {"warehouse", "evidence_cache"} or status not in {"ok", "error"}:
         raise ValueError("Invalid data-read telemetry category")
@@ -322,6 +371,7 @@ def record_data_read(
         ("rows", rows),
         ("bytes_processed", bytes_processed),
         ("bytes_billed", bytes_billed),
+        ("transferred_bytes", transferred_bytes),
     ):
         record[key] = value if type(value) is int and value >= 0 else None
     record["cache_hit"] = cache_hit if type(cache_hit) is bool else None
@@ -335,3 +385,116 @@ def record_data_read(
         policy.trace.data_reads.append(record)
     else:
         policy.trace.data_reads_dropped += 1
+
+
+def record_serving_shadow(outcome: dict[str, str]) -> None:
+    """Safe, bounded candidate status, without identities, questions or values."""
+    import re
+
+    policy = CURRENT.get()
+    if policy is None or policy.trace is None:
+        return
+    if outcome.get("status") not in {"match", "mismatch", "ineligible", "error"}:
+        raise ValueError("Invalid shadow status")
+    record = {"status": outcome["status"]}
+    code = outcome.get("code")
+    if isinstance(code, str) and re.fullmatch(r"[a-z_]{1,64}", code):
+        record["code"] = code
+    if len(policy.trace.serving_shadow) < 64:
+        policy.trace.serving_shadow.append(record)
+    else:
+        policy.trace.serving_shadow_dropped += 1
+
+
+def warehouse_bytes_billed(job, failure: Exception | None = None) -> int | None:
+    """Keep ambiguous transport/cancellation charges unknown; validation errors cost zero.
+
+    A result-fetch failure after execution is not a failed SQL validation. Prefer
+    reported billed bytes and only infer zero from definitive submission/job errors.
+    https://cloud.google.com/bigquery/pricing
+    """
+    from google.api_core.exceptions import BadRequest, Forbidden, NotFound
+
+    value = getattr(job, "total_bytes_billed", None)
+    if type(value) is int and value >= 0:
+        return value
+    error = getattr(job, "error_result", None)
+    if isinstance(error, dict) and error.get("reason") in {
+        "notFound",
+        "invalidQuery",
+        "accessDenied",
+        "billingTierLimitExceeded",
+    }:
+        return 0
+    if job is None and isinstance(failure, (BadRequest, Forbidden, NotFound)):
+        return 0
+    return None
+
+
+def serialized_warehouse_read(fn):
+    """Share the request budget safely across repository worker threads.
+
+    Only governed reads serialize. Outside Ask the existing parallel behavior is
+    unchanged. A bounded queue wait ensures ceilings cannot race ahead of charges.
+    """
+
+    @wraps(fn)
+    def wrapped(*args, **kwargs):
+        policy = CURRENT.get()
+        if policy is None:
+            return fn(*args, **kwargs)
+        acquire_timed_lock(policy.warehouse_lock, "warehouse_queue_wait", 120)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            policy.warehouse_lock.release()
+
+    return wrapped
+
+
+def acquire_timed_lock(lock, name, seconds=120):
+    """An exit checkpoint must never strand a successfully acquired lock."""
+    acquired = False
+    try:
+        with stage(name):
+            acquired = lock.acquire(timeout=bounded_timeout(seconds))
+        if not acquired:
+            raise ExecutionFailure("request_timeout")
+    except BaseException:
+        if acquired:
+            lock.release()
+        raise
+
+
+@contextmanager
+def optional_shadow_budget(seconds=15.0):
+    """Isolate optional execution while accounting all spend in the request cap."""
+    policy = CURRENT.get()
+    if policy is None:
+        yield
+        return
+    acquire_timed_lock(policy.warehouse_lock, "warehouse_queue_wait")
+    child = None
+    token = None
+    try:
+        limit = warehouse_budget(50_000_000)
+        allowance = min(seconds, policy.remaining() - 1.0)
+        if allowance <= 0:
+            raise ExecutionFailure("optional_timeout")
+        child = replace(
+            policy,
+            deadline=monotonic() + allowance,
+            retry_limit=0,
+            warehouse_ledger={"bytes_used": 0},
+            warehouse_byte_limit=limit,
+        )
+        token = CURRENT.set(child)
+        yield
+    finally:
+        if token is not None:
+            CURRENT.reset(token)
+        if child is not None:
+            policy.warehouse_ledger["bytes_used"] += child.warehouse_ledger[
+                "bytes_used"
+            ]
+        policy.warehouse_lock.release()

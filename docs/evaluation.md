@@ -919,10 +919,25 @@ not universal prose accuracy, human approval, live warehouse or deployment healt
 
 ## Agent serving preparation
 
-See the [Phase 1 serving contract](ask-serving-contract.md) for the offline metric
-inventory, publication validation, telemetry, and parity checks. Production Ask
-retrieval remains unchanged; serving routing and live performance measurement are
-subsequent phases.
+See the [Ask serving contract](ask-serving-contract.md) for source-certified
+publications, the metric inventory, opt-in Phase 2 routing, request telemetry,
+and parity checks. Routing and deterministic planning remain off by default.
+Activation requires the contract's fresh measurements and explicit rollout gates;
+local and fixture validation do not establish production readiness.
+
+
+### Phase 2 cassette compatibility review
+
+Pre-Phase-2 v2 recordings remain replay-compatible when all six new settings are
+at their shipped defaults: serving off, default points family, no reference path,
+and the three independent optimizations off. Those default fields are omitted
+from the settings hash, matching the previous schema. Any active or nondefault
+execution setting remains bound and rejects incompatible replay. A missing
+`phase2_flags` manifest field is equivalent only to the four known false flags;
+true, nonboolean or unknown values are not silently accepted. The original
+manifest remains unchanged for terminal checksum validation. Synthetic v2 replay
+and legacy-settings-hash regressions establish this narrow compatibility rule,
+not compatibility of arbitrary older planner or source contracts.
 
 ## Shared player-name matching regressions
 

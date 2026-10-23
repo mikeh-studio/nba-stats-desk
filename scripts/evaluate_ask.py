@@ -198,6 +198,18 @@ def main():
         type=int,
         help="HTTP request budget (offline default 400; live default 160)",
     )
+    p.add_argument(
+        "--serving-fixture",
+        action="store_true",
+        help="Evaluate certified serving over frozen fixture evidence",
+    )
+    p.add_argument(
+        "--deterministic-common",
+        action="store_true",
+        help="Enable the independent exact common-query planner",
+    )
+    p.add_argument("--formula-cache", action="store_true")
+    p.add_argument("--cohort-cache", action="store_true")
     args = p.parse_args()
     replay_manifest = None
     if args.replay_cassettes:
@@ -297,8 +309,23 @@ def main():
         "schema_sha256": digest(ROOT / "tests/fixtures/ask/schema.json"),
         "corpus_sha256": digest(input_dir / "cases.json"),
         "adapter_revision": revision,
+        "phase2_flags": {
+            k: getattr(args, k)
+            for k in (
+                "serving_fixture",
+                "deterministic_common",
+                "formula_cache",
+                "cohort_cache",
+            )
+        },
     }
     if replay_manifest:
+        from scripts.ask_eval.cassettes import normalized_phase2_flags
+
+        if normalized_phase2_flags(
+            replay_manifest.get("phase2_flags")
+        ) != normalized_phase2_flags(binding["phase2_flags"]):
+            p.error("Cassette manifest mismatch: phase2_flags")
         for key in (
             "provider",
             "model",
@@ -321,6 +348,10 @@ def main():
             "ASK_EVAL_CODE_ROOT": str(args.code_root.resolve()),
             "PYTHONPATH": str(ROOT),
             "ASK_EVAL_LIVE": "1" if args.live else "0",
+            "ASK_EVAL_FORMULA_CACHE": "1" if args.formula_cache else "0",
+            "ASK_EVAL_COHORT_CACHE": "1" if args.cohort_cache else "0",
+            "ASK_EVAL_SERVING_FIXTURE": "1" if args.serving_fixture else "0",
+            "ASK_EVAL_DETERMINISTIC_COMMON": "1" if args.deterministic_common else "0",
             "ASK_EVAL_MAX_CALLS": str(args.max_model_calls or 0),
             "ASK_EVAL_INPUT_DIR": str(input_dir.resolve()),
             "ASK_EVAL_CALL_LOG": str((args.output / "model-calls.jsonl").resolve()),
@@ -401,6 +432,10 @@ def main():
         report = {
             "schema_version": 1,
             "label": args.label,
+            "formula_cache": args.formula_cache,
+            "cohort_cache": args.cohort_cache,
+            "serving_fixture": args.serving_fixture,
+            "deterministic_common": args.deterministic_common,
             "revision": revision,
             "code_sha256": hashlib.sha256(
                 b"".join(
@@ -508,6 +543,10 @@ def main():
                     "status": "failed",
                     "error_type": type(exc).__name__,
                     "label": args.label,
+                    "formula_cache": args.formula_cache,
+                    "cohort_cache": args.cohort_cache,
+                    "serving_fixture": args.serving_fixture,
+                    "deterministic_common": args.deterministic_common,
                 }
             )
             + "\n",

@@ -10,7 +10,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.agent.execution import bounded_timeout, record_data_read, timed
+from app.agent.execution import (
+    bounded_timeout,
+    record_data_read,
+    serialized_warehouse_read,
+    timed,
+    warehouse_budget,
+    warehouse_bytes_billed,
+)
 from app.agent.semantics import COMPONENTS, PHASES, Evidence, SemanticError
 from app.seasons import dataset_for_season, validate_season
 
@@ -94,6 +101,7 @@ class BigQuerySemanticSource:
     def source_for_season(self, season: str) -> str:
         return f"{self.project}.{dataset_for_season(self.dataset, season)}.fct_player_game_stats"
 
+    @serialized_warehouse_read
     def capture(self, seasons: list[str]) -> dict[str, Any]:
         from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound
         from google.cloud import bigquery
@@ -138,13 +146,14 @@ class BigQuerySemanticSource:
         ]
         config = bigquery.QueryJobConfig(
             query_parameters=params,
-            maximum_bytes_billed=self.byte_budget,
+            maximum_bytes_billed=warehouse_budget(self.byte_budget),
             use_legacy_sql=False,
             use_query_cache=False,
             labels={"purpose": "semantic-evaluation"},
         )
         started = datetime.now(timezone.utc)
         job = None
+        failure: Exception | None = None
         rows = None
         read_status = "error"
         submission_timeout = bounded_timeout(30)
@@ -154,22 +163,26 @@ class BigQuerySemanticSource:
             rows = [dict(row) for row in result]
             read_status = "ok"
         except Forbidden as exc:
+            failure = exc
             raise SemanticError(
                 "access_denied", "Historical source access denied"
             ) from exc
         except NotFound as exc:
+            failure = exc
             raise SemanticError(
                 "unsupported_coverage", "Historical relation unavailable"
             ) from exc
         except (GoogleAPICallError, TimeoutError) as exc:
+            failure = exc
             raise SemanticError("source_unavailable", "Historical read failed") from exc
         finally:
             record_data_read(
                 kind="warehouse",
+                budget_ceiling=config.maximum_bytes_billed,
                 status=read_status,
                 rows=len(rows) if rows is not None else None,
                 bytes_processed=getattr(job, "total_bytes_processed", None),
-                bytes_billed=getattr(job, "total_bytes_billed", None),
+                bytes_billed=warehouse_bytes_billed(job, failure),
                 cache_hit=getattr(job, "cache_hit", None),
             )
         if not rows:
