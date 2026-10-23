@@ -75,6 +75,8 @@ class FakeElement {
   }
 
   scrollIntoView() {}
+
+  getClientRects() { return []; }
 }
 
 function createStorage({ failWrites = false } = {}) {
@@ -455,14 +457,14 @@ test("thinking indicators start and reset for Ask and follow-ups", async () => {
   for (const element of Object.values(elements)) {
     assert.equal(element.dataset.thinking, "true");
   }
-  assert.equal(elements["[data-agent-submit]"].textContent, "Thinking…");
-  assert.equal(elements["[data-followup-submit]"].textContent, "Thinking…");
+  assert.equal(elements["[data-agent-submit]"].textContent, "…");
+  assert.equal(elements["[data-followup-submit]"].textContent, "…");
   agent.setBusy(false);
   for (const element of Object.values(elements)) {
     assert.equal(element.dataset.thinking, "false");
   }
-  assert.equal(elements["[data-agent-submit]"].textContent, "Ask");
-  assert.equal(elements["[data-followup-submit]"].textContent, "Ask follow-up");
+  assert.match(elements["[data-agent-submit]"].innerHTML, /<svg/);
+  assert.match(elements["[data-followup-submit]"].innerHTML, /<svg/);
 });
 
 test("line charts keep negative and positive observations inside the plot", async () => {
@@ -736,7 +738,7 @@ test("history return restores an answer completed while hidden and clears busy c
   assert.equal(submit.disabled,true);
   await agent.showHistory(false);
   assert.equal(submit.disabled,false);
-  assert.equal(submit.textContent,'Ask');
+  assert.match(submit.innerHTML, /<svg/);
   assert.match(elements['[data-agent-answer]'].children[0].querySelector('.agent-turn-answer').innerHTML,/Completed while hidden/);
 });
 

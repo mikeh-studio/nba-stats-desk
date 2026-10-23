@@ -1,5 +1,6 @@
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261022-shared-name-matching-v2";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261022-shared-name-matching-v2";
+import {followupFitsReport} from "./ask_followup.js?v=20261023-ask-compact-bars-v3";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261023-ask-compact-bars-v3";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261023-ask-compact-bars-v3";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -8,13 +9,13 @@ import {
   comparisonProfiles,
   comparisonTables,
   comparisonChart,
-} from "./ask_comparison.js?v=20261022-shared-name-matching-v2";
+} from "./ask_comparison.js?v=20261023-ask-compact-bars-v3";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20260913-review-fixes-v1";
+} from "./ask_sessions.js?v=20261023-ask-compact-bars-v3";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -22,8 +23,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261022-shared-name-matching-v2";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261022-shared-name-matching-v2";
+} from "./ask_presentation.js?v=20261023-ask-compact-bars-v3";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261023-ask-compact-bars-v3";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -44,7 +45,6 @@ let historyQuery = "";
 let historyOffset = 0;
 let historyGeneration = 0;
 let historyHasMore = false;
-let viewedTurn = -1;
 let viewedPayload = null;
 let navigationGeneration = 0;
 
@@ -64,20 +64,38 @@ function saveTabs() {
     );
   }
 }
+function resizeQuestionInputs() {
+  for (const field of document.querySelectorAll("[data-agent-question], [data-followup-question]")) {
+    if (!field.getClientRects().length) continue;
+    field.style.height = "36px";
+    field.style.height = Math.max(36, field.scrollHeight) + "px";
+  }
+}
+
 function rememberDraft() {
+  resizeQuestionInputs();
   const key = activeConversationId || "new";
   tabState.drafts[key] = {
+    ...tabState.drafts[key],
+    settings: currentAskSettings(),
     question: document.querySelector("[data-agent-question]")?.value || "",
     followup: document.querySelector("[data-followup-question]")?.value || "",
   };
   saveTabs();
 }
 function restoreDraft() {
+  const redirect = document.querySelector("[data-followup-redirect]");
+  if (redirect) redirect.hidden = true;
   const draft = tabState.drafts[activeConversationId || "new"] || {};
   const query = document.querySelector("[data-agent-question]");
   const followup = document.querySelector("[data-followup-question]");
-  if (query) query.value = draft.question || "";
+  const opening = historyState.conversations.find(
+    (conversation) => conversation.id === activeConversationId,
+  )?.turns[0];
+  if (query) query.value = draft.question ?? opening?.question ?? "";
+  restoreAskSettings(draft.settings || opening);
   if (followup) followup.value = draft.followup || "";
+  resizeQuestionInputs();
 }
 function renderTabs() {
   const el = document.querySelector("[data-chat-tabs]");
@@ -886,6 +904,8 @@ function bindExampleButtons(root = document) {
           : document.querySelector("[data-agent-question]");
       if (!(input instanceof HTMLTextAreaElement)) return;
       input.value = button.dataset.agentExample || "";
+      const redirect = document.querySelector("[data-followup-redirect]");
+      if (redirect) redirect.hidden = true;
       rememberDraft();
       input.focus();
     });
@@ -911,7 +931,6 @@ function startTurn(label) {
   if (!thread || !empty) return null;
   empty.hidden = true;
   thread.hidden = false;
-  viewedTurn = -1;
   thread.querySelectorAll("[data-agent-player-option]").forEach((button) => {
     button.disabled = true;
   });
@@ -951,7 +970,7 @@ function updateSourceCoverage(payload, question = "") {
 function resetAuxiliaryPanels() {
   updateSourceCoverage(null);
   viewedPayload = null;
-  for (const selector of ["[data-agent-profile]", "[data-turn-navigation]"]) {
+  for (const selector of ["[data-agent-profile]"]) {
     const el = document.querySelector(selector);
     if (el) el.innerHTML = "";
   }
@@ -1092,15 +1111,14 @@ function renderAuxiliaryPayload(
     if (!updateComposer) return;
     const followup = document.querySelector("[data-followup-section]");
     if (followup) followup.hidden = false;
-    const heading = document.querySelector("[data-followup-heading]");
-    if (heading) heading.textContent = "Ask your next question";
+    resizeQuestionInputs();
     const scopeLabel = document.querySelector("[data-followup-context]");
     if (scopeLabel)
-      scopeLabel.textContent = `${comparison.names.join(" and ")} · ${comparison.scopeLabel} · This chat`;
+      scopeLabel.textContent = `${comparison.names.join(" and ")} · ${comparison.scopeLabel}`;
     const suggestions = document.querySelector("[data-followup-suggestions]");
     if (suggestions) {
       suggestions.innerHTML = asArray(payload.followups)
-        .slice(0, payload.availability_evidence?.policy_version ? 5 : 2)
+        .slice(0, 2)
         .map(
           (text, i) =>
             `<button class="button secondary" type="button" data-agent-example="${escHtml(text)}">${["Review scoring", "Review playmaking"][i]}</button>`,
@@ -1146,19 +1164,17 @@ function renderAuxiliaryPayload(
   if (!updateComposer) return;
   const followup = document.querySelector("[data-followup-section]");
   if (followup) followup.hidden = false;
-  const heading = document.querySelector("[data-followup-heading]");
+  resizeQuestionInputs();
   const name = payload.conversation_context?.players?.map((p) => p.player_name).join(" and ") || payload.player_profile?.player?.player_name;
-  if (heading)
-    heading.textContent = "Ask your next question";
   const scopeLabel = document.querySelector("[data-followup-context]");
   if (scopeLabel)
     scopeLabel.textContent = overview
       ? `${name ? name + " · " : ""}${overview.range} · ${overview.scope.phases.join(" + ")}`
-      : `${name ? name + " · " : ""}Continues this chat. Include dates when changing the scope.`;
+      : [name, payload.conversation_context?.scope?.season || payload.semantic_evidence?.scope?.season || payload.availability_scope?.season].filter(Boolean).join(" · ") || "Current report";
   const suggestions = document.querySelector("[data-followup-suggestions]");
   if (suggestions) {
     const prompts =
-      overview?.followups || asArray(payload.followups).slice(0, payload.availability_evidence?.policy_version ? 5 : 2);
+      overview?.followups || asArray(payload.followups).slice(0, 2);
     suggestions.innerHTML = prompts
       .map(
         (text, i) =>
@@ -1487,7 +1503,6 @@ function persistHistoryTurn(question, payload, ownerId = null, requestBody = nul
   if (activeConversationId === conversationId) tabState = openTab(tabState, conversationId);
   saveTabs();
   renderTabs();
-  renderTurnNavigation();
   renderHistoryList();
 }
 
@@ -1556,7 +1571,7 @@ async function restoreConversation(conversationId) {
     (item) => item.id === conversationId,
   ) || (tabState.drafts[conversationId] ? {id: conversationId, turns: []} : null);
   if (!conversation) return;
-  rememberDraft();
+  if (activeConversationId) rememberDraft();
   const empty = document.querySelector("[data-agent-empty]");
   const thread = document.querySelector("[data-agent-answer]");
   const statusEl = document.querySelector("[data-agent-status]");
@@ -1569,9 +1584,8 @@ async function restoreConversation(conversationId) {
   thread.innerHTML = "";
   empty.hidden = conversation.turns.length > 0;
   thread.hidden = !conversation.turns.length;
-  viewedTurn = conversation.turns.length - 1;
   conversation.turns.forEach((turn, index) =>
-    appendRestoredTurn(turn, index === viewedTurn),
+    appendRestoredTurn(turn, index === conversation.turns.length - 1),
   );
   const pending = runtimeFor().pending;
   if (runtimeFor().inFlight && pending) {
@@ -1591,7 +1605,6 @@ async function restoreConversation(conversationId) {
   restoreDraft();
   saveTabs();
   renderTabs();
-  renderTurnNavigation();
   renderHistoryList();
 }
 
@@ -1732,26 +1745,6 @@ function initHistory() {
   loadServerHistory();
 }
 
-function renderTurnNavigation() {
-  const el = document.querySelector("[data-turn-navigation]");
-  const chat = historyState.conversations.find(
-    (c) => c.id === activeConversationId,
-  );
-  if (!el || !chat) return;
-  el.hidden = chat.turns.length < 2;
-  if (viewedTurn < 0) viewedTurn = chat.turns.length - 1;
-  el.innerHTML = `<label for="chat-turn">Review question</label><select id="chat-turn" class="input" ${runtimeFor().inFlight ? "disabled" : ""}>${chat.turns.map((t, i) => `<option value="${i}" ${i === viewedTurn ? "selected" : ""}>${i + 1}. ${escHtml(truncateText(t.question, 100))}</option>`).join("")}</select><span class="meta">Follow-ups continue the latest question in this chat.</span>`;
-  el.querySelector("select")?.addEventListener("change", (event) => {
-      viewedTurn = Number(event.target.value);
-    const selected = chat.turns[viewedTurn];
-    updateSourceCoverage(selected?.payload || null, selected?.question || "");
-    const thread = document.querySelector("[data-agent-answer]");
-    const turn = thread.children[viewedTurn];
-    turn?.scrollIntoView({ block: "start" });
-    turn?.focus({ preventScroll: true });
-  });
-}
-
 function handleStreamEvent(eventName, payload, state) {
   if (state.finished) return;
   const statusEl = requestIsVisible(state) ? document.querySelector("[data-agent-status]") : null;
@@ -1817,6 +1810,22 @@ function selectedProvider() {
   return ["claude", "openrouter"].includes(value) ? value : "openai";
 }
 
+function currentAskSettings() {
+  return {season: selectedSeason(), provider: selectedProvider(), model: selectedModel()};
+}
+
+function restoreAskSettings(settings) {
+  if (!settings) return;
+  const provider = document.querySelector("[data-agent-provider]");
+  const model = document.querySelector("[data-agent-model]");
+  if (provider && [...provider.options].some((option) => option.value === settings.provider)) {
+    provider.value = settings.provider;
+    populateModelSelect();
+    if (model && [...model.options].some((option) => option.value === settings.model))
+      model.value = settings.model;
+  }
+}
+
 function modelStorageKey(provider) {
   return `${MODEL_STORAGE_KEY_PREFIX}${provider}`;
 }
@@ -1879,6 +1888,7 @@ function initProviderSelect() {
       // Private browsing can block storage; the toggle still works for the session.
     }
     populateModelSelect();
+    rememberDraft();
   });
   const modelSelect = document.querySelector("[data-agent-model]");
   if (modelSelect instanceof HTMLSelectElement) {
@@ -1891,6 +1901,7 @@ function initProviderSelect() {
       } catch {
         // Private browsing can block storage; the selection still works for the session.
       }
+      rememberDraft();
     });
   }
 }
@@ -2042,13 +2053,42 @@ async function askQuestionStream(request) {
 }
 
 function askNewQuestion(question) {
-  if (runtimeFor().inFlight || !String(question).trim()) return;
+  question = String(question).trim();
+  if (runtimeFor().inFlight || !question) return;
   const input = document.querySelector("[data-agent-question]");
-  if (input) input.value = "";
-  rememberDraft();
-  // Reuse an untouched draft; every submitted analysis gets its own identity.
+  const settings = currentAskSettings();
+  const submitted = {question, ...settings};
   const conversation = historyState.conversations.find((c) => c.id === activeConversationId);
-  if (conversation?.turns.length || runtimeFor().error) startNewChat();
+  const opening = conversation?.turns[0];
+  const previous = tabState.drafts[activeConversationId]?.submitted || (opening && {
+    question: opening.question.trim(), season: selectedSeason(),
+    provider: opening.provider, model: opening.model,
+  });
+  const sameSearch = previous && Object.keys(submitted).every(
+    (key) => previous[key] === submitted[key],
+  );
+  // The top composer reuses an existing answer, even after later follow-ups.
+  // Unsuccessful requests remain eligible for an explicit retry.
+  const answered = sameSearch && conversation?.turns.some((turn) =>
+    turn.question.trim() === question &&
+    turn.provider === settings.provider && turn.model === settings.model &&
+    ["ok", "clarification_required"].includes(turn.payload?.status),
+  );
+  if (answered) return;
+  if ((previous || conversation?.turns.length || runtimeFor().error) && !sameSearch) {
+    // Leave the original analysis with its submitted search, not the edits
+    // that are about to become a separate analysis.
+    if (previous) {
+      if (input) input.value = previous.question;
+      restoreAskSettings(previous);
+    }
+    startNewChat();
+    restoreAskSettings(settings);
+  }
+  if (input) input.value = question;
+  rememberDraft();
+  tabState.drafts[activeConversationId].submitted = submitted;
+  saveTabs();
   showHistory(false, false);
   return askQuestion(question);
 }
@@ -2091,21 +2131,20 @@ async function askQuestion(question, selection = null) {
     if (!requestIsVisible(request)) { renderTabs(); return; }
     setBusy(false);
     renderTabs();
-    renderTurnNavigation();
     rememberDraft();
     if (statusEl?.textContent === "Answered") statusEl.hidden = true;
     if (submit instanceof HTMLButtonElement) submit.disabled = false;
   }
 }
 
+const SEND_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 function setBusy(busy) {
-  for (const [selector, label] of [
-    ["[data-agent-submit]", "Ask"],
-    ["[data-followup-submit]", "Ask follow-up"],
-  ]) {
+  for (const selector of ["[data-agent-submit]", "[data-followup-submit]"]) {
     const button = document.querySelector(selector);
     if (button) {
-      button.textContent = busy ? "Thinking…" : label;
+      if (busy) button.textContent = "…";
+      else button.innerHTML = SEND_ICON;
       button.dataset.thinking = String(busy);
     }
   }
@@ -2113,7 +2152,7 @@ function setBusy(busy) {
   if (status) status.dataset.thinking = String(busy);
   document
     .querySelectorAll(
-      "[data-followup-submit], [data-agent-submit], [data-saved-question-retry], [data-agent-provider], [data-agent-model], #chat-turn",
+      "[data-followup-submit], [data-agent-submit], [data-saved-question-retry], [data-agent-provider], [data-agent-model]",
     )
     .forEach((el) => {
       el.disabled = busy;
@@ -2121,6 +2160,7 @@ function setBusy(busy) {
 }
 
 function initAgentPage() {
+  window.addEventListener("resize", resizeQuestionInputs);
   bindExampleButtons();
   initProviderSelect();
   initHistory();
@@ -2144,6 +2184,17 @@ function initAgentPage() {
     event.preventDefault();
     if (!followupInput.value.trim() || runtimeFor().inFlight) return;
     const sentQuestion = followupInput.value.trim();
+    const conversation = historyState.conversations.find(c => c.id === activeConversationId);
+    const report = [...(conversation?.turns || [])].reverse().find(turn =>
+      turn.payload?.status === "ok" || turn.payload?.status === "clarification_required" ||
+      (turn.payload?.status == null && turn.payload?.availability_scope && turn.payload?.availability_evidence),
+    );
+    const reportQuestion = [conversation?.turns[0]?.question, report?.question].filter(Boolean).join(" ");
+    if (!followupFitsReport(sentQuestion, report?.payload, reportQuestion)) {
+      document.querySelector("[data-followup-redirect]").hidden = false;
+      return;
+    }
+    document.querySelector("[data-followup-redirect]").hidden = true;
     const submittedId = activeConversationId;
     await askQuestion(sentQuestion);
     if (
@@ -2162,7 +2213,16 @@ function initAgentPage() {
     }
   });
   input.addEventListener("input", rememberDraft);
-  followupInput?.addEventListener("input", rememberDraft);
+  followupInput?.addEventListener("input", () => {
+    document.querySelector("[data-followup-redirect]").hidden = true;
+    rememberDraft();
+  });
+  document.querySelector("[data-followup-new-tab]")?.addEventListener("click", () => {
+    const question = followupInput.value.trim();
+    if (!question || runtimeFor().inFlight) return;
+    startNewChat();
+    askNewQuestion(question);
+  });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();

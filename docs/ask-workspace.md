@@ -192,11 +192,28 @@ remain available from search and existing player URLs. Search stacks below the
 brand on narrow screens.
 
 The new-question composer and model settings sit above the analysis tabs and
-remain visible while browsing history. Submitting the top composer starts a
-separate analysis with fresh conversation context (an untouched draft is reused).
+remain visible while browsing history. The question remains in the top composer
+during and after submission. Repeating the same question with the same season,
+provider, and model reuses its completed answer without another request or turn,
+including after reload and after follow-ups. Failed requests can be retried.
+Changing the question or settings creates a separate analysis on submission
+(an untouched draft is reused). Comparison uses the trimmed question and current
+setting values; changing a setting back before submitting counts as unchanged.
+New chat opens an empty composer. Switching tabs restores their question drafts
+and settings; submitted search snapshots survive page reloads.
 The bottom follow-up composer appends to the selected conversation and retains
-its validated identity/date/phase context. Suggestions fill that composer without
-submitting.
+its validated identity/date/phase context. The compact composer shows report scope
+and an accessible send button. Both question bars use a 52px minimum-height,
+14px-radius grid container with a 28px arrow button, a centered 16px SVG, and 12px right/bottom insets. Textareas grow with
+wrapped text and shrink when cleared; the button occupies its own column.
+Suggestions fill the follow-up composer without submitting. A conservative
+browser vocabulary check admits common refinements, names in the report, and
+terms in the opening/current report question so clarification replies remain usable.
+Unrecognized wording stays in the composer and asks for clarification or “Open in
+new tab”; that action submits with a new conversation ID and no previous context.
+This navigation aid is not semantic identity validation: novel related wording may
+need rephrasing. The backend still validates identity/scope and fetches evidence.
+Editing or switching tabs clears the prompt; prior reports and drafts remain.
 
 Ask uses one tab per conversation. Five tabs are visible on desktop, including
 the new-question draft. At smaller widths, fewer tabs are shown; More remains
@@ -211,8 +228,8 @@ The latest saved response with an unsuccessful status is labeled as saved and
 offers “Run this question again.” Only clicking that action submits a new request;
 it appends the new result in the same conversation and preserves the old response.
 All questions and responses remain visible in chronological order, with each
-response owning its profile, methodology, tables, and interactive charts. The
-question selector jumps to an existing response without replacing content.
+response owning its profile, methodology, tables, and interactive charts.
+Follow-ups are read by scrolling; there is no question-review dropdown.
 Suggestions fill the bottom follow-up composer without submitting.
 
 Each tab, including an empty draft, receives its own conversation UUID at creation.
@@ -379,7 +396,7 @@ Existing specialized player overview/comparison charts retain their own renderin
 
 The collapsed header panel **Source & Coverage** combines publication status and
 asset coverage with the selected answer's scope, assumptions, and metric
-definitions. Selecting a saved question updates those details; starting a new
+definitions. Opening a saved chat shows its latest response details; starting a new
 chat clears them. Answers no longer repeat a Methodology & data disclosure.
 Material interpretation caveats remain in the answer and chart descriptions.
 
