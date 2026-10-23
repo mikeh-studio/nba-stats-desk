@@ -200,7 +200,7 @@ def test_leader_floor_is_seventy_percent_of_team_games(team_games, floor):
         }
     ]
     args = {"season": "2025-26", "season_type": "Regular Season"}
-    assert leader_game_floor(SimpleNamespace(rows=rows), args, 0.7) == floor
+    assert leader_game_floor(rows, args, 0.7) == floor
 
 
 def rank(season):

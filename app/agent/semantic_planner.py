@@ -657,10 +657,10 @@ def normalize_duplicate_rank_plan(plan):
     return normalized
 
 
-def leader_game_floor(evidence, args, share):
+def leader_game_floor(appearances, args, share):
     """Share of the most games any team has in scope (70% of 82 is 58)."""
     games: dict[str, set[str]] = {}
-    for row in evidence.rows:
+    for row in appearances:
         if (
             row["season"] == args["season"]
             and row["season_type"] == args["season_type"]
@@ -674,8 +674,11 @@ def single_period_rank_plan(plan, question, selected_season):
     """A one-period leaderboard question never becomes a season-vs-season compare.
 
     Only two same-metric rankings that differ by season alone collapse, and only
-    when the question has no comparison wording; the selected season is kept.
+    when the question requests only the selected season and has no comparison
+    wording. Explicit multiple seasons must never be silently discarded.
     """
+    from app.agent.semantic_serving import requested_seasons
+
     queries = plan.get("queries", [])
     if (
         plan.get("status") != "compare"
@@ -683,6 +686,7 @@ def single_period_rank_plan(plan, question, selected_season):
         or not all(
             isinstance(q, dict) and q.get("operation") == "rank" for q in queries
         )
+        or requested_seasons(question, selected_season) != [selected_season]
         or re.search(
             r"\b(?:vs\.?|versus|compar\w*|than|change[ds]?|improv\w*|differen\w*|between|from\b.+\bto)\b",
             question,
@@ -713,6 +717,7 @@ def execute_plan(
     *,
     shadow=None,
     query_runner=None,
+    appearances=None,
 ) -> dict[str, Any]:
     if plan["status"] in ("clarification_required", "unsupported"):
         return {
@@ -744,9 +749,19 @@ def execute_plan(
                 raise SemanticError("clarification_required", "Specify the player")
             metric = load_contract().metric(args["metric"])
             args["metric"] = metric.key
-            if plan.get("leader_game_share") and evidence is not None:
+            if plan.get("leader_game_share"):
+                # Serving supplies validated publication appearances instead of
+                # preloading facts. Both paths must use the same qualification.
+                qualification_rows = (
+                    evidence.rows if evidence is not None else appearances
+                )
+                if qualification_rows is None:
+                    raise SemanticError(
+                        "invalid_evidence",
+                        "Leader qualification requires appearance evidence",
+                    )
                 args["min_games"] = leader_game_floor(
-                    evidence, args, plan["leader_game_share"]
+                    qualification_rows, args, plan["leader_game_share"]
                 )
             query = Query(**args)
             if (
