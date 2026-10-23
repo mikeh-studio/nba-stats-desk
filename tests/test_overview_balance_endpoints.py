@@ -133,6 +133,11 @@ def test_governed_overview_main_prose_at_endpoints(
                 if r.name in ("app.agent", "app.overview_tracking")
                 and r.message.startswith("{")
             ]
+            summary = next(
+                r for r in records if r.get("event_name") == "agent_request_summary"
+            )
+            assert summary["stage_latency_ms"]["overview"] > 0
+            assert summary["stage_exclusive_latency_ms"]["overview"] > 0
             tracking = [
                 r
                 for r in records

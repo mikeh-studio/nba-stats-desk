@@ -1,0 +1,680 @@
+[
+  {
+    "key": "gp",
+    "label": "Games played",
+    "numerator": "1",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "games",
+    "direction": "higher",
+    "components": [],
+    "aggregations": [
+      "total"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "pts",
+    "label": "PTS",
+    "numerator": "pts",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "pts"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": true,
+    "routing_enabled": false
+  },
+  {
+    "key": "reb",
+    "label": "REB",
+    "numerator": "reb",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "reb"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "ast",
+    "label": "AST",
+    "numerator": "ast",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "ast"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "stl",
+    "label": "STL",
+    "numerator": "stl",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "stl"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "blk",
+    "label": "BLK",
+    "numerator": "blk",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "blk"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "tov",
+    "label": "TOV",
+    "numerator": "tov",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "lower",
+    "components": [
+      "tov"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fg3m",
+    "label": "3PM",
+    "numerator": "fg3m",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "fg3m"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "min",
+    "label": "MIN",
+    "numerator": "min",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "minutes",
+    "direction": "higher",
+    "components": [
+      "min"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fga",
+    "label": "FGA",
+    "numerator": "fga",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "fga"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fg3a",
+    "label": "3PA",
+    "numerator": "fg3a",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "fg3a"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fta",
+    "label": "FTA",
+    "numerator": "fta",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "fta"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fg_pct",
+    "label": "FG%",
+    "numerator": "fgm",
+    "denominator": "fga",
+    "attempt_field": "fga",
+    "unit": "ratio",
+    "direction": "higher",
+    "components": [
+      "fga",
+      "fgm"
+    ],
+    "aggregations": [
+      "ratio"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fg3_pct",
+    "label": "3P%",
+    "numerator": "fg3m",
+    "denominator": "fg3a",
+    "attempt_field": "fg3a",
+    "unit": "ratio",
+    "direction": "higher",
+    "components": [
+      "fg3a",
+      "fg3m"
+    ],
+    "aggregations": [
+      "ratio"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "ft_pct",
+    "label": "FT%",
+    "numerator": "ftm",
+    "denominator": "fta",
+    "attempt_field": "fta",
+    "unit": "ratio",
+    "direction": "higher",
+    "components": [
+      "fta",
+      "ftm"
+    ],
+    "aggregations": [
+      "ratio"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "ts_pct",
+    "label": "TS%",
+    "numerator": "pts",
+    "denominator": "2 * (fga + 0.44 * fta)",
+    "attempt_field": "fga",
+    "unit": "ratio",
+    "direction": "higher",
+    "components": [
+      "fga",
+      "fta",
+      "pts"
+    ],
+    "aggregations": [
+      "ratio"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "efg_pct",
+    "label": "eFG%",
+    "numerator": "fgm + 0.5 * fg3m",
+    "denominator": "fga",
+    "attempt_field": "fga",
+    "unit": "ratio",
+    "direction": "higher",
+    "components": [
+      "fg3m",
+      "fga",
+      "fgm"
+    ],
+    "aggregations": [
+      "ratio"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "pts_per36",
+    "label": "Points per 36 minutes",
+    "numerator": "36 * pts",
+    "denominator": "min",
+    "attempt_field": "min",
+    "unit": "per36",
+    "direction": "higher",
+    "components": [
+      "min",
+      "pts"
+    ],
+    "aggregations": [
+      "ratio"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "ast_per36",
+    "label": "Assists per 36 minutes",
+    "numerator": "36 * ast",
+    "denominator": "min",
+    "attempt_field": "min",
+    "unit": "per36",
+    "direction": "higher",
+    "components": [
+      "ast",
+      "min"
+    ],
+    "aggregations": [
+      "ratio"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "plus_minus",
+    "label": "+/-",
+    "numerator": "plus_minus",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "count",
+    "direction": "higher",
+    "components": [
+      "plus_minus"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fantasy_points_simple",
+    "label": "Simple box-score index",
+    "numerator": "pts + reb + ast + stl + blk - tov",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "index",
+    "direction": "higher",
+    "components": [
+      "ast",
+      "blk",
+      "pts",
+      "reb",
+      "stl",
+      "tov"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "fantasy_proxy_weighted",
+    "label": "Weighted fantasy proxy",
+    "numerator": "pts + 1.2 * reb + 1.5 * ast + 3 * stl + 3 * blk + fg3m - tov",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "index",
+    "direction": "higher",
+    "components": [
+      "ast",
+      "blk",
+      "fg3m",
+      "pts",
+      "reb",
+      "stl",
+      "tov"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  },
+  {
+    "key": "points_created",
+    "label": "Attributed points proxy",
+    "numerator": "pts + 2 * ast",
+    "denominator": null,
+    "attempt_field": null,
+    "unit": "index",
+    "direction": "higher",
+    "components": [
+      "ast",
+      "pts"
+    ],
+    "aggregations": [
+      "total",
+      "average"
+    ],
+    "operations": [
+      "summary",
+      "rank",
+      "percentile",
+      "game_log"
+    ],
+    "contract_version": "nba_semantics/0.1",
+    "valid_set": "required components present on the same appearance; nonfinite/non-numeric data rejected",
+    "null_policy": "unavailable without valid games or with zero ratio denominator",
+    "phase_composition": "disjoint membership; same publication/player/season",
+    "qualification_min_games": 5,
+    "pilot_eligible": false,
+    "routing_enabled": false
+  }
+]

@@ -8,6 +8,7 @@ from datetime import date, timedelta
 
 from app.agent.clock import today as semantic_today
 from app.agent.context_metrics import context_metrics
+from app.agent.execution import timed
 from app.agent.overview_calendar import MONTH_PATTERN, calendar_window, shift_months
 from app.agent.overview_clarification import WINDOW_MESSAGE, OverviewClarification
 from app.agent.overview_policy import (
@@ -381,6 +382,7 @@ def resolve_overview_player(question, players, rows, selected=None):
     return candidates or mentioned(reply)
 
 
+@timed("overview")
 def build_overview(question, evidence, players, scope, selected=None):
     evidence.validate()
     candidates = resolve_overview_player(question, players, evidence.rows, selected)

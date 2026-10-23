@@ -55,6 +55,10 @@ class RequestPolicy:
 
 ACTIVE_STAGES: ContextVar[tuple[str, ...]] = ContextVar("ask_active_stages", default=())
 
+STAGE_CHILDREN: ContextVar[list[float] | None] = ContextVar(
+    "ask_stage_children", default=None
+)
+
 CURRENT: ContextVar[RequestPolicy | None] = ContextVar("ask_execution", default=None)
 
 
@@ -124,6 +128,9 @@ def stage(name):
     started = monotonic()
     active = ACTIVE_STAGES.get()
     token = ACTIVE_STAGES.set((*active, name))
+    parent_children = STAGE_CHILDREN.get()
+    children = [0.0]
+    child_token = STAGE_CHILDREN.set(children)
     try:
         yield
         checkpoint()
@@ -131,10 +138,17 @@ def stage(name):
         checkpoint()
         raise
     finally:
+        elapsed = (monotonic() - started) * 1000
+        STAGE_CHILDREN.reset(child_token)
+        if parent_children is not None:
+            parent_children[0] += elapsed
         ACTIVE_STAGES.reset(token)
+        if policy and policy.trace:
+            exclusive = policy.trace.stage_exclusive_latency_ms
+            exclusive[name] = exclusive.get(name, 0.0) + max(0.0, elapsed - children[0])
         if policy and policy.trace and name not in active:
             timings = policy.trace.stage_latency_ms
-            timings[name] = timings.get(name, 0.0) + (monotonic() - started) * 1000
+            timings[name] = timings.get(name, 0.0) + elapsed
 
 
 def timed(name):
@@ -283,3 +297,41 @@ def create_response(
                 raise ExecutionFailure("request_timeout") from exc
             sleep(delay)
     raise AssertionError("unreachable")
+
+
+def record_data_read(
+    *,
+    kind: str,
+    status: str,
+    rows: int | None = None,
+    bytes_processed: int | None = None,
+    bytes_billed: int | None = None,
+    cache_hit: bool | None = None,
+    source_version: str | None = None,
+):
+    """Bounded metadata only: never SQL, identifiers, question text or row values."""
+    import re
+
+    policy = CURRENT.get()
+    if policy is None or policy.trace is None:
+        return
+    if kind not in {"warehouse", "evidence_cache"} or status not in {"ok", "error"}:
+        raise ValueError("Invalid data-read telemetry category")
+    record: dict[str, Any] = {"kind": kind, "status": status}
+    for key, value in (
+        ("rows", rows),
+        ("bytes_processed", bytes_processed),
+        ("bytes_billed", bytes_billed),
+    ):
+        record[key] = value if type(value) is int and value >= 0 else None
+    record["cache_hit"] = cache_hit if type(cache_hit) is bool else None
+    record["source_version"] = (
+        source_version
+        if isinstance(source_version, str)
+        and re.fullmatch(r"[0-9a-f]{64}", source_version)
+        else None
+    )
+    if len(policy.trace.data_reads) < 64:
+        policy.trace.data_reads.append(record)
+    else:
+        policy.trace.data_reads_dropped += 1

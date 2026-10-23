@@ -10,7 +10,7 @@ from time import monotonic
 from typing import Any, Protocol
 
 from app.agent.clock import today as semantic_today
-from app.agent.execution import timed
+from app.agent.execution import record_data_read, timed
 from app.agent.player_resolver import load_player_aliases, normalize_player_text
 from app.agent.semantic_source import BigQuerySemanticSource, snapshot_evidence
 from app.agent.semantics import Evidence, SemanticError
@@ -134,7 +134,8 @@ class SemanticWarehouse:
         key = tuple(sorted(seasons))
         with self._lock:
             cached = self._cache.get(key)
-            if cached and monotonic() - cached[0] < self.ttl_seconds:
+            cache_hit = bool(cached and monotonic() - cached[0] < self.ttl_seconds)
+            if cached and cache_hit:
                 snapshot = cached[1]
             else:
                 snapshot = self.source.capture(list(key))
@@ -144,7 +145,19 @@ class SemanticWarehouse:
                 while len(self._cache) > 3:
                     self._cache.popitem(last=False)
         # Validate even cached rows. Errors are never cached as empty evidence.
-        return snapshot, snapshot_evidence(snapshot)
+        try:
+            evidence = snapshot_evidence(snapshot)
+        except Exception:
+            record_data_read(kind="evidence_cache", status="error", cache_hit=cache_hit)
+            raise
+        record_data_read(
+            kind="evidence_cache",
+            status="ok",
+            rows=len(evidence.rows),
+            cache_hit=cache_hit,
+            source_version=evidence.snapshot_id,
+        )
+        return snapshot, evidence
 
 
 @timed("identity")

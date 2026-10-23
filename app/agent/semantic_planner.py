@@ -418,6 +418,9 @@ def plan_question(
     required = {"query": 1, "compare": 2}.get(plan["status"], 0)
     if len(plan["queries"]) != required:
         raise SemanticError("invalid_plan", "Invalid query count")
+    # Normalize before identity, aggregation or literal-scope rewrites can erase
+    # meaningful differences between the model's two sides.
+    plan = normalize_duplicate_rank_plan(plan)
     from app.agent.question_intent import has_specific_metric
 
     fantasy_keys = {"fantasy_proxy_weighted", "fantasy_points_simple"}
@@ -517,6 +520,27 @@ def plan_question(
                 query.update(validated_points_scope)
     plan["model_calls"] = 1
     return plan
+
+
+def normalize_duplicate_rank_plan(plan):
+    """Collapse only identical raw rank specifications; retain auditable plan shape."""
+    queries = plan.get("queries", [])
+    if (
+        plan.get("status") != "compare"
+        or not isinstance(queries, list)
+        or len(queries) != 2
+        or not isinstance(queries[0], dict)
+        or queries[0] != queries[1]
+        or queries[0].get("operation") != "rank"
+    ):
+        return plan
+    resolutions = plan.get("aggregation_resolution", [])
+    if resolutions and (len(resolutions) != 2 or resolutions[0] != resolutions[1]):
+        return plan
+    normalized = {**plan, "status": "query", "queries": [dict(queries[0])]}
+    if resolutions:
+        normalized["aggregation_resolution"] = resolutions[:1]
+    return normalized
 
 
 @timed("calculation")

@@ -916,3 +916,10 @@ route/mode attribution, not just reconstructed events. A bounded
 100-player, two-metric fixture checks evidence hashing once per stage. These
 checks establish the mapped surfaces in the [inventory](ask-claim-bindings.md),
 not universal prose accuracy, human approval, live warehouse or deployment health.
+
+## Agent serving preparation
+
+See the [Phase 1 serving contract](ask-serving-contract.md) for the offline metric
+inventory, publication validation, telemetry, and parity checks. Production Ask
+retrieval remains unchanged; serving routing and live performance measurement are
+subsequent phases.

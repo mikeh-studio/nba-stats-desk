@@ -372,3 +372,10 @@ imply zero points. Pooled zero attempts produce unavailable shooting efficiency.
 The opt-in [local ESPN review adapter](ask-espn-local-review.md) supplies mapped,
 accepted dev box-score evidence with explicit partial coverage. It disables
 league cohort claims and preserves provider-specific game keys.
+
+## Agent serving preparation
+
+See the [Phase 1 serving contract](ask-serving-contract.md) for the offline metric
+inventory, publication validation, telemetry, and parity checks. Production Ask
+retrieval remains unchanged; serving routing and live performance measurement are
+subsequent phases.

@@ -51,7 +51,8 @@ AGENTS.override.md
 DESIGN.md
 TODOS.md
 local_notes/
-docs/plans/
+# Implementation plans remain local at every directory depth.
+plans/
 
 # One-off artifacts
 reports/

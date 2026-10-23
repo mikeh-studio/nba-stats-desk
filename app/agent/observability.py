@@ -56,9 +56,16 @@ class AgentTrace:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     total_tokens: int = 0
+    cached_input_tokens: int | None = None
+    reasoning_output_tokens: int | None = None
+    token_detail_calls: dict[str, int] = field(default_factory=dict)
+    data_reads_dropped: int = 0
+    data_reads: list[dict[str, Any]] = field(default_factory=list)
+    usage_reported_calls: int = 0
     model_calls: int = 0
     provider_failures: int = 0
     stage_latency_ms: dict[str, float] = field(default_factory=dict)
+    stage_exclusive_latency_ms: dict[str, float] = field(default_factory=dict)
     capacity: dict[str, int | bool] = field(default_factory=dict)
     outcome: str = "unknown"
     error_type: str | None = None
@@ -92,6 +99,7 @@ class AgentTrace:
     def add_usage(self, usage: Any) -> None:
         if usage is None:
             return
+        self.usage_reported_calls += 1
         prompt = (
             getattr(usage, "input_tokens", None)
             or getattr(usage, "prompt_tokens", None)
@@ -106,6 +114,34 @@ class AgentTrace:
         self.prompt_tokens += int(prompt)
         self.completion_tokens += int(completion)
         self.total_tokens += int(total)
+        for detail_names, field_name, attr in (
+            (
+                ("input_tokens_details", "prompt_tokens_details"),
+                "cached_tokens",
+                "cached_input_tokens",
+            ),
+            (
+                ("output_tokens_details", "completion_tokens_details"),
+                "reasoning_tokens",
+                "reasoning_output_tokens",
+            ),
+        ):
+            details = next(
+                (
+                    getattr(usage, key, None)
+                    for key in detail_names
+                    if getattr(usage, key, None) is not None
+                ),
+                None,
+            )
+            value = (
+                details.get(field_name)
+                if isinstance(details, dict)
+                else getattr(details, field_name, None)
+            )
+            if type(value) is int and value >= 0:
+                setattr(self, attr, (getattr(self, attr) or 0) + value)
+                self.token_detail_calls[attr] = self.token_detail_calls.get(attr, 0) + 1
 
     def to_log_dict(self) -> dict[str, Any]:
         # Rich tool records belong to the response/local history, not service logs.
@@ -122,6 +158,15 @@ class AgentTrace:
             "stage_latency_ms": {
                 key: round(value, 3) for key, value in self.stage_latency_ms.items()
             },
+            "stage_exclusive_latency_ms": {
+                key: round(value, 3)
+                for key, value in self.stage_exclusive_latency_ms.items()
+            },
+            "data_read_coverage": "semantic_fact_source_only",
+            "data_reads": list(self.data_reads),
+            "usage_reported_calls": self.usage_reported_calls,
+            "data_reads_dropped": self.data_reads_dropped,
+            "token_detail_calls": dict(self.token_detail_calls),
             "capacity": dict(self.capacity),
             "tool_latency_ms": sum(tool["duration_ms"] for tool in self.tools),
             "latency_ms": int((monotonic() - self.start_time) * 1000),
@@ -129,6 +174,8 @@ class AgentTrace:
                 "prompt": self.prompt_tokens,
                 "completion": self.completion_tokens,
                 "total": self.total_tokens,
+                "cached_input": self.cached_input_tokens,
+                "reasoning_output": self.reasoning_output_tokens,
             },
             "outcome": self.outcome,
             "error_type": self.error_type,
