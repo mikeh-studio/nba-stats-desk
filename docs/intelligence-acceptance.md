@@ -18,12 +18,12 @@ integration behavior, not live-model language quality or warehouse readiness.
 | ID | Required evidence |
 | --- | --- |
 | C01 | Unset/`reference` selects reference without loading installed providers; installing a wheel alone changes nothing. |
-| C02 | An explicitly selected compatible provider loads exactly once. Missing/duplicate names, bad factory/descriptor, unknown routes, incompatible API/semantic versions and `requires_model` without a configured model fail startup without fallback. |
+| C02 | An explicitly selected compatible provider loads exactly once. Missing/duplicate names, bad factory/descriptor, unknown routes, incompatible API/semantic versions and `requires_model` without any configured model/key pair fail startup without fallback. Anthropic-only and OpenRouter-only configurations start successfully; each request checks its selected provider and returns sanitized `provider_unavailable` in JSON/SSE if its key is absent. Readiness changes never recreate the cached provider. |
 | C03 | Factory, prompt lookup and classification perform no I/O; instance reuse across concurrent requests leaks no state. Plans honor cancellation/deadlines and actual gateway retries consume the same host budget. The gateway retains its first timeout/budget/unavailable failure even if a provider catches it; the host assigns `provider_timeout`/`budget_exhausted`; a provider returning either code is invalid output. |
 | C04 | The host resolves against the source roster spanning selected, explicitly requested and authorized inherited seasons, but gives either implementation only resolved current players or authorized prior players. Request-local handles form the model schema allowlist; no full roster reaches the provider. Prior scope cannot override a new explicit request; ambiguous name replies preserve public clarification behavior. |
 | C05 | Unknown fields/routes/metrics, routes known but ineligible for this request or configuration, SQL/formulas/tool names, model IDs, invalid dates/windows, mismatched plan kind, incorrect query counts are rejected structurally; remaining two-player `compare` plans are rejected after narrow normalization and public identity resolution, before execution. Test hostile dictionaries and malformed typed instances. |
 | C11 | Host precedence wins over a hostile provider: refused scope (for example an unavailable playoff round or fantasy roster advice), settings-disabled routes and fully resolved handler requests cannot be overridden by provider classification. Conversation resolution alone does not skip planning: “What about rebounds instead?” retains authorized prior player/scope, goes through the provider when a new query plan is needed, and is validated before execution. Eligible handler routes dispatch without `plan`. |
-| C12 | Assert structural validation → narrow normalization → final semantic/evidence validation → execution for reference and private plans. Duplicate ranking pairs and accidental second-season ranks reach the existing safe normalizers; explicit requested seasons, malformed structures and unsafe final comparisons never get silently repaired. `aggregation_resolution` is host-derived and provider fields cannot set it. Rendering is deterministic; v1 exposes no answer-generation prompt. |
+| C12 | Assert structural validation → narrow normalization → final semantic/evidence validation → execution for reference and private plans. Duplicate ranking pairs and accidental second-season ranks reach the existing safe normalizers; explicit requested seasons, malformed structures and unsafe final comparisons never get silently repaired. `aggregation_resolution` is host-derived and provider fields cannot set it. Rendering is deterministic; v2 exposes no answer-generation prompt. |
 | C06 | Forged `aggregation_source`/leader qualification cannot bypass public policy. Explicit aggregation, phase, filters, denominator thresholds and comparative scope remain intact. Omitted optional literal fields and the neutral default window are filled before aggregation validation; conflicting non-default scope is rejected. |
 | C07 | Existing evidence tests retain source coverage, null/zero distinction, ratio-of-sums, percentage-point differences, cohort qualification and claim bindings. Provider output alone never supplies statistical evidence. |
 | C08 | Clarification/unsupported results execute nothing. Model/timeout/budget/output failures use sanitized error envelopes with no partial answer, second provider or hidden model fallback. |
@@ -111,3 +111,12 @@ whitespace, partial prior scope, configured-provider credentials, host-owned
 withheld reasons, and the reference planner's aggregation provenance. The wheel
 proof checks restricted identities, removed unused modules, and public fantasy
 clarification for scalar, overview and comparison-shaped requests.
+
+Version 2 compatibility evidence rejects a v1 descriptor before prompt lookup and
+rejects the v2 wheel on the published v1 host at discovery. Packages declare their
+implemented API version independently of the host constant. Bare ambiguous surnames
+retain the public resolver candidate choices even without roster alias records.
+
+- [ ] After public publication approval, run the installed-wheel proof in CI against
+      the exact published v2 public commit. Compatibility-tree CI and local fixture
+      integration do not satisfy this cross-repository merge gate.

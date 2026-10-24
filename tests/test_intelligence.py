@@ -466,8 +466,12 @@ def test_request_identity_catalog_excludes_unmentioned_roster_and_ambiguous_alia
     roster[0] = dict(roster[0], aliases=["Example"])
     ctx = host.planning_context("Example rebounds per game", "2024-25", roster, [])
     assert ctx.player_names == ctx.player_references == ()
-    with pytest.raises(SemanticError, match="intended player"):
-        host.normalized_plan(plan(query(metric="reb")), ctx, roster)
+    withheld = host.normalized_plan(plan(query(metric="reb")), ctx, roster)
+    assert withheld["status"] == "clarification_required"
+    assert {p["player_name"] for p in withheld["identity"]["matches"]} == {
+        "Alex Example",
+        "Casey Example",
+    }
     ctx = host.planning_context("Alex Example rebounds per game", "2024-25", roster, [])
     assert ctx.player_names == ("Alex Example",)
     assert ctx.player_references == (
@@ -572,7 +576,95 @@ def test_provider_cannot_swallow_a_gateway_failure(monkeypatch, error, code):
         )
 
 
-def test_model_readiness_requires_the_selected_provider_credentials(monkeypatch):
+@pytest.mark.parametrize(
+    "selected,prefix",
+    [("openai", "openai"), ("claude", "anthropic"), ("openrouter", "openrouter")],
+)
+def test_startup_and_request_readiness_share_one_cached_factory(
+    monkeypatch, selected, prefix
+):
+    from app.agent.execution import request_policy
+
+    calls = []
+    provider = FixtureProvider(plan())
+    provider.descriptor = replace(provider.descriptor, requires_model=True)
+
+    def factory():
+        calls.append(1)
+        return provider
+
+    monkeypatch.setattr(
+        host, "entry_points", lambda **kw: [SimpleNamespace(load=lambda: factory)]
+    )
+    empty = replace(
+        settings(),
+        ask_intelligence_provider="fixture",
+        openai_api_key=None,
+        anthropic_api_key=None,
+        openrouter_api_key=None,
+    )
+    with pytest.raises(host.ProviderConfigurationError):
+        host.get_provider(empty)
+    configured = replace(empty, **{prefix + "_api_key": "synthetic-private-key"})
+    assert host.get_provider(configured) is provider
+    with request_policy(configured, selected):
+        assert host.get_provider(configured) is provider
+    missing = "claude" if selected == "openai" else "openai"
+    with request_policy(configured, missing):
+        with pytest.raises(ExecutionFailure, match="provider_unavailable") as caught:
+            host.get_provider(configured)
+        assert "synthetic-private-key" not in str(caught.value)
+    assert calls == [1]
+
+
+def test_version_one_provider_is_rejected_before_prompt_lookup(monkeypatch):
+    provider = FixtureProvider(plan())
+    provider.descriptor = replace(provider.descriptor, api_version="nba_intelligence/1")
+    provider.prompts = lambda: pytest.fail("incompatible provider prompt lookup")
+
+    def entries(**kwargs):
+        assert kwargs["group"] == "nba_stats_desk.intelligence.v2"
+        return [SimpleNamespace(load=lambda: lambda: provider)]
+
+    monkeypatch.setattr(host, "entry_points", entries)
+    with pytest.raises(host.ProviderConfigurationError):
+        host.get_provider(replace(settings(), ask_intelligence_provider="fixture"))
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        plan(query(metric="reb")),
+        api.Withheld("clarification_required", "ambiguous_identity"),
+    ],
+)
+def test_bare_surname_retains_host_candidates_without_alias_records(result):
+    roster = [
+        dict(player_id=1, player_name="Alex Example"),
+        dict(player_id=2, player_name="Casey Example"),
+    ]
+    ctx = host.planning_context(
+        "How many rebounds per game did Example average in the 2024-25 regular season?",
+        "2024-25",
+        roster,
+        [],
+    )
+    assert ctx.player_references == ()
+    withheld = host.normalized_plan(result, ctx, roster)
+    assert withheld["status"] == "clarification_required"
+    assert {p["player_name"] for p in withheld["identity"]["matches"]} == {
+        "Alex Example",
+        "Casey Example",
+    }
+
+
+@pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])
+def test_missing_selected_key_is_a_sanitized_endpoint_failure(monkeypatch, endpoint):
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+    from tests.test_reference_intelligence import config, source
+
     provider = FixtureProvider(plan())
     provider.descriptor = replace(provider.descriptor, requires_model=True)
     monkeypatch.setattr(
@@ -580,15 +672,35 @@ def test_model_readiness_requires_the_selected_provider_credentials(monkeypatch)
         "entry_points",
         lambda **kw: [SimpleNamespace(load=lambda: lambda: provider)],
     )
-    config = replace(
-        settings(),
+    configured = replace(
+        config(),
         ask_intelligence_provider="fixture",
-        openai_api_key=None,
-        anthropic_api_key="synthetic",
+        anthropic_api_key="synthetic-private-key",
+        performance_cache_prewarm_enabled=False,
     )
-    with pytest.raises(host.ProviderConfigurationError):
-        host.get_provider(config)
-    from app.agent.execution import request_policy
-
-    with request_policy(config, "claude"):
-        assert host.get_provider(config) is provider
+    repo = BigQueryWarehouseRepository(configured, client=SimpleNamespace())
+    repo._governed_warehouse = source()
+    old = dict(app.dependency_overrides)
+    app.dependency_overrides.update(
+        {
+            get_settings: lambda: configured,
+            get_repository: lambda: repo,
+            get_agent_client: lambda: None,
+        }
+    )
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                endpoint + "?season=2024-25",
+                json={
+                    "question": "Alex Example points per game in the 2024-25 regular season",
+                    "provider": "openai",
+                },
+            )
+        assert "provider_unavailable" in response.text
+        assert "synthetic-private-key" not in response.text
+        assert "agent execution failed" not in response.text
+        assert response.status_code == (200 if endpoint.endswith("stream") else 502)
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(old)

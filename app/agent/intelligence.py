@@ -100,7 +100,7 @@ def _check(value, annotation):
 
 
 @lru_cache(maxsize=16)
-def _load(name, model_ready):
+def _load(name):
     try:
         if name == "reference":
             from app.agent.reference_planner import ReferenceProvider
@@ -123,7 +123,6 @@ def _load(name, model_ready):
             or not set(descriptor.route_ids) <= _ROUTES
             or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", descriptor.provider_id)
             or not re.fullmatch(r"[A-Za-z0-9_.+-]{1,80}", descriptor.provider_version)
-            or (descriptor.requires_model and not model_ready)
         ):
             raise ValueError("Incompatible descriptor")
         if not callable(provider.classify) or not callable(provider.plan):
@@ -136,16 +135,23 @@ def _load(name, model_ready):
 
 def get_provider(settings):
     name = getattr(settings, "ask_intelligence_provider", "reference")
+    # Readiness belongs to the host lifecycle/request, not the factory cache.
+    with _LOCK:
+        provider = _load(name)
+    if not provider.descriptor.requires_model:
+        return provider
     active = CURRENT.get()
-    prefix = active.provider if active else "openai"
-    prefix = "anthropic" if prefix == "claude" else prefix
-    ready = bool(
+    prefixes = (active.provider,) if active else ("openai", "claude", "openrouter")
+    ready = any(
         getattr(settings, f"{prefix}_agent_model", None)
         and getattr(settings, f"{prefix}_api_key", None)
+        for prefix in ("anthropic" if p == "claude" else p for p in prefixes)
     )
-    # Serialize factory construction, including concurrent first requests.
-    with _LOCK:
-        return _load(name, ready)
+    if not ready:
+        if active:
+            raise ExecutionFailure("provider_unavailable")
+        raise ProviderConfigurationError()
+    return provider
 
 
 def _scope(raw):
@@ -409,10 +415,23 @@ def normalized_plan(
     dated_points_question=None,
 ):
     """Only called after structural validation; never trust provider provenance."""
-    if isinstance(result, api.Withheld):
-        return dict(status=result.status, queries=[], message=_SAFE[result.reason])
     if isinstance(result, api.ProviderFailure):
         raise ExecutionFailure(result.code)
+    if not context.player_names:
+        from app.agent.name_matching import PlayerNameError, prepare_names
+
+        try:
+            prepare_names(context.question, players)
+        except PlayerNameError as exc:
+            if exc.result.get("matches"):
+                return dict(
+                    status="clarification_required",
+                    queries=[],
+                    message=str(exc),
+                    identity=exc.result,
+                )
+    if isinstance(result, api.Withheld):
+        return dict(status=result.status, queries=[], message=_SAFE[result.reason])
     if not isinstance(result, api.QueryPlan):
         raise ExecutionFailure("invalid_provider_output")
     plan = dict(status=result.status, message="", queries=[])

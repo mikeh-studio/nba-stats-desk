@@ -31,6 +31,7 @@ from starlette.concurrency import run_in_threadpool
 
 from app.agent.capacity import CapacityExceeded, Delivery, admission
 from app.agent.conversation import get_conversation_store
+from app.agent.execution import ExecutionFailure
 from app.agent.followup import (
     analysis_context,
     hydrate_availability_context,
@@ -539,7 +540,10 @@ def _agent_terminal_bytes(terminal: dict[str, Any], *, streaming: bool) -> bytes
     content = (
         encoded["payload"]
         if encoded["type"] == "final"
-        else {"detail": encoded["detail"]}
+        else {
+            "detail": encoded["detail"],
+            **({"code": encoded["code"]} if "code" in encoded else {}),
+        }
     )
     return bytes(JSONResponse(content).body)
 
@@ -1272,13 +1276,23 @@ async def _start_agent_execution(
                 }
             except Exception as exc:
                 _fail_trace(trace, exc)
-                agent_logger.error("agent execution failed: %s", type(exc).__name__)
                 status = 502
                 terminal = {
                     "type": "error",
                     "detail": AGENT_FAILED_DETAIL,
                     "request_id": request_id,
                 }
+                if (
+                    isinstance(exc, ExecutionFailure)
+                    and exc.code == "provider_unavailable"
+                ):
+                    terminal.update(
+                        code="provider_unavailable",
+                        detail="The selected model provider is unavailable. Choose another model provider.",
+                    )
+                    agent_logger.warning("selected model provider unavailable")
+                else:
+                    agent_logger.error("agent execution failed: %s", type(exc).__name__)
             finally:
                 try:
                     trace.capacity.update(delivery.metrics())

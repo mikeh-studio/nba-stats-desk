@@ -6,7 +6,7 @@ public handlers need no model credentials; source access and
 `OPENAI_AGENT_ENABLED` still apply independently.
 
 Set `ASK_INTELLIGENCE_PROVIDER` to one installed entry-point name in
-`nba_stats_desk.intelligence.v1` to opt into a compatible provider. Unknown,
+`nba_stats_desk.intelligence.v2` to opt into a compatible provider. Unknown,
 duplicate or incompatible selections fail startup. A selected model-backed
 provider needs configured host model credentials. No module paths, request
 parameters, URLs or automatic fallback select a provider.
@@ -49,5 +49,7 @@ requires an explicitly selected model-backed provider and records its prompt has
 Before a future production cutover or dependency pin bump, explicitly configure
 `ASK_INTELLIGENCE_PROVIDER=production` and install its reviewed package. Otherwise
 the application intentionally keeps the deterministic reference default. Provider
-readiness checks the current request's provider credentials/model (OpenAI at
-startup/default), not an unrelated provider's configured key.
+startup accepts any configured provider key/model pair. Requests check only their
+selected provider and fail with sanitized `provider_unavailable` if it lacks
+credentials/model. The factory cache is independent of readiness. Version 2
+entry points reject incompatible version 1 installations at discovery.

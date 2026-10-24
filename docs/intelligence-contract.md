@@ -1,6 +1,6 @@
 # Intelligence provider contract
 
-Status: `nba_intelligence/1` approved for implementation on 2026-10-24. The local
+Status: `nba_intelligence/2` review revision of the contract approved on 2026-10-24. The local
 candidate implements the public host and reference provider. Publication remains
 subject to exact-diff review. See [runtime behavior](intelligence-runtime.md) and
 [the ownership audit](intelligence-ownership-audit.md); acceptance evidence is
@@ -25,7 +25,7 @@ No provider is loaded from a request, URL, arbitrary import string or user text.
 Setting: `ASK_INTELLIGENCE_PROVIDER`, default `reference`. That reserved
 name selects the built-in provider and must not import external providers, even
 if installed. An operator may explicitly select a name in the fixed entry-point
-group `nba_stats_desk.intelligence.v1`. Resolve exactly one installed entry point
+group `nba_stats_desk.intelligence.v2`. Resolve exactly one installed entry point
 with that name and call its zero-argument `ProviderFactory` once at startup.
 An installed package is inert until selected. No automatic provider preference.
 
@@ -73,7 +73,7 @@ event loop violates the contract (timeouts are not hard process isolation).
    never silently truncate an identity catalog and select a different player.
    Current explicit scope wins.
 3. `classify(context)` returns an advisory `IntentSelection`, a `Withheld` result,
-   or a `ProviderFailure`. It is deterministic and model-free in v1; model-based
+   or a `ProviderFailure`. It is deterministic and model-free in v2; model-based
    intent classification needs a versioned contract change. The selected route
    must be in `context.routes` and the descriptor; a known but ineligible route
    is invalid provider output. Continuation is advisory; public conversation rules
@@ -135,7 +135,7 @@ existing public aggregation resolution or clarification. It never means guess.
 only after public validation that the request qualifies; it cannot relax a floor.
 
 No generic custom formulas, multi-query batches, new cross-season pooling, or
-arbitrary handler payloads are introduced by v1. Existing special routes remain
+arbitrary handler payloads are introduced by v2. Existing special routes remain
 public handlers with their current contracts and restrictions. A route that needs
 additional private planning data must receive a separately reviewed typed extension
 before migration; do not smuggle it through question text or a generic dictionary.
@@ -143,7 +143,7 @@ before migration; do not smuggle it through question text or a generic dictionar
 ## Prompts, failures and observability
 
 `PromptBundle` contains a revision and inert planning-system text only. Public
-rendering remains deterministic; v1 exposes no answer-generation prompt or call.
+rendering remains deterministic; v2 exposes no answer-generation prompt or call.
 Host safety instructions and schema take precedence over provider text. Questions
 and prior context are data, never instructions. Reference mode returns no prompt.
 Raw prompt text and model replies must not appear in responses, normal logs,
@@ -215,7 +215,7 @@ tests from private intelligence cases; retain all test intent.
 provider. It depends on private `build_agent_plan` and the production `planner`
 query plans (`build_query_plan`, `deterministic_query_plan`,
 `detect_opponent_breakdown`), which `service` reaches only through one guarded
-optional legacy loader. In v1, when that private code is absent, the route returns
+optional legacy loader. In v2, when that private code is absent, the route returns
 the existing sanitized unavailable response for repositories without a governed
 adapter, never a governed-query fallback. Production keeps legacy behavior through
 the legacy compatibility tree until a separately reviewed migration.
@@ -258,10 +258,25 @@ messages are discarded. The execution schema itself remains unchanged.
 The host fills omitted literal scope and the neutral default window
 before aggregation validation, rejecting conflicting non-default values.
 
-Supported public dependencies for v1 providers are `intelligence_contract`, the
+Supported public dependencies for v2 providers are `intelligence_contract`, the
 four execution helpers in the audit list, `scope_policy.explicit_scope` and
 `scope_policy.has_specific_metric`, and `semantics.load_contract`/`SemanticError`
 for metric canonicalization. This explicit helper surface is versioned with the
 host release; it is not permission to import private app or legacy planner code.
 Fantasy roster advice is a public scope clarification before route dispatch,
 including overview and comparison; it is not shooting qualification.
+
+## Version 2 compatibility and readiness
+
+Version 2 replaces the published version 1 shape: request-local player references,
+closed reason additions and planning-only `PromptBundle` are incompatible changes.
+Discovery uses `nba_stats_desk.intelligence.v2` and requires the literal descriptor
+version `nba_intelligence/2`. Packages declare the version they implement; they
+must not borrow the host's current `API_VERSION` to claim compatibility. Version 1
+hosts/providers fail discovery rather than failing individual planning calls.
+
+Startup accepts any configured model-provider key/model pair. Each request then
+checks only its selected model provider and returns sanitized `provider_unavailable`
+if that pair is missing. Readiness is checked outside the cache: the immutable
+provider factory is cached by entry-point name only, so credential changes do not
+construct a second instance. Invalid package selection remains a startup error.

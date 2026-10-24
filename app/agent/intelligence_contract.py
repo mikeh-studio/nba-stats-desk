@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol, TypeAlias
 
-API_VERSION = "nba_intelligence/1"
-ENTRY_POINT_GROUP = "nba_stats_desk.intelligence.v1"
+API_VERSION = "nba_intelligence/2"
+ENTRY_POINT_GROUP = "nba_stats_desk.intelligence.v2"
 
 Phase: TypeAlias = Literal["Regular Season", "Playoffs", "Both"]
 Operation: TypeAlias = Literal["summary", "rank", "percentile", "game_log"]
