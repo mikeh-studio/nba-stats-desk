@@ -29,7 +29,7 @@ test('compact table has four columns with inline units and closed detail control
  assert.match(primary,/-0.6 pp/);assert.doesNotMatch(primary,/-0.0/);
  assert.match(html,/data-sample-details/);assert.doesNotMatch(html,/<details[^>]* open/);
  const contribution=overviewTakeaways(o);
- assert.match(contribution,/<h2>Key Takeaways<\/h2>/);assert.match(contribution,/<h3>Creation<\/h3>/);assert.doesNotMatch(contribution,/<details|<summary/);
+ assert.match(contribution,/>Key takeaways<\/h2>/);assert.match(contribution,/<h3>Creation<\/h3>/);assert.doesNotMatch(contribution,/<details|<summary/);
 });
 
 test('change colors respect TOV, playing time, rounded zero and unavailable comparisons',()=>{
@@ -58,7 +58,7 @@ test('takeaways are visible, capped at three and escape saved source content',()
  const o=overviewPresentation(payload());
  o.insights=[{title:'Clear <headline>',text:'A <script> fact',icon:'../../unsafe'},{title:'Second',text:'Fact two',icon:'shield'},{title:'Third',text:'Fact three',icon:'chart-line'},{title:'Fourth',text:'Should not appear',icon:'chart-bar'}];
  const html=overviewTakeaways(o);
- assert.equal((html.match(/class="takeaway"/g)||[]).length,3);
+ assert.equal((html.match(/class="takeaway-card has-icon"/g)||[]).length,3);
  assert.match(html,/Clear &lt;headline&gt;/);assert.match(html,/A &lt;script&gt; fact/);
  assert.doesNotMatch(html,/unsafe|Fourth|<details|<script>/);
  assert.match(html,/icons\/chart-bar.svg/);

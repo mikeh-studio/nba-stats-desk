@@ -1,4 +1,4 @@
-import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261023-ask-stable-buttons-v6";
+import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261024-compact-results-v2";
 // Exact canonical evidence -> final DOM relationships; rendered text is never an oracle.
 export const UI_CLAIM_VERSION = "ask_ui_claim_bindings/1";
 const finite = Number.isFinite,
@@ -182,12 +182,8 @@ export function formatClaim(v, f, c = {}) {
           ? `Partial: ${m.valid_games}/${m.observed_games} games`
           : "")
       );
-    case "comparison-edge":
-      return v === null
-        ? "Unavailable"
-        : v === 0
-          ? "Tied"
-          : `${c.names[v > 0 ? 0 : 1]} by ${num(Math.abs(v))}`;
+    case "comparison-margin":
+      return `+${num(Math.abs(v))}`;
     case "scope":
       return `${e.scope.phases.join(" + ")} · ${date(e.scope.start)} – ${date(e.scope.end)}`;
     case "overview-scope":
@@ -209,18 +205,6 @@ export function formatClaim(v, f, c = {}) {
       );
     case "impact":
       return num(v, c.key === "ws48" ? 3 : 1);
-    case "chart-value":
-      return num(v.missing_component_games ? null : v.value);
-    case "chart-title":
-      return `${v} per game comparison`;
-    case "chart-aria":
-      return c.names
-        .map((n, i) => `${n}: ${num(c.available[i])} ${m.label} per game`)
-        .join("; ");
-    case "chart-width":
-      return `${Math.max(0, (v / c.max) * 100)}%`;
-    case "chart-axis":
-      return c.factor === 0 ? "0" : num(c.max * c.factor);
     case "drawer-title":
       return `${m.display_label || m.label} · ${c.name}`;
     case "drawer-scope":
@@ -436,7 +420,7 @@ export function claimSchema(payload, component, options = {}) {
     add(":scope > .metric-comparison", base.concat("scope"), "scope");
     names.forEach((_, i) =>
       add(
-        `.comparison-table thead tr:first-child th:nth-child(${i === 0 ? 1 : 3})`,
+        `.h2h-table thead th.h2h-name-${i === 0 ? "a" : "b"}`,
         ["player_profiles", i, "player", "player_name"],
         "text",
         { side: i },
@@ -444,47 +428,49 @@ export function claimSchema(payload, component, options = {}) {
     );
     e.metrics.forEach((m, i) => {
       const p = base.concat("metrics", i),
-        r = `.comparison-table tbody tr:nth-child(${i + 1})`;
-      add(`${r} > th`, p.concat("label"), "text", {
+        r = `.h2h-table tbody tr:nth-child(${i + 1})`;
+      add(`${r} > th`, p.concat("key"), "abbreviation", {
         metricIndex: i,
         metricKey: m.key,
       });
       ["left", "right"].forEach((side, j) => {
-        const c = {
-          metric: m[side],
-          metricKey: m.key,
-          metricIndex: i,
-          side,
-          player: names[j],
-        };
+        const cell = j === 0 ? "a" : "b",
+          c = {
+            metric: m[side],
+            metricKey: m.key,
+            metricIndex: i,
+            side,
+            player: names[j],
+          };
         add(
-          `${r} > td:nth-child(${j === 0 ? 1 : 4})`,
+          `${r} > td.h2h-value-${cell} > .h2h-num`,
           p.concat(side, "value"),
           "comparison-value",
           c,
         );
         if (finite(m[side].percentile)) {
           add(
-            `${r} > td:nth-child(${j === 0 ? 2 : 5}) meter`,
+            `${r} > td.h2h-bar-${cell} meter`,
             p.concat(side, "percentile"),
             "meter",
             c,
             "value",
           );
           add(
-            `${r} > td:nth-child(${j === 0 ? 2 : 5}) .percentile-cell > span`,
+            `${r} > td.h2h-bar-${cell} .h2h-pct`,
             p.concat(side, "percentile"),
             "ordinal",
             c,
           );
         }
       });
-      add(`${r} > td:last-child`, p.concat("delta"), "comparison-edge", {
-        metric: m,
-        names,
-        metricIndex: i,
-        metricKey: m.key,
-      });
+      // Only the leader's cell shows the margin; ties and missing edges have none.
+      if (finite(m.delta) && m.delta !== 0)
+        add(`${r} .h2h-edge`, p.concat("delta"), "comparison-margin", {
+          metric: m,
+          metricIndex: i,
+          metricKey: m.key,
+        });
     });
     (e.comparison_sections || []).forEach((section, si) =>
       section.metrics.forEach((m, i) => {
@@ -517,53 +503,6 @@ export function claimSchema(payload, component, options = {}) {
         ),
       );
     });
-  }
-  if (component === "comparison-chart") {
-    const i = Math.max(
-        0,
-        e.metrics.findIndex((m) => m.key === options.key),
-      ),
-      m = e.metrics[i],
-      p = base.concat("metrics", i),
-      available = [m.left, m.right].map((v) =>
-        v.missing_component_games ? null : v.value,
-      ),
-      max = Math.max(1, ...available.filter(finite)) * 1.15,
-      c = {
-        metric: m,
-        names,
-        available,
-        max,
-        metricIndex: i,
-        metricKey: m.key,
-      };
-    add(".chart-header h2", p.concat("label"), "chart-title", c);
-    add(".chart-header .meta", base.concat("scope"), "scope");
-    add(".comparison-bars", p, "chart-aria", c, "aria-label");
-    ["left", "right"].forEach((side, j) => {
-      const r = `.comparison-bar-row:nth-child(${j + 1})`;
-      add(
-        `${r} > span`,
-        ["player_profiles", j, "player", "player_name"],
-        "text",
-        { side },
-      );
-      add(`${r} > strong`, p.concat(side), "chart-value", { ...c, side });
-      if (finite(available[j]))
-        add(
-          `${r} .comparison-bar`,
-          p.concat(side, "value"),
-          "chart-width",
-          { ...c, side },
-          "style.width",
-        );
-    });
-    [0, 0.5, 1].forEach((factor, j) =>
-      add(`.comparison-bar-axis > span:nth-child(${j + 1})`, p, "chart-axis", {
-        ...c,
-        factor,
-      }),
-    );
   }
   if (component === "drawer") {
     const i = e.metrics.findIndex((m) => m.key === options.key);

@@ -27,11 +27,6 @@ async function setup(page) {
           root.innerHTML = c.comparisonTables(
             c.comparisonPresentation(payload),
           );
-        if (kind === "comparison-chart")
-          root.innerHTML = c.comparisonChart(
-            c.comparisonPresentation(payload),
-            options.key || "pts",
-          );
         if (kind === "drawer")
           root.innerHTML = d.drawerContent(
             overview.semantic_evidence.metrics[0],
@@ -48,7 +43,6 @@ async function setup(page) {
 for (const component of [
   "overview",
   "comparison",
-  "comparison-chart",
   "drawer",
 ])
   test(`actual ${component} leaves and source contexts are independently checked`, async ({
@@ -56,11 +50,7 @@ for (const component of [
   }) => {
     await setup(page);
     const options =
-      component === "drawer"
-        ? { key: "pts", view: "among_players" }
-        : component === "comparison-chart"
-          ? { key: "pts" }
-          : {};
+      component === "drawer" ? { key: "pts", view: "among_players" } : {};
     const report = await page.evaluate(
       ({ component, options }) => paintClaim(component, options),
       { component, options },
@@ -82,7 +72,6 @@ for (const component of [
             [
               "overview-value",
               "comparison-value",
-              "chart-value",
               "drawer-value",
             ].includes(r.format),
         );
@@ -132,7 +121,7 @@ for (const component of [
     );
     expect(checks).toEqual(Array(9).fill("invalid"));
   });
-test("equal-valued side swaps, labels, visual widths and fail-closed replacement", async ({
+test("equal-valued side swaps, labels, percentile meters and fail-closed replacement", async ({
   page,
 }) => {
   await setup(page);
@@ -144,21 +133,21 @@ test("equal-valued side swaps, labels, visual widths and fail-closed replacement
     record.source = ["semantic_evidence", "metrics", 0, "right", "value"];
     const swapped = t.a.validateRenderedClaims(t.root, t.payload, s).status;
     paintClaim("comparison");
-    t.root.querySelector(".comparison-table thead th").textContent =
+    t.root.querySelector(".h2h-table thead th.h2h-name-a").textContent =
       "Wrong player";
     const identity = t.a.validateRenderedClaims(
       t.root,
       t.payload,
       t.root.uiClaimSession,
     ).status;
-    paintClaim("comparison-chart", { key: "pts" });
-    t.root.querySelector(".comparison-bar").style.width = "1%";
-    const width = t.a.enforceRenderedClaims(t.root, t.payload).status;
-    return { swapped, identity, width, text: t.root.textContent };
+    paintClaim("comparison");
+    t.root.querySelector(".h2h-table meter").setAttribute("value", "1");
+    const meter = t.a.enforceRenderedClaims(t.root, t.payload).status;
+    return { swapped, identity, meter, text: t.root.textContent };
   });
   expect(result.swapped).toBe("invalid");
   expect(result.identity).toBe("invalid");
-  expect(result.width).toBe("invalid");
+  expect(result.meter).toBe("invalid");
   expect(result.text).toContain("could not be verified");
 });
 test("zero, null, partial denominator and drawer repaint remain usable", async ({
