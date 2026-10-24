@@ -356,6 +356,10 @@ python -m scripts.ask_eval.review \
 Use `--code-root` for the archived baseline. The live evaluation server loads the
 working checkout's `.env` for both code revisions without copying credentials to
 the archive or artifacts; already-exported environment variables take precedence.
+Without an explicit code root, the evaluation server evaluates its own checkout.
+A checkout that reaches the harness through a symlink must set
+`ASK_EVAL_CODE_ROOT`; the server refuses to start otherwise, so it never
+silently evaluates the harness's checkout instead.
 Uncaptured repository reads fail explicitly; there is no live warehouse fallback.
 Runs retain per-call usage, raw model responses, exception types and timings in
 private `model-calls.jsonl`, plus per-turn usage in the scored report. No provider
