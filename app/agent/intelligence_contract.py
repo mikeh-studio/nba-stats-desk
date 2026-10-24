@@ -36,12 +36,10 @@ Reason: TypeAlias = Literal[
     "unsupported_metric",
     "unsupported_operation",
 ]
-FailureCode: TypeAlias = Literal[
-    "provider_timeout",
-    "provider_unavailable",
-    "invalid_provider_output",
-    "budget_exhausted",
-]
+# Providers may return only these; the host treats any other code as invalid output.
+FailureCode: TypeAlias = Literal["provider_unavailable", "invalid_provider_output"]
+# Assigned by the host from its deadline/accounting or gateway exceptions.
+HostFailureCode: TypeAlias = Literal["provider_timeout", "budget_exhausted"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,7 +114,10 @@ class PlanningContext:
 
 @dataclass(frozen=True, slots=True)
 class IntentSelection:
-    """Advisory choice from context.routes, not permission to dispatch a handler."""
+    """Advisory choice from context.routes, not permission to dispatch a handler.
+
+    The host rechecks eligibility; a handler route dispatches without plan().
+    """
 
     route_id: str
     continuation: bool
@@ -135,6 +136,8 @@ class ProviderFailure:
 
 @dataclass(frozen=True, slots=True)
 class QueryPlan:
+    """compare: same player, metric and aggregation; current side first."""
+
     route_id: str
     status: Literal["query", "compare"]
     queries: tuple[QueryProposal, ...]
@@ -178,11 +181,30 @@ class PlanningBudget:
     max_output_tokens: int
 
 
+class GatewayError(Exception):
+    """Raised by the host gateway only; providers let it propagate."""
+
+
+class GatewayTimeout(GatewayError):
+    pass
+
+
+class GatewayBudgetExhausted(GatewayError):
+    pass
+
+
+class GatewayUnavailable(GatewayError):
+    pass
+
+
 class PlanningModelGateway(Protocol):
     """Host-owned transport; fixed plan schema, model selection and budget."""
 
     async def generate_plan(self, *, system_prompt: str, user_payload: str) -> str:
-        """Return bounded JSON text; host accounts for usage, timeout and retries."""
+        """Return bounded JSON text or raise a GatewayError subclass.
+
+        The host accounts for usage, timeout and retries.
+        """
         ...
 
 
@@ -206,7 +228,7 @@ class IntelligenceProvider(Protocol):
         budget: PlanningBudget,
         model: PlanningModelGateway | None,
     ) -> PlanningResult:
-        """Propose a plan without executing it; None model for reference mode."""
+        """Propose a plan for a queries route; None model for reference mode."""
         ...
 
 

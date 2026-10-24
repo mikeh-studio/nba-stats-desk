@@ -10,10 +10,12 @@ Use synthetic source-roster names and complete/incomplete evidence fixtures.
 | ID | Required evidence |
 | --- | --- |
 | C01 | Unset/`reference` selects reference without loading installed providers; installing a wheel alone changes nothing. |
-| C02 | An explicitly selected compatible provider loads exactly once. Missing/duplicate names, bad factory/descriptor, unknown routes and incompatible API/semantic versions fail startup without fallback. |
-| C03 | Factory, prompt lookup and classification perform no I/O; instance reuse across concurrent requests leaks no state. Plans honor cancellation/deadlines and actual gateway retries consume the same host budget. |
-| C04 | The same bounded context, selected season and source roster reach both implementations. Prior scope cannot override a new explicit request; ambiguous name replies preserve public clarification behavior. |
-| C05 | Unknown fields/routes/metrics, SQL/formulas/tool names, model IDs, invalid dates/windows, mismatched plan kind and incorrect query counts are rejected before any execution. Test hostile dictionaries and malformed typed instances. |
+| C02 | An explicitly selected compatible provider loads exactly once. Missing/duplicate names, bad factory/descriptor, unknown routes, incompatible API/semantic versions and `requires_model` without a configured model fail startup without fallback. |
+| C03 | Factory, prompt lookup and classification perform no I/O; instance reuse across concurrent requests leaks no state. Plans honor cancellation/deadlines and actual gateway retries consume the same host budget. Gateway timeout/budget/unavailable exceptions reach the host, which assigns `provider_timeout`/`budget_exhausted`; a provider returning either code is invalid output. |
+| C04 | The same bounded context, selected season and source roster reach both implementations; the roster covers the selected season plus seasons parsed from the question (a player only in a requested earlier season resolves). Prior scope cannot override a new explicit request; ambiguous name replies preserve public clarification behavior. |
+| C05 | Unknown fields/routes/metrics, routes known but ineligible for this request or configuration, SQL/formulas/tool names, model IDs, invalid dates/windows, mismatched plan kind, incorrect query counts and two-player `compare` plans are rejected before any execution. Test hostile dictionaries and malformed typed instances. |
+| C11 | Host precedence wins over a hostile provider: refused scope (for example an unavailable playoff round), settings-disabled routes and pending clarifications/follow-ups dispatch publicly without calling `classify`, even when the provider would select an allowed route. Handler routes dispatch without `plan`. |
+| C12 | Host plan normalizations run on every validated `QueryPlan`, reference included; `aggregation_resolution` is host-derived and provider fields cannot set it. Answer generation uses its own host budget and accounting, never `PlanningBudget`. |
 | C06 | Forged `aggregation_source`/leader qualification cannot bypass public policy. Explicit aggregation, phase, filters, denominator thresholds and comparative scope remain intact. |
 | C07 | Existing evidence tests retain source coverage, null/zero distinction, ratio-of-sums, percentage-point differences, cohort qualification and claim bindings. Provider output alone never supplies statistical evidence. |
 | C08 | Clarification/unsupported results execute nothing. Model/timeout/budget/output failures use sanitized error envelopes with no partial answer, second provider or hidden model fallback. |
@@ -22,8 +24,10 @@ Use synthetic source-roster names and complete/incomplete evidence fixtures.
 
 ## Minimum deterministic reference scope
 
-Use a fixture with unique players named Alex Example and Blair Sample, explicit
-2024–25 coverage, and an otherwise identical fixture with incomplete coverage.
+Use a fixture with players named Alex Example and Blair Sample, explicit 2024–25
+coverage, and an otherwise identical fixture with incomplete coverage. Full names
+are unique; the identity-ambiguity case adds Casey Example so the surname matches
+two players. Every other case runs without Casey Example.
 These are acceptance examples, not permission for substring-only recognition.
 
 | Request | Required result with complete evidence |
@@ -33,7 +37,7 @@ These are acceptance examples, not permission for substring-only recognition.
 | “Compare Alex Example's points per game in the last 5 games versus the prior 5 games in the 2024-25 regular season.” | Two ordered disjoint windows, same player/metric/aggregation, correct public comparison. |
 | “Top 5 players by points per game in the 2024-25 regular season, minimum 10 games.” | Governed ranking with explicit minimum, deterministic ties and disclosed cohort. |
 | “Top 5 players by field goal percentage in the 2024-25 regular season.” | Clarification for attempt threshold; no guessed qualification. |
-| “Show Example's overview for the 2024-25 regular season.” with multiple matches | Identity clarification, no guessed match or statistics. |
+| “Show Example's overview for the 2024-25 regular season.” with Casey Example added | Identity clarification offering both matches, no guessed match or statistics. |
 | “Show Alex Example's overview for the 2024-25 regular season, only fourth quarters.” | Unsupported scope; never ignore the modifier and show a season overview. |
 | A successful overview followed by “What about the playoffs?” | Public follow-up resolution preserves player/season and changes phase, or clarifies if required evidence is absent. |
 
@@ -47,6 +51,14 @@ require broad parity with production heuristics, only these cases plus conforman
 
 - [ ] Public-only environment contains no private package/checkouts/import paths;
       representative HTTP JSON/SSE and browser flows pass without model credentials.
+- [ ] A static import-graph check, including function-level imports, finds no
+      public module importing `question_intent`, `semantic_planner`, `planner` or
+      `router` other than the one guarded optional legacy loader. Moved scope
+      parsers keep their existing tests in public.
+- [ ] In the public-only environment a repository without a governed adapter gets
+      the sanitized `legacy_repository` unavailable response, never a governed-query
+      fallback or import error; with the legacy tree present, existing legacy tests
+      still pass.
 - [ ] Build and install a private wheel in a separate environment with the exact
       public candidate. Select its registered name; prove imports originate from
       the installed wheel and public application, never the old private `app` tree.
