@@ -59,12 +59,14 @@
       "patterns": [
         "app/__init__.py",
         "app/__main__.py",
-        "app/agent/__init__.py"
+        "app/agent/__init__.py",
+        "tests/__init__.py",
+        "tests/fixtures"
       ],
       "owner": "public",
       "private_presence": "exception",
       "priority": 100,
-      "description": "Temporary import and application bootstrap; each retained shim needs a manifest exception."
+      "description": "Temporary import/application bootstrap and test-package/fixture shims; each retained shim needs a manifest exception."
     },
     {
       "patterns": [

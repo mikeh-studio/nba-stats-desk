@@ -48,7 +48,10 @@ through the public `app/**` rule. Invalid maps fail validation.
 - `owned`: private intelligence or private tests may be developed here.
 - `frozen`: public-owned copies temporarily remain in private for compatibility.
   This is not permission for new private UI work; the Active migration freeze is
-  unchanged. Remove these copies in Phase 4.
+  unchanged. The private checker permits only paths in the staged manifest
+  `imported_files`/`imported_test_files` inventories; new paths are rejected.
+  Existing imported files may be edited subject to the repository policy. Remove
+  these copies in Phase 4.
 - `vendored`: shared public policy utilities and tests maintained identically in
   both repositories, independently of the runtime pin.
 - `exception`: a compatibility shim requires an exact path and explanation in
@@ -57,11 +60,21 @@ through the public `app/**` rule. Invalid maps fail validation.
   exceptions cannot override this rule.
 
 Static assets and templates are classified by subtree patterns, never by an
-ownership entry for every file. Import hashes remain historical provenance only.
+ownership entry for every file. Import inventories also bound which existing
+public-owned copies may remain during the freeze; do not expand these historical
+inventories to authorize new UI work. Import hashes remain provenance, not a
+requirement for existing file contents to stay byte-identical.
 The private checker checks staged app, pipeline and test paths; it is an ownership
-check, not enforcement of every editing restriction or a secret scanner. Required
+and frozen-file admission check, not a secret scanner. Required
 private modules are checked explicitly so deletion cannot silently load a public
 fallback. Repository-local policy/tooling remains maintained in its own checkout.
+
+For public `product-ui` and `policy` intents, startup rejects staged changes to
+private-owned paths, including deletions and either side of a rename. It reads the
+staged map; unstaged changes are not publication checks. Explicit `shared-fix`,
+`reference-maintenance` and `public-promotion` scopes remain available for curated
+maintenance/promotion and still require exact-diff publication approval. The CI
+`--check-policy` mode validates layout only, not an implementation intent.
 
 ## Transition and publication
 

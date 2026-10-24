@@ -16,9 +16,9 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 if __package__:
-    from .ownership_policy import MAP_PATH, parse_map
+    from .ownership_policy import MAP_PATH, parse_map, resolve
 else:
-    from ownership_policy import MAP_PATH, parse_map
+    from ownership_policy import MAP_PATH, parse_map, resolve
 
 REPOS = {
     "public-platform": "mikeh-studio/nba-stats-desk",
@@ -143,6 +143,26 @@ def check_policy(root: Path) -> dict:
     return policy
 
 
+def check_staged_ownership(root: Path) -> None:
+    """Reject accidental private-intelligence edits in public UI/policy work."""
+    ownership = parse_map(indexed(root, MAP_PATH))
+    # Disable rename detection so both a private source and destination are checked.
+    paths = git(root, "diff", "--cached", "--name-only", "--no-renames", "-z").split(
+        "\0"
+    )
+    private_paths = []
+    for path in filter(None, paths):
+        rule = resolve(ownership, path)
+        if rule is not None and rule["owner"] == "private":
+            private_paths.append(path)
+    if private_paths:
+        raise ValueError(
+            "Staged private-owned paths are outside public UI/policy scope: "
+            + ", ".join(sorted(private_paths))
+            + ". Use the owning repository; maintenance or promotion requires its explicit scope."
+        )
+
+
 def check(root: Path, intent: str, *, policy_only: bool = False) -> dict:
     root = Path(git(root, "rev-parse", "--show-toplevel")).resolve()
     if git(root, "rev-parse", "--show-superproject-working-tree"):
@@ -198,6 +218,12 @@ def check(root: Path, intent: str, *, policy_only: bool = False) -> dict:
             raise ValueError(
                 "AGENTS.override.md shadows shared guidance; reconcile it before starting"
             )
+    if (
+        not policy_only
+        and policy["role"] == "public-platform"
+        and intent in {"product-ui", "policy"}
+    ):
+        check_staged_ownership(root)
     changed = git(root, "status", "--porcelain", "--untracked-files=normal")
     return {
         "repository": expected,

@@ -107,6 +107,69 @@ class StartupTests(unittest.TestCase):
         ):
             self.assertEqual(check(self.root, intent)["intent"], intent)
 
+    def test_public_ui_and_policy_reject_staged_private_paths(self):
+        self.seed("public-platform")
+        self.commit()
+        for path in (
+            "app/agent/router.py",
+            "app/agent/planner.py",
+            "app/agent/question_intent.py",
+            "app/agent/semantic_planner.py",
+        ):
+            self.write(path, "# synthetic private intelligence\n")
+            self.git("add", path)
+        for intent in ("product-ui", "policy"):
+            with self.assertRaisesRegex(ValueError, "Staged private-owned paths"):
+                check(self.root, intent)
+        for intent in ("shared-fix", "reference-maintenance", "public-promotion"):
+            self.assertFalse(check(self.root, intent)["publication_authorized"])
+        # CI layout checks have no selected implementation intent.
+        self.assertTrue(check(self.root, "product", policy_only=True)["policy_only"])
+
+    def test_public_ui_allows_public_assets_and_ignores_unstaged_private_edits(self):
+        self.seed("public-platform")
+        self.write("app/agent/router.py", "# original fixture\n")
+        self.git("add", "app/agent/router.py")
+        self.commit()
+        self.write("app/agent/router.py", "# unrelated unstaged fixture edit\n")
+        self.write("app/static/nested/new.js", "// public UI fixture\n")
+        self.git("add", "app/static/nested/new.js")
+        self.assertEqual(check(self.root, "product-ui")["intent"], "product-ui")
+
+    def test_public_ui_rejects_private_deletion_and_rename_source(self):
+        self.seed("public-platform")
+        self.write("app/agent/router.py", "# fixture\n")
+        self.git("add", "app/agent/router.py")
+        self.commit()
+        self.git("rm", "app/agent/router.py")
+        with self.assertRaisesRegex(ValueError, "app/agent/router.py"):
+            check(self.root, "product-ui")
+        self.write("app/public_copy.py", "# fixture\n")
+        self.git("add", "app/public_copy.py")
+        with self.assertRaisesRegex(ValueError, "app/agent/router.py"):
+            check(self.root, "product-ui")
+
+    def test_staged_ownership_uses_map_rules_not_hardcoded_paths(self):
+        self.seed("public-platform")
+        self.commit()
+        path = self.root / MAP_PATH
+        policy = json.loads(path.read_text())
+        policy["rules"].insert(
+            0,
+            dict(
+                patterns=["app/new_private/**"],
+                owner="private",
+                private_presence="owned",
+                priority=200,
+                description="Synthetic new private capability",
+            ),
+        )
+        path.write_text(json.dumps(policy))
+        self.write("app/new_private/route.py", "# fixture\n")
+        self.git("add", MAP_PATH, "app/new_private/route.py")
+        with self.assertRaisesRegex(ValueError, "app/new_private/route.py"):
+            check(self.root, "product-ui")
+
     def test_private_shared_fix_is_routed_to_public(self):
         with self.assertRaisesRegex(ValueError, "belongs in the public"):
             check(self.root, "shared-fix")
