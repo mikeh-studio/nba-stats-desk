@@ -19,16 +19,18 @@ independent versions of these rules in agent-specific files or chat memory.
 
 | Intent | Repository and purpose |
 | --- | --- |
-| `product` (default) | Private product: UI, prompts, routing, workflows, experiments |
+| `product` (default) | Private: production prompts, planner/router, intent heuristics and eval cases |
+| `product-ui` | Public: whole web app, composition, UI, conversation workflows and deterministic prose |
 | `shared-fix` | Public: shared pipeline, statistics, identity/evidence correctness |
 | `reference-maintenance` | Public: reference-app security, correctness and compatibility |
 | `public-promotion` | Public: a specifically selected, sanitized component approved for publication |
 | `policy` | Either repository: instructions, ownership docs and boundary tooling |
 
-Public-first feature work is not reference maintenance. If uncertain, design in
-private and resolve the shared interface before publishing. Public PR #97 stays
-unmerged. The private runtime pin to its existing commit is intentional and must
-not be changed just to obtain newer instructions.
+Public app features start in public with `product-ui`; intelligence changes start
+in private with `product`. A valid intent never grants public publishing permission.
+PR #97 is merged; its existing private pin stays unchanged during this policy work.
+Mixed files and temporary private copies follow the ownership map and its JSON
+patterns. The private Active migration freeze remains in force.
 
 ## Agent entry points
 
@@ -56,16 +58,20 @@ do not reinterpret missing checks as permission to continue publishing.
 The script verifies the staged policy/adapters, the expected GitHub fetch and all
 origin push URLs, the repository role for the task, a `codex/` branch, and matching
 local/staged guidance. It rejects dependency worktrees, missing/stale policy,
-wrong destinations, public product work, detached HEAD and main for implementation.
+wrong destinations, public production-intelligence work, private UI work, detached
+HEAD and main for implementation.
 It reports dirty state without discarding changes or printing their contents.
 It makes no network calls, reads no credentials, and does not mutate Git settings.
 `--check-policy` is CI layout verification and permits detached checkout; it must
 not be used to bypass implementation startup checks.
 
 The generic script is maintained by the public platform and vendored at the same
-version in the private product because its runtime dependency stays on #97.
+version in private independently of the unchanged runtime dependency pin.
 Keep the common regression suite with the utility when updating either copy.
-Repo-specific role and validation commands live in `docs/agent-policy.json`.
+Repo-specific role, allowed intents, ownership map and validation commands live
+in `docs/agent-policy.json`. Startup verifies the versioned intent contract and
+staged map. It also rejects unstaged map changes. The common map, parser and
+regression tests must remain identical in both repositories.
 
 This is a mistake-detection workflow, not an access-control system. Agents can
 skip commands or alter files; intent declarations cannot prove human authorization.

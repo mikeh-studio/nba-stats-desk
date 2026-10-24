@@ -1,7 +1,8 @@
 # NBA Stats Desk
 
 Agents: start with [AGENTS.md](AGENTS.md) and the required
-[startup workflow](docs/agent-workflow.md). Product implementation starts private.
+[startup workflow](docs/agent-workflow.md). The ownership map routes web-app work
+to public and production intelligence to private.
 
 [![CI](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -148,10 +149,11 @@ The project grew one layer at a time.
 
 ## Public code, private operations
 
-This repository is the curated shared platform and runnable reference application.
-New product UI, prompts, routing, and workflows are developed in a separate private
-repository first. Public improvements are selected deliberately; the reference app
-is maintained for security, correctness, compatibility, and reproducibility.
+This repository owns the shared platform and whole web app, including UI,
+composition, conversation workflows, deterministic presentation and eval harness.
+Production prompts, planner/router, intent heuristics and private evaluation cases
+are developed privately, with package integration planned separately. Public app
+work still requires review and explicit approval of the exact diff before pushing.
 Operational records, credentials, raw feedback and generated artifacts stay outside
 Git in access-controlled storage.
 See the [public/private boundary](docs/public-private-boundary.md).

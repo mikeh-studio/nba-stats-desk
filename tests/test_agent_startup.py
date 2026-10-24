@@ -7,7 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.agent_startup import POINTERS, REPOS, check, repository
+from scripts.agent_startup import INTENTS, POINTERS, REPOS, check, repository
+from scripts.ownership_policy import MAP_PATH
 
 
 class StartupTests(unittest.TestCase):
@@ -40,7 +41,11 @@ class StartupTests(unittest.TestCase):
             "docs/agent-policy.json",
             json.dumps(
                 {
-                    "version": 1,
+                    "version": 2,
+                    "ownership": MAP_PATH,
+                    "intents": sorted(
+                        name for name, roles in INTENTS.items() if role in roles
+                    ),
                     "role": role,
                     "repository": repo,
                     "boundary": boundary,
@@ -50,7 +55,10 @@ class StartupTests(unittest.TestCase):
         )
         self.write(
             "AGENTS.md",
-            "private-first: scripts/agent_startup.py and docs/agent-workflow.md\n",
+            "thin split: scripts/agent_startup.py and docs/agent-workflow.md\n",
+        )
+        self.write(
+            MAP_PATH, (Path(__file__).resolve().parents[1] / MAP_PATH).read_text()
         )
         for path in (
             boundary,
@@ -88,9 +96,10 @@ class StartupTests(unittest.TestCase):
 
     def test_public_product_work_is_blocked(self):
         self.seed("public-platform")
-        with self.assertRaisesRegex(ValueError, "Product work belongs"):
+        with self.assertRaisesRegex(ValueError, "Production intelligence belongs"):
             check(self.root, "product")
         for intent in (
+            "product-ui",
             "shared-fix",
             "reference-maintenance",
             "public-promotion",
@@ -101,6 +110,40 @@ class StartupTests(unittest.TestCase):
     def test_private_shared_fix_is_routed_to_public(self):
         with self.assertRaisesRegex(ValueError, "belongs in the public"):
             check(self.root, "shared-fix")
+
+    def test_private_ui_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "belongs in the public"):
+            check(self.root, "product-ui")
+
+    def test_policy_works_for_both_roles_without_publication_permission(self):
+        for role in REPOS:
+            self.seed(role)
+            self.assertFalse(check(self.root, "policy")["publication_authorized"])
+
+    def test_policy_cannot_expand_intents_or_use_old_version(self):
+        for field, value in (
+            ("version", 1),
+            ("intents", ["policy", "product", "product-ui"]),
+        ):
+            self.seed("private-product")
+            path = self.root / "docs/agent-policy.json"
+            policy = json.loads(path.read_text())
+            policy[field] = value
+            path.write_text(json.dumps(policy))
+            self.git("add", "docs/agent-policy.json")
+            with self.assertRaises(ValueError):
+                check(self.root, "policy", policy_only=True)
+
+    def test_missing_invalid_and_unstaged_map_fail_closed(self):
+        self.write(MAP_PATH, "{}")
+        with self.assertRaisesRegex(ValueError, "worktree and staged"):
+            check(self.root, "policy")
+        self.git("add", MAP_PATH)
+        with self.assertRaisesRegex(ValueError, "ownership map schema"):
+            check(self.root, "policy", policy_only=True)
+        self.git("rm", "--cached", "-f", MAP_PATH)
+        with self.assertRaises(ValueError):
+            check(self.root, "policy", policy_only=True)
 
     def test_default_branch_and_detached_head_block_implementation(self):
         self.commit()
@@ -218,4 +261,4 @@ class StartupTests(unittest.TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 1)
-        self.assertIn("Product work belongs", result.stderr)
+        self.assertIn("Production intelligence belongs", result.stderr)

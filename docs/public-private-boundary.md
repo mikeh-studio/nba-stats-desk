@@ -1,62 +1,50 @@
 # Public / Private Boundary
 
-## Decision: private-first product development
+## Decision: thin split
 
-Develop product features, prompts, routing, presentation, and experiments in
-`mikeh-studio/nba-stats-desk-product` (private) first. The public
-`mikeh-studio/nba-stats-desk` repository is the curated shared platform and runnable
-reference application. Public publication is an explicit decision, not the default
-result of improving the product. See the [path ownership map](repository-ownership.md).
+Public owns the platform and whole web app: UI, templates, static assets, app
+composition, conversation workflow, deterministic server-written prose, evaluation
+harness and a standalone reference planner. Private owns production prompts,
+planner/router, intent heuristics and private evaluation cases. The
+[ownership map](repository-ownership.md) and its JSON patterns define the split.
 
-Existing public source remains public, including unmerged PR branches. Keeping a
-PR unmerged does not conceal its contents. This transition does not rewrite public
-history, change repository visibility, or remove the runnable reference application.
+Public app features are developed here with `product-ui`; private intelligence is
+developed in its owning repository. Tests of public implementation and reusable
+synthetic fixtures are public. Private evaluation cases, including sanitized cases
+distilled from production failures, stay private unless specifically approved for
+publication. Raw conversations, captures and feedback remain outside Git.
 
-## Ownership and maintenance
+App composition and `service.py` orchestration are public; production prompt text
+inside mixed files is extracted later behind the private package hook. Governed
+calculations, evidence/claim validation, read adapters, pipelines and existing
+private research model ownership do not move. Deterministic prose stays public.
 
-- Public owns ingestion/orchestration, source contracts, dbt, season configuration,
-  deterministic NBA arithmetic, identity/evidence validation, and reusable read
-  adapters. Keep one authoritative implementation of these capabilities.
-- Private owns the full product UI, application composition, model defaults,
-  product prompts, natural-language planning, routing, conversation flows,
-  response presentation, synthetic product evaluations, and unreleased designs.
-- Mixed modules remain shared until their product-only responsibilities are
-  explicitly separated. Do not copy governed calculations into private code.
-- Existing public UI and Ask code are a reference baseline. Maintain security,
-  correctness, compatibility, and buildability; do not automatically synchronize
-  private features or treat the public app as the product development branch.
-- Existing private research repositories retain ownership of their models. Consume
-  versioned outputs rather than maintaining competing implementations.
+## Transition and dependency
 
-Private source can power a public website. Repository privacy provides neither
-website authentication nor permission to expose source data. Browser assets are
-necessarily delivered to users; keep sensitive logic server-side.
+The target is a private Python package depending on a released public tag, loaded
+by the public app, which also runs standalone with a reference planner. Package
+hooks and the reference-planner implementation are Phase 3 work. Removing private
+app copies and replacing the submodule happen later. The private Active migration
+freeze is unchanged; existing copies are compatibility scaffolding, not ownership.
 
-## Shared dependency
+PR #97 merged as `2e2a319`; the unchanged private pin `735bf4f` is now on public
+main. It is not a released tag or proof of live coverage. Do not bump the pin just
+to obtain policy updates. Maintain the shared policy tools directly in both repos.
 
-The private product pins an immutable public revision and composes the shared
-implementation. The public repository must build without private source. Do not
-copy DAGs, dbt models, source data, or metric engines into the product. The private
-runtime has explicit module ownership and import-provenance tests; it is not a
-second ingestion checkout or permission to operate a second scheduler.
-
-Fix shared correctness in its authoritative public module using synthetic tests
-and a curated public PR. Product implementation and private context stay private.
-If a fix cannot be safely described publicly, isolate a minimal reproducible case
-before publication. Do not silently maintain a private copy of shared arithmetic.
-
-Dependency pins establish source reproducibility, not live data, credentials,
-schema compatibility, archive coverage, or deployment readiness. An unmerged pin
-must be explicitly recorded as such and must not be described as a released
-platform version. PR #97 remains unmerged during this transition.
+Existing public history remains public. Browser assets are delivered to users;
+sensitive intelligence stays server-side. Repository privacy supplies neither
+website authentication nor permission to expose source data. Dependency pins prove
+source reproducibility, not credentials, archive coverage or deployment readiness.
 
 ## Deliberate public promotion
 
-1. Select a reusable capability or reference-app improvement for publication.
+1. Prepare a public-owned app/platform change, or explicitly select a private
+   capability for publication.
 2. Inspect its complete dependency closure, fixtures, documentation, screenshots,
    generated artifacts, and PR text. Replace private inputs with synthetic cases.
 3. Preserve license notices and prove it builds without private dependencies.
-4. Open a focused public PR with the contract and relevant validation. A push to
+4. Obtain explicit user approval of the exact diff before pushing, then open a
+   focused public PR with relevant validation. A push to
    any public branch already publishes code; review the boundary before pushing.
 5. Record the resulting public owner/version privately. Retire any duplicate
    private implementation and update the dependency pin through a separate review.
@@ -237,5 +225,6 @@ They are diagnostic projections, not complete replay captures or public logs.
 Follow [the agent startup workflow](agent-workflow.md). Root `CLAUDE.md` and
 `GEMINI.md` contain only imports of `AGENTS.md`; the Copilot adapter points to
 that same file. These are shared source instructions, not private local notes.
-The startup check defaults to private product work and verifies repository,
+The startup check defaults to private production intelligence (`product`); use
+`product-ui` for public app work. It verifies repository,
 branch, instruction wiring and origin destinations before editing or pushing.
