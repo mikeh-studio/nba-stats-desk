@@ -10,12 +10,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 # Select baseline/candidate app code before any app import. Runner code stays fixed.
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT))
-sys.path.insert(0, os.environ.get("ASK_EVAL_CODE_ROOT", str(ROOT)))
-if os.environ.get("ASK_EVAL_LIVE") == "1":
-    from scripts.ask_eval.environment import load_provider_credentials
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from scripts.ask_eval.environment import (  # noqa: E402
+    load_provider_credentials,
+    select_code_root,
+)
 
+ROOT, CODE_ROOT = select_code_root(__file__)
+sys.path.insert(0, str(CODE_ROOT))
+if os.environ.get("ASK_EVAL_LIVE") == "1":
     load_provider_credentials(ROOT / ".env")
 
 # This evaluation-only import scope prevents app.config's automatic .env load
