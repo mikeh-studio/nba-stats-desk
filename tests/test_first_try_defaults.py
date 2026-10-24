@@ -10,6 +10,7 @@ import pytest
 from app.agent.clock import semantic_date
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
+from app.agent.scope_policy import question_scope
 from app.agent.semantic_answer import PLANNING_FAILURE, user_message
 from app.agent.semantic_planner import (
     leader_game_floor,
@@ -249,3 +250,23 @@ def test_leaderboard_answer_names_the_leader(on_date):
     result = ask("Who led the league in scoring in 2024-25?")
     assert "ranked first with" in result["answer"]
     assert "players qualified (minimum" in result["answer"]
+
+
+@pytest.mark.parametrize(
+    "question,fantasy",
+    [
+        (
+            "Which player has the best improvements from season start to end? "
+            "Which palyer has the largest drop-off",
+            False,
+        ),
+        ("Which players had the biggest drop-off after the All-Star break?", False),
+        ("Who was drafted first in 2003?", False),
+        ("Should I drop Avery Example in fantasy?", True),
+        ("Should I drop Avery Example?", True),
+        ("Who should I pick up off waivers?", True),
+        ("Which dynasty assets should I sell high on?", True),
+    ],
+)
+def test_fantasy_advice_needs_fantasy_or_roster_wording(question, fantasy):
+    assert (question_scope(question)["kind"] == "fantasy_decision") is fantasy

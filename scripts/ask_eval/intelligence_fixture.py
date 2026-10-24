@@ -27,7 +27,6 @@ class ControlledIntelligence:
         return api.PromptBundle(
             "synthetic/1",
             "Controlled test transport. Return the authored fixture plan.",
-            None,
         )
 
     def classify(self, context):
@@ -79,9 +78,14 @@ class ControlledIntelligence:
         raw = json.loads(text)
         if isinstance(raw, dict) and set(raw) == {"plan"}:
             raw = raw["plan"]
-        if not isinstance(raw, dict) or set(raw) != {"status", "queries", "message"}:
+        if not isinstance(raw, dict) or set(raw) not in (
+            {"status", "queries", "message"},
+            {"status", "queries", "message", "reason"},
+        ):
             return api.ProviderFailure("invalid_provider_output")
         if raw["status"] in ("clarification_required", "unsupported"):
+            if raw.get("reason") is not None:
+                return api.Withheld(raw["status"], raw["reason"])
             return api.Withheld(
                 raw["status"],
                 (

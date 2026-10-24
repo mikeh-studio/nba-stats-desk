@@ -62,7 +62,7 @@ class SDK:
         return (
             "not-json"
             if self.scenario == "malformed"
-            else '{"plan":{"status":"unsupported","queries":[],"message":"Scope unavailable"}}'
+            else '{"plan":{"status":"unsupported","queries":[],"message":"Scope unavailable","reason":"unsupported_scope"}}'
         )
 
     def create(self, **kwargs):

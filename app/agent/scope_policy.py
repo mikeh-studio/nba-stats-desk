@@ -118,8 +118,41 @@ def explicit_aggregation(question: str) -> str | None:
     return "total" if total else "average" if average else None
 
 
+def fantasy_decision(question):
+    # Real-stat questions say "drop-off" or "drafted"; only fantasy wording or a
+    # first-person roster move makes this a fantasy decision.
+    fantasy = re.search(
+        r"\b(?:fantasy|dynasty|keeper|punt|sell high|buy low|waivers?)\b",
+        question,
+        re.I,
+    ) or re.search(
+        r"\b(?:should\s+(?:i|we)|my\s+(?:team|roster|league))\b[^?]*"
+        r"\b(?:drop(?![- ]?offs?\b)|stash|draft|pick\s+up|hold)\b",
+        question,
+        re.I,
+    )
+    if fantasy and re.search(
+        r"\b(?:should|who|which|hold|drop|trade|draft|keep|target|value|sell|buy|stash)\b",
+        question,
+        re.I,
+    ):
+        return dict(
+            kind="fantasy_decision",
+            status="clarification_required",
+            message=(
+                "Please supply the exact scoring categories or point weights, league size, "
+                "roster needs and available alternatives. I can compare observed category production; "
+                "a hold/drop, trade or draft recommendation also needs those settings and future-role assumptions. "
+                "The built-in fantasy proxies are not your league's scoring rules."
+            ),
+        )
+    return None
+
+
 def question_scope(question: str) -> dict[str, str | None]:
     """Enforce representable scope before dispatch; no production route selection."""
+    if decision := fantasy_decision(question):
+        return decision
     kind = split_kind(question)
     if re.search(
         r"\b(?:not|excluding|except)\s+(?:the\s+)?(?:total(?:s)?|sum|average|mean|"

@@ -187,3 +187,18 @@ def test_json_sse_parity_without_credentials():
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(previous)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Should I drop Alex Example in fantasy?",
+        "Should I trade Alex Example for Blair Sample in fantasy?",
+        "Show Alex Example overview; should I drop him in fantasy?",
+    ],
+)
+def test_fantasy_scope_precedes_public_handlers(question):
+    result = agent().answer(question)
+    assert result["status"] == "clarification_required"
+    assert "scoring categories" in str(result)
+    assert "attempt threshold" not in str(result)

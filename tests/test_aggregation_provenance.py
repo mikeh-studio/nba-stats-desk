@@ -223,7 +223,7 @@ def test_followup_values_and_fresh_requests_do_not_depend_on_labels(
         {"season_type": "Playoffs"},
         {"start_date": "2025-03-03"},
         {"as_of": "2025-03-07"},
-        {"window": "season_to_date"},
+        {"window": "last_n_days", "n": 3},
         {"opponent_abbr": "BBB"},
         {"aggregation": "ratio"},
         {"home_away": "HOME"},
@@ -656,3 +656,13 @@ def test_partial_explicit_phase_overrides_prior_scope(
 
 # Public orchestration tests use authored plans through the provider contract.
 pytestmark = pytest.mark.usefixtures("scripted_intelligence")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_literal_interval_fills_neutral_window_default(endpoint_v3, transport):
+    payload = endpoint_v3(QUESTION, transport, window="season_to_date")
+    assert payload["status"] == "ok"
+    query = payload["query_plan"]["queries"][0]
+    assert query["window"] == "date_range"
+    assert query["start_date"] == "2025-03-04"
+    assert query["as_of"] == "2025-03-06"

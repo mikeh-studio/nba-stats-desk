@@ -30,6 +30,8 @@ Reason: TypeAlias = Literal[
     "ambiguous_identity",
     "missing_metric",
     "ambiguous_scope",
+    "ambiguous_aggregation",
+    "unsupported_quarters",
     "missing_qualification",
     "unsupported_scope",
     "unsupported_metric",
@@ -97,6 +99,12 @@ class PriorAnalysis:
 
 
 @dataclass(frozen=True, slots=True)
+class PlayerReference:
+    handle: str
+    player_name: str
+
+
+@dataclass(frozen=True, slots=True)
 class PlanningContext:
     request_id: str
     question: str
@@ -108,6 +116,7 @@ class PlanningContext:
     routes: tuple[RouteCapability, ...]
     player_names: tuple[str, ...]
     team_abbreviations: tuple[str, ...]
+    player_references: tuple[PlayerReference, ...] = ()
     prior: PriorAnalysis | None = None
 
 
@@ -164,7 +173,6 @@ PlanningResult: TypeAlias = QueryPlan | HandlerPlan | Withheld | ProviderFailure
 class PromptBundle:
     revision: str
     planning_system: str | None
-    answer_system: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,7 +223,7 @@ class IntelligenceProvider(Protocol):
     descriptor: ProviderDescriptor
 
     def prompts(self) -> PromptBundle:
-        """Return inert text without I/O; reference returns two None values."""
+        """Return inert text without I/O; reference returns no planning text."""
         ...
 
     def classify(self, context: PlanningContext) -> IntentResult:

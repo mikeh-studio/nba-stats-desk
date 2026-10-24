@@ -45,3 +45,9 @@ it is never registered by the application loader. Set `ASK_EVAL_INTELLIGENCE=ref
 for reference-only evaluation. Live evaluation respects `ASK_INTELLIGENCE_PROVIDER`
 unless `ASK_EVAL_INTELLIGENCE` overrides it. The live semantic-language runner
 requires an explicitly selected model-backed provider and records its prompt hash.
+
+Before a future production cutover or dependency pin bump, explicitly configure
+`ASK_INTELLIGENCE_PROVIDER=production` and install its reviewed package. Otherwise
+the application intentionally keeps the deterministic reference default. Provider
+readiness checks the current request's provider credentials/model (OpenAI at
+startup/default), not an unrelated provider's configured key.

@@ -142,14 +142,10 @@ before migration; do not smuggle it through question text or a generic dictionar
 
 ## Prompts, failures and observability
 
-`PromptBundle` contains versioned inert system text for planning and optional
-model-generated answers. Host-authored immutable safety/evidence instructions and
-schemas take precedence over provider text. The host encodes questions/context as
-untrusted data; answer generation receives only validated evidence. Reference mode
-returns no prompts and uses deterministic public rendering. Answer generation is a
-host model call with its own host-owned budget, deadline and usage accounting,
-separate from `PlanningBudget` and never exposed to the provider; exhausting it
-yields the existing deterministic rendering or sanitized error, never unbound prose.
+`PromptBundle` contains a revision and inert planning-system text only. Public
+rendering remains deterministic; v1 exposes no answer-generation prompt or call.
+Host safety instructions and schema take precedence over provider text. Questions
+and prior context are data, never instructions. Reference mode returns no prompt.
 Raw prompt text and model replies must not appear in responses, normal logs,
 public fixtures or errors.
 
@@ -242,3 +238,30 @@ and [acceptance evidence](intelligence-acceptance.md).
 
 Public publication still requires approval of the exact implementation diff.
 Package installation does not authorize deployment or a dependency-pin change.
+
+## Request identity and supported provider dependencies
+
+The host supplies only unambiguously resolved current player mentions, or its
+selected prior identities when no current name is present. Ambiguous aliases do
+not authorize either candidate. `player_references` binds opaque request-local
+handles to canonical names; the model schema permits only those handles or null.
+Providers must use those supplied handles, not construct a roster catalog.
+The host independently checks returned canonical identities against the original
+request and authorized prior scope, including zero- and multiple-mention requests.
+The gateway caps user payloads at 64,000 characters and retains its first failure;
+a provider cannot turn a swallowed transport/budget failure into clarification.
+
+The model-plan envelope adds required nullable `reason`: null for query/compare,
+and a closed `Reason` value for withheld output. `ambiguous_aggregation` and
+`unsupported_quarters` preserve specific host-owned guidance; arbitrary model
+messages are discarded. The execution schema itself remains unchanged.
+The host fills omitted literal scope and the neutral default window
+before aggregation validation, rejecting conflicting non-default values.
+
+Supported public dependencies for v1 providers are `intelligence_contract`, the
+four execution helpers in the audit list, `scope_policy.explicit_scope` and
+`scope_policy.has_specific_metric`, and `semantics.load_contract`/`SemanticError`
+for metric canonicalization. This explicit helper surface is versioned with the
+host release; it is not permission to import private app or legacy planner code.
+Fantasy roster advice is a public scope clarification before route dispatch,
+including overview and comparison; it is not shooting qualification.

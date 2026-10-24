@@ -54,6 +54,8 @@ _SAFE = {
     "ambiguous_identity": "Choose the intended player.",
     "missing_metric": "Name a supported box-score statistic.",
     "ambiguous_scope": "Specify the season, phase and period for this request.",
+    "ambiguous_aggregation": "Do you mean totals or per-game averages?",
+    "unsupported_quarters": "Quarter-level statistics are not supported by the connected data.",
     "missing_qualification": "Specify an attempt threshold for the shooting cohort.",
     "unsupported_scope": "This scope is not supported by the connected statistics.",
     "unsupported_metric": "This metric is not supported by the connected statistics.",
@@ -134,10 +136,12 @@ def _load(name, model_ready):
 
 def get_provider(settings):
     name = getattr(settings, "ask_intelligence_provider", "reference")
-    ready = any(
+    active = CURRENT.get()
+    prefix = active.provider if active else "openai"
+    prefix = "anthropic" if prefix == "claude" else prefix
+    ready = bool(
         getattr(settings, f"{prefix}_agent_model", None)
         and getattr(settings, f"{prefix}_api_key", None)
-        for prefix in ("openai", "anthropic", "openrouter")
     )
     # Serialize factory construction, including concurrent first requests.
     with _LOCK:
@@ -148,6 +152,63 @@ def _scope(raw):
     return api.Scope(
         **{f.name: raw[f.name] for f in fields(api.Scope) if f.name in raw}
     )
+
+
+def authorized_players(question, players, prior=None):
+    """Only unambiguous literal mentions, or host-selected prior identities.
+
+    Longer matches consume aliases inside them. An ambiguous alias is never
+    permission for a provider to select one candidate from the roster.
+    """
+    question = " ".join(question.split())
+    spans = []
+    for player in players:
+        for name in (player["player_name"], *player.get("aliases", [])):
+            name = " ".join(name.split())
+            if name:
+                spans.extend(
+                    (m.start(), m.end(), name)
+                    for m in re.finditer(
+                        r"(?<!\w)" + re.escape(name) + r"(?!\w)", question, re.I
+                    )
+                )
+    selected, occupied = set(), []
+    for start, end, name in sorted(spans, key=lambda s: (-(s[1] - s[0]), s[0])):
+        if any(start < b and end > a for a, b in occupied):
+            continue
+        occupied.append((start, end))
+        resolved = resolve_entity(name, players)
+        if resolved["status"] == "ok":
+            selected.add(resolved["matches"][0]["player_name"])
+    if not occupied and prior:
+        for name in prior.player_names:
+            resolved = resolve_entity(name, players)
+            if resolved["status"] == "ok":
+                selected.add(resolved["matches"][0]["player_name"])
+    return tuple(sorted(selected))
+
+
+def provider_plan_schema(context):
+    """Request-local constraints augment the unchanged execution schema."""
+    schema = plan_schema()
+    schema["properties"]["reason"] = {
+        "type": ["string", "null"],
+        "enum": [None, *get_args(api.Reason)],
+    }
+    schema["required"] = [*schema["required"], "reason"]
+    schema["properties"]["queries"]["items"]["properties"]["player_name"] = {
+        "type": ["string", "null"],
+        "enum": [None, *(r.handle for r in context.player_references)],
+    }
+    wrapped = response_schema(schema)
+    for variant in wrapped["properties"]["plan"]["anyOf"]:
+        status = variant["properties"]["status"]["enum"][0]
+        variant["properties"]["reason"] = (
+            {"type": "null", "enum": [None]}
+            if status in ("query", "compare")
+            else {"type": "string", "enum": list(get_args(api.Reason))}
+        )
+    return wrapped
 
 
 def planning_context(
@@ -172,10 +233,11 @@ def planning_context(
             start_date=raw_scope["start"],
             as_of=min(raw_scope["end"], today().isoformat()),
         )
-    if raw_scope.get("season") and raw_scope.get("season_type"):
+    complete_scope = bool(raw_scope.get("season") and raw_scope.get("season_type"))
+    if complete_scope or context.get("players"):
         prior = api.PriorAnalysis(
             route_id="metrics",
-            scopes=(_scope(raw_scope),),
+            scopes=(_scope(raw_scope),) if complete_scope else (),
             player_names=tuple(
                 p["player_name"]
                 for p in context.get("players", [])
@@ -189,6 +251,7 @@ def planning_context(
         seasons.extend(seasons_in_dates(literal["start_date"], literal["as_of"]))
     if prior:
         seasons.extend(s.season for s in prior.scopes)
+    names = authorized_players(question, players, prior)
     return api.PlanningContext(
         request_id=uuid4().hex,
         question=question,
@@ -206,7 +269,11 @@ def planning_context(
             for m in contract.metrics.values()
         ),
         routes=(api.RouteCapability("metrics", "queries"),),
-        player_names=tuple(sorted({p["player_name"] for p in players})),
+        player_names=names,
+        player_references=tuple(
+            api.PlayerReference(f"resolved_player_{i + 1}", name)
+            for i, name in enumerate(names)
+        ),
         team_abbreviations=tuple(sorted(set(teams))),
         prior=prior,
     )
@@ -215,10 +282,14 @@ def planning_context(
 class ModelGateway:
     """One host transport, schema and model; retries consume the same counter."""
 
-    def __init__(self, client, model, budget, usage_callback=None):
+    def __init__(self, client, model, budget, usage_callback=None, context=None):
         self._client, self._model, self._budget = client, model, budget
         self._usage_callback = usage_callback
         self.calls = 0
+        self.failure = None
+        self._schema = (
+            provider_plan_schema(context) if context else response_schema(plan_schema())
+        )
 
     def _attempt(self):
         if monotonic() >= self._budget.deadline_monotonic:
@@ -241,7 +312,7 @@ class ModelGateway:
                         "type": "json_schema",
                         "name": "semantic_intent_v3",
                         "strict": True,
-                        "schema": response_schema(plan_schema()),
+                        "schema": self._schema,
                     }
                 },
                 max_output_tokens=self._budget.max_output_tokens,
@@ -272,14 +343,21 @@ class ModelGateway:
             MODEL_ATTEMPT.reset(token)
 
     async def generate_plan(self, *, system_prompt, user_payload):
+        if self.failure is not None:
+            raise self.failure
         if (
             not isinstance(system_prompt, str)
             or not isinstance(user_payload, str)
             or len(system_prompt) > 50000
-            or len(user_payload) > 2000000
+            or len(user_payload) > 64000
         ):
-            raise api.GatewayUnavailable()
-        return await asyncio.to_thread(self._generate, system_prompt, user_payload)
+            self.failure = self.failure or api.GatewayUnavailable()
+            raise self.failure
+        try:
+            return await asyncio.to_thread(self._generate, system_prompt, user_payload)
+        except (api.GatewayError, ExecutionFailure) as exc:
+            self.failure = self.failure or exc
+            raise self.failure
 
 
 def _route(result, context, descriptor, kind):
@@ -373,6 +451,36 @@ def normalized_plan(
             ):
                 replacements[name] = canonical
                 references[canonical] = canonical
+    scope = explicit_scope(context.question)
+    regular = bool(re.search(r"\bregular[ -]season\b", context.question, re.I))
+    playoffs = bool(re.search(r"\b(?:playoffs?|postseason)\b", context.question, re.I))
+    if regular != playoffs:
+        scope["season_type"] = "Playoffs" if playoffs else "Regular Season"
+    if plan["status"] == "compare" and comparison_scope_conflict(
+        context.question, scope
+    ):
+        return dict(
+            status="clarification_required",
+            queries=[],
+            message="Please specify the date range and phase for each comparison side separately; shared scope cannot safely resolve these different windows.",
+        )
+    for query in plan["queries"]:
+        # Fill omitted scope and the documented neutral window default.
+        # A conflicting non-default value is never silently repaired.
+        defaults = {"window": "season_to_date"}
+        for key, value in scope.items():
+            if value is None:
+                continue
+            proposed = query.get(key)
+            if (
+                proposed is not None
+                and proposed != value
+                and proposed != defaults.get(key)
+            ):
+                raise SemanticError(
+                    "invalid_plan", "Planned scope contradicts the request"
+                )
+            query[key] = value
     policy = resolve_aggregation_intent(
         " ".join((dated_points_question or context.question).split()),
         plan,
@@ -384,15 +492,6 @@ def normalized_plan(
     )
     if policy:
         plan["aggregation_policy"] = policy
-    scope = explicit_scope(context.question)
-    if plan["status"] == "compare" and comparison_scope_conflict(
-        context.question, scope
-    ):
-        return dict(
-            status="clarification_required",
-            queries=[],
-            message="Please specify the date range and phase for each comparison side separately; shared scope cannot safely resolve these different windows.",
-        )
     requested_metrics = explicit_metric_mentions(context.question)
     game_minimum = re.search(
         r"\b(?:minimum|min\.?|at least)\s+(\d+)\s+games?\b", context.question, re.I
@@ -436,9 +535,6 @@ def normalized_plan(
             raise SemanticError(
                 "invalid_plan", "Planned attempts contradict the request"
             )
-        # Literal scope is authoritative. Contradictions cannot be silently fixed.
-        if any(query.get(k) != v for k, v in scope.items() if v is not None):
-            raise SemanticError("invalid_plan", "Planned scope contradicts the request")
         if result.qualification == "league_leader":
             # Qualification is authority, not an advisory provider shortcut. The
             # existing complete public leader route can set its own floor.
@@ -498,13 +594,13 @@ def normalized_plan(
                 message="Choose the intended player.",
                 identity=resolved,
             )
-        if resolved and len(references) == 1:
-            expected = resolve_entity(next(iter(references)), players)
-            if (
-                expected["status"] == "ok"
-                and resolved["matches"][0]["player_id"]
-                != expected["matches"][0]["player_id"]
-            ):
+        if resolved:
+            allowed = authorized_players(context.question, players, context.prior)
+            if not allowed:
+                raise SemanticError(
+                    "clarification_required", "Choose the intended player."
+                )
+            if resolved["matches"][0]["player_name"] not in allowed:
                 raise SemanticError(
                     "invalid_plan", "Planned player contradicts the request"
                 )
@@ -566,8 +662,7 @@ async def propose(provider, context, *, model, budget):
         prompts = provider.prompts()
         _check(prompts, api.PromptBundle)
         if len(prompts.revision) > 120 or any(
-            p is not None and len(p) > 50000
-            for p in (prompts.planning_system, prompts.answer_system)
+            p is not None and len(p) > 50000 for p in (prompts.planning_system,)
         ):
             raise TypeError("Invalid prompt bounds")
         if not re.fullmatch(r"[A-Za-z0-9_./+-]{1,120}", prompts.revision):
@@ -584,6 +679,8 @@ async def propose(provider, context, *, model, budget):
             provider.plan(context, intent, prompts=prompts, budget=budget, model=model),
             remaining,
         )
+        if isinstance(model, ModelGateway) and model.failure is not None:
+            raise model.failure
         return validate_result(result, context, provider.descriptor)
     except (api.GatewayTimeout, TimeoutError):
         raise ExecutionFailure("provider_timeout") from None
@@ -655,7 +752,7 @@ def plan_question(
     )
     budget = api.PlanningBudget(deadline, 3, 3000)
     gateway = (
-        ModelGateway(client, model, budget, usage_callback)
+        ModelGateway(client, model, budget, usage_callback, context)
         if provider.descriptor.requires_model
         else None
     )

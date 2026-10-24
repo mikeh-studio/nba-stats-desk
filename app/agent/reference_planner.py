@@ -54,7 +54,7 @@ def _query(bits, *, name=None, scope=None, ranking=False):
         min_games=int(bits["minimum"]) if bits.get("minimum") else None,
         direction="lower" if metric == "tov" else "higher" if ranking else None,
         limit=int(bits.get("limit") or 10),
-        aggregation_source="explicit",
+        aggregation_source="explicit" if bits.get("mode") else "planner_selected",
     )
 
 
@@ -70,7 +70,7 @@ class ReferenceProvider:
     )
 
     def prompts(self):
-        return api.PromptBundle("reference/1", None, None)
+        return api.PromptBundle("reference/1", None)
 
     def classify(self, context):
         return api.IntentSelection("metrics", context.prior is not None)

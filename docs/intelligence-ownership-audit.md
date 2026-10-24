@@ -6,7 +6,7 @@ responsibility; the production classifier was not moved wholesale into public.
 | Audited symbol | Decision and owner | Preserved coverage |
 | --- | --- | --- |
 | `split_kind` | Extract into public `scope_policy`: identifies existing public split-handler scope, never generates queries. | player-split, Ask routing and scope regressions |
-| `question_intent` | Split: scope refusal/aggregation ambiguity becomes public `question_scope`; fantasy recommendation classification remains private `intent.fantasy_decision`. Public compatibility module exports only scope policy. | public scope/round tests; existing private first-try/planner regressions and package tests |
+| `question_intent` | Split: scope refusal/aggregation ambiguity becomes public `question_scope`; fantasy roster-advice clarification also remains in public scope policy. Public compatibility module exports only scope policy. | public scope/round/fantasy tests and installed-package regressions |
 | `venue_mentions`, `round_scope_message`, `has_specific_metric` | Extract literal venue, unavailable dimension and conversation task-change guards into public scope policy. | overview/calendar, round, conversation and aggregation tests |
 | `explicit_aggregation`, `task_terms` | Extract public aggregation provenance and conversation policy. Provider metadata remains advisory. | aggregation-provenance and dated-points controls |
 | `name_reply`, `name_tokens`, `names_other_player`, `starts_new_question` | Extract public clarification/supersession policy. | name-matching, pending clarification, route tests |
@@ -34,3 +34,10 @@ schema/execution/tool-contract assertions remain in `test_plan_execution` and
 `scripted_intelligence` fixture for authored plans, without production prompt text
 or heuristics. Reference tests and conformance tests exercise the real loader.
 The old private app/test tree and its submodule pin remain unchanged.
+
+Review clarification: the six extracted execution/schema functions retain AST
+identity with the base. Scope extraction also canonicalizes generic fantasy
+metric aliases through the contract default; that is a behavior change, covered
+by metric-policy tests. Fantasy advice clarification is restored in public and
+now precedes broad handler dispatch. The startup guard remains in this approved
+PR scope; splitting it now would rewrite the published series unnecessarily.

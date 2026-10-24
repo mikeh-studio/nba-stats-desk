@@ -47,7 +47,7 @@ class FixtureProvider:
         self.result = result
 
     def prompts(self):
-        return api.PromptBundle("fixture/1", None, None)
+        return api.PromptBundle("fixture/1", None)
 
     def classify(self, context):
         return api.IntentSelection("metrics", False)
@@ -457,3 +457,138 @@ def test_prompt_revision_logged_without_prompt_text(caplog):
     with caplog.at_level("INFO", logger="nba.agent.intelligence"):
         run(FixtureProvider(plan()))
     assert "revision=fixture/1" in caplog.text
+
+
+def test_request_identity_catalog_excludes_unmentioned_roster_and_ambiguous_aliases():
+    roster = PLAYERS + [
+        dict(player_id=3, player_name="Casey Example", aliases=["Example"])
+    ]
+    roster[0] = dict(roster[0], aliases=["Example"])
+    ctx = host.planning_context("Example rebounds per game", "2024-25", roster, [])
+    assert ctx.player_names == ctx.player_references == ()
+    with pytest.raises(SemanticError, match="intended player"):
+        host.normalized_plan(plan(query(metric="reb")), ctx, roster)
+    ctx = host.planning_context("Alex Example rebounds per game", "2024-25", roster, [])
+    assert ctx.player_names == ("Alex Example",)
+    assert ctx.player_references == (
+        api.PlayerReference("resolved_player_1", "Alex Example"),
+    )
+    schema = host.provider_plan_schema(ctx)["properties"]["plan"]["anyOf"][0]
+    assert schema["properties"]["queries"]["items"]["properties"]["player_name"][
+        "enum"
+    ] == [None, "resolved_player_1"]
+    assert "reason" in schema["required"]
+    assert schema["properties"]["reason"]["enum"] == [None]
+    withheld = host.provider_plan_schema(ctx)["properties"]["plan"]["anyOf"][2]
+    assert "ambiguous_aggregation" in withheld["properties"]["reason"]["enum"]
+
+
+def test_two_mentions_do_not_authorize_a_third_player():
+    roster = PLAYERS + [dict(player_id=3, player_name="Casey Example")]
+    ctx = host.planning_context(
+        "Compare Alex Example and Blair Sample points per game", "2024-25", roster, []
+    )
+    with pytest.raises(SemanticError, match="player contradicts"):
+        host.normalized_plan(plan(query(player_name="Casey Example")), ctx, roster)
+
+
+def test_pronoun_requires_host_authorized_prior_identity():
+    question = "His rebounds per game"
+    ctx = context(question)
+    with pytest.raises(SemanticError, match="intended player"):
+        host.normalized_plan(plan(query(metric="reb")), ctx, PLAYERS)
+    history = {
+        "scope": {"season": "2024-25", "season_type": "Regular Season"},
+        "players": [PLAYERS[0]],
+        "metrics": ["pts"],
+    }
+    ctx = host.planning_context(question, "2024-25", PLAYERS, [], history)
+    assert ctx.player_names == ("Alex Example",)
+    assert (
+        host.normalized_plan(plan(query(metric="reb")), ctx, PLAYERS)["status"]
+        == "query"
+    )
+
+
+@pytest.mark.parametrize(
+    "question,scope,field,value",
+    [
+        (
+            "Alex Example points per game in home games",
+            api.Scope("2024-25", "Regular Season"),
+            "home_away",
+            "HOME",
+        ),
+        (
+            "Alex Example points per game from 2025-01-01 through 2025-01-10",
+            api.Scope("2024-25", "Regular Season"),
+            "window",
+            "date_range",
+        ),
+    ],
+)
+def test_host_fills_omitted_literal_scope(question, scope, field, value):
+    result = host.normalized_plan(plan(query(scope=scope)), context(question), PLAYERS)
+    assert result["queries"][0][field] == value
+
+
+def test_host_rejects_conflicting_nondefault_literal_scope():
+    ctx = context("Alex Example points per game in home games")
+    with pytest.raises(SemanticError, match="scope contradicts"):
+        host.normalized_plan(
+            plan(query(scope=api.Scope("2024-25", "Regular Season", home_away="AWAY"))),
+            ctx,
+            PLAYERS,
+        )
+
+
+@pytest.mark.parametrize(
+    "error,code",
+    [
+        (api.GatewayTimeout, "provider_timeout"),
+        (api.GatewayBudgetExhausted, "budget_exhausted"),
+        (api.GatewayUnavailable, "provider_unavailable"),
+    ],
+)
+def test_provider_cannot_swallow_a_gateway_failure(monkeypatch, error, code):
+    budget = api.PlanningBudget(monotonic() + 1, 1, 100)
+    gateway = host.ModelGateway(None, "fixture", budget, context=context())
+
+    def fail(*args):
+        raise error("must not leak")
+
+    monkeypatch.setattr(gateway, "_generate", fail)
+
+    class Swallows(FixtureProvider):
+        async def plan(self, *args, model, **kwargs):
+            try:
+                await model.generate_plan(system_prompt="fixture", user_payload="{}")
+            except api.GatewayError:
+                return api.Withheld("clarification_required", "ambiguous_scope")
+
+    with pytest.raises(ExecutionFailure, match=code):
+        asyncio.run(
+            host.propose(Swallows(None), context(), model=gateway, budget=budget)
+        )
+
+
+def test_model_readiness_requires_the_selected_provider_credentials(monkeypatch):
+    provider = FixtureProvider(plan())
+    provider.descriptor = replace(provider.descriptor, requires_model=True)
+    monkeypatch.setattr(
+        host,
+        "entry_points",
+        lambda **kw: [SimpleNamespace(load=lambda: lambda: provider)],
+    )
+    config = replace(
+        settings(),
+        ask_intelligence_provider="fixture",
+        openai_api_key=None,
+        anthropic_api_key="synthetic",
+    )
+    with pytest.raises(host.ProviderConfigurationError):
+        host.get_provider(config)
+    from app.agent.execution import request_policy
+
+    with request_policy(config, "claude"):
+        assert host.get_provider(config) is provider

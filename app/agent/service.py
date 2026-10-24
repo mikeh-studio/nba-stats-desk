@@ -1491,8 +1491,23 @@ class StatsAgent:
             pending_routing,
             select_route,
         )
-        from app.agent.scope_policy import round_scope_message
+        from app.agent.scope_policy import fantasy_decision, round_scope_message
         from app.agent.teammate_ask import answer_study
+
+        if decision := fantasy_decision(cleaned_question):
+            if routing is not None:
+                routing.update(route="clarify", source="deterministic")
+            if trace:
+                trace.set_plan(route="clarify", confidence=1.0)
+                trace.outcome = "clarification_required"
+            return route_hint(
+                answer_payload(
+                    decision["message"],
+                    status="clarification_required",
+                    conversation_id=conversation_id,
+                ),
+                reason_code="fantasy_scope",
+            )
 
         turns = (
             self.conversation_store.get_turns(

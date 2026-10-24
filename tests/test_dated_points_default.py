@@ -185,7 +185,7 @@ def test_current_total_cannot_be_erased(endpoint, transport, aggregation, source
         {"season_type": "Playoffs"},
         {"start_date": "2025-04-10"},
         {"as_of": "2025-04-14"},
-        {"window": "season_to_date"},
+        {"window": "last_n_days", "n": 3},
         {"home_away": "HOME"},
         {"opponent_abbr": "AAA"},
         {"player_name": "resolved_player_999"},
@@ -314,8 +314,7 @@ def test_calendar_phase_and_sparse_scope():
         )["queries"][0]["season_type"]
         == "Both"
     )
-    with pytest.raises((SemanticError, ExecutionFailure)):
-        planned(start_date=None)
+    assert planned(start_date=None)["queries"][0]["start_date"] == "2025-04-11"
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
@@ -459,7 +458,7 @@ def test_repeated_whitespace_matches_planner_identity_normalization():
     assert planned(question)["aggregation_policy"]["chosen_aggregation"] == "average"
 
 
-def test_sparse_plan_inherits_literal_scope_but_explicit_null_does_not():
+def test_sparse_plan_and_null_fields_inherit_literal_scope():
     raw = raw_plan()
     for key in ("window", "start_date", "as_of", "season_type"):
         raw["queries"][0].pop(key)
@@ -475,8 +474,7 @@ def test_sparse_plan_inherits_literal_scope_but_explicit_null_does_not():
     assert plan["queries"][0]["start_date"] == "2025-04-11"
     # The controlled adapter materializes a complete typed Scope before the host.
     assert plan["aggregation_policy"]["derived_scope_fields"] == []
-    with pytest.raises((SemanticError, ExecutionFailure)):
-        planned(start_date=None)
+    assert planned(start_date=None)["queries"][0]["start_date"] == "2025-04-11"
 
 
 @pytest.fixture
@@ -805,7 +803,7 @@ def test_omitted_opponent_filter_clarifies_even_when_plan_drops_it(
 @pytest.mark.parametrize(
     "aggregation,source", [("unspecified", "omitted"), ("total", "explicit")]
 )
-def test_canonical_road_scope_is_preserved_and_dropped_scope_rejected(
+def test_canonical_road_scope_fills_omissions_but_rejects_conflicts(
     endpoint, transport, aggregation, source
 ):
     question = QUESTION.replace(
@@ -822,8 +820,18 @@ def test_canonical_road_scope_is_preserved_and_dropped_scope_rejected(
     assert payload["status"] == "ok", payload
     assert payload["semantic_evidence"]["rows"][0]["value"] == 7
     assert payload["query_plan"]["queries"][0]["home_away"] == "AWAY"
-    bad = endpoint(
+    filled = endpoint(
         question, transport, aggregation=aggregation, aggregation_source=source
+    )
+    assert filled["status"] == "ok"
+    assert filled["query_plan"]["queries"][0]["home_away"] == "AWAY"
+    assert filled["semantic_evidence"]["rows"][0]["value"] == 7
+    bad = endpoint(
+        question,
+        transport,
+        aggregation=aggregation,
+        aggregation_source=source,
+        home_away="HOME",
     )
     assert bad["status"] != "ok" and not bad["tables"]
 
