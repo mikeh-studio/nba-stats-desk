@@ -95,13 +95,20 @@ def check_index(root: Path) -> list[tuple[str, str]]:
         if stage != b"0":
             failures.append((path, "unresolved merge"))
             continue
-        if private_path(path):
+        content = (
+            b""
+            if mode == b"160000"
+            else subprocess.check_output(
+                ["git", "cat-file", "blob", blob.decode("ascii")], cwd=root
+            )
+        )
+        shared_instruction_import = (
+            path == "CLAUDE.md" and mode == b"100644" and content == b"@AGENTS.md\n"
+        )
+        if private_path(path) and not shared_instruction_import:
             failures.append((path, "private artifact path"))
         if mode == b"160000":
             continue  # Submodule content is outside this repository's index.
-        content = subprocess.check_output(
-            ["git", "cat-file", "blob", blob.decode("ascii")], cwd=root
-        )
         for rule, pattern in SECRET_PATTERNS.items():
             if re.search(pattern, content):
                 failures.append((path, rule))

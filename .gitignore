@@ -91,3 +91,6 @@ credentials/
 node_modules/
 playwright-report/
 test-results/
+
+# Exact shared-policy import; local Claude notes remain ignored.
+!/CLAUDE.md

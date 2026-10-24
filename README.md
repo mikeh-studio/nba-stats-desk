@@ -1,5 +1,8 @@
 # NBA Stats Desk
 
+Agents: start with [AGENTS.md](AGENTS.md) and the required
+[startup workflow](docs/agent-workflow.md). Product implementation starts private.
+
 [![CI](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 

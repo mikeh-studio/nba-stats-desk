@@ -231,3 +231,11 @@ remain uncaptured. Keep this disabled in public deployments. Records include
 bounded, redacted local question/context projections and must remain private.
 See [private trace storage and deletion](operations.md#private-local-ask-traces).
 They are diagnostic projections, not complete replay captures or public logs.
+
+## Agent entry instructions
+
+Follow [the agent startup workflow](agent-workflow.md). Root `CLAUDE.md` and
+`GEMINI.md` contain only imports of `AGENTS.md`; the Copilot adapter points to
+that same file. These are shared source instructions, not private local notes.
+The startup check defaults to private product work and verifies repository,
+branch, instruction wiring and origin destinations before editing or pushing.
