@@ -128,6 +128,23 @@
                 },
                 "client_context": {
                   "type": "object"
+                },
+                "expected_failure": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "http_status",
+                    "detail"
+                  ],
+                  "properties": {
+                    "http_status": {
+                      "const": 502
+                    },
+                    "detail": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
                 }
               }
             }
