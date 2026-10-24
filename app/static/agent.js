@@ -1,6 +1,6 @@
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261023-ask-stable-buttons-v6";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261023-ask-stable-buttons-v6";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261023-ask-stable-buttons-v6";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261024-compact-results-v2";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261024-compact-results-v2";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261024-compact-results-v2";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -8,14 +8,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-  comparisonChart,
-} from "./ask_comparison.js?v=20261023-ask-stable-buttons-v6";
+} from "./ask_comparison.js?v=20261024-compact-results-v2";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261023-ask-stable-buttons-v6";
+} from "./ask_sessions.js?v=20261024-compact-results-v2";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -23,8 +22,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261023-ask-stable-buttons-v6";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261023-ask-stable-buttons-v6";
+} from "./ask_presentation.js?v=20261024-compact-results-v2";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261024-compact-results-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1068,7 +1067,7 @@ function renderAnswerPayload(payload, targetEl) {
   }
   const overview = payload.award_evidence ? null : overviewPresentation(payload);
   targetEl.innerHTML = overview
-    ? `<div class="analysis-overview"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p${p === overview.summaryContext ? ' class="meta overview-scope"' : ""}>${escHtml(p)}</p>`).join("")}</div>${overviewTakeaways(overview)}</div>`
+    ? `<div class="result-layout overview-layout"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p${p === overview.summaryContext ? ' class="meta overview-scope"' : ""}>${escHtml(p)}</p>`).join("")}</div>${overviewTakeaways(overview)}</div>`
     : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(answerWithoutScopeNotes(payload) || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
   if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
     targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
@@ -1130,30 +1129,16 @@ function renderAuxiliaryPayload(
   const comparison = comparisonPresentation(payload);
   const tableHeading = root.querySelector("[data-table-heading]");
   if (tableHeading)
-    tableHeading.textContent = comparison ? "Player comparison" : "Key metrics";
+    tableHeading.textContent = comparison ? "Per-game head-to-head" : "Key metrics";
   if (comparison) {
     tableCard.hidden = false;
     tableEl.innerHTML = comparisonTables(comparison);
     bindRenderedClaims(tableEl, payload, "comparison", {}, comparison.claimEvidence);
-    chartCard.hidden = false;
-    const paint = (key = "pts") => {
-      chartEl.innerHTML = comparisonChart(comparison, key);
-      bindRenderedClaims(chartEl, payload, "comparison-chart", {key}, comparison.claimEvidence);
-      chartEl.querySelectorAll("[data-comparison-metric]").forEach((button) =>
-        button.addEventListener("click", () => {
-          paint(button.dataset.comparisonMetric);
-          chartEl
-            .querySelector(
-              `[data-comparison-metric="${button.dataset.comparisonMetric}"]`,
-            )
-            ?.focus();
-        }),
-      );
-    };
-    paint(comparison.preferred_metric || "pts");
+    // The head-to-head bars replace the separate per-stat chart.
+    chartCard.hidden = true;
+    chartEl.innerHTML = "";
     const profile = root.querySelector("[data-agent-profile]");
-    if (profile)
-      profile.innerHTML = comparisonProfiles(comparison, renderPlayerProfile);
+    if (profile) profile.innerHTML = comparisonProfiles(comparison);
     return;
   }
   const overview = overviewPresentation(payload);
@@ -1196,7 +1181,7 @@ function renderOverviewTable(overview) {
   return overviewMetricsTable(overview);
 }
 
-function renderOverviewCharts(payload, key, root = document) {
+function renderOverviewCharts(payload, key, root = document, open = false) {
   const charts = asArray(payload.charts);
   const chart = charts.find((c) => c.series?.[0]?.key === key) || charts[0];
   const el = root.querySelector("[data-agent-charts]");
@@ -1205,10 +1190,11 @@ function renderOverviewCharts(payload, key, root = document) {
     (m) => m.key === chart.series[0].key,
   );
   const daily = chart.grain === "daily";
-  el.innerHTML = `<div class="chart-header"><div><h2>Performance over time</h2><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div></div><div class="agent-chart overview-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for date and sample size. ${daily ? "Days" : "Months"} without appearances are omitted; lines do not imply games were played between observations.</p>`;
+  // The metrics table leads; the full time series opens on demand.
+  el.innerHTML = `<details class="chart-disclosure"${open ? " open" : ""}><summary>Performance over time · ${escHtml(metricAbbreviation(metric))}</summary><div class="chart-header"><div><h2 class="sr-only">Performance over time</h2><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div></div><div class="agent-chart overview-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for date and sample size. ${daily ? "Days" : "Months"} without appearances are omitted; lines do not imply games were played between observations.</p></details>`;
   el.querySelectorAll("[data-chart-key]").forEach((button) =>
     button.addEventListener("click", () => {
-      renderOverviewCharts(payload, button.dataset.chartKey, root);
+      renderOverviewCharts(payload, button.dataset.chartKey, root, true);
       root
         .querySelector(`[data-chart-key="${button.dataset.chartKey}"]`)
         ?.focus();

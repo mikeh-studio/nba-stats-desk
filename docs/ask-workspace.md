@@ -159,10 +159,23 @@ A future verified impact metric is displayed only when both players have numeric
 values in the matching scope. This change does not connect locally scraped data
 or substitute raw plus/minus for net rating.
 
-The third comparison takeaway describes scoped appearances and minutes per game.
-These measure playing time and workload, not health or isolated winning impact.
-The comparison includes three additional sections using the same scoped
-appearances as the core scorecard: shooting efficiency (FG%, 3P%, FT%, eFG%, TS%),
+The comparison result opens with compact player cards and a verdict, then three
+summary areas: **Offense** (points and assists, with per-36 and true-shooting
+rows from the detail sections), **Defense** (box-score rebounds, steals and
+blocks only) and **Availability** (games and minutes, which measure playing time,
+not health). Each area has a lean meter. Offense and Defense average the
+percentile gaps of complete metrics (under 5 points is even; 30 points fills the
+meter); Availability compares total minutes, or games when minutes are
+incomplete (under 5% is even; 25% fills it). Up to three takeaway cards name the
+favored player and cite their numbers. This browser text is derived from the
+comparison evidence, like the earlier category takeaways; the verdict states that
+box-score differences do not establish an overall winner. A per-game
+head-to-head table replaces the per-stat bar chart: bar length is each player's
+league percentile, the leader is bold with the unrounded-average margin, and its
+values, percentiles and margins carry claim bindings.
+
+The comparison includes three additional sections, collapsed under the
+head-to-head table, using the same scoped appearances as the core scorecard: shooting efficiency (FG%, 3P%, FT%, eFG%, TS%),
 ball security (turnovers, assists and minutes per game), and points/assists per
 36 minutes. Shooting percentages use combined makes and attempts; differences
 are percentage points. Per-36 rates use total production and total minutes,
@@ -186,8 +199,7 @@ Explicit playoff years resolve to the corresponding season. Round, clutch,
 opponent, home/away, wins-only and per-possession/per-minute filters are not
 silently approximated. Period-versus-period questions keep their existing route.
 Saved comparison context includes both full names and explicit dates. Fill-only
-follow-ups preserve that scope, and an assists follow-up selects the AST chart.
-Narrow-screen tables scroll horizontally and are keyboard-focusable.
+follow-ups preserve that scope. Narrow-screen tables scroll horizontally.
 
 The shared header puts Search players beside the brand at the upper right, with
 four navigation links: Ask, Performance, Trending, and Profiles. Player profiles
@@ -315,7 +327,9 @@ Saved responses retain their original text; new requests use this presentation.
 
 Governed player overviews use the same evidence for the overall assessment,
 up to three visible Key Takeaways, eleven primary metrics (six or nine for focused
-profiles) and an adaptive performance chart. The chart starts with the requested
+profiles) and an adaptive performance chart. The server-written Overall sits
+above icon takeaway cards and the compact metrics table; the performance chart
+is collapsed until opened. The chart starts with the requested
 focus metric, or PTS for general overviews; PTS/REB/AST/STL/BLK
 controls switch the series. Other Ask intents retain their original answer and
 table/chart renderers instead of receiving invented overview insights.

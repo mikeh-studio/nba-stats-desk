@@ -37,7 +37,7 @@ for (const width of [1280, 390]) {
     await expect(prose).not.toContainText('exceeded');
     await expect(prose).not.toContainText('positioning and assignments');
     await expect(prose).not.toContainText('highest-scoring game');
-    await expect(page.locator('.takeaway')).toHaveCount(2);
+    await expect(page.locator('.takeaway-card')).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({path:testInfo.outputPath(`balanced-overview-${width}.png`), fullPage:true});
     // Frozen saved prose stays intact; an explicit new question gets new prose.
@@ -75,8 +75,9 @@ test('non-scoring wording selects creation chart and omits generic limitations',
 test('comparison hides unavailable impact in fresh and legacy saved analyses', async ({page}, testInfo) => {
   const c = await prepare(page, 'two_player');
   await submit(page, c.turns[0].question);
-  await expect(page.locator('[data-agent-answer]')).toContainText('Playing time and workload');
-  await expect(page.locator('[data-agent-tables]')).toContainText('Blair Sample by 7.5');
+  await expect(page.locator('[data-agent-answer]')).toContainText('Availability');
+  await expect(page.locator('[data-agent-answer] .result-verdict')).toContainText('do not establish an overall winner');
+  await expect(page.locator('[data-agent-tables] .h2h-table')).toContainText('+7.5');
   await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
   await expect(page.locator('.comparison-impact')).toHaveCount(0);
   await expect(page.locator('[data-comparison-metric="impact"]')).toHaveCount(0);
@@ -91,12 +92,13 @@ test('comparison hides unavailable impact in fresh and legacy saved analyses', a
     localStorage.setItem(key, JSON.stringify(history));
   });
   await page.reload();
-  await expect(page.locator('[data-agent-tables]')).toContainText('Blair Sample by 7.5');
+  await expect(page.locator('[data-agent-tables] .h2h-table')).toContainText('+7.5');
   await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
   await expect(page.locator('.comparison-impact')).toHaveCount(0);
   await expect(page.locator('[data-answer-context]')).not.toContainText(/Win Shares|possession/i);
-  await page.locator('[data-comparison-metric="ast"]').click();
-  await expect(page.locator('[data-agent-charts]')).toContainText('Assists per game comparison');
+  // The head-to-head replaces the per-stat chart; every core stat stays visible.
+  await expect(page.locator('[data-agent-chart-card]')).toBeHidden();
+  await expect(page.locator('.h2h-table tbody tr')).toHaveCount(5);
   await page.screenshot({path:testInfo.outputPath('comparison-available-metrics.png'),fullPage:true});
 });
 
@@ -357,7 +359,7 @@ test('overview shows eleven metrics, sample evidence, balanced takeaways and exp
   const table = page.locator('[data-agent-tables] > .table-scroll table');
   await expect(table.locator('tbody tr')).toHaveCount(11);
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
-  await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
   await expect(table).toContainText('3PM');
   const samples=page.locator('[data-sample-details]');
   await samples.locator('summary').click();
@@ -398,11 +400,11 @@ test('compact overview has visible Key Takeaways and a short eleven-row table', 
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   expect((await table.boundingBox()).height).toBeLessThan(500);
   await expect(table.locator('thead th')).toHaveCount(4);
-  await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true})).toBeVisible();
-  const items=page.locator('.compact-takeaways .takeaway');
+  await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
+  const items=page.locator('.result-takeaways .takeaway-card');
   expect(await items.count()).toBeGreaterThan(0);expect(await items.count()).toBeLessThanOrEqual(3);
   await expect(items.first().locator('p')).toBeVisible();
-  await expect(page.locator('.compact-takeaways details')).toHaveCount(0);
+  await expect(page.locator('.result-takeaways details')).toHaveCount(0);
 });
 
 
@@ -416,7 +418,11 @@ for (const width of [1280,390]) {
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
     expect((await table.boundingBox()).height).toBeLessThan(500);
     await expect(table.locator('tbody th abbr').first()).toHaveText('PTS');
-    await expect(page.getByRole('heading',{name:'Performance over time',exact:true})).toBeVisible();
+    // The time series is collapsed under the metrics table until opened.
+    const chart=page.locator('.chart-disclosure');
+    await expect(chart).not.toHaveAttribute('open','');
+    await chart.locator('summary').click();
+    await expect(chart.locator('summary')).toContainText('Performance over time');
     await expect(page.locator('.chart-header')).toContainText('Game-by-game');
     await expect(page.locator('[data-chart-key]')).toHaveCount(5);
     await page.locator('[data-chart-key="reb"]').click();
@@ -497,7 +503,7 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example played last year as of 2025-10-12?');
     await expect(page.locator('[data-agent-answer]')).toContainText('last completed NBA season (2024-25)');
-    await expect(page.getByRole('heading',{name:'Key Takeaways',exact:true}).first()).toBeVisible();
+    await expect(page.getByRole('heading',{name:'Key takeaways',exact:true}).first()).toBeVisible();
     await expect(page.locator('table.compact-metrics').first().locator('tbody tr')).toHaveCount(11);
     await page.locator('.scope-assumption summary').click();
     await page.getByRole('button',{name:'Past 12 months',exact:true}).click();
@@ -517,6 +523,7 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example perform in April 2025?');
     let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
+    await page.locator('.chart-disclosure > summary').first().click();
     await page.locator('[data-chart-key="ast"]').first().click();
     const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
     const trigger=page.getByRole('button',{name:/^PTS distribution:/}).first();

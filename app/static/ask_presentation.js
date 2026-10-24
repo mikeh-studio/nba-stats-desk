@@ -1,4 +1,4 @@
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261023-ask-stable-buttons-v6";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261024-compact-results-v2";
 // Governed values, explicit display policy and server-authored balanced takeaways.
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 const escape = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -93,7 +93,7 @@ export function overviewPresentation(payload) {
 export function overviewTakeaways(overview) {
   if (!overview.insights.length) return '';
   const icons = new Set(['chart-bar','chart-line','shield']);
-  return `<aside class="takeaways compact-takeaways" aria-label="Key takeaways"><h2>Key Takeaways</h2>${overview.insights.slice(0,3).map(i => `<section class="takeaway"><img src="/static/icons/${icons.has(i.icon) ? i.icon : 'chart-bar'}.svg" alt="" /><div><h3>${escape(i.title)}</h3><p>${escape(i.text)}</p></div></section>`).join('')}</aside>`;
+  return `<section class="result-takeaways" aria-label="Key takeaways"><h2 class="result-label">Key takeaways</h2><div class="takeaway-grid">${overview.insights.slice(0,3).map(i => `<article class="takeaway-card has-icon"><img src="/static/icons/${icons.has(i.icon) ? i.icon : 'chart-bar'}.svg" alt="" /><div><h3>${escape(i.title)}</h3><p>${escape(i.text)}</p></div></article>`).join('')}</div></section>`;
 }
 
 export function overviewMetricsTable(overview) {

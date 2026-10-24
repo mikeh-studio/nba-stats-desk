@@ -245,7 +245,7 @@ test("log mode retains invalid drawer interaction, game selection and close", as
   await expect(dialog).not.toBeVisible();
 });
 
-test("log comparison chart retains metric selection after a contradiction", async ({
+test("log comparison head-to-head stays rendered after a contradiction", async ({
   page,
 }) => {
   await page.goto(logUrl + "/ask");
@@ -256,12 +256,14 @@ test("log comparison chart retains metric selection after a contradiction", asyn
     document.body.append(root);
     window.__askAgentTest.renderAuxiliaryPayload(payload, root, false);
   }, comparisonFixture());
-  await expect(page.locator("[data-comparison-metric]").first()).toBeVisible();
+  await expect(page.locator(".h2h-table").first()).toBeVisible();
+  // The head-to-head replaces the per-stat chart.
+  await expect(page.locator("[data-comparison-metric]")).toHaveCount(0);
   const status = await page
     .evaluate(async () => {
-      const root = document.querySelector("[data-agent-charts]");
-      const claim = root.querySelector("[data-ui-claim]");
-      claim.textContent = "contradicted chart label";
+      const root = document.querySelector("[data-agent-tables]");
+      const claim = root.querySelector(".h2h-num[data-ui-claim]");
+      claim.textContent = "contradicted value";
       const api = await import(
         "/static/ask_claim_bindings.js?v=" + window.__claimAssetVersion
       );
@@ -274,11 +276,8 @@ test("log comparison chart retains metric selection after a contradiction", asyn
     })
     .catch(() => "fixture_setup_failed");
   expect(status).toBe("invalid");
-  await page.locator("[data-comparison-metric]").last().click();
-  await expect(page.locator("[data-comparison-metric]").last()).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
+  // Log mode keeps the surface visible for review instead of withholding it.
+  await expect(page.locator(".h2h-table").first()).toContainText("contradicted value");
 });
 
 test("telemetry projection exception cannot prevent enforced DOM suppression", async ({
