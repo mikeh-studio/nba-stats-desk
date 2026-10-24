@@ -1,100 +1,81 @@
 # Public / Private Boundary
 
-This repo stays public as NBA Stats Desk: the shared data platform, reusable
-analytics, and reference application. A separate private product repository owns
-new website experiences, product-specific workflows, and proprietary analysis.
-Private model research can remain in its existing dedicated repositories.
-Keep reusable implementation public and operational data and administrative
-access restricted. A private code repository can power a public website; it does
-not provide authentication or authorize publication of its data.
+## Decision: private-first product development
 
-## Repository ownership
+Develop product features, prompts, routing, presentation, and experiments in
+`mikeh-studio/nba-stats-desk-product` (private) first. The public
+`mikeh-studio/nba-stats-desk` repository is the curated shared platform and runnable
+reference application. Public publication is an explicit decision, not the default
+result of improving the product. See the [path ownership map](repository-ownership.md).
 
-| Area | Owner and boundary |
-| --- | --- |
-| `dags/`, ingestion and repair scripts, `contracts/`, `dbt/`, `season.yml`, `dags/season_config.py` | Public platform remains the single source of shared pipeline code, source validation, season scope, and statistics. |
-| Governed NBA metrics, identity resolution, season/phase validation, evidence provenance, baseline models, and reusable evaluation tools in `app/` | Public and authoritative, including improvements discovered during private product development. |
-| Reference UI, Ask orchestration, prompts, and tools in `app/` | Public reference implementation that continues to receive fixes and useful shared improvements. |
-| New differentiated website flows, personalization, product-specific agent workflows, proprietary features and models | Private product or research repositories. Generic improvements can be deliberately contributed back with sanitized tests. |
-| Generic infrastructure templates, CI, and reusable release tooling | Public when free of operational details; product-specific deployment configuration and release policy belong in the private product repo. |
-| Credentials, user records, raw feedback, source exports, traces, trained artifacts, and production state | Access-controlled storage outside Git, including private Git. |
+Existing public source remains public, including unmerged PR branches. Keeping a
+PR unmerged does not conceal its contents. This transition does not rewrite public
+history, change repository visibility, or remove the runnable reference application.
 
-### Sharing the platform
+## Ownership and maintenance
 
-The private product pins an immutable public revision. The
-public repo remains independently buildable and never depends on private code.
-Do not copy DAGs or dbt models into the product or start a second production
-ingestion schedule. Shared fixes land here first; dependency updates are separate
-reviewable product changes. Preserve this repository's license in the dependency.
+- Public owns ingestion/orchestration, source contracts, dbt, season configuration,
+  deterministic NBA arithmetic, identity/evidence validation, and reusable read
+  adapters. Keep one authoritative implementation of these capabilities.
+- Private owns the full product UI, application composition, model defaults,
+  product prompts, natural-language planning, routing, conversation flows,
+  response presentation, synthetic product evaluations, and unreleased designs.
+- Mixed modules remain shared until their product-only responsibilities are
+  explicitly separated. Do not copy governed calculations into private code.
+- Existing public UI and Ask code are a reference baseline. Maintain security,
+  correctness, compatibility, and buildability; do not automatically synchronize
+  private features or treat the public app as the product development branch.
+- Existing private research repositories retain ownership of their models. Consume
+  versioned outputs rather than maintaining competing implementations.
 
-Select a narrow runtime interface for each product capability before implementing
-it. Prefer an existing reviewed read API when it supplies the required evidence;
-otherwise review the missing contract before introducing direct warehouse reads
-or a small shared library. Keep governed arithmetic in this platform rather than
-copying it into product SQL or a private Ask fork. Public shared logic defines
-the NBA statistics; private methods may derive clearly labeled proprietary
-scores without claiming those scores are canonical NBA metrics.
+Private source can power a public website. Repository privacy provides neither
+website authentication nor permission to expose source data. Browser assets are
+necessarily delivered to users; keep sensitive logic server-side.
 
-A source pin does not freeze live schemas, data, freshness, or season/archive
-routing. Product requests must preserve explicit scope and evidence availability.
-Dependency updates that change season or archive routing follow the reviewed
-rollover sequence; fixture-based CI does not establish live readiness. Source
-reuse supplies no credentials or permission to run warehouse writers. Future private model jobs publish only validated,
-versioned outputs through an explicitly reviewed publication contract.
+## Shared dependency
 
-### Initial transition
+The private product pins an immutable public revision and composes the shared
+implementation. The public repository must build without private source. Do not
+copy DAGs, dbt models, source data, or metric engines into the product. The private
+runtime has explicit module ownership and import-provenance tests; it is not a
+second ingestion checkout or permission to operate a second scheduler.
 
-Existing tracked platform and reference-app code stays here. Ownership follows
-responsibility, not the date code was written: shared correctness changes land
-publicly, while differentiated product workflows start private. There is no bulk
-copy of the working checkout, ignored
-research, or uncommitted work. Moving a currently tracked module later requires
-an explicit path inventory, consumer compatibility checks, and a reviewed change.
-Previously published code remains in public history.
+Fix shared correctness in its authoritative public module using synthetic tests
+and a curated public PR. Product implementation and private context stay private.
+If a fix cannot be safely described publicly, isolate a minimal reproducible case
+before publication. Do not silently maintain a private copy of shared arithmetic.
 
-Repository setup does not activate production. Prior-season archive publication,
-IAM, deployment, scheduler repair or activation, warehouse writes, and any live
-polling remain pending operator review under the
-[season rollover procedure](operations.md#season-rollover).
+Dependency pins establish source reproducibility, not live data, credentials,
+schema compatibility, archive coverage, or deployment readiness. An unmerged pin
+must be explicitly recorded as such and must not be described as a released
+platform version. PR #97 remains unmerged during this transition.
 
-## Keep Public
+## Deliberate public promotion
 
-- source ingestion and orchestration
-- source contracts
-- dbt bronze, silver, gold, and agent models
-- feature input tables
-- public baseline similarity output contracts
-- reference FastAPI routes and reusable read-only app behavior
-- public-safe docs and validation commands
-- existing reference agent orchestration, prompts, and tool definitions
-- reusable feedback, evaluation, repair, and release-control tooling
-- reviewed synthetic or sanitized regression fixtures and concise evaluation
-  summaries or incident write-ups
-- `.env.example` placeholders
+1. Select a reusable capability or reference-app improvement for publication.
+2. Inspect its complete dependency closure, fixtures, documentation, screenshots,
+   generated artifacts, and PR text. Replace private inputs with synthetic cases.
+3. Preserve license notices and prove it builds without private dependencies.
+4. Open a focused public PR with the contract and relevant validation. A push to
+   any public branch already publishes code; review the boundary before pushing.
+5. Record the resulting public owner/version privately. Retire any duplicate
+   private implementation and update the dependency pin through a separate review.
 
-## Private source repositories
+Never mirror the private repository, automatically copy private branches into the
+public repository, or use public CI to evaluate private source or records.
 
-- new product-specific website code, personalization, and agent workflows
-- proprietary feature engineering and product-specific deployment configuration
-- tuned similarity model code
-- proprietary feature weights, thresholds, and model-selection experiments
-  (documented public baseline parameters remain public)
-- private research source, experiment definitions, design documents, and synthetic
-  product evaluation cases that contain no real user or operational records
+## Private source and storage
 
-Assign each proprietary model one source owner. Product and research repositories
-must not maintain parallel copies of the same model or pipeline. Keep shared
-metric/evidence corrections public with sanitized tests.
+Private Git may contain product source, synthetic evaluation cases, design notes,
+experiment definitions, and proprietary model source. It must not contain raw
+conversations, user feedback, real evaluation captures, credentials, source dumps,
+warehouse exports, generated reports, trained artifacts, or production state.
+Keep those in access-controlled storage outside either Git repository. The existing
+ignore and staged-index checks remain necessary but are not complete secret scans.
 
-## Private storage outside Git
-
-- raw user feedback, conversations, traces, private labels and evaluation captures,
-  and scouting records
-- generated reports under `reports/` and local Ask history under `local_notes/`
-- raw datasets and generated notebook outputs
-- model artifacts, checkpoints, and embeddings
-- real `.env` files, service accounts, tokens, and warehouse exports
-- raw quarantine exports and incident records containing sensitive information
+Repository migration does not activate production. Archive publication, IAM,
+deployment, scheduler changes, warehouse writes, and live polling remain separate
+operator decisions under the [season rollover procedure](operations.md#season-rollover).
 
 ## Feedback and operational workflow requirements
 
@@ -181,7 +162,7 @@ This is an ownership example, not a migration of an existing repository. Local
 `notebooks/`, `reports/`, raw data, and generated model artifacts must remain
 ignored or in access-controlled external storage. Ignored files are not backed
 up by Git. Product-specific adapters can be tracked privately; reusable adapters
-can be contributed here after review.
+can be deliberately promoted here after review.
 
 Keep `AGENT_HISTORY_ENABLED=false` for public deployments unless the endpoint is
 put behind a real auth boundary.
