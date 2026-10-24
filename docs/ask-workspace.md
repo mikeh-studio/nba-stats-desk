@@ -97,7 +97,10 @@ as such, never proof of no association; nominal p-values below 0.001 display as
 ## Two-player comparisons
 
 Explicit `A vs B`, `A versus B`, and `Compare A and B` questions use a
-deterministic two-player scorecard. Nicknames use the existing source-backed
+deterministic two-player scorecard. So do evaluative questions that name two
+players but no statistic (“Who played better last season: A or B?”, “Who's
+better, A or B?”, “Is A better than B?”, “A or B: who had the better season?”);
+a named statistic (“who scored more, A or B”) stays with the metric planner. Nicknames use the existing source-backed
 alias catalog. Each side is resolved separately; ambiguous identities require
 selection and already-resolved sides are retained during clarification.
 Across all Ask routes, when a player name does not match exactly, deterministic
@@ -656,12 +659,18 @@ saved winner identity. This preserves the Finals-only limitation across process
 restarts; legacy award questions are re-resolved using their saved season.
 Unverifiable award context is rejected rather than broadened to another phase.
 
-Broad player performance questions (including “how did he perform/play/do” and
-“how has he been doing”) use the full overview when no specific metric or
-unsupported condition is requested. The generic metric planner cannot silently
-replace basketball performance with a fantasy proxy. Fantasy queries require
-explicit intent or a metric-preserving continuation of an existing fantasy
-analysis; otherwise Ask requests clarification before executing the query.
+Broad player performance questions (including “how did he perform/play/do”,
+“how has he been doing”, “how was/how good was X”, and “what kind of season did
+X have”) use the full overview when no specific metric or unsupported condition
+is requested. Real box-score statistics are the default: fantasy proxy metrics
+are offered to the metric planner only when the question asks for fantasy (or a
+box-score index) or continues an existing fantasy analysis, and a proposed
+fantasy metric without that intent is withheld. Fantasy roster advice requires
+fantasy wording or a first-person roster move (“should I drop X”); “drop-off”,
+“drafted” and similar real-stat wording never routes there. Planner and engine
+invariant failures (an invalid plan, an incompatible comparison, failed evidence
+validation) keep their status code for traces and evaluation, but the reader sees
+a plain-language message rather than the internal error text.
 Metric abbreviations and scoring/efficiency requests replace inherited fantasy
 intent. Home/away qualifiers bypass the broad overview so their filters remain
 part of the governed metric plan.
@@ -914,6 +923,10 @@ focuses, scope guards, units, comparison eligibility and missing-data behavior.
 
 
 ## Conversational time defaults
+
+Relative periods are resolved once. The planner receives the resolved wording in
+both its question and current-question fields, so “last year” cannot be shifted
+again relative to the already-selected season.
 
 Ask resolves casual time phrases deterministically before overview, metric, and
 comparison planning. “Last year”, “last season”, “previous year” and “prior season”

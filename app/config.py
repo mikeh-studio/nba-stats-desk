@@ -85,7 +85,7 @@ class Settings:
     season: str = SUPPORTED_SEASON
     agent_dataset: str = "nba_agent"
     openai_api_key: str | None = None
-    openai_agent_model: str = "gpt-5.4-mini"
+    openai_agent_model: str = "gpt-5.6-luna"
     openrouter_api_key: str | None = None
     openrouter_agent_model: str = "deepseek/deepseek-v4.1-flash"
     openrouter_agent_timeout_seconds: float = 90.0
@@ -210,7 +210,7 @@ def get_settings() -> Settings:
             os.getenv("NBA_NEXT_REGULAR_SEASON_START", "2026-10-20")
         ),
         openai_api_key=os.getenv("OPENAI_API_KEY") or None,
-        openai_agent_model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.4-mini"),
+        openai_agent_model=os.getenv("OPENAI_AGENT_MODEL", "gpt-5.6-luna"),
         openrouter_api_key=os.getenv("OPENROUTER_API_KEY") or None,
         openrouter_agent_model=os.getenv(
             "OPENROUTER_AGENT_MODEL", "deepseek/deepseek-v4.1-flash"

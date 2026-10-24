@@ -181,11 +181,19 @@ def question_intent(question: str) -> dict[str, str | None]:
                 "A scoped production comparison is available, but cannot price a contract or validate a trade package."
             ),
         )
-    if re.search(
-        r"\b(?:fantasy|dynasty|keeper|punt|sell high|buy low|stash|drop|draft)\b",
+    # Real-stat questions say "drop-off" or "drafted"; only fantasy wording or a
+    # first-person roster move makes this a fantasy decision.
+    fantasy = re.search(
+        r"\b(?:fantasy|dynasty|keeper|punt|sell high|buy low|waivers?)\b",
         question,
         re.I,
-    ) and re.search(
+    ) or re.search(
+        r"\b(?:should\s+(?:i|we)|my\s+(?:team|roster|league))\b[^?]*"
+        r"\b(?:drop(?![- ]?offs?\b)|stash|draft|pick\s+up|hold)\b",
+        question,
+        re.I,
+    )
+    if fantasy and re.search(
         r"\b(?:should|who|which|hold|drop|trade|draft|keep|target|value|sell|buy|stash)\b",
         question,
         re.I,

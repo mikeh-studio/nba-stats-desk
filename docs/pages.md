@@ -135,7 +135,8 @@ deltas, and chart payloads.
 Operational controls:
 
 - `OPENAI_AGENT_MODEL`, `ANTHROPIC_AGENT_MODEL`, and `OPENROUTER_AGENT_MODEL`
-  set provider defaults.
+  set provider defaults. The OpenAI default is `gpt-5.6-luna`; see the
+  [model comparison](evaluation.md#openai-default-model-comparison).
 - `AGENT_MAX_TOOL_CALLS` bounds one request's evidence loop.
 - `AGENT_RATE_LIMIT_PER_MINUTE`, `AGENT_RATE_LIMIT_DAILY`, and
   `AGENT_QUESTION_MAX_CHARS` protect public endpoints.

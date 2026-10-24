@@ -387,6 +387,7 @@ pending. Detailed cases, captures, model responses and HTML remain private under
 focused offline regressions rather than silently rerunning paid experiments.
 
 
+
 PR review regressions additionally cover pending-reference replacement, participation
 routing ahead of incidental similarity/baseline wording, appearance windows ending
 on the focal player's last game, bounded membership payloads and stable hashes,
@@ -402,6 +403,17 @@ remain pending review. Prior production captures, scored runs and exported human
 decisions are retained unchanged; a new offline replay can apply revised
 expectations to the same frozen facts without paid calls or warehouse access.
 
+### OpenAI default model comparison
+
+On 2026-10-23 the 27 live-eligible synthetic planner cases (every case except the
+controlled invalid-plan injection) ran over both transports with `gpt-5.4-mini`
+and `gpt-5.6-luna`, 52 model calls each. Luna passed 24 cases and mini 23; the
+only difference was a mixed scoring-and-rebounding question that Luna correctly
+clarified. Input tokens were identical; Luna produced about 1.8 times the output
+tokens (about half of them reasoning) and had a median call latency of 3.1 s
+versus 1.4 s. At list prices its run cost about a quarter of mini's. Luna became
+the default `OPENAI_AGENT_MODEL`. This is a small contract-conformance run, not a
+broad accuracy estimate; per-call evidence remains private under `reports/`.
 
 ### Expanded offline Ask coverage
 

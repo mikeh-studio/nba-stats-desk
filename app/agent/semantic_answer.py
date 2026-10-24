@@ -290,10 +290,77 @@ def add_leaderboard_reference(payload, result, evidence, players, player_id):
     leaderboard_reference(payload)
 
 
+# Planner/engine invariants are diagnostics, not answers. The status code keeps
+# the failure visible to traces and evaluation; the reader gets plain language.
+PLANNING_FAILURE_MESSAGES = frozenset(
+    {
+        "Comparison requires compatible individual summaries",
+        "Invalid query count/status",
+        "Invalid query count",
+        "Invalid plan fields",
+        "Invalid plan types",
+        "Planner did not return a complete plan",
+        "Planner selected an unresolved player reference",
+        "Invalid serving execution",
+    }
+)
+PLANNING_FAILURE = (
+    "I couldn't turn this question into a reliable statistics query, so no numbers "
+    "are shown. Naming the statistic and season helps, for example: "
+    "“Who led the league in points per game in 2025-26?”"
+)
+DATA_FAILURE = (
+    "The data for this question failed validation, so no numbers are shown. "
+    "This is a data problem, not a problem with how the question was asked."
+)
+
+
+def user_message(message: str, status: str) -> str:
+    if status == "invalid_plan" or message in PLANNING_FAILURE_MESSAGES:
+        return PLANNING_FAILURE
+    if status in ("invalid_evidence", "invalid_data", "duplicate_grain"):
+        return DATA_FAILURE
+    return message
+
+
 def _payload(message: str, status: str) -> dict[str, Any]:
     from app.agent.payload import answer_payload
 
-    return answer_payload(message, status=status)
+    return answer_payload(user_message(message, status), status=status)
+
+
+def leader_statement(section, metric, scope, names):
+    """Lead a ranking with who ranked first; the table carries the rest."""
+    ranked = [
+        r for r in section["rows"] if r.get("rank") and r["display_value"] is not None
+    ]
+    leaders = [r for r in ranked if r["rank"] == 1]
+    if not leaders:
+        return []
+
+    def shown(row):
+        unit = "%" if metric["unit"] == "ratio" else ""
+        return f"{row['display_value']:.1f}{unit}"
+
+    per = " per game" if scope["aggregation"] == "average" else ""
+    who = " and ".join(names.get(r["player_id"], str(r["player_id"])) for r in leaders)
+    lead = (
+        f"{who} ranked first with {shown(leaders[0])} {metric['label']}{per}"
+        + (
+            f" across {leaders[0]['valid_games']} games"
+            if len(leaders) == 1 and scope["aggregation"] == "average"
+            else ""
+        )
+        + (" (tied)." if len(leaders) > 1 else ".")
+    )
+    runner = next((r for r in ranked if r["rank"] > 1), None)
+    if runner:
+        lead += f" Next: {names.get(runner['player_id'], str(runner['player_id']))} ({shown(runner)})."
+    cohort = section["cohort"]
+    lead += (
+        f" {cohort['size']} players qualified (minimum {cohort['min_games']} games)."
+    )
+    return [lead]
 
 
 @timed("rendering")
@@ -508,6 +575,8 @@ def render_answer(
             statements.append(
                 f"{title}: no eligible observations for {context}. Thresholds were not lowered."
             )
+        elif scope["operation"] == "rank":
+            statements.extend(leader_statement(section, metric, scope, names))
     if "difference" in evidence:
         value = evidence["difference"]
         statements.append(
@@ -791,6 +860,13 @@ class SemanticAsk:
                 peer_question(question) if initial_shape == "overview" else question,
                 context=context,
             )
+            # The planner also reads the user's wording as current_question; give it
+            # the same resolved period so "last year" is not shifted a second time
+            # relative to the already-resolved selected season.
+            try:
+                planner_original = resolve_time_defaults(original, context=context)[0]
+            except SemanticError:
+                planner_original = original
             if position_group:
                 question += (
                     " among "
@@ -916,9 +992,9 @@ class SemanticAsk:
                         ),
                         dated_points_eligible=dated_points_eligible,
                         dated_points_question=(
-                            prepare_names(original, identities, strict=False)[0]
+                            prepare_names(planner_original, identities, strict=False)[0]
                             if dated_points_eligible
-                            else original
+                            else planner_original
                         ),
                     )
 
@@ -1161,9 +1237,11 @@ class SemanticAsk:
                                 False,
                             ),
                             dated_points_question=(
-                                prepare_names(original, players, strict=False)[0]
+                                prepare_names(planner_original, players, strict=False)[
+                                    0
+                                ]
                                 if dated_points_eligible
-                                else original
+                                else planner_original
                             ),
                             selected_season=seasons[0]
                             if len(seasons) == 1

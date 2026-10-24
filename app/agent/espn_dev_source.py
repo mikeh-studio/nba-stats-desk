@@ -214,9 +214,8 @@ class ESPNDevSource:
             maximum_bytes_billed=self.base.byte_budget,
         ).capture(seasons)
         note = (
-            "Local review: the 2025–26 archive is unavailable; this answer reads "
-            "retained 2025–26 warehouse facts from the base table with an explicit "
-            "season filter. No archive was created or certified."
+            "Local review: 2025–26 figures come from the warehouse's retained "
+            "2025–26 game records; a separate season archive is not available here."
         )
         retained["coverage_notes"] = [note]
         retained["scope_assumptions"] = [note]

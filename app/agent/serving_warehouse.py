@@ -205,7 +205,9 @@ class ServingWarehouse:
             return self._run_candidate(query, pub, metadata)
 
         try:
-            result = execute_plan(plan, None, players, query_runner=run)
+            result = execute_plan(
+                plan, None, players, query_runner=run, appearances=appearances
+            )
         except CapabilityMiss:
             result = None
         return PreparedAttempt(
