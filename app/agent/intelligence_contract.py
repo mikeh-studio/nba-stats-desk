@@ -1,8 +1,7 @@
-"""DRAFT intelligence boundary for review; not imported by the running app.
+"""Versioned intelligence boundary; the public host validates every returned value.
 
-Declarations only: no loader, validation, model calls, or provider implementation.
-Frozen records describe values, not runtime validation or a security sandbox.
-See docs/intelligence-contract.md for invariants and failure semantics.
+Frozen records describe data, not a sandbox. Discovery, validation and transport
+live in intelligence.py; execution remains in plan_execution.py.
 """
 
 from __future__ import annotations

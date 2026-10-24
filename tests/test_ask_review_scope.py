@@ -324,3 +324,7 @@ def test_planner_current_month_end_clips_to_today_and_excludes_later_games(
     assert baseline["rows"][0]["value"] == 20
     assert baseline["rows"][0]["valid_games"] == 5
     assert "2026-03-15" in " ".join(result["scope_assumptions"])
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

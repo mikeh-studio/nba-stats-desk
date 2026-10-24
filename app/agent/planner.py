@@ -5,78 +5,22 @@ import logging
 import re
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
 
 from app.agent.catalog import load_semantic_catalog
 from app.agent.execution import ExecutionFailure, create_response, timed
-from app.agent.player_resolver import load_player_aliases, normalize_player_text
-from app.agent.router import (
+from app.agent.legacy_loader import build_agent_plan
+from app.agent.legacy_types import (
     ROUTE_TOOLS,
-    AgentPlan,
     AgentRoute,
-    DateRange,
-    build_agent_plan,
 )
+from app.agent.legacy_types import QueryPlan as QueryPlan
+from app.agent.legacy_types import TimeWindow as TimeWindow
+from app.agent.player_resolver import load_player_aliases, normalize_player_text
+from app.agent.scope_policy import explicit_metric_mentions as explicit_metric_mentions
 from app.config import Settings
 
 logger = logging.getLogger("nba.agent.planner")
-
-
-class TimeWindow(BaseModel):
-    kind: str = "unspecified"
-    last_n_games: int | None = None
-    last_n_weeks: int | None = None
-    last_n_days: int | None = None
-    start_date: str | None = None
-    end_date: str | None = None
-    granularity: str = "auto"
-    comparison_mode: str = "previous_period"
-    comparison_start_date: str | None = None
-    comparison_end_date: str | None = None
-    anchor_date: str | None = None
-
-
-class QueryPlan(BaseModel):
-    route: AgentRoute
-    confidence: float = Field(ge=0, le=1)
-    answer_depth: str = "normal"
-    raw_player_mentions: list[str] = Field(default_factory=list)
-    resolved_players: list[dict[str, Any]] = Field(default_factory=list)
-    unresolved_players: list[str] = Field(default_factory=list)
-    metrics: list[str] = Field(default_factory=list)
-    min_games: int | None = Field(default=None, ge=1, le=200)
-    time_window: TimeWindow = Field(default_factory=TimeWindow)
-    tool_recipe: list[str] = Field(default_factory=list)
-    needs_clarification: bool = False
-    clarification_question: str | None = None
-    clarification_options: list[dict[str, Any]] = Field(default_factory=list)
-    opponent_breakdown: bool = False
-    planner_source: str = "deterministic"
-
-    def to_agent_plan(self, original_question: str) -> AgentPlan:
-        required_tools = list(ROUTE_TOOLS[self.route])
-        if (
-            self.opponent_breakdown
-            and self.route in {AgentRoute.PLAYER_TREND, AgentRoute.GAME_LOG}
-            and "get_player_opponent_splits" not in required_tools
-        ):
-            required_tools.append("get_player_opponent_splits")
-        return AgentPlan(
-            route=self.route,
-            confidence=self.confidence,
-            original_question=original_question,
-            player_names=self.raw_player_mentions,
-            metric_queries=self.metrics,
-            limit=self.time_window.last_n_games,
-            min_games=self.min_games,
-            date_range=DateRange(
-                start_date=self.time_window.start_date,
-                end_date=self.time_window.end_date,
-            ),
-            required_tools=required_tools,
-            needs_clarification=self.needs_clarification,
-            clarification_question=self.clarification_question,
-        )
 
 
 QUERY_PLAN_SCHEMA: dict[str, Any] = {
@@ -284,27 +228,6 @@ def _extract_metrics(question: str) -> list[str]:
             if key not in found:
                 found.append(key)
     return found
-
-
-def explicit_metric_mentions(question: str) -> set[str]:
-    """Canonical aliases, excluding shorter aliases inside a longer match."""
-    q = normalize_player_text(question)
-    matches: list[tuple[int, int, str]] = []
-    for metric in load_semantic_catalog().list_metrics():
-        for name in [metric["key"], metric["label"], *metric.get("aliases", [])]:
-            alias = normalize_player_text(str(name))
-            if alias:
-                matches.extend(
-                    (m.start(), m.end(), str(metric["key"]))
-                    for m in re.finditer(r"(?<!\w)" + re.escape(alias) + r"(?!\w)", q)
-                )
-    return {
-        key
-        for start, end, key in matches
-        if not any(
-            a <= start and end <= b and (a < start or end < b) for a, b, _ in matches
-        )
-    }
 
 
 _OPPONENT_BREAKDOWN_PATTERNS = (
@@ -556,3 +479,37 @@ def build_query_plan(
     if _has_explicit_time_window(fallback.time_window):
         plan.time_window = fallback.time_window
     return plan
+
+
+SYSTEM_PROMPT = """
+You are an NBA stats analyst for NBA Stats Desk. The selected season is supplied with each request.
+Answer only from the provided tool results and curated gold-model semantics.
+Use tools for player identity, game logs, percentiles, trends, rankings, and similarity.
+Use calculate_player_percentile for questions asking where one player ranks in a metric cohort.
+For "points attributed", "points created", or "points + assists * 2", use metric points_created.
+For game-by-game questions, call get_player_game_log so the response can include each game's values.
+For "how have their stats changed over the last N games" questions, read get_player_trends: describe the trajectory using trend_shape and slope_per_game, contrast the first-half vs second-half averages (prior_avg vs recent_avg), and if change_point is present call out the in-window shift (split_date, before_avg to after_avg). Note volatility/best/worst when form was streaky. Cover efficiency and impact (FG%, 3P%, TS%, +/-), not just scoring; metrics with unit "percent" are already 0-100 percentages and their deltas are percentage points.
+For "last N weeks", "last N days", or date-range performance questions, preserve the requested calendar framing. Use period_analysis, bucket_series, and comparison_rows (previous period) or baseline_rows (league baseline) from get_player_trends when present: name the requested period, the aggregation grain, and the comparison before describing metric deltas. Do not rename calendar windows as last-N-games analyses.
+For "which team did they struggle against" or opponent-matchup questions, use get_player_opponent_splits. The toughest_opponent is ranked by struggle_score (a blend of shooting efficiency and plus-minus vs the player's own average), so explain that a team can be the toughest matchup on efficiency/impact even when raw points look fine. Use toughest_opponent_games to show the individual shooting nights (fg, fg3, ts_pct, plus_minus) behind that verdict.
+For date-range questions, pass start_date and end_date as YYYY-MM-DD tool arguments; use null for an open side of the range.
+Respect explicit minimum-games filters; if the cohort is empty or the player is outside it, say that directly.
+Do not invent SQL, raw table names, injuries, transactions, or facts not present in tool data.
+If a player name is ambiguous, ask the user to choose from the matches.
+Copy relevant tool chart/table payloads into the final structured response.
+Format the answer field as concise Markdown narrative only: headings and list items must start on their own lines, do not include Markdown tables, and do not repeat row-by-row values that already appear in the structured tables payload. Summarize the takeaway in prose and reserve detailed rows for tables.
+Keep answers direct and useful for NBA fans comparing player form against the league.
+Write followups as ready-to-submit prompts from the user's perspective. Each suggestion must be a concrete new question or request that builds on the answer, not a repeat of what the user already asked. Include the relevant player names, metrics, and time window so the prompt makes sense when clicked. Do not ask the user whether they want more analysis or need to choose an option: write "Compare Tyrese Maxey's points per game over his last 10 games with the league average" rather than "Would you like to compare his scoring with the league average?". The UI displays each followup verbatim and copies that exact text into the Ask box. Return an empty followups array when there is no useful next question.
+""".strip()
+
+EVIDENCE_PROMPT = f"""
+{SYSTEM_PROMPT}
+
+You are writing from a prebuilt evidence bundle. Do not call tools unless the
+bundle is clearly insufficient. Explain the answer with enough depth for the
+route, cite concrete values from evidence, and surface caveats from tool
+statuses or limited samples.
+Answer with whatever the bundle does contain rather than refusing outright: if
+a tool fell back to default metrics or returned partial data, use it and note
+the limitation. Only decline a sub-question when no relevant evidence is
+present at all.
+""".strip()

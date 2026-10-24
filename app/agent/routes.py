@@ -20,7 +20,13 @@ from app.agent.conversation import PendingClarification
 from app.agent.execution import timed
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
-from app.agent.question_intent import (
+from app.agent.reference_ask import reference_followup, reference_kind
+from app.agent.research_ask import (
+    mentioned_pairs,
+    wants_research,
+    wants_research_followup,
+)
+from app.agent.scope_policy import (
     name_reply,
     name_tokens,
     names_other_player,
@@ -28,12 +34,6 @@ from app.agent.question_intent import (
     split_kind,
     starts_new_question,
     task_terms,
-)
-from app.agent.reference_ask import reference_followup, reference_kind
-from app.agent.research_ask import (
-    mentioned_pairs,
-    wants_research,
-    wants_research_followup,
 )
 from app.agent.teammate_ask import legacy_study_has_replacement, wants_study
 

@@ -10,20 +10,22 @@ from pydantic import ValidationError
 
 from app.agent.conversation import ConversationStore, PendingClarification
 from app.agent.execution import create_response, governed_request
-from app.agent.name_matching import PlayerNameError, run_name_matching
-from app.agent.observability import AgentTrace, summarize_tool_result
-from app.agent.planner import (
-    QueryPlan,
+from app.agent.legacy_loader import (
+    build_agent_plan,
     build_query_plan,
     detect_opponent_breakdown,
     deterministic_query_plan,
+    legacy_available,
+    legacy_prompt,
 )
+from app.agent.legacy_types import AgentRoute, QueryPlan
+from app.agent.name_matching import PlayerNameError, run_name_matching
+from app.agent.observability import AgentTrace, summarize_tool_result
 from app.agent.player_resolver import (
     PlayerCandidate,
     PlayerResolution,
     PlayerResolver,
 )
-from app.agent.router import AgentRoute, build_agent_plan
 from app.agent.tools import (
     StatsToolRunner,
     _auto_grain_for_days,
@@ -31,39 +33,6 @@ from app.agent.tools import (
 )
 from app.config import Settings
 from app.repository import WarehouseRepository
-
-SYSTEM_PROMPT = """
-You are an NBA stats analyst for NBA Stats Desk. The selected season is supplied with each request.
-Answer only from the provided tool results and curated gold-model semantics.
-Use tools for player identity, game logs, percentiles, trends, rankings, and similarity.
-Use calculate_player_percentile for questions asking where one player ranks in a metric cohort.
-For "points attributed", "points created", or "points + assists * 2", use metric points_created.
-For game-by-game questions, call get_player_game_log so the response can include each game's values.
-For "how have their stats changed over the last N games" questions, read get_player_trends: describe the trajectory using trend_shape and slope_per_game, contrast the first-half vs second-half averages (prior_avg vs recent_avg), and if change_point is present call out the in-window shift (split_date, before_avg to after_avg). Note volatility/best/worst when form was streaky. Cover efficiency and impact (FG%, 3P%, TS%, +/-), not just scoring; metrics with unit "percent" are already 0-100 percentages and their deltas are percentage points.
-For "last N weeks", "last N days", or date-range performance questions, preserve the requested calendar framing. Use period_analysis, bucket_series, and comparison_rows (previous period) or baseline_rows (league baseline) from get_player_trends when present: name the requested period, the aggregation grain, and the comparison before describing metric deltas. Do not rename calendar windows as last-N-games analyses.
-For "which team did they struggle against" or opponent-matchup questions, use get_player_opponent_splits. The toughest_opponent is ranked by struggle_score (a blend of shooting efficiency and plus-minus vs the player's own average), so explain that a team can be the toughest matchup on efficiency/impact even when raw points look fine. Use toughest_opponent_games to show the individual shooting nights (fg, fg3, ts_pct, plus_minus) behind that verdict.
-For date-range questions, pass start_date and end_date as YYYY-MM-DD tool arguments; use null for an open side of the range.
-Respect explicit minimum-games filters; if the cohort is empty or the player is outside it, say that directly.
-Do not invent SQL, raw table names, injuries, transactions, or facts not present in tool data.
-If a player name is ambiguous, ask the user to choose from the matches.
-Copy relevant tool chart/table payloads into the final structured response.
-Format the answer field as concise Markdown narrative only: headings and list items must start on their own lines, do not include Markdown tables, and do not repeat row-by-row values that already appear in the structured tables payload. Summarize the takeaway in prose and reserve detailed rows for tables.
-Keep answers direct and useful for NBA fans comparing player form against the league.
-Write followups as ready-to-submit prompts from the user's perspective. Each suggestion must be a concrete new question or request that builds on the answer, not a repeat of what the user already asked. Include the relevant player names, metrics, and time window so the prompt makes sense when clicked. Do not ask the user whether they want more analysis or need to choose an option: write "Compare Tyrese Maxey's points per game over his last 10 games with the league average" rather than "Would you like to compare his scoring with the league average?". The UI displays each followup verbatim and copies that exact text into the Ask box. Return an empty followups array when there is no useful next question.
-""".strip()
-
-EVIDENCE_PROMPT = f"""
-{SYSTEM_PROMPT}
-
-You are writing from a prebuilt evidence bundle. Do not call tools unless the
-bundle is clearly insufficient. Explain the answer with enough depth for the
-route, cite concrete values from evidence, and surface caveats from tool
-statuses or limited samples.
-Answer with whatever the bundle does contain rather than refusing outright: if
-a tool fell back to default metrics or returned partial data, use it and note
-the limitation. Only decline a sub-question when no relevant evidence is
-present at all.
-""".strip()
 
 
 def _game_limit_for_time_window(window: Any) -> int:
@@ -1371,7 +1340,7 @@ class StatsAgent:
         response = self._create_response(
             client=client,
             model=model,
-            instructions=EVIDENCE_PROMPT
+            instructions=legacy_prompt("evidence")
             + f"\nSelected season: {self.settings.season}.",
             input_messages=evidence_messages,
             tools=None,
@@ -1506,19 +1475,13 @@ class StatsAgent:
         )
         if not self.settings.openai_agent_enabled:
             raise AgentDisabledError("The OpenAI stats agent is disabled.")
-        # Fail fast on missing credentials before any planning work happens.
-        if provider_name == "openrouter":
-            self._get_openrouter_client()
-        elif provider_name == "claude":
-            if self.claude_client is None and not self.settings.anthropic_api_key:
-                self._get_claude_client()
-        elif self.client is None and not self.settings.openai_api_key:
-            self._get_client()
+        from app.agent.intelligence import get_provider
+
+        intelligence = get_provider(self.settings)
 
         from app.agent.appearance_ask import answer_appearances
         from app.agent.availability_ask import answer_availability
         from app.agent.payload import answer_payload
-        from app.agent.question_intent import round_scope_message
         from app.agent.reference_ask import answer_reference
         from app.agent.research_ask import answer_research
         from app.agent.route_labels import DISPATCH_LABELS, route_hint
@@ -1528,6 +1491,7 @@ class StatsAgent:
             pending_routing,
             select_route,
         )
+        from app.agent.scope_policy import round_scope_message
         from app.agent.teammate_ask import answer_study
 
         turns = (
@@ -1653,7 +1617,9 @@ class StatsAgent:
                 assert self.semantic_agent is not None
                 payload = self.semantic_agent.answer(
                     cleaned_question,
-                    client=self._get_client(provider_name),
+                    client=self._get_client(provider_name)
+                    if intelligence.descriptor.requires_model
+                    else None,
                     model=selected_model,
                     conversation_id=conversation_id,
                     selected_player=selected_player,
@@ -1667,6 +1633,11 @@ class StatsAgent:
                 raise
             except Exception as exc:
                 raise AgentExecutionError("Governed analytics request failed") from exc
+
+        if not legacy_available():
+            raise AgentDisabledError("Legacy repository analytics are unavailable.")
+        # Frozen legacy tool/narrative workflows still require their model client.
+        self._get_client(provider_name)
 
         store = (
             self.conversation_store
@@ -1820,7 +1791,7 @@ class StatsAgent:
         input_messages.append({"role": "developer", "content": _route_hint(agent_plan)})
         tool_calls: list[dict[str, Any]] = []
         instructions = (
-            SYSTEM_PROMPT
+            legacy_prompt("system")
             + f"\nSelected season: {self.settings.season}. Only discuss this season unless tool evidence explicitly supports a comparison."
         )
         max_tool_calls = max(1, self.settings.agent_max_tool_calls)

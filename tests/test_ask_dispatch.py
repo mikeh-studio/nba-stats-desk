@@ -508,3 +508,7 @@ def test_scoring_rules():
     )
     assert summary["scope_drops"] == 1
     assert summary["confusion"] == {"research_breakdown": {"player_overview": 1}}
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

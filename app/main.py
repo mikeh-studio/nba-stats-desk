@@ -247,6 +247,9 @@ templates.env.filters["time_ago"] = _time_ago
 
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
+    from app.agent.intelligence import get_provider
+
+    get_provider(get_settings())
     _start_cache_prewarm()
     yield
 
@@ -589,6 +592,9 @@ def _fail_trace(trace: AgentTrace, exc: Exception) -> None:
         "request_timeout",
         "provider_timeout",
         "provider_failure",
+        "provider_unavailable",
+        "invalid_provider_output",
+        "budget_exhausted",
         "invalid_plan",
         "invalid_response",
     }:

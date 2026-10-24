@@ -21,19 +21,27 @@ and their common policy tests together. The table below explains its capabilitie
 | Existing similarity and prop research models | Their existing private research repositories; unchanged |
 | Credentials, user records, feedback, traces, raw data, exports and model binaries | Outside Git |
 
-## Mixed files and the future interface
+## Mixed files and the provider interface
 
-`service.py` orchestration is public; its production prompt text is private-owned
-and will be extracted in Phase 3. Deterministic evidence-derived prose remains
-public. The private semantic planner delegates `execute_plan`, `leader_game_floor`,
-`normalize_duplicate_rank_plan` and `single_period_rank_plan` to public code; these
-functions never become a second private statistics engine.
+`service.py` orchestration is public. The governed app loads production intelligence
+from the private `src/nba_stats_desk_product` package through an explicitly selected
+entry point. Its prompt sets and planner/classifier remain private. Governed
+execution and schema are owned by public `plan_execution`; literal scope and
+conversation policy are owned by public `scope_policy`. The public reference
+provider requires no production prompt or model key.
 
-The target private delivery is a Python package loaded by the public app, depending
-on a released public tag. Public must run standalone with its reference planner.
-The production image will combine public source and the private package. These
-are later implementation steps, not features or deployment delivered by this policy.
-Previously published code remains public; policy changes do not erase history.
+Public `semantic_planner` and `question_intent` now provide compatibility exports
+of public responsibilities. Existing non-governed planner/router/prompt snapshots
+are a frozen legacy exception accessed only through `legacy_loader`; removing
+that path requires the separately reviewed migration. Missing legacy code fails
+unavailable, never falling back from a failed governed request.
+
+The private wheel has its own namespace and imports shared execution from the
+public application. The old private app/test tree remains on its existing pin for
+compatibility checks. Released dependency pinning, removal of old copies and
+production image changes are later phases. No package installation changes the
+selected provider or authorizes deployment. Previously published code remains
+public; policy changes do not erase history.
 
 ## Machine-readable rules
 
@@ -64,7 +72,7 @@ ownership entry for every file. Import inventories also bound which existing
 public-owned copies may remain during the freeze; do not expand these historical
 inventories to authorize new UI work. Import hashes remain provenance, not a
 requirement for existing file contents to stay byte-identical.
-The private checker checks staged app, pipeline and test paths; it is an ownership
+The private checker checks staged package (`src/`), app, pipeline and test paths; it is an ownership
 and frozen-file admission check, not a secret scanner. Required
 private modules are checked explicitly so deletion cannot silently load a public
 fallback. Repository-local policy/tooling remains maintained in its own checkout.

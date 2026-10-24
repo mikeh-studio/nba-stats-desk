@@ -10,12 +10,10 @@ import pytest
 from app.agent.clock import semantic_date
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
-from app.agent.question_intent import question_intent
 from app.agent.semantic_answer import PLANNING_FAILURE, user_message
 from app.agent.semantic_planner import (
     leader_game_floor,
     league_leader_plan,
-    plan_question,
     single_period_rank_plan,
 )
 from scripts.ask_eval.fixtures import load_inputs
@@ -87,26 +85,6 @@ def test_evaluative_two_player_questions_use_the_scorecard(question, sides):
 
 
 @pytest.mark.parametrize(
-    "question,fantasy",
-    [
-        (
-            "Which player has the best improvements from season start to end? "
-            "Which palyer has the largest drop-off",
-            False,
-        ),
-        ("Which players had the biggest drop-off after the All-Star break?", False),
-        ("Who was drafted first in 2003?", False),
-        ("Should I drop Avery Example in fantasy?", True),
-        ("Should I drop Avery Example?", True),
-        ("Who should I pick up off waivers?", True),
-        ("Which dynasty assets should I sell high on?", True),
-    ],
-)
-def test_fantasy_advice_needs_fantasy_or_roster_wording(question, fantasy):
-    assert (question_intent(question)["kind"] == "fantasy_decision") is fantasy
-
-
-@pytest.mark.parametrize(
     "question,expected",
     [
         ("How was Curry this season?", True),
@@ -121,32 +99,6 @@ def test_fantasy_advice_needs_fantasy_or_roster_wording(question, fantasy):
 )
 def test_unnamed_statistic_defaults_to_full_overview(question, expected):
     assert wants_overview(question) is expected
-
-
-def test_planner_never_sees_fantasy_metrics_without_fantasy_intent():
-    seen = []
-
-    def create(**kwargs):
-        payload = json.loads(kwargs["input"][0]["content"])
-        seen.append(payload)
-        return SimpleNamespace(
-            output_text=json.dumps(
-                {"status": "unsupported", "queries": [], "message": "No"}
-            )
-        )
-
-    client = SimpleNamespace(responses=SimpleNamespace(create=create))
-    for question in (
-        "Who was the most productive player in 2024-25?",
-        "Fantasy leaders 2024-25",
-    ):
-        plan_question(
-            client, model="test", question=question, selected_season="2024-25"
-        )
-    plain, fantasy = ({m["key"] for m in p["metrics"]} for p in seen)
-    assert not plain & {"fantasy_proxy_weighted", "fantasy_points_simple"}
-    assert seen[0]["default_fantasy_metric"] is None
-    assert {"fantasy_proxy_weighted", "fantasy_points_simple"} <= fantasy
 
 
 @pytest.mark.parametrize(
@@ -242,6 +194,7 @@ def test_internal_planner_errors_are_not_shown_to_users():
     )
 
 
+@pytest.mark.usefixtures("scripted_intelligence")
 def test_relative_season_reaches_the_planner_once(on_date):
     on_date(date(2025, 8, 1))
     seen = []

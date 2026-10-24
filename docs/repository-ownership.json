@@ -8,12 +8,14 @@
         "app/agent/router.py",
         "app/agent/question_intent.py",
         "prompts/**",
-        "evals/cases/**"
+        "evals/cases/**",
+        "src/nba_stats_desk_product/**",
+        "tests/product_intelligence/**"
       ],
       "owner": "private",
       "private_presence": "owned",
       "priority": 100,
-      "description": "Production planning, routing, intent heuristics, prompt text and private evaluation cases. Public planner counterparts become the standalone reference in Phase 3."
+      "description": "Production planner/router, intent heuristics, prompt text and private evaluation cases. The src package is the governed hook implementation; old app modules remain compatibility snapshots until Phase 4."
     },
     {
       "patterns": [
@@ -129,11 +131,11 @@
     {
       "path": "app/agent/service.py",
       "public": "Orchestration and deterministic server-written presentation.",
-      "private": "Production prompt text; extraction behind the package hook is Phase 3."
+      "private": "Production prompt text is supplied through the selected provider. Existing legacy compatibility prompts are frozen pending legacy-route migration."
     },
     {
       "path": "app/agent/semantic_planner.py",
-      "public": "execute_plan, leader_game_floor, normalize_duplicate_rank_plan and single_period_rank_plan remain shared execution, qualification and scope validation. A standalone reference planner is public.",
+      "public": "Shared execution and schema now live in app/agent/plan_execution.py; literal scope and conversation guards in app/agent/scope_policy.py. The reference provider is app/agent/reference_planner.py.",
       "private": "Production planning only; private version delegates the shared functions."
     }
   ]

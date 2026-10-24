@@ -28,7 +28,7 @@ def test_duplicate_rank_contract_at_endpoint(monkeypatch, suffix, different):
         plan["queries"][1]["season_type"] = "Playoffs"
     elif different:
         plan["queries"][1]["min_games"] = 20
-    from tests.test_semantic_planner import client_for
+    from tests.test_plan_execution import client_for
 
     model = client_for(plan)
     config = settings()
@@ -62,7 +62,7 @@ def test_duplicate_rank_contract_at_endpoint(monkeypatch, suffix, different):
             payload = next(e["payload"] for e in events if e.get("type") == "final")
         else:
             payload = response.json()
-        assert payload["status"] == ("invalid_scope" if different else "ok")
+        assert payload["status"] == ("invalid_plan" if different else "ok")
         assert bool(payload["semantic_evidence"]) is (not different)
         if not different:
             assert payload["semantic_plan"]["status"] == "query"
@@ -70,3 +70,7 @@ def test_duplicate_rank_contract_at_endpoint(monkeypatch, suffix, different):
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(original)
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

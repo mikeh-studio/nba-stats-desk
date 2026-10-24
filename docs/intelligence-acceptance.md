@@ -1,9 +1,17 @@
-# Intelligence contract acceptance criteria — review draft
+# Intelligence contract acceptance criteria and local evidence
 
-All items below are **pending implementation**. The current draft supplies only
-[types](../app/agent/intelligence_contract.py) and a
-[contract](intelligence-contract.md); syntax/lint checks are not integration proof.
-Use synthetic source-roster names and complete/incomplete evidence fixtures.
+The contract is approved and implemented locally. `tests/test_intelligence.py`
+checks shared host conformance and hostile providers; `tests/test_reference_intelligence.py`
+checks the required standalone examples and JSON/SSE endpoints. The browser smoke
+in `tests_browser/reference_intelligence.spec.js` selects the real reference
+provider with all model keys absent. Existing evidence and workflow regressions
+remain part of the full suite. All execution evidence is synthetic fixture evidence.
+
+The private installed-wheel proof uses the exact public candidate and an isolated
+Python import path, verifies package origins and public helper identity, exercises
+concurrent private plans and malformed output through shared host validation, and
+checks actual HTTP JSON/SSE parity with a stubbed model transport. This establishes
+integration behavior, not live-model language quality or warehouse readiness.
 
 ## Shared provider conformance
 
@@ -54,30 +62,30 @@ require broad parity with production heuristics, only these cases plus conforman
 
 ## Installation and ownership proof
 
-- [ ] Public-only environment contains no private package/checkouts/import paths;
+- [x] Public-only environment contains no private package/checkouts/import paths;
       representative HTTP JSON/SSE and browser flows pass without model credentials.
-- [ ] A static import-graph check, including function-level imports, finds no
+- [x] A static import-graph check, including function-level imports, finds no
       public module importing `question_intent`, `semantic_planner`, `planner` or
       `router` other than the one guarded optional legacy loader. Moved scope
       parsers keep their existing tests in public. For each audit-list symbol,
       record keep/extract/split ownership by responsibility with corresponding
       tests; mixed functions retain private heuristics behind the provider rather
       than being moved wholesale. Review the resulting ownership-map diff.
-- [ ] In the public-only environment a repository without a governed adapter gets
+- [x] In the public-only environment a repository without a governed adapter gets
       the sanitized `legacy_repository` unavailable response, never a governed-query
       fallback or import error; with the legacy tree present, existing legacy tests
       still pass.
-- [ ] Build and install a private wheel in a separate environment with the exact
+- [x] Build and install a private wheel in a separate environment with the exact
       public candidate. Select its registered name; prove imports originate from
       the installed wheel and public application, never the old private `app` tree.
-- [ ] Exercise the private provider through actual app endpoints with a stubbed
+- [x] Exercise the private provider through actual app endpoints with a stubbed
       model transport and synthetic evidence. Label this fixture integration;
-      live model/warehouse testing is separate and not required by this draft.
-- [ ] Assert one public owner for execution helpers; migrate direct production
+      live model/warehouse testing is separate and not required by this contract.
+- [x] Assert one public owner for execution helpers; migrate direct production
       imports and split mixed tests without deleting their behavioral coverage.
-- [ ] Update ownership-map/checker coverage for new package paths. Do not widen
+- [x] Update ownership-map/checker coverage for new package paths. Do not widen
       frozen UI inventories or change the existing dependency pin to pass tests.
-- [ ] Installed provider does not activate deployment, flags, schedulers or new
+- [x] Installed provider does not activate deployment, flags, schedulers or new
       data reads. Reference/provider configuration and model credentials remain
       separate from source availability and application-disable controls.
 

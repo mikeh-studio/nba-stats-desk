@@ -199,7 +199,7 @@ class ServingWarehouse:
                 r for r in metadata["appearances"] if r["season"] in required_seasons
             ]
             players = players_from_rows(appearances)
-        from app.agent.semantic_planner import execute_plan
+        from app.agent.plan_execution import execute_plan
 
         def run(query):
             return self._run_candidate(query, pub, metadata)
@@ -578,8 +578,7 @@ def question_may_use_serving(question, families):
         return True
     import re
 
-    from app.agent.planner import explicit_metric_mentions
-    from app.agent.semantic_planner import explicit_scope
+    from app.agent.scope_policy import explicit_metric_mentions, explicit_scope
 
     text = question.casefold()
     scope = explicit_scope(question)

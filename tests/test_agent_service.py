@@ -12,7 +12,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.agent.conversation import InMemoryConversationStore
 from app.agent.observability import AgentTrace
 from app.agent.service import (
-    SYSTEM_PROMPT,
     AgentDisabledError,
     StatsAgent,
     _AnswerFieldStream,
@@ -221,7 +220,9 @@ def test_normalize_agent_answer_handles_malformed_payloads() -> None:
 
 
 def test_system_prompt_keeps_tables_out_of_answer_prose() -> None:
-    prompt = SYSTEM_PROMPT.lower()
+    from app.agent.legacy_loader import legacy_prompt
+
+    prompt = legacy_prompt("system").lower()
 
     assert "do not include markdown tables" in prompt
     assert "do not repeat row-by-row values" in prompt

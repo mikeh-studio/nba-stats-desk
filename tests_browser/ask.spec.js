@@ -709,7 +709,14 @@ test('provider changes fork even when unavailable, and retries retain the questi
   const firstId = posts[0].conversation_id;
   await page.locator('.ask-settings summary').click();
   await page.locator('[data-agent-provider]').selectOption('claude');
-  // The offline endpoint deliberately has no Claude credentials.
+  // The model-free public baseline now succeeds without credentials. Inject a
+  // transport failure to exercise the UI's unavailable-provider retry contract.
+  await page.route('**/api/agent/ask/stream', async route => {
+    if (route.request().postDataJSON()?.provider === 'claude') {
+      await route.fulfill({status: 200, contentType: 'text/event-stream',
+        body: 'event: error\ndata: {"error":"provider_unavailable","message":"The selected provider is unavailable."}\n\n'});
+    } else await route.continue();
+  });
   await submit(page, question);
   const failedId = posts[1].conversation_id;
   expect(failedId).not.toBe(firstId);

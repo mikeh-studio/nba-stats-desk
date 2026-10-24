@@ -329,7 +329,7 @@ def test_specific_performance_requests_do_not_become_overviews(question):
 
 
 def test_home_performance_keeps_venue_filter_in_governed_plan(evidence):
-    from tests.test_semantic_planner import client_for, query_plan
+    from tests.test_plan_execution import client_for, query_plan
 
     for row in evidence.rows:
         row["home_away"] = "HOME" if row["game_date"].endswith("01") else "AWAY"
@@ -611,7 +611,7 @@ def test_focus_does_not_erase_unsupported_or_specific_conditions(condition):
 def test_focused_profiles_cannot_substitute_box_scores_for_unconnected_measures(
     requested,
 ):
-    from app.agent.question_intent import question_intent
+    from app.agent.scope_policy import question_scope as question_intent
 
     assert (
         question_intent(f"How did Curry perform in {requested}?")["status"]
@@ -1084,3 +1084,7 @@ def test_absence_overview_never_drops_filter_or_asks_for_player(
     assert "teammate availability" in result["answer"]
     assert "Which player" not in result["answer"]
     assert not result.get("charts")
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

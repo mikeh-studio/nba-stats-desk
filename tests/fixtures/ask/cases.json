@@ -2938,7 +2938,12 @@
               "path": "tables",
               "equals": []
             }
-          ]
+          ],
+          "planner_response": {
+            "status": "clarification_required",
+            "queries": [],
+            "message": "Specify an attempt threshold for the shooting cohort."
+          }
         }
       ]
     },

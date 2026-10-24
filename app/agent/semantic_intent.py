@@ -6,8 +6,11 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from app.agent.planner import explicit_metric_mentions
-from app.agent.question_intent import explicit_aggregation, task_terms
+from app.agent.scope_policy import (
+    explicit_aggregation,
+    explicit_metric_mentions,
+    task_terms,
+)
 from app.agent.semantics import SemanticError, load_contract
 
 SEMANTIC_PLANNER_CONTRACT = "semantic_intent/3"
@@ -53,7 +56,7 @@ def resolve_aggregation_intent(
     Canonical literal cues constrain model interpretation; this is not a complete
     natural-language recognizer. Noneligible planner selections retain their value.
     """
-    from app.agent.semantic_planner import explicit_scope
+    from app.agent.scope_policy import explicit_scope
     from app.agent.semantic_serving import has_time_scope, requested_seasons
 
     text = " ".join(question.casefold().split())

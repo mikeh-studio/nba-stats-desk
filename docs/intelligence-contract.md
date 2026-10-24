@@ -1,10 +1,10 @@
-# Intelligence provider contract — review draft
+# Intelligence provider contract
 
-Status: proposed `nba_intelligence/1`; approval required before implementation.
-The [Python declarations](../app/agent/intelligence_contract.py) are inert and
-unused by the app. This draft adds no loader, settings, planner, execution changes,
-package installation, or deployment. [Acceptance criteria](intelligence-acceptance.md)
-describe future proof, not results already achieved.
+Status: `nba_intelligence/1` approved for implementation on 2026-10-24. The local
+candidate implements the public host and reference provider. Publication remains
+subject to exact-diff review. See [runtime behavior](intelligence-runtime.md) and
+[the ownership audit](intelligence-ownership-audit.md); acceptance evidence is
+recorded separately from this normative contract.
 
 ## Boundary
 
@@ -22,7 +22,7 @@ No provider is loaded from a request, URL, arbitrary import string or user text.
 
 ## Discovery, compatibility and lifetime
 
-Proposed setting: `ASK_INTELLIGENCE_PROVIDER`, default `reference`. That reserved
+Setting: `ASK_INTELLIGENCE_PROVIDER`, default `reference`. That reserved
 name selects the built-in provider and must not import external providers, even
 if installed. An operator may explicitly select a name in the fixed entry-point
 group `nba_stats_desk.intelligence.v1`. Resolve exactly one installed entry point
@@ -177,7 +177,7 @@ Reference mode must answer the bounded overview/comparison/ranking examples in t
 acceptance matrix with zero model calls and no model key. Source credentials and
 coverage are separate: standalone does not promise live warehouse data without
 access. Explicit application-disable controls still apply. The current early
-credential checks in `StatsAgent` must become provider-aware during implementation.
+credential checks in `StatsAgent` are provider-aware.
 
 After approval, extract `execute_plan`, `leader_game_floor`,
 `normalize_duplicate_rank_plan`, `single_period_rank_plan` and the host plan
@@ -234,12 +234,11 @@ Released dependency pinning and removal of the legacy tree are later work.
 
 ## Review decision
 
-Approve or amend: explicit named entry-point selection; exact version matching;
-the three-method provider interface; host-owned execution/model budgets; safe
-withholding/error behavior; and the reference acceptance scope. This revision
-also needs explicit decisions on: host precedence and follow-up resolution ahead
-of `classify` without bypassing unresolved planning; per-symbol scope ownership
-audits; same-resolved-player `compare` including supported season-to-season scopes;
-standalone `legacy_repository` behavior; and host-only failure codes. Approval of this
-design is separate from approval to publish any public diff. Implementation and
-publication remain pending after this draft.
+The refined design was approved on 2026-10-24. The local implementation follows
+explicit named selection, host-owned precedence and validation, per-symbol
+ownership decisions, same-resolved-player comparisons, and host-only deadline
+and budget failure codes. See the [ownership audit](intelligence-ownership-audit.md)
+and [acceptance evidence](intelligence-acceptance.md).
+
+Public publication still requires approval of the exact implementation diff.
+Package installation does not authorize deployment or a dependency-pin change.

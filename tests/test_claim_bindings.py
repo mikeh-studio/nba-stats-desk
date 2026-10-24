@@ -696,3 +696,7 @@ def test_transform_registry_preserves_exact_scalar_types():
     numeric = next(spec for spec in manifest["transforms"] if "digits" in spec)
     numeric["digits"] = float(numeric["digits"])
     assert validate(payload)["status"] == "invalid"
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

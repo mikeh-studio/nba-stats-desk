@@ -91,3 +91,6 @@ def test_ranking_records_governed_direction(metric, direction):
 )
 def test_unrecognized_name_grammar_defers_instead_of_false_clarification(question):
     assert common_plan(question, players=players()) is None
+
+
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

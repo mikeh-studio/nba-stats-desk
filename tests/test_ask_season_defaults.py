@@ -286,3 +286,7 @@ def test_breakdown_preserves_filters_when_falling_back(research_client, monkeypa
     assert result["season_fallback"]["used"] == "2024-25"
     assert calls == ["2025-26", "2024-25"]
     assert planner.calls == 1
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")
