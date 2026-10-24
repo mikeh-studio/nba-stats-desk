@@ -816,6 +816,15 @@ for (const width of [1280, 390, 320]) {
       await input.fill('Points?');
       expect((await bar.boundingBox()).height).toBeCloseTo(52, 2);
       await contained();
+      await bar.locator('button').hover();
+      await expect(bar.locator('button')).toHaveCSS('transform', 'none');
+      await contained();
+      await page.mouse.move(0, 0);
+      await input.focus();
+      await page.keyboard.press('Tab');
+      await expect(bar.locator('button')).toBeFocused();
+      await expect(bar.locator('button')).toHaveCSS('transform', 'none');
+      await contained();
       await input.fill('Explain how the points, rebounds and assists in this report changed over the season. '.repeat(5));
       expect((await bar.boundingBox()).height).toBeGreaterThan(52);
       await contained();

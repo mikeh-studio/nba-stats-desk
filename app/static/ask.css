@@ -124,6 +124,9 @@ body:has(.ask-desk) .publication-health {
   min-width: 28px; min-height: 28px; padding: 0; margin: 0 0 4px;
   display: grid; place-items: center; border-radius: 50%; font-size: 16px; line-height: 1;
 }
+/* Keep embedded send controls aligned during hover and keyboard focus. */
+.question-composer .button:hover,
+.question-composer .button:focus-visible { transform: none; }
 .question-composer .button svg { display: block; width: 16px; height: 16px; }
 .ask-settings {
   margin-top: 0.5rem;
