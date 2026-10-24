@@ -6,8 +6,11 @@ continue; shared requirements must work in a fresh clone.
 ## Work safely
 
 - Inspect branch and working changes; preserve unrelated work and stage only task-owned files.
-- Keep code public and operational data private. Follow the
-  [boundary policy](docs/public-private-boundary.md) for feedback and admin workflows.
+- Develop product features in the private product repository first. This public
+  repository owns the curated platform and reference app; follow the
+  [boundary policy](docs/public-private-boundary.md) and
+  [path ownership map](docs/repository-ownership.md) before editing or publishing.
+  Do not automatically publish product prompts, UX, experiments, or private tests.
 - Keep credentials, raw conversations, feedback, and exports out of Git.
   Keep provider catalog checks local; do not add provider keys to CI for them.
 

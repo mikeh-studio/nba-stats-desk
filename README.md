@@ -145,10 +145,12 @@ The project grew one layer at a time.
 
 ## Public code, private operations
 
-The application, evaluation framework, and public baseline implementation are
-available in this repository. Raw evaluation runs, conversations, review notes,
-credentials, and proprietary model experiments stay outside Git. Only reviewed,
-sanitized examples and concise summaries belong in public showcases.
+This repository is the curated shared platform and runnable reference application.
+New product UI, prompts, routing, and workflows are developed in a separate private
+repository first. Public improvements are selected deliberately; the reference app
+is maintained for security, correctness, compatibility, and reproducibility.
+Operational records, credentials, raw feedback and generated artifacts stay outside
+Git in access-controlled storage.
 See the [public/private boundary](docs/public-private-boundary.md).
 
 The app supports Cloud Run deployment; this repository does not imply an active
