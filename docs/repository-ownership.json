@@ -1,0 +1,138 @@
+{
+  "schema": "thin-split-ownership/1",
+  "rules": [
+    {
+      "patterns": [
+        "app/agent/planner.py",
+        "app/agent/semantic_planner.py",
+        "app/agent/router.py",
+        "app/agent/question_intent.py",
+        "prompts/**",
+        "evals/cases/**"
+      ],
+      "owner": "private",
+      "private_presence": "owned",
+      "priority": 100,
+      "description": "Production planning, routing, intent heuristics, prompt text and private evaluation cases. Public planner counterparts become the standalone reference in Phase 3."
+    },
+    {
+      "patterns": [
+        "tests/test_private_boundary.py",
+        "tests/test_product_ownership.py",
+        "tests/test_product_runtime.py",
+        "tests/test_committed_diff.py",
+        "tests/test_agent_router.py",
+        "tests/test_ask_routing.py",
+        "tests/test_semantic_planner.py"
+      ],
+      "owner": "private",
+      "private_presence": "owned",
+      "priority": 100,
+      "description": "Private tooling, runtime compatibility and production planner regressions."
+    },
+    {
+      "patterns": [
+        "scripts/agent_startup.py",
+        "scripts/ownership_policy.py",
+        "tests/test_agent_startup.py",
+        "tests/test_ownership_policy.py"
+      ],
+      "owner": "public",
+      "private_presence": "vendored",
+      "priority": 100,
+      "description": "Common policy utilities and regression suites; maintain identical copies in both repositories independently of the runtime pin."
+    },
+    {
+      "patterns": [
+        "scripts/check_private_boundary.py",
+        "scripts/check_product_ownership.py",
+        "scripts/verify_shared_platform.py",
+        "shared_platform/**",
+        "scripts/check_committed_diff.py"
+      ],
+      "owner": "private",
+      "private_presence": "owned",
+      "priority": 100,
+      "description": "Private repository enforcement and the temporary bridge to public execution. Shared startup/ownership utilities are vendored from public."
+    },
+    {
+      "patterns": [
+        "app/__init__.py",
+        "app/__main__.py",
+        "app/agent/__init__.py"
+      ],
+      "owner": "public",
+      "private_presence": "exception",
+      "priority": 100,
+      "description": "Temporary import and application bootstrap; each retained shim needs a manifest exception."
+    },
+    {
+      "patterns": [
+        "app/main.py",
+        "app/config.py",
+        "app/model_catalog.py",
+        "app/agent/conversation.py",
+        "app/agent/followup.py",
+        "app/agent/routes.py",
+        "app/agent/route_labels.py",
+        "app/agent/metric_presentation.py",
+        "app/agent/semantic_answer.py",
+        "app/agent/service.py",
+        "app/static/**",
+        "app/templates/**",
+        "tests/**",
+        "tests_js/**",
+        "tests_browser/**",
+        "playwright.config.js",
+        "package.json",
+        "package-lock.json"
+      ],
+      "owner": "public",
+      "private_presence": "frozen",
+      "priority": 50,
+      "description": "Public app and implementation tests. Private copies remain only for runtime compatibility until Phase 4; the Active migration freeze still applies."
+    },
+    {
+      "patterns": [
+        "app/**",
+        "dags/**",
+        "contracts/**",
+        "dbt/**",
+        "models/**",
+        "dbt_project.yml",
+        "season.yml"
+      ],
+      "owner": "public",
+      "private_presence": "forbidden",
+      "priority": 0,
+      "description": "Platform, governed arithmetic, evidence/claim validation, read adapters and other application code; no new private copies."
+    },
+    {
+      "patterns": [
+        "scripts/**"
+      ],
+      "owner": "public",
+      "private_presence": "forbidden",
+      "priority": 0,
+      "description": "Shared harness and platform tooling. Private repository tooling is maintained in its owning repository, outside the application-copy check."
+    }
+  ],
+  "required_private_paths": [
+    "app/agent/planner.py",
+    "app/agent/semantic_planner.py",
+    "app/agent/router.py",
+    "app/agent/question_intent.py"
+  ],
+  "mixed_capabilities": [
+    {
+      "path": "app/agent/service.py",
+      "public": "Orchestration and deterministic server-written presentation.",
+      "private": "Production prompt text; extraction behind the package hook is Phase 3."
+    },
+    {
+      "path": "app/agent/semantic_planner.py",
+      "public": "execute_plan, leader_game_floor, normalize_duplicate_rank_plan and single_period_rank_plan remain shared execution, qualification and scope validation. A standalone reference planner is public.",
+      "private": "Production planning only; private version delegates the shared functions."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 """Read-only agent preflight. Explicit intent is not permission to publish.
 
 This standalone utility is maintained in the public platform and vendored in the
-private product because its runtime dependency intentionally remains on PR #97.
+private product independently of its unchanged runtime dependency pin.
 No network, credential reads, checkout changes, or configuration writes occur.
 """
 
@@ -15,12 +15,18 @@ import sys
 from pathlib import Path
 from urllib.parse import urlsplit
 
+if __package__:
+    from .ownership_policy import MAP_PATH, parse_map
+else:
+    from ownership_policy import MAP_PATH, parse_map
+
 REPOS = {
     "public-platform": "mikeh-studio/nba-stats-desk",
     "private-product": "mikeh-studio/nba-stats-desk-product",
 }
 INTENTS = {
     "product": {"private-product"},
+    "product-ui": {"public-platform"},
     "shared-fix": {"public-platform"},
     "reference-maintenance": {"public-platform"},
     "public-promotion": {"public-platform"},
@@ -31,7 +37,7 @@ POINTERS = {
     "GEMINI.md": "@./AGENTS.md\n",
     ".github/copilot-instructions.md": (
         "Read and follow the repository-root AGENTS.md before editing or publishing.\n"
-        "It defines the private-first ownership policy and required startup check.\n"
+        "It defines the thin-split ownership policy and required startup check.\n"
     ),
 }
 
@@ -98,7 +104,7 @@ def check_policy(root: Path) -> dict:
             "Missing staged agent policy; refresh this stale checkout from main"
         ) from exc
     role = policy.get("role")
-    if policy.get("version") != 1 or role not in REPOS:
+    if policy.get("version") != 2 or role not in REPOS:
         raise ValueError("Unknown agent policy version or repository role")
     boundary = (
         "docs/boundary.md"
@@ -109,6 +115,10 @@ def check_policy(root: Path) -> dict:
         raise ValueError("Invalid agent policy boundary or checks")
     if policy.get("repository") != REPOS[role]:
         raise ValueError("Agent policy repository does not match its role")
+    expected_intents = sorted(name for name, roles in INTENTS.items() if role in roles)
+    if policy.get("intents") != expected_intents or policy.get("ownership") != MAP_PATH:
+        raise ValueError("Agent policy intents or ownership map do not match its role")
+    parse_map(indexed(root, MAP_PATH))
     for path, expected in POINTERS.items():
         if indexed(root, path) != expected.strip():
             raise ValueError(
@@ -126,7 +136,7 @@ def check_policy(root: Path) -> dict:
     for token in (
         "scripts/agent_startup.py",
         "docs/agent-workflow.md",
-        "private-first",
+        "thin split",
     ):
         if token not in agents:
             raise ValueError(f"AGENTS.md must reference {token}")
@@ -150,10 +160,10 @@ def check(root: Path, intent: str, *, policy_only: bool = False) -> dict:
             raise ValueError(
                 "origin fetch/push destination does not match this repository's policy"
             )
-    if policy["role"] not in INTENTS[intent] and not policy_only:
+    if intent not in policy["intents"] and not policy_only:
         if intent == "product":
             raise ValueError(
-                "Product work belongs in mikeh-studio/nba-stats-desk-product; do not edit or push it here"
+                "Production intelligence belongs in mikeh-studio/nba-stats-desk-product; use product-ui for public app work"
             )
         raise ValueError(
             "This intent belongs in the public platform; prepare a minimal sanitized change there"
@@ -176,6 +186,7 @@ def check(root: Path, intent: str, *, policy_only: bool = False) -> dict:
             "docs/agent-policy.json",
             "docs/agent-workflow.md",
             "docs/repository-ownership.md",
+            MAP_PATH,
             policy["boundary"],
             *POINTERS,
         ):
@@ -196,7 +207,7 @@ def check(root: Path, intent: str, *, policy_only: bool = False) -> dict:
         "intent": intent,
         "working_changes": bool(changed),
         "policy_only": policy_only,
-        "ownership": "docs/repository-ownership.md",
+        "ownership": MAP_PATH,
         "checks": policy["checks"],
         "push_destination": f"origin ({expected})",
         "publication_authorized": False,

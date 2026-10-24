@@ -2,16 +2,17 @@
 
 ## Required startup
 
-This repository follows the private-first split. Before editing, read
+This repository follows the thin split. Before editing, read
 [the agent workflow](docs/agent-workflow.md) and run from the repository root:
 
 ```bash
 python3 scripts/agent_startup.py --intent INTENT
 ```
 
-Use `product` for product features; `shared-fix`, `reference-maintenance`, or
-`public-promotion` only for that explicit public scope; `policy` for repository
-guidance/tooling. Default intent is `product`, which is rejected in public.
+Use `product-ui` for public web-app features; `product` for private production
+prompts, planner/router, intent heuristics and eval cases. `shared-fix`,
+`reference-maintenance` and `public-promotion` are public scopes; `policy` covers
+repository guidance/tooling in either repo. Default `product` remains private.
 Report the repository/branch, ownership decision, intended checks and push target.
 If blocked, change to the correct checkout or reconcile stale guidance; do not
 weaken the guard or relabel product work to bypass it. Create a fresh `codex/`
@@ -20,7 +21,7 @@ branch from current `origin/main` before implementation. Preserve dirty work.
 Run the same check again before pushing. Public publication requires explicit
 user authorization covering the reviewed public diff before its first push.
 An intent flag, a passing check, or a PR opened after pushing is not authorization.
-Keep public PR #97 unmerged unless the user explicitly changes that instruction.
+Public PR #97 is merged; the existing private pin is an ancestor of public main.
 Never automatically mirror private branches or edit inside the shared dependency.
 
 Read optional `AGENTS.local.md` beside this file before working. If absent,
@@ -29,11 +30,11 @@ continue; shared requirements must work in a fresh clone.
 ## Work safely
 
 - Inspect branch and working changes; preserve unrelated work and stage only task-owned files.
-- Develop product features in the private product repository first. This public
-  repository owns the curated platform and reference app; follow the
-  [boundary policy](docs/public-private-boundary.md) and
-  [path ownership map](docs/repository-ownership.md) before editing or publishing.
-  Do not automatically publish product prompts, UX, experiments, or private tests.
+- This public repository owns the platform and whole web app: composition, UI,
+  conversation workflow, deterministic prose, evaluation harness and a standalone
+  reference planner. Follow the [boundary policy](docs/public-private-boundary.md)
+  and [ownership map](docs/repository-ownership.md). Production prompts,
+  planner/router, intent heuristics and private eval cases belong in private.
 - Keep credentials, raw conversations, feedback, and exports out of Git.
   Keep provider catalog checks local; do not add provider keys to CI for them.
 

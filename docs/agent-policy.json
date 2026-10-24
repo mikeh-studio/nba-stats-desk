@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "role": "public-platform",
   "repository": "mikeh-studio/nba-stats-desk",
   "boundary": "docs/public-private-boundary.md",
@@ -9,6 +9,15 @@
     "ruff format --check .",
     "mypy",
     "pytest -q",
+    "node --test tests_js/*.test.js",
     "relevant checks in docs/operations.md#validation"
+  ],
+  "ownership": "docs/repository-ownership.json",
+  "intents": [
+    "policy",
+    "product-ui",
+    "public-promotion",
+    "reference-maintenance",
+    "shared-fix"
   ]
 }
