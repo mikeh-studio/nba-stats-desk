@@ -136,7 +136,11 @@ class ProviderFailure:
 
 @dataclass(frozen=True, slots=True)
 class QueryPlan:
-    """compare: same player, metric and aggregation; current side first."""
+    """Proposal: structural checks precede narrow public normalization.
+
+    Final compare: same publicly resolved identity, metric and aggregation;
+    current side first. Supported season-to-season scopes remain distinct.
+    """
 
     route_id: str
     status: Literal["query", "compare"]

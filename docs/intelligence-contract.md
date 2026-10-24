@@ -49,8 +49,14 @@ event loop violates the contract (timeouts are not hard process isolation).
 
 1. Host precedence runs first and never consults the provider. Public code applies
    input limits, then resolves pending clarifications and follow-ups with the
-   existing conversation rules, which may read prior question text. A resolved
-   follow-up or clarification reply dispatches directly. Public route predicates
+   existing conversation rules, which may read prior question text. Direct dispatch
+   is allowed only when the host has fully resolved the request for an eligible
+   public handler, or has a complete public plan that passes the same validation
+   pipeline below. Resolving conversation state alone does not finish planning:
+   a reply such as “What about rebounds instead?” may retain the player and scope
+   but still require a new plan. Such requests continue through classification
+   and planning with the current question and host-authorized prior context.
+   Public route predicates
    then evaluate host precedence routes in their existing order: scope refusals,
    routes gated by settings or conversation state (appearances, availability,
    research, teammate study, reference) and `legacy_repository`. A match dispatches
@@ -58,7 +64,8 @@ event loop violates the contract (timeouts are not hard process isolation).
    this configuration and the selected provider enter `PlanningContext.routes`.
 2. Public code prepares the identity catalog, supported seasons/metrics and context.
    The catalog is the source roster for the selected season plus every season the
-   host parses from the question (existing `requested_seasons`), each name once.
+   host parses from the question (existing `requested_seasons`), plus prior seasons
+   the host explicitly authorizes for this continuation, each name once.
    `PlanningContext` contains the current question (1–2,000 characters), selected
    season, ISO calendar date and one host-selected prior successful scope. Prior
    text/answers, evidence rows, secrets, arbitrary settings and repository objects
@@ -81,27 +88,42 @@ event loop violates the contract (timeouts are not hard process isolation).
    The gateway signals failure only by raising `GatewayTimeout`,
    `GatewayBudgetExhausted` or `GatewayUnavailable`; providers must let these
    propagate and the host maps them to failure codes.
-5. The host validates the complete result before dispatch. Unknown fields and
-   malformed nested data fail closed; frozen Python records/type hints alone do
-   not validate values. Recheck objects returned in-process as well as parsed JSON.
-   A `QueryPlan` has one query for `query`, exactly two ordered queries for
-   `compare`, and a route declared as `queries`. In v1 `compare` is a same-player
-   comparison: both queries carry the same player mention, metric and aggregation
-   and differ only in scope (window, dates or phase); the first is the current
-   side and the second the baseline. Two-player comparisons are the
-   `player_comparison` handler route. `plan` may return a `HandlerPlan` naming
-   another eligible `handler` route; it carries only that route ID. Public
-   handlers receive the original host context and re-resolve scope with public
-   parsers; no untyped plugin argument bag.
-6. The host then applies the public plan normalizations
-   (`normalize_duplicate_rank_plan`, `single_period_rank_plan`) to every
-   validated `QueryPlan`, reference plans included. It derives
-   `aggregation_resolution` itself through existing public aggregation resolution;
-   provider fields never populate it. Public code resolves names and validates
-   every scope/query against the existing [semantic contract](semantic-contract.md)
-   before execution. Unsupported or ambiguous requests produce no partial
-   statistical answer. Public code renders results using the existing evidence
-   and claim-binding contract for JSON/SSE.
+5. The host validates result **structure first**: allowed result variant, fields,
+   nested types, enum values, eligible route/plan kind and query count. Unknown
+   fields or malformed objects fail closed, including in-process typed instances.
+   A raw `QueryPlan` has one query for `query` or two for `compare`. This stage
+   does not impose final comparison identity/scope semantics: a structurally valid
+   duplicate or accidental cross-season ranking pair can reach normalization.
+   It does not authorize execution. `HandlerPlan` names only an eligible handler;
+   public handlers re-resolve scope from the original host context.
+6. Apply only the existing, narrowly specified public normalizations
+   (`normalize_duplicate_rank_plan`, `single_period_rank_plan`) to structurally
+   valid plans, reference plans included. Collapse identical ranking queries or an
+   accidental second season only when the existing predicates prove it is safe.
+   Never discard an explicitly requested season or repair arbitrary invalid scope.
+   Record which normalization ran and recheck the resulting structure.
+7. Validate **final semantics** before execution. The host derives
+   `aggregation_resolution`, resolves identity and validates metric, aggregation,
+   dates, phase, filters, qualification and evidence against the existing
+   [semantic contract](semantic-contract.md). Provider fields never populate
+   authoritative aggregation resolution. A remaining `compare` has two queries
+   for the same publicly resolved player identity, canonical metric and resolved
+   aggregation, with current side first and baseline second. Different name
+   spellings may resolve to that same identity under existing public rules;
+   ambiguous mentions require clarification. Matching strings alone do not prove
+   identity. Two-player comparisons use the `player_comparison` public handler.
+   Supported same-player season-to-season comparisons remain valid: each query
+   retains its own explicit season and coverage, alongside supported window/date/
+   phase differences. This permits comparison of separately validated scopes,
+   not cross-season pooling or new operations. Final league-ranking comparison
+   pairs that were not safely normalized are not same-player comparisons and
+   cannot execute through this plan kind. Unsupported or ambiguous requests
+   produce no partial statistical answer. Public code then executes and renders
+   through the existing evidence/claim-binding contract for JSON/SSE.
+
+The mandatory order is **structural validation → narrow normalization → final
+semantic/evidence validation → execution**. Neither normalization nor resolving a
+follow-up bypasses final validation.
 
 `Scope` describes query scope, not proof of source coverage. `player_name` is an
 untrusted mention; no model-supplied IDs are accepted. Metric keys and operations
@@ -163,11 +185,16 @@ schema (`plan_schema`, `response_schema`) into public execution code. Keep
 calculations and scope policy unchanged, and prove function identity across
 provider integration.
 
-Literal scope extraction and scope-refusal detection are public scope validation,
-not planning intelligence. Before provider integration, move the private symbols
-that public handlers and routes call into public scope-policy code with their tests:
+The following is an **audit list**, not authorization to move whole functions or
+modules. Before provider integration, inspect each symbol and its callers, then
+record which responsibilities are public scope validation/conversation policy and
+which are private planning/routing heuristics. Extract only public responsibilities
+into public scope-policy code, with their existing tests. Split mixed functions
+(such as `question_intent`) rather than publishing production heuristics wholesale;
+retain private responsibilities behind the approved provider boundary. A symbol
+may remain private if no public responsibility needs extraction.
 
-| Symbol (current private module) | Public consumers |
+| Symbol to audit (current private module) | Public consumers |
 | --- | --- |
 | `split_kind`, `question_intent` (`question_intent`) | `player_splits`, `routes`, `semantic_answer`, `research_ask` |
 | `venue_mentions`, `round_scope_message`, `has_specific_metric` (`question_intent`) | `overview_calendar`, `performance_overview`, `player_comparison`, `service` |
@@ -180,8 +207,10 @@ that public handlers and routes call into public scope-policy code with their te
 `semantic_answer` calls private `plan_question`; that call site becomes
 `provider.plan`. Planner prompts, model-backed planning and production planning
 heuristics stay private. A symbol that turns out to need private planning data
-gets a separately reviewed typed extension instead. The ownership map and its JSON
-rules change in the same implementation diff. After the move no public module
+gets a separately reviewed typed extension instead. Record the per-symbol
+keep/extract/split decision and preserved test coverage. The ownership map and its
+JSON rules change with the resulting implementation diff, not preemptively for
+every name in the audit list. After the move no public module
 imports `question_intent`, `semantic_planner`, `planner` or `router`, apart from
 one guarded optional legacy loader (below). Separate mixed execution/reference
 tests from private intelligence cases; retain all test intent.
@@ -209,7 +238,8 @@ Approve or amend: explicit named entry-point selection; exact version matching;
 the three-method provider interface; host-owned execution/model budgets; safe
 withholding/error behavior; and the reference acceptance scope. This revision
 also needs explicit decisions on: host precedence and follow-up resolution ahead
-of `classify`; moving literal scope parsers public; same-player-only `compare`;
+of `classify` without bypassing unresolved planning; per-symbol scope ownership
+audits; same-resolved-player `compare` including supported season-to-season scopes;
 standalone `legacy_repository` behavior; and host-only failure codes. Approval of this
 design is separate from approval to publish any public diff. Implementation and
 publication remain pending after this draft.
