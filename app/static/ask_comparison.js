@@ -1,5 +1,5 @@
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261022-shared-name-matching-v2";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261022-shared-name-matching-v2";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261023-ask-stable-buttons-v5";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261023-ask-stable-buttons-v5";
 
 const esc = (v) =>
   String(v ?? "")

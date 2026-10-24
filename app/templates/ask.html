@@ -7,7 +7,7 @@
   <section class="ask-query">
     <form data-agent-form class="ask-form">
       <label class="eyebrow" for="agent-question">Ask a new question</label>
-      <div class="query-row"><textarea id="agent-question" class="input" rows="1" maxlength="500" placeholder="How has Jalen Johnson performed over the past 12 months?" data-agent-question></textarea><button class="button" type="submit" data-agent-submit>Ask</button></div>
+      <div class="query-row question-composer"><textarea id="agent-question" class="input" rows="1" maxlength="500" placeholder="Ask a question…" data-agent-question></textarea><button class="button" type="submit" aria-label="Ask" title="Ask" data-agent-submit><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     </form>
     <details class="ask-settings"><summary>Model settings</summary><div class="ask-settings-body">
       <label>Provider <select class="input" data-agent-provider><option value="openai">GPT (OpenAI)</option><option value="claude">Claude (Anthropic)</option><option value="openrouter">OpenRouter</option></select></label>
@@ -34,16 +34,22 @@
   </section>
   <div id="chat-analysis" data-chat-analysis role="tabpanel" aria-label="Current chat">
     <p class="meta agent-status" role="status" aria-live="polite" data-agent-status>Ready</p>
-    <nav class="turn-navigation" aria-label="Questions in this chat" data-turn-navigation hidden></nav>
     <section data-agent-answer-card class="analysis-section">
       <div class="empty-state" data-agent-empty><h1>Ask NBA Stats</h1><p>Ask about a player. We’ll show the period used and let you change it.</p><button type="button" class="button secondary" data-agent-example="Tell me how Jalen Johnson has been performing the past 12 months">Jalen Johnson · past 12 months</button></div>
       <div data-agent-answer hidden></div>
     </section>
     <section class="followup-section" data-followup-section hidden>
-      <p class="followup-eyebrow">Continue the conversation</p>
-      <h2 data-followup-heading>Ask your next question</h2><p class="meta" data-followup-context></p>
+      <div class="followup-label"><span>Follow up</span><span class="meta" data-followup-context></span></div>
       <div class="followup-suggestions" data-followup-suggestions></div>
-      <form data-followup-form><label class="sr-only" for="followup-question">Follow-up question</label><textarea class="input" id="followup-question" rows="2" maxlength="500" placeholder="What else would you like to know?" data-followup-question></textarea><div class="followup-actions"><span class="meta">Enter to ask · Shift+Enter for a new line</span><button class="button" type="submit" data-followup-submit>Ask follow-up</button></div></form>
+      <form class="followup-composer question-composer" data-followup-form>
+        <label class="sr-only" for="followup-question">Follow-up question about this report</label>
+        <textarea class="input" id="followup-question" rows="1" maxlength="500" placeholder="Ask about this report…" data-followup-question></textarea>
+        <button class="button followup-send" type="submit" aria-label="Send follow-up" title="Send follow-up" data-followup-submit><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </form>
+      <div class="followup-redirect" data-followup-redirect hidden>
+        <p class="meta" role="status">Is this about the current report? Make the connection explicit, or start a separate analysis.</p>
+        <button type="button" class="button subtle" data-followup-new-tab>Open in new tab →</button>
+      </div>
     </section>
   </div>
 </section>

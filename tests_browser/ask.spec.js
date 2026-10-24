@@ -52,6 +52,7 @@ for (const width of [1280, 390]) {
     await page.reload();
     await expect(prose).toContainText('Saved scoring-only assessment.');
     await expect(prose).not.toContainText('2.5 assists');
+    await page.locator('[data-agent-new-chat]').click();
     await submit(page, scenario.turns[0].question);
     await expect(prose).toContainText('2.5 assists per game');
     await expect(prose).toContainText('2.0 turnovers per game');
@@ -121,7 +122,7 @@ for (const width of [1280,390]) {
   });
 }
 
-test('top questions create separate analyses and follow-ups belong to the selected tab', async ({page}, testInfo) => {
+test('changed settings create separate analyses and follow-ups belong to the selected tab', async ({page}, testInfo) => {
   const c = await prepare(page, 'follow_baseline');
   const posts = [];
   page.on('request', request => {
@@ -131,7 +132,12 @@ test('top questions create separate analyses and follow-ups belong to the select
   await submit(page, c.turns[0].question);
   const firstId = posts[0].conversation_id;
   await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
-  await expect(page.locator('[data-agent-question]')).toHaveValue('');
+  await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
+  await page.locator('.ask-settings summary').click();
+  const originalModel = await page.locator('[data-agent-model]').inputValue();
+  const models = await page.locator('[data-agent-model] option').evaluateAll(
+    options => options.map(option => option.value));
+  await page.locator('[data-agent-model]').selectOption(models.find(value => value !== originalModel));
   await submit(page, c.turns[0].question);
   const secondId = posts[1].conversation_id;
   expect(secondId).not.toBe(firstId);
@@ -139,6 +145,8 @@ test('top questions create separate analyses and follow-ups belong to the select
   await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(2);
   await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(1);
   await page.locator(`[data-chat-id="${firstId}"]`).click();
+  await expect(page.locator('[data-agent-model]')).toHaveValue(originalModel);
+  await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
   await page.locator('[data-followup-question]').fill(c.turns[1].question);
   await page.locator('[data-followup-submit]').click();
   await expect(page.locator('[data-followup-submit]')).toBeEnabled();
@@ -146,6 +154,10 @@ test('top questions create separate analyses and follow-ups belong to the select
   expect(posts[2].previous_context).toBeDefined();
   await expect(page.locator('[data-agent-tables]').last()).toContainText('3.8 per game');
   await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(2);
+  await expect(page.locator('#chat-turn, [data-turn-navigation]')).toHaveCount(0);
+  await page.locator('[data-agent-submit]').click();
+  await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(2);
+  expect(posts).toHaveLength(3);
   await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(2);
   await page.locator(`[data-chat-id="${secondId}"]`).click();
   await expect(page.locator('[data-agent-answer] .agent-turn')).toHaveCount(1);
@@ -275,8 +287,10 @@ test('research displays populated filtered values and explicit player override',
   await submit(page, c.turns[0].question);
   await expect(page.locator('[data-agent-tables]')).toContainText('Research breakdown');
   await expect(page.locator('[data-agent-tables]')).toContainText('Avery Example');
-  await page.locator('[data-followup-question]').fill(c.turns[1].question);
-  await page.locator('[data-followup-submit]').click();
+  // Legacy research responses have no qualifying status/context for the
+  // follow-up composer. A new subject remains available through the top bar.
+  await expect(page.locator('[data-followup-section]')).toBeHidden();
+  await submit(page, c.turns[1].question);
   await expect(page.locator('[data-agent-answer]')).toContainText('Blair Sample');
   await expect(page.locator('[data-agent-tables]').last()).toContainText('13');
 });
@@ -449,13 +463,12 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example perform in April 2025?');
     const panel=page.locator('[data-followup-section]');
-    await expect(panel.getByRole('heading',{name:'Ask your next question',exact:true})).toBeVisible();
-    await expect(panel.locator('.followup-eyebrow')).toHaveText('Continue the conversation');
+    await expect(panel.getByText('Follow up',{exact:true})).toBeVisible();
+    await expect(panel.locator('.followup-eyebrow, h2')).toHaveCount(0);
     await expect(panel.locator('[data-followup-context]')).toContainText('Avery Example');
     await expect(panel.locator('[data-followup-context]')).toContainText('Apr 1, 2025');
-    const styles=await panel.locator('h2').evaluate(el=>({font:getComputedStyle(el).fontFamily,color:getComputedStyle(el.parentElement).backgroundColor}));
-    expect(styles.font).toMatch(/^Barlow,/);expect(styles.font).not.toContain('Condensed');
-    expect(styles.color).toBe('rgb(26, 29, 34)');
+    const styles=await panel.locator('.question-composer').evaluate(el=>({radius:getComputedStyle(el).borderRadius}));
+    expect(styles.radius).toBe('14px');
     expect((await panel.boundingBox()).height).toBeLessThan(width===390 ? 400 : 310);
     expect((await panel.locator('textarea').boundingBox()).height).toBeLessThanOrEqual(61);
     await panel.getByRole('button',{name:'Review scoring in these dates',exact:true}).click();
@@ -472,7 +485,7 @@ for (const width of [1280,390]) {
     await expect(page.locator('.chart-header').last()).toContainText('Game-by-game');
     expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await page.reload();
-    await expect(panel.locator('h2')).toHaveText('Ask your next question');
+    await expect(panel.locator('h2')).toHaveCount(0);
     await expect(panel.locator('[data-followup-context]')).toContainText('Apr 14, 2025');
   });
 }
@@ -552,6 +565,12 @@ for (const width of [1280, 390]) {
         await page.locator('[data-followup-question]').fill(turn.question);
         await page.locator('[data-followup-submit]').click();
         await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+        if (id === 'overview_pending_player_recovery' && turn === c.turns[1]) {
+          await expect(page.locator('[data-followup-redirect]')).toBeVisible();
+          await page.locator('[data-followup-new-tab]').click();
+          await expect(page.locator('[data-agent-submit]')).toBeEnabled();
+          populated = 0;
+        }
         if (turn.checks[0].equals === 'ok') populated++;
         await expect(page.locator('.overall-copy')).toHaveCount(populated);
       }
@@ -560,9 +579,9 @@ for (const width of [1280, 390]) {
         await expect(page.locator('.agent-turn').last()).toContainText('Blair Sample');
         await expect(page.locator('.agent-turn').last()).not.toContainText('Avery Example');
       }
-      await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(1);
+      await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(id === 'overview_pending_player_recovery' ? 2 : 1);
       expect(posts).toHaveLength(c.turns.length);
-      expect(new Set(posts.map(p => p.conversation_id)).size).toBe(1);
+      expect(new Set(posts.map(p => p.conversation_id)).size).toBe(id === 'overview_pending_player_recovery' ? 2 : 1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
       await page.reload();
       await expect(page.locator('.overall-copy').last()).toContainText(expected);
@@ -579,6 +598,9 @@ for (const width of [1280,390]) {
     await page.locator('[data-followup-question]').fill(c.turns[1].question);
     await page.locator('[data-followup-submit]').click();
     await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    await expect(page.locator('[data-followup-redirect]')).toBeVisible();
+    await page.locator('[data-followup-new-tab]').click();
+    await expect(page.locator('[data-agent-submit]')).toBeEnabled();
     expect((await page.request.post('/__eval/reset-conversations')).ok()).toBe(true);
     await page.reload();
     const request = page.waitForRequest(r=>r.method()==='POST' && r.url().includes('/api/agent/ask/stream'));
@@ -586,7 +608,7 @@ for (const width of [1280,390]) {
     await page.locator('[data-followup-submit]').click();
     expect((await request).postDataJSON().previous_context).toBeUndefined();
     await expect(page.locator('[data-followup-submit]')).toBeEnabled();
-    await expect(page.locator('.overall-copy')).toHaveCount(1);
+    await expect(page.locator('.overall-copy')).toHaveCount(0);
     await expect(page.locator('.agent-turn').last()).toContainText('Which player');
     await expect(page.locator('.agent-turn').last()).not.toContainText('7.0 points per game');
     await page.locator('[data-followup-question]').fill('Give an overview of Blair Sample among guards in the 2024-25 regular season.');
@@ -596,3 +618,293 @@ for (const width of [1280,390]) {
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
   });
 }
+
+for (const width of [1280, 390]) {
+  test(`search persists and reuses tabs only for unchanged submissions at ${width}px`, async ({page}, testInfo) => {
+    await page.setViewportSize({width, height:900});
+    const c = await prepare(page, 'follow_baseline');
+    const question = c.turns[0].question;
+    const input = page.locator('[data-agent-question]');
+    const tabs = page.locator('[data-chat-tabs] [role=tab]');
+    const posts = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/api/agent/ask/stream'))
+        posts.push(request.postDataJSON());
+    });
+    await submit(page, question);
+    const firstId = posts[0].conversation_id;
+    await expect(input).toHaveValue(question);
+    await page.reload();
+    await expect(input).toHaveValue(question);
+    await page.locator('[data-agent-submit]').click();
+    await page.locator('[data-agent-submit]').click();
+    await expect(page.locator('[data-agent-submit]')).toHaveAccessibleName('Ask');
+    expect(posts).toHaveLength(1);
+    await expect(tabs).toHaveCount(1);
+    await expect(page.locator('.agent-turn')).toHaveCount(1);
+    await expect(page.locator('#chat-turn, [data-turn-navigation]')).toHaveCount(0);
+    await expect(page.locator('[data-agent-tables]').last()).toContainText('11.7 per game');
+    await page.locator('.ask-settings summary').click();
+    const model = page.locator('[data-agent-model]');
+    const firstModel = await model.inputValue();
+    const alternate = await model.locator('option').evaluateAll(options =>
+      options.map(option => option.value));
+    const nextModel = alternate.find(value => value !== firstModel);
+    expect(nextModel).toBeTruthy();
+    await model.selectOption(nextModel);
+    await expect(tabs).toHaveCount(1);
+    await submit(page, question);
+    const secondId = posts[1].conversation_id;
+    expect(secondId).not.toBe(firstId);
+    expect(posts[1].previous_context).toBeUndefined();
+    await expect(tabs).toHaveCount(2);
+    await expect(input).toHaveValue(question);
+    await selectSearchTab(page, firstId);
+    await expect(model).toHaveValue(firstModel);
+    await expect(input).toHaveValue(question);
+    await selectSearchTab(page, secondId);
+    await expect(model).toHaveValue(nextModel);
+    await submit(page, c.turns[1].question);
+    expect(posts[2].conversation_id).not.toBe(secondId);
+    await expect(tabs).toHaveCount(3);
+    await expect(input).toHaveValue(c.turns[1].question);
+    await selectSearchTab(page, secondId);
+    await expect(input).toHaveValue(question);
+    await page.locator('[data-agent-new-chat]').click();
+    await expect(input).toHaveValue('');
+    await submit(page, question);
+    expect(posts[3].conversation_id).not.toBe(firstId);
+    expect(posts[3].conversation_id).not.toBe(secondId);
+    await expect(tabs).toHaveCount(4);
+    await expect(input).toHaveValue(question);
+    await page.screenshot({path:testInfo.outputPath('persistent-search.png'),fullPage:true});
+  });
+}
+
+async function selectSearchTab(page, id) {
+  const tab = page.locator(`[data-chat-id="${id}"]`);
+  if (await tab.isVisible()) await tab.click();
+  else {
+    await page.locator('[data-chat-more]').click();
+    await page.locator(`[data-history-conversation-id="${id}"]`).click();
+  }
+}
+
+test('provider changes fork even when unavailable, and retries retain the question and tab', async ({page}) => {
+  const c = await prepare(page, 'baseline_points');
+  const question = c.turns[0].question;
+  const posts = [];
+  page.on('request', request => {
+    if (request.method() === 'POST' && request.url().includes('/api/agent/ask/stream'))
+      posts.push(request.postDataJSON());
+  });
+  await submit(page, question);
+  const firstId = posts[0].conversation_id;
+  await page.locator('.ask-settings summary').click();
+  await page.locator('[data-agent-provider]').selectOption('claude');
+  // The offline endpoint deliberately has no Claude credentials.
+  await submit(page, question);
+  const failedId = posts[1].conversation_id;
+  expect(failedId).not.toBe(firstId);
+  expect(posts[1].provider).toBe('claude');
+  await expect(page.locator('[data-agent-question]')).toHaveValue(question);
+  await submit(page, question);
+  expect(posts[2].conversation_id).toBe(failedId);
+  await expect(page.locator('[data-chat-tabs] [role=tab]')).toHaveCount(2);
+  await page.locator(`[data-chat-id="${firstId}"]`).click();
+  await expect(page.locator('[data-agent-provider]')).toHaveValue('openai');
+  await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
+  await page.locator(`[data-chat-id="${failedId}"]`).click();
+  await expect(page.locator('[data-agent-provider]')).toHaveValue('claude');
+  await expect(page.locator('[data-agent-question]')).toHaveValue(question);
+});
+
+test('question remains visible while an Ask request is pending', async ({page}) => {
+  const c = await prepare(page, 'baseline_points');
+  let release;
+  let entered;
+  const gate = new Promise(resolve => { release = resolve; });
+  const routed = new Promise(resolve => { entered = resolve; });
+  await page.route('**/api/agent/ask/stream**', async route => {
+    entered();
+    await gate;
+    await route.fallback();
+  });
+  await page.locator('[data-agent-question]').fill(c.turns[0].question);
+  await page.locator('[data-agent-submit]').click();
+  await routed;
+  await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
+  await expect(page.locator('[data-agent-submit]')).toBeDisabled();
+  release();
+  await expect(page.locator('[data-agent-submit]')).toBeEnabled();
+  await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
+  await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
+});
+
+for (const width of [1280, 390]) {
+  test('compact follow-up clarifies scope and hands off only on click at ' + width, async ({page}, testInfo) => {
+    await page.setViewportSize({width, height: 900});
+    const c = await prepare(page, 'follow_baseline');
+    const posts = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/api/agent/ask/stream'))
+        posts.push(request.postDataJSON());
+    });
+    await submit(page, c.turns[0].question);
+    const originalId = posts[0].conversation_id;
+    const panel = page.locator('[data-followup-section]');
+    const input = panel.locator('textarea');
+    await expect(input).toHaveAttribute('placeholder', 'Ask about this report…');
+    await expect(panel.getByRole('button', {name: 'Send follow-up', exact: true})).toBeVisible();
+    await input.fill(c.turns[1].question);
+    await panel.getByRole('button', {name: 'Send follow-up', exact: true}).click();
+    await expect(panel.locator('[data-followup-submit]')).toBeEnabled();
+    expect(posts[1].conversation_id).toBe(originalId);
+    expect(posts[1].previous_context).toBeDefined();
+    await expect(page.locator('.agent-turn')).toHaveCount(2);
+    await expect(page.locator('[data-agent-tables]').last()).toContainText('3.8 per game');
+    await input.fill('How about that situation?');
+    await panel.getByRole('button', {name: 'Send follow-up', exact: true}).click();
+    await expect(panel.locator('[data-followup-redirect]')).toBeVisible();
+    expect(posts).toHaveLength(2);
+    await input.fill('Blair Sample points per game in 2024-25');
+    await expect(panel.locator('[data-followup-redirect]')).toBeHidden();
+    await panel.getByRole('button', {name: 'Send follow-up', exact: true}).click();
+    await expect(panel.locator('[data-followup-redirect]')).toBeVisible();
+    await expect(input).toHaveValue('Blair Sample points per game in 2024-25');
+    expect(posts).toHaveLength(2);
+    await page.screenshot({path: testInfo.outputPath('followup-handoff.png'), fullPage: true});
+    await panel.getByRole('button', {name: 'Open in new tab →'}).click();
+    await expect(page.locator('[data-agent-submit]')).toBeEnabled();
+    expect(posts).toHaveLength(3);
+    expect(posts[2].conversation_id).not.toBe(originalId);
+    expect(posts[2].previous_context).toBeUndefined();
+    await expect(page.locator('[data-agent-question]')).toHaveValue('Blair Sample points per game in 2024-25');
+    await selectSearchTab(page, originalId);
+    await expect(page.locator('.agent-turn')).toHaveCount(2);
+    await expect(input).toHaveValue('Blair Sample points per game in 2024-25');
+    await expect(panel.locator('[data-followup-redirect]')).toBeHidden();
+    await input.fill('');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({path: testInfo.outputPath('compact-followup.png'), fullPage: true});
+  });
+}
+
+for (const width of [1280, 390, 320]) {
+  test('compact question bars contain buttons and grow with text at ' + width, async ({page}, testInfo) => {
+    await page.setViewportSize({width, height: 900});
+    const c = await prepare(page, 'baseline_points');
+    await submit(page, c.turns[0].question);
+    for (const selector of ['.query-row', '.followup-composer']) {
+      const bar = page.locator(selector);
+      const input = bar.locator('textarea');
+      const contained = async () => {
+        const {a, b, icon} = await bar.evaluate(el => ({
+          a: el.getBoundingClientRect().toJSON(),
+          b: el.querySelector('button').getBoundingClientRect().toJSON(),
+          icon: el.querySelector('button svg').getBoundingClientRect().toJSON(),
+        }));
+        expect(b.x - a.x).toBeGreaterThanOrEqual(7);
+        expect(b.y - a.y).toBeGreaterThanOrEqual(7);
+        // Allow subpixel layout rounding while keeping the visible inset balanced.
+        expect(Math.abs(a.right - b.right - 12)).toBeLessThan(0.5);
+        expect(Math.abs(a.bottom - b.bottom - 12)).toBeLessThan(0.5);
+        expect(b.width).toBeCloseTo(28, 2); expect(b.height).toBeCloseTo(28, 2);
+        expect(icon.x + icon.width / 2).toBeCloseTo(b.x + b.width / 2, 1);
+        expect(icon.y + icon.height / 2).toBeCloseTo(b.y + b.height / 2, 1);
+      };
+      await input.fill('Points?');
+      expect((await bar.boundingBox()).height).toBeCloseTo(52, 2);
+      await contained();
+      await bar.locator('button').hover();
+      await expect(bar.locator('button')).toHaveCSS('transform', 'none');
+      await contained();
+      await page.mouse.move(0, 0);
+      await input.focus();
+      await page.keyboard.press('Tab');
+      await expect(bar.locator('button')).toBeFocused();
+      await expect(bar.locator('button')).toHaveCSS('transform', 'none');
+      await contained();
+      await input.fill('Explain how the points, rebounds and assists in this report changed over the season. '.repeat(5));
+      expect((await bar.boundingBox()).height).toBeGreaterThan(52);
+      await contained();
+      expect(await input.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+      await input.fill('');
+      expect((await bar.boundingBox()).height).toBeCloseTo(52, 2);
+      await contained();
+    }
+    await page.locator('[data-agent-question]').fill(c.turns[0].question);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+    await page.screenshot({path: testInfo.outputPath('compact-bars.png'), fullPage: true});
+  });
+}
+
+for (const suggestionIndex of [0, 1]) {
+  test('rendered backend suggestion submits in the current chat: ' + suggestionIndex, async ({page}) => {
+    const c = await prepare(page, 'baseline_points');
+    const posts = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().includes('/api/agent/ask/stream'))
+        posts.push(request.postDataJSON());
+    });
+    await submit(page, c.turns[0].question);
+    // Use the backend's actual canned wording in a saved, qualified report.
+    const backendSource = fs.readFileSync('app/research_studies.py', 'utf8');
+    const followups = JSON.parse(backendSource.match(/"followups": (\[[^\]]*\])/)[1]);
+    await page.evaluate(followups => {
+      const key = 'askChatHistory:v1';
+      const saved = JSON.parse(localStorage.getItem(key));
+      saved.conversations[0].turns[0].payload.followups = followups;
+      localStorage.setItem(key, JSON.stringify(saved));
+    }, followups);
+    await page.reload();
+    const suggestion = page.locator('[data-followup-suggestions] [data-agent-example]').nth(suggestionIndex);
+    const text = await suggestion.getAttribute('data-agent-example');
+    await suggestion.click();
+    await expect(page.locator('[data-followup-question]')).toHaveValue(text);
+    const response = page.waitForResponse(r => r.url().includes('/api/agent/ask/stream'));
+    await page.locator('[data-followup-submit]').click();
+    expect((await response).status()).toBe(200);
+    await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+    expect(posts).toHaveLength(2);
+    expect(posts[1].question).toBe(text);
+    expect(posts[1].conversation_id).toBe(posts[0].conversation_id);
+    expect(posts[1].previous_context).toBeDefined();
+    await expect(page.locator('[data-followup-redirect]')).toBeHidden();
+  });
+}
+
+test('saved unusable response hides follow-up input and a successful retry restores it', async ({page}) => {
+  const c = await prepare(page, 'baseline_points');
+  await submit(page, c.turns[0].question);
+  await page.evaluate(() => {
+    const key = 'askChatHistory:v1';
+    const saved = JSON.parse(localStorage.getItem(key));
+    saved.conversations[0].turns[0].payload = {status:'unsupported', answer:'Unsupported saved question.'};
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  await expect(page.locator('[data-agent-answer]')).toContainText('Unsupported saved question.');
+  await expect(page.locator('[data-followup-section]')).toBeHidden();
+  await page.locator('[data-saved-question-retry]').click();
+  await expect(page.locator('[data-followup-section]')).toBeVisible();
+  await expect(page.locator('[data-followup-submit]')).toBeEnabled();
+});
+
+test('Ask recovers when the active saved chat cannot be restored', async ({page}) => {
+  const c = await prepare(page, 'baseline_points');
+  await page.evaluate(() => {
+    localStorage.removeItem('askChatHistory:v1');
+    const key = Object.keys(localStorage).find(key => key.startsWith('askOpenTabs:v1:'));
+    localStorage.setItem(key, JSON.stringify({open:['missing-chat'], active:'missing-chat', drafts:{}}));
+  });
+  await page.route('**/api/agent/history?conversation_id=missing-chat*', route => route.fulfill({status:503, body:'Unavailable'}));
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.reload();
+  await expect(page.locator('[data-storage-notice]')).toContainText('could not be reached');
+  await submit(page, c.turns[0].question);
+  await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
+  await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
+  expect(errors).toEqual([]);
+});
