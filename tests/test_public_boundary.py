@@ -121,3 +121,19 @@ def test_force_added_case_variants_are_detected(tmp_path, filename):
     (tmp_path / filename).parent.mkdir(parents=True, exist_ok=True)
     stage(tmp_path, filename, "Synthetic artifact.\n")
     assert (filename, "private artifact path") in check_index(tmp_path)
+
+
+def test_only_exact_root_claude_import_is_allowed(tmp_path):
+    init_repo(tmp_path)
+    stage(tmp_path, "CLAUDE.md", "@AGENTS.md\n")
+    assert not check_index(tmp_path)
+    stage(tmp_path, "CLAUDE.md", "@AGENTS.md\nPrivate notes\n")
+    (tmp_path / "CLAUDE.md").write_text("@AGENTS.md\n")
+    assert ("CLAUDE.md", "private artifact path") in check_index(tmp_path)
+
+
+def test_nested_claude_import_remains_private(tmp_path):
+    init_repo(tmp_path)
+    (tmp_path / "nested").mkdir()
+    stage(tmp_path, "nested/CLAUDE.md", "@AGENTS.md\n")
+    assert ("nested/CLAUDE.md", "private artifact path") in check_index(tmp_path)

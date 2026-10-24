@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "role": "public-platform",
+  "repository": "mikeh-studio/nba-stats-desk",
+  "boundary": "docs/public-private-boundary.md",
+  "checks": [
+    "python scripts/check_public_boundary.py",
+    "ruff check .",
+    "ruff format --check .",
+    "mypy",
+    "pytest -q",
+    "relevant checks in docs/operations.md#validation"
+  ]
+}

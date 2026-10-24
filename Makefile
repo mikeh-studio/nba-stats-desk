@@ -80,3 +80,9 @@ airflow-list:
 airflow-parse:
 	$(AIRFLOW_CMD) dags list-import-errors
 	$(AIRFLOW_CMD) tasks list nba_analytics_pipeline
+
+# Read-only agent preflight; defaults to private product work.
+AGENT_INTENT ?= product
+.PHONY: agent-start
+agent-start:
+	python3 scripts/agent_startup.py --intent "$(AGENT_INTENT)"

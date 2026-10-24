@@ -1,5 +1,28 @@
 # Agent Instructions
 
+## Required startup
+
+This repository follows the private-first split. Before editing, read
+[the agent workflow](docs/agent-workflow.md) and run from the repository root:
+
+```bash
+python3 scripts/agent_startup.py --intent INTENT
+```
+
+Use `product` for product features; `shared-fix`, `reference-maintenance`, or
+`public-promotion` only for that explicit public scope; `policy` for repository
+guidance/tooling. Default intent is `product`, which is rejected in public.
+Report the repository/branch, ownership decision, intended checks and push target.
+If blocked, change to the correct checkout or reconcile stale guidance; do not
+weaken the guard or relabel product work to bypass it. Create a fresh `codex/`
+branch from current `origin/main` before implementation. Preserve dirty work.
+
+Run the same check again before pushing. Public publication requires explicit
+user authorization covering the reviewed public diff before its first push.
+An intent flag, a passing check, or a PR opened after pushing is not authorization.
+Keep public PR #97 unmerged unless the user explicitly changes that instruction.
+Never automatically mirror private branches or edit inside the shared dependency.
+
 Read optional `AGENTS.local.md` beside this file before working. If absent,
 continue; shared requirements must work in a fresh clone.
 
