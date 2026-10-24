@@ -152,7 +152,7 @@ def test_explicit_two_seasons_are_not_silently_discarded(suffix):
         suffix,
         TwoSeasons(),
     )
-    assert payload["status"] == "invalid_scope", payload["answer"]
+    assert payload["status"] == "invalid_plan", payload["answer"]
     assert not payload.get("semantic_evidence")
     assert not payload.get("tables")
     assert "no numbers are shown" in payload["answer"]
@@ -184,3 +184,7 @@ def test_leader_without_qualification_evidence_fails_closed():
     )
     assert result["status"] == "invalid_evidence"
     assert result["evidence"] is None
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

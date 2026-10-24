@@ -223,6 +223,8 @@ def test_planned_metrics_receive_canonical_identity(preview, transport, operatio
     question = "{name} points per game in the 2025-26 regular season"
     if operation == "game_log":
         question = "{name} points game log in the 2025-26 regular season"
+    if operation in {"rank", "percentile"}:
+        question += ", minimum 1 game"
     canonical = ask(client, question.format(name="Avery Finch"), transport)
     corrected = ask(client, question.format(name="Avrey Finch"), transport)
     assert corrected["status"] == "ok", corrected["answer"]
@@ -308,3 +310,7 @@ def test_tool_resolver_uses_same_policy_before_display_limit():
     players.append({"player_id": 4, "player_name": "Jalen Duron"})
     assert resolver.resolve("Jalen Duran", limit=1).status == "ambiguous"
     assert tool.resolve_player("Jalen Duran", limit=1)["status"] == "ambiguous"
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

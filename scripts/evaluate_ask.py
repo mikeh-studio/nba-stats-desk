@@ -20,7 +20,11 @@ import httpx
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.ask_eval.fixtures import load_inputs  # noqa: E402
-from scripts.ask_eval.grading import canonical, grade  # noqa: E402
+from scripts.ask_eval.grading import (  # noqa: E402
+    canonical,
+    expected_failure_payload,
+    grade,
+)
 from scripts.ask_eval.private_io import (  # noqa: E402
     private_directory,
     private_open,
@@ -117,11 +121,24 @@ def evaluate(
                         metadata = client.get("/__eval/metadata").json()
                         usage = metadata.get("model_usage", [])[previous_calls:]
                         previous_calls = len(metadata.get("model_usage", []))
+                    raw_payload = payload
+                    expected_failure = turn.get("expected_failure")
+                    failure_payload = expected_failure_payload(
+                        expected_failure, mode, status, payload, events
+                    )
+                    if failure_payload is not None:
+                        payload = failure_payload
                     assertions = grade(payload, turn["checks"])
-                    if status != 200 or (
-                        mode == "sse"
-                        and not any(e.get("type") == "final" for e in events)
-                    ):
+                    terminal_ok = (
+                        failure_payload is not None
+                        if expected_failure
+                        else status == 200
+                        and (
+                            mode == "json"
+                            or any(e.get("type") == "final" for e in events)
+                        )
+                    )
+                    if not terminal_ok:
                         assertions.append(
                             {"path": "HTTP/terminal", "passed": False, "actual": status}
                         )
@@ -129,6 +146,11 @@ def evaluate(
                         {
                             "question": turn["question"],
                             "payload": payload,
+                            **(
+                                {"raw_error_payload": raw_payload}
+                                if expected_failure
+                                else {}
+                            ),
                             "checks": assertions,
                             "passed": all(c["passed"] for c in assertions),
                             "latency_ms": round((time.monotonic() - started) * 1000),
@@ -478,6 +500,7 @@ def main():
                     (ROOT / "scripts/ask_eval" / name).read_bytes()
                     for name in (
                         "fixtures.py",
+                        "intelligence_fixture.py",
                         "production.py",
                         "server.py",
                         "budget.py",

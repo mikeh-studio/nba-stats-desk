@@ -405,7 +405,7 @@ def run_name_matching(
     agent, question, selected_player, conversation_id, callback, *, trace=None
 ):
     """Keep clarification replies on the original route and original scope."""
-    from app.agent.question_intent import name_reply, starts_new_question
+    from app.agent.scope_policy import name_reply, starts_new_question
 
     store = (
         getattr(agent, "conversation_store", getattr(agent, "store", None))

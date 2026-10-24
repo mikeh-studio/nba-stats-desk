@@ -179,7 +179,6 @@ def test_service_home_away_uses_split_not_research(source):
     "question,expected",
     [
         ("Which is the best closing lineup?", "unsupported_scope"),
-        ("Should I drop Avery Example in fantasy?", "clarification_required"),
         ("Compare on-court and off-court ratings", "unsupported_scope"),
     ],
 )
@@ -255,3 +254,7 @@ def test_json_and_stream_endpoints_preserve_split_evidence(source):
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

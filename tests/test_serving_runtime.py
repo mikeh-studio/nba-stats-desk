@@ -317,3 +317,6 @@ def test_points_only_cohort_reuse_preserves_full_result(bundle):
     assert publication.run(query, now=NOW, reuse_cohort=True) == expected
     assert publication.run(query, now=NOW, reuse_cohort=True) == expected
     assert len(publication._cohorts) == 1
+
+
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

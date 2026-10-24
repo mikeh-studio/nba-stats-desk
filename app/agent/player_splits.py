@@ -15,7 +15,7 @@ from app.agent.metric_presentation import (
     game_coverage_label,
 )
 from app.agent.performance_overview import identity_profile
-from app.agent.question_intent import split_kind
+from app.agent.scope_policy import split_kind
 from app.agent.semantic_serving import requested_seasons
 from app.agent.semantics import Query, SemanticError, compare_queries, load_contract
 from app.seasons import SEASONS, season_bounds

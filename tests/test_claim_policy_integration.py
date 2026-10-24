@@ -27,3 +27,7 @@ def test_default_points_assumption_preserves_exact_following_bindings(
         "Regular Season", "Playoffs"
     )
     assert validate(payload)["status"] == "invalid"
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

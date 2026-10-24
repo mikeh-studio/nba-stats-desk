@@ -807,3 +807,7 @@ def test_typed_group_restatement_keeps_pending_season(ask, suffix):
     e = result["semantic_evidence"]
     assert (e["scope"]["start"], e["scope"]["end"]) == ("2023-07-01", "2024-06-30")
     assert e["scope"]["phases"] == ["Regular Season"]
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

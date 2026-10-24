@@ -45,6 +45,13 @@ source, document = load_inputs(
     else None,
 )
 lookup = {c["id"]: c for c in document["cases"]}
+# Offline harness plans are explicitly controlled. The production loader never
+# registers this provider and public reference checks can opt out per fixture run.
+_has_intelligence_hook = "ask_intelligence_provider" in Settings.__dataclass_fields__
+if _has_intelligence_hook and os.environ.get("ASK_EVAL_LIVE") != "1":
+    from scripts.ask_eval.intelligence_fixture import install_controlled_provider
+
+    install_controlled_provider()
 repositories = {}
 _artifact_directory = tempfile.TemporaryDirectory(prefix="ask-eval-fixtures-")
 _attachments = FixtureAttachments(source, _artifact_directory.name)
@@ -74,8 +81,34 @@ def settings(request: Request = None):
         agent_trace_enabled=False,
         performance_cache_prewarm_enabled=False,
     )
+    if _has_intelligence_hook:
+        selection = os.environ.get(
+            "ASK_EVAL_INTELLIGENCE",
+            "fixture" if os.environ.get("ASK_EVAL_LIVE") != "1" else "reference",
+        )
+        if (
+            request
+            and request.headers.get("X-Evaluation-Intelligence") == "reference"
+            and os.environ.get("ASK_EVAL_LIVE") != "1"
+        ):
+            selection = "reference"
+        base = replace(base, ask_intelligence_provider=selection)
+        if selection == "reference":
+            base = replace(
+                base,
+                openai_api_key=None,
+                anthropic_api_key=None,
+                openrouter_api_key=None,
+            )
     if os.environ.get("ASK_EVAL_LIVE") == "1":
         live = get_settings()
+        if _has_intelligence_hook:
+            base = replace(
+                base,
+                ask_intelligence_provider=os.environ.get(
+                    "ASK_EVAL_INTELLIGENCE", live.ask_intelligence_provider
+                ),
+            )
         base = replace(
             base,
             openai_api_key=live.openai_api_key,

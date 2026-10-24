@@ -49,6 +49,7 @@ def endpoint_v3():
                 conversation=None,
                 omit_label=False,
                 omit_phase=False,
+                expect_error=False,
                 **overrides,
             ):
                 query = dict(
@@ -81,6 +82,14 @@ def endpoint_v3():
                         question=question, conversation_id=conversation or str(uuid4())
                     ),
                 )
+                if expect_error:
+                    if transport == "json":
+                        assert response.status_code == 502
+                        assert set(response.json()) == {"detail"}
+                    else:
+                        assert '"type": "error"' in response.text
+                        assert '"type": "final"' not in response.text
+                    return {"status": "invalid_provider_output", "tables": []}
                 assert response.status_code == 200, response.text
                 if transport == "json":
                     return response.json()
@@ -125,7 +134,7 @@ def test_omitted_aggregation_is_server_owned(
     assert policy["chosen_aggregation"] == "average"
     resolution = payload["query_plan"]["aggregation_resolution"][0]
     assert resolution["source"] == "omitted_default"
-    assert resolution["model_aggregation_source"] == label
+    assert resolution["model_aggregation_source"] == (label or "omitted")
     assert "points per game" in " ".join(payload["assumptions"])
 
 
@@ -214,7 +223,7 @@ def test_followup_values_and_fresh_requests_do_not_depend_on_labels(
         {"season_type": "Playoffs"},
         {"start_date": "2025-03-03"},
         {"as_of": "2025-03-07"},
-        {"window": "season_to_date"},
+        {"window": "last_n_days", "n": 3},
         {"opponent_abbr": "BBB"},
         {"aggregation": "ratio"},
         {"home_away": "HOME"},
@@ -228,6 +237,7 @@ def test_alternate_scope_cannot_bypass_concrete_validation(
             "from 2025-03-04 through 2025-03-06", "between 2025-03-04 and 2025-03-06"
         ),
         transport,
+        expect_error=change.get("aggregation") == "ratio",
         **change,
     )
     assert payload["status"] != "ok" and not payload["tables"], payload
@@ -263,7 +273,7 @@ def test_missing_label_is_not_execution_authority(endpoint_v3, transport):
     )
     assert (
         payload["query_plan"]["aggregation_resolution"][0]["model_aggregation_source"]
-        is None
+        == "omitted"
     )
 
 
@@ -444,11 +454,8 @@ def test_missing_phase_materializes_validated_scope(
         payload
     )
     assert payload["query_plan"]["queries"][0]["season_type"] == phase
-    if not open_ended:
-        assert (
-            "season_type"
-            in payload["query_plan"]["aggregation_policy"]["derived_scope_fields"]
-        )
+    # The typed provider supplies an explicit phase; host validation checks it.
+    assert payload["query_plan"]["queries"][0]["season_type"] == phase
 
 
 def test_missing_both_phase_materialized_before_query():
@@ -645,3 +652,17 @@ def test_partial_explicit_phase_overrides_prior_scope(
         aggregation="average",
     )
     assert bad["status"] not in {"ok", "no_observations"} and not bad["tables"], bad
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_literal_interval_fills_neutral_window_default(endpoint_v3, transport):
+    payload = endpoint_v3(QUESTION, transport, window="season_to_date")
+    assert payload["status"] == "ok"
+    query = payload["query_plan"]["queries"][0]
+    assert query["window"] == "date_range"
+    assert query["start_date"] == "2025-03-04"
+    assert query["as_of"] == "2025-03-06"

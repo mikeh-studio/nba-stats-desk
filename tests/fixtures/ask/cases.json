@@ -2901,18 +2901,18 @@
           "question": "Avery Example points per game in 2024-25",
           "checks": [
             {
-              "path": "status",
-              "equals": "invalid_plan"
-            },
-            {
-              "path": "tables",
-              "equals": []
+              "path": "detail",
+              "equals": "Ask NBA Stats failed while generating an answer. Try again shortly."
             }
           ],
           "planner_response": {
             "status": "raw_sql",
             "queries": [],
             "message": "SELECT *"
+          },
+          "expected_failure": {
+            "http_status": 502,
+            "detail": "Ask NBA Stats failed while generating an answer. Try again shortly."
           }
         }
       ]
@@ -2938,7 +2938,12 @@
               "path": "tables",
               "equals": []
             }
-          ]
+          ],
+          "planner_response": {
+            "status": "clarification_required",
+            "queries": [],
+            "message": "Specify an attempt threshold for the shooting cohort."
+          }
         }
       ]
     },

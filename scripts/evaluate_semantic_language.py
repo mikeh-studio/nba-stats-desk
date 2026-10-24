@@ -21,8 +21,10 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.agent.semantic_planner import PROMPT, execute_plan, plan_question  # noqa: E402
+from app.agent.intelligence import get_provider, plan_question  # noqa: E402
+from app.agent.plan_execution import execute_plan  # noqa: E402
 from app.agent.semantics import CATALOG_PATH, Evidence, SemanticError  # noqa: E402
+from app.config import get_settings  # noqa: E402
 
 FIXTURE = ROOT / "tests/fixtures/semantics/language_cases.json"
 SOURCE = ROOT / "tests/fixtures/semantics/cases.json"
@@ -114,6 +116,7 @@ def run_case(
         else:
             plan = plan_question(
                 counted_client,
+                settings=get_settings(),
                 model=model,
                 question=case["questions"][variant],
                 selected_season=fixture["selected_season"],
@@ -175,6 +178,10 @@ def main() -> int:
     settings = get_settings()
     if not settings.openai_agent_enabled or not settings.openai_api_key:
         parser.error("The configured OpenAI agent must be enabled with credentials")
+    if not get_provider(settings).descriptor.requires_model:
+        parser.error(
+            "Live language evaluation requires an explicitly selected model-backed intelligence provider"
+        )
     fixture = json.loads(args.fixture.read_text())
     source = json.loads(SOURCE.read_text())
     jobs = [
@@ -210,7 +217,9 @@ def main() -> int:
     report = {
         "model": model,
         "evidence_kind": "synthetic_with_live_planner",
-        "entry_point": "StatsAgent.answer" if args.ask else "semantic_planner",
+        "entry_point": "StatsAgent.answer"
+        if args.ask
+        else "intelligence.plan_question",
         "llm_runs": sum(r["model_calls"] for r in results),
         "passed": sum(r["passed"] for r in results),
         "total": len(results),
@@ -218,7 +227,9 @@ def main() -> int:
         "phrases_per_case": 3,
         "human_reviewed": fixture["human_reviewed"],
         "release_ready": False,
-        "prompt_sha256": hashlib.sha256(PROMPT.encode()).hexdigest(),
+        "prompt_sha256": hashlib.sha256(
+            (get_provider(settings).prompts().planning_system or "reference").encode()
+        ).hexdigest(),
         "contract_sha256": hashlib.sha256(CATALOG_PATH.read_bytes()).hexdigest(),
         "fixture_sha256": hashlib.sha256(args.fixture.read_bytes()).hexdigest(),
         "limitations": [

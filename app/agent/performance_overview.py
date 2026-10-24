@@ -25,7 +25,7 @@ from app.agent.overview_positions import (
     requested_group,
 )
 from app.agent.overview_summary import game_insights, summary_paragraphs
-from app.agent.question_intent import has_specific_metric
+from app.agent.scope_policy import has_specific_metric
 from app.agent.semantics import SemanticError, aggregate, load_contract
 from app.seasons import SEASONS, season_bounds
 
@@ -103,7 +103,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         question = re.sub(r"\bfirst (?:two|2) appearances\b", "", question, flags=re.I)
         if not re.search(r"playoffs?|regular season", question, re.I):
             question += " regular season"
-    from app.agent.question_intent import round_scope_message
+    from app.agent.scope_policy import round_scope_message
 
     if message := round_scope_message(question):
         raise SemanticError("unsupported_scope", message)

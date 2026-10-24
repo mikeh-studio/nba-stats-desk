@@ -1215,3 +1215,7 @@ def test_development_cli_receipt_is_bounded_and_late_candidate_is_not_promoted(
         assert receipt["previous_reference"] is None
         assert output["remaining_seconds"] == 300
         assert len(list(history.glob("*.json"))) == 20
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

@@ -62,7 +62,7 @@ class SDK:
         return (
             "not-json"
             if self.scenario == "malformed"
-            else '{"plan":{"status":"unsupported","queries":[],"message":"Scope unavailable"}}'
+            else '{"plan":{"status":"unsupported","queries":[],"message":"Scope unavailable","reason":"unsupported_scope"}}'
         )
 
     def create(self, **kwargs):
@@ -195,11 +195,11 @@ def optional_report():
     "scenario,expected,attempts",
     [
         ("success", "unsupported", 1),
-        ("malformed", "invalid_plan", 1),
+        ("malformed", "invalid_provider_output", 1),
         ("rate_limit", "unsupported", 2),
         ("transient", "unsupported", 2),
         ("timeout", "provider_timeout", 3),
-        ("permanent", "provider_failure", 1),
+        ("permanent", "provider_unavailable", 1),
         ("deadline", "request_timeout", 1),
     ],
 )
@@ -228,7 +228,7 @@ def test_real_adapter_matrix(provider, scenario, expected, attempts, clock):
     assert sdk.calls == trace.model_calls == attempts
     assert sdk.options and all(opt["max_retries"] == 0 for opt in sdk.options)
     timeout = {"openai": 7, "claude": 13, "openrouter": 19}[provider]
-    assert sdk.options[0]["timeout"] == timeout
+    assert sdk.options[0]["timeout"] == min(timeout, 8)
     assert trace.stage_latency_ms["planning"] >= 200
     assert "private" not in json.dumps(trace.to_log_dict())
     ROWS.append(
@@ -365,10 +365,10 @@ def test_provider_retry_limits_are_independent(provider, clock):
 @pytest.mark.parametrize(
     "scenario,expected",
     [
-        ("malformed", "invalid_plan"),
+        ("malformed", "invalid_provider_output"),
         ("timeout", "provider_timeout"),
         ("deadline", "request_timeout"),
-        ("permanent", "provider_failure"),
+        ("permanent", "provider_unavailable"),
     ],
 )
 def test_real_endpoints_preserve_terminal_failure_and_privacy(
@@ -429,7 +429,7 @@ def test_real_endpoints_preserve_terminal_failure_and_privacy(
         assert len(terminal_events) == 1
 
     else:
-        assert response.status_code == (200 if scenario == "malformed" else 502)
+        assert response.status_code == 502
     app.dependency_overrides.clear()
     _season_conversation_store.cache_clear()
 
@@ -786,3 +786,7 @@ def test_exclusive_stages_partition_nested_work_even_on_failure(clock):
     assert execution.STAGE_CHILDREN.get() is None
     assert execution.ACTIVE_STAGES.get() == ()
     assert "stage_exclusive_latency_ms" in trace.to_log_dict()
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

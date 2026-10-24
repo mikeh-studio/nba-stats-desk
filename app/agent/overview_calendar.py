@@ -194,7 +194,7 @@ def validate_single_period(question: str) -> None:
 
 def validate_phase_venue(question: str) -> None:
     """Shared literal phase/venue contradictions, independent of period count."""
-    from app.agent.question_intent import venue_mentions
+    from app.agent.scope_policy import venue_mentions
 
     text = question
     regular = bool(re.search(r"\bregular[ -]season\b", text, re.I))

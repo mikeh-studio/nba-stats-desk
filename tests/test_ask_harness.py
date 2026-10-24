@@ -572,3 +572,37 @@ def test_evaluation_provider_adapters_preserve_zero_sdk_retries(
     )
     wrapped = a._get_client(provider).with_options(timeout=3)
     assert wrapped is not None and created[0]["max_retries"] == 0
+
+
+def test_explicit_failure_oracle_rejects_unexpected_or_partial_answers():
+    from scripts.ask_eval.grading import expected_failure_payload
+
+    expected = {"http_status": 502, "detail": "Sanitized failure"}
+    error = {"type": "error", "detail": expected["detail"], "request_id": "fixture"}
+    plain = {"detail": expected["detail"]}
+    assert expected_failure_payload(expected, "json", 502, plain, []) == plain
+    assert (
+        expected_failure_payload(expected, "sse", 200, {}, [{"type": "plan"}, error])
+        == plain
+    )
+    assert expected_failure_payload(None, "json", 502, plain, []) is None
+    assert expected_failure_payload(expected, "json", 200, plain, []) is None
+    assert (
+        expected_failure_payload(
+            expected, "json", 502, {**plain, "answer": "partial"}, []
+        )
+        is None
+    )
+    for earlier in (
+        {"type": "final", "payload": {}},
+        {"type": "delta", "text": "partial"},
+    ):
+        assert (
+            expected_failure_payload(expected, "sse", 200, {}, [earlier, error]) is None
+        )
+    assert (
+        expected_failure_payload(
+            expected, "sse", 200, {}, [{**error, "detail": "raw secret"}]
+        )
+        is None
+    )

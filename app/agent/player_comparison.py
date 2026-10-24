@@ -110,7 +110,7 @@ def evaluative_sides(text):
     Statistic-specific wording ("who scored more, A or B") is left to the
     metric planner; an unnamed "better" gets the full shared scorecard.
     """
-    from app.agent.question_intent import has_specific_metric
+    from app.agent.scope_policy import has_specific_metric
 
     if not re.search(EVALUATIVE, text, re.I) or has_specific_metric(text):
         return None

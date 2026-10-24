@@ -11,10 +11,12 @@ from dataclasses import dataclass
 import jsonschema
 from pydantic import ValidationError
 
-from app.agent.planner import explicit_metric_mentions
-from app.agent.question_intent import question_intent
 from app.agent.route_labels import route_hint
-from app.agent.semantic_planner import explicit_scope
+from app.agent.scope_policy import (
+    explicit_metric_mentions,
+    explicit_scope,
+    question_scope,
+)
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -90,7 +92,7 @@ def validate_literal_scope(
     This is not a complete natural-language parser. Unrecognized modifiers still
     depend on the planner; recognized contradictions never get overwritten.
     """
-    intent = question_intent(question)
+    intent = question_scope(question)
     if intent["status"] or intent["kind"] != "statistics":
         raise ValueError(intent["message"] or "Unsupported research operation")
     if re.search(

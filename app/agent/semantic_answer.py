@@ -14,6 +14,7 @@ from app.agent.clock import today as semantic_today
 from app.agent.execution import timed
 from app.agent.followup import analysis_context, resolve_followup
 from app.agent.history import saved_context_question
+from app.agent.intelligence import plan_question
 from app.agent.metric_presentation import (
     GAME_COVERAGE_NOTE,
     GAMES_IN_SCOPE,
@@ -32,20 +33,16 @@ from app.agent.performance_overview import (
     overview_scope,
     resolve_overview_player,
 )
+from app.agent.plan_execution import execute_plan
 from app.agent.player_comparison import (
     build_comparison,
     comparison_scope,
     comparison_sides,
 )
 from app.agent.player_splits import answer_split
-from app.agent.question_intent import question_intent, split_kind
 from app.agent.route_labels import route_hint, status_reason
 from app.agent.routes import supersedes_pending
-from app.agent.semantic_planner import (
-    execute_plan,
-    explicit_scope,
-    plan_question,
-)
+from app.agent.scope_policy import explicit_scope, question_scope, split_kind
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -717,7 +714,9 @@ class SemanticAsk:
                 r"\b(his|him|their|them|instead|same)\b", question, re.I
             ):
                 dated_points_eligible = False
-                question = f"Previous question: {turns[-1].question}\nCurrent question: {question}"
+                # Without authorized successful scope, keep the unresolved current
+                # question. Prior question text must not cross the provider boundary.
+                question = original
         if context.get("split_question") and not pending:
             from app.agent.player_splits import split_followup
 
@@ -821,7 +820,7 @@ class SemanticAsk:
                     "groups",
                     "Choose one comparison group: guards, wings/forwards, or bigs/centers. Multiple groups need separate comparisons.",
                 )
-            intent = question_intent(question)
+            intent = question_scope(question)
             if award:
                 intent["kind"] = "award_lookup_then_performance"
             if intent["status"]:
@@ -979,6 +978,7 @@ class SemanticAsk:
                     question, identities = prepare_names(question, identities)
                     return plan_question(
                         client,
+                        settings=self.settings,
                         model=model,
                         question=question,
                         selected_season=seasons[0]
@@ -1134,7 +1134,7 @@ class SemanticAsk:
                         "Saved player context does not match this source. Please restate the full player name and dates.",
                     )
                 if pending and not selected_player and not overview:
-                    from app.agent.planner import explicit_metric_mentions
+                    from app.agent.scope_policy import explicit_metric_mentions
 
                     if (
                         explicit_metric_mentions(original) == {"pts"}
@@ -1228,6 +1228,7 @@ class SemanticAsk:
                         or (prepared_attempt.plan if prepared_attempt else None)
                         or plan_question(
                             client,
+                            settings=self.settings,
                             model=model,
                             question=question,
                             dated_points_eligible=dated_points_eligible,
@@ -1263,7 +1264,7 @@ class SemanticAsk:
                         )
                     )
                     if pending:
-                        from app.agent.question_intent import explicit_aggregation
+                        from app.agent.scope_policy import explicit_aggregation
 
                         if not explicit_aggregation(question) and any(
                             q.get("metric") == "pts"

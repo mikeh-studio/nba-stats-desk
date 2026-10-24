@@ -76,6 +76,7 @@ class Settings:
     ask_claim_enforcement: str = "log"
 
     ask_local_espn_dev: bool = False
+    ask_intelligence_provider: str = "reference"
     ask_deterministic_planning_enabled: bool = False
     ask_formula_cache_enabled: bool = False
     ask_cohort_cache_enabled: bool = False
@@ -193,6 +194,7 @@ def get_settings() -> Settings:
         ask_formula_cache_enabled=_env_bool("ASK_FORMULA_CACHE_ENABLED", False),
         ask_cohort_cache_enabled=_env_bool("ASK_COHORT_CACHE_ENABLED", False),
         ask_serving_reference_path=os.getenv("ASK_SERVING_REFERENCE_PATH") or None,
+        ask_intelligence_provider=os.getenv("ASK_INTELLIGENCE_PROVIDER", "reference"),
         ask_deterministic_planning_enabled=_env_bool(
             "ASK_DETERMINISTIC_PLANNING_ENABLED", False
         ),

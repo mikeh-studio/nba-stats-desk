@@ -64,6 +64,10 @@ STAGE_CHILDREN: ContextVar[list[float] | None] = ContextVar(
     "ask_stage_children", default=None
 )
 
+MODEL_ATTEMPT: ContextVar[Callable[[], None] | None] = ContextVar(
+    "model_attempt", default=None
+)
+
 CURRENT: ContextVar[RequestPolicy | None] = ContextVar("ask_execution", default=None)
 
 
@@ -240,6 +244,8 @@ def create_response(
     if policy.provider == "claude":
         kwargs["on_output_text_delta"] = on_delta
     for attempt in range(policy.retries + 1):
+        if before_attempt := MODEL_ATTEMPT.get():
+            before_attempt()
         timeout = policy.timeout(timeout_seconds)
         configured = client
         extra = {}

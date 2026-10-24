@@ -157,7 +157,12 @@ def test_permission_error_is_not_a_legacy_or_current_season_fallback():
     assert payload["semantic_evidence"] is None
 
 
-def test_missing_attempt_clarification_can_resume_with_threshold():
+def test_missing_attempt_clarification_can_resume_with_threshold(scripted_intelligence):
+    from app.agent.intelligence_contract import Withheld
+
+    scripted_intelligence.next_result = Withheld(
+        "clarification_required", "missing_qualification"
+    )
     model = Model(
         "fg_pct", operation="rank", player_name=None, min_attempts=1, min_games=1
     )
@@ -312,3 +317,7 @@ def test_game_log_unknown_value_is_visible_and_chart_is_withheld():
 def test_dates_are_not_seasons(date):
     assert requested_seasons(f"LeBron PPG as of {date}", "2024-25") == ["2024-25"]
     assert requested_seasons(f"2023/24 PPG as of {date}", "2024-25") == ["2023-24"]
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

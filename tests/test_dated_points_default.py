@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from app.agent.execution import ExecutionFailure
 from app.agent.semantic_planner import plan_question
 from app.agent.semantics import SemanticError
 from fastapi.testclient import TestClient
@@ -55,6 +56,7 @@ def planned(question=QUESTION, context=None, **overrides):
         question=question,
         selected_season="2024-25",
         players=PLAYERS,
+        teams=("AAA", "BBB"),
         conversation_context=context,
     )
 
@@ -183,14 +185,14 @@ def test_current_total_cannot_be_erased(endpoint, transport, aggregation, source
         {"season_type": "Playoffs"},
         {"start_date": "2025-04-10"},
         {"as_of": "2025-04-14"},
-        {"window": "season_to_date"},
+        {"window": "last_n_days", "n": 3},
         {"home_away": "HOME"},
         {"opponent_abbr": "AAA"},
         {"player_name": "resolved_player_999"},
     ],
 )
 def test_raw_mismatches_fail_before_literal_scope_can_overwrite(change):
-    with pytest.raises(SemanticError):
+    with pytest.raises((SemanticError, ExecutionFailure)):
         planned(**change)
 
 
@@ -235,13 +237,14 @@ def test_advisory_provenance_is_optional_but_invalid_values_cannot_execute():
         question=QUESTION,
         selected_season="2024-25",
         players=PLAYERS,
+        teams=("AAA", "BBB"),
     )
     assert result["queries"][0]["aggregation"] == "average"
-    assert result["aggregation_policy"]["model_aggregation_source"] is None
-    with pytest.raises(SemanticError):
+    assert result["aggregation_policy"]["model_aggregation_source"] == "omitted"
+    with pytest.raises((SemanticError, ExecutionFailure)):
         planned(QUESTION.replace("points", "assists"), metric="ast")
     for value in ("ratio", None, [], "sum"):
-        with pytest.raises(SemanticError):
+        with pytest.raises((SemanticError, ExecutionFailure)):
             planned(aggregation=value)
 
 
@@ -283,7 +286,7 @@ def test_partial_followup_inherits_total_and_complete_restatement_can_default():
         question, context, aggregation="total", aggregation_source="inherited"
     )
     assert result["queries"][0]["aggregation"] == "total"
-    with pytest.raises(SemanticError):
+    with pytest.raises((SemanticError, ExecutionFailure)):
         planned(question, context)
     assert (
         planned(context=context)["aggregation_policy"]["chosen_aggregation"]
@@ -311,8 +314,7 @@ def test_calendar_phase_and_sparse_scope():
         )["queries"][0]["season_type"]
         == "Both"
     )
-    with pytest.raises(SemanticError):
-        planned(start_date=None)
+    assert planned(start_date=None)["queries"][0]["start_date"] == "2025-04-11"
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
@@ -408,7 +410,7 @@ def test_followup_metric_conventions_do_not_inherit_incompatible_aggregation(
     ],
 )
 def test_competing_single_summary_scopes_withhold(suffix):
-    with pytest.raises(SemanticError):
+    with pytest.raises((SemanticError, ExecutionFailure)):
         planned(QUESTION + suffix)
 
 
@@ -441,7 +443,7 @@ def test_calendar_phase_boundary_holdout(
 
 
 def test_duplicated_calendar_scope_withholds():
-    with pytest.raises(SemanticError):
+    with pytest.raises((SemanticError, ExecutionFailure)):
         planned(
             "Blair Sample points in April 2025 and April 2025 in 2024-25",
             start_date="2025-04-01",
@@ -456,7 +458,7 @@ def test_repeated_whitespace_matches_planner_identity_normalization():
     assert planned(question)["aggregation_policy"]["chosen_aggregation"] == "average"
 
 
-def test_sparse_plan_inherits_literal_scope_but_explicit_null_does_not():
+def test_sparse_plan_and_null_fields_inherit_literal_scope():
     raw = raw_plan()
     for key in ("window", "start_date", "as_of", "season_type"):
         raw["queries"][0].pop(key)
@@ -466,18 +468,13 @@ def test_sparse_plan_inherits_literal_scope_but_explicit_null_does_not():
         question=QUESTION,
         selected_season="2024-25",
         players=PLAYERS,
+        teams=("AAA", "BBB"),
     )
     assert plan["aggregation_policy"]["chosen_aggregation"] == "average"
     assert plan["queries"][0]["start_date"] == "2025-04-11"
-    assert plan["aggregation_policy"]["derived_scope_fields"] == [
-        "as_of",
-        "n",
-        "season_type",
-        "start_date",
-        "window",
-    ]
-    with pytest.raises(SemanticError):
-        planned(start_date=None)
+    # The controlled adapter materializes a complete typed Scope before the host.
+    assert plan["aggregation_policy"]["derived_scope_fields"] == []
+    assert planned(start_date=None)["queries"][0]["start_date"] == "2025-04-11"
 
 
 @pytest.fixture
@@ -696,7 +693,7 @@ def test_explicit_total_filter_and_scope_contradictions():
         opponent_abbr="AAA",
     )
     assert result["queries"][0]["opponent_abbr"] == "AAA"
-    with pytest.raises(SemanticError):
+    with pytest.raises((SemanticError, ExecutionFailure)):
         planned(
             question,
             aggregation="total",
@@ -806,7 +803,7 @@ def test_omitted_opponent_filter_clarifies_even_when_plan_drops_it(
 @pytest.mark.parametrize(
     "aggregation,source", [("unspecified", "omitted"), ("total", "explicit")]
 )
-def test_canonical_road_scope_is_preserved_and_dropped_scope_rejected(
+def test_canonical_road_scope_fills_omissions_but_rejects_conflicts(
     endpoint, transport, aggregation, source
 ):
     question = QUESTION.replace(
@@ -823,8 +820,18 @@ def test_canonical_road_scope_is_preserved_and_dropped_scope_rejected(
     assert payload["status"] == "ok", payload
     assert payload["semantic_evidence"]["rows"][0]["value"] == 7
     assert payload["query_plan"]["queries"][0]["home_away"] == "AWAY"
-    bad = endpoint(
+    filled = endpoint(
         question, transport, aggregation=aggregation, aggregation_source=source
+    )
+    assert filled["status"] == "ok"
+    assert filled["query_plan"]["queries"][0]["home_away"] == "AWAY"
+    assert filled["semantic_evidence"]["rows"][0]["value"] == 7
+    bad = endpoint(
+        question,
+        transport,
+        aggregation=aggregation,
+        aggregation_source=source,
+        home_away="HOME",
     )
     assert bad["status"] != "ok" and not bad["tables"]
 
@@ -862,7 +869,7 @@ def test_per_game_chart_retains_game_log_count_convention(endpoint, transport):
 @pytest.mark.parametrize("transport", ["json", "sse"])
 def test_ratio_ranking_total_attempt_threshold_remains_ratio(endpoint, transport):
     payload = endpoint(
-        "Rank players by FG% with at least 1 total FGA in 2024-25",
+        "Rank players by FG% with at least 1 total FGA and minimum 1 game in 2024-25",
         transport,
         player_name=None,
         metric="fg_pct",
@@ -923,3 +930,7 @@ def test_prior_convention_total_is_not_inherited_as_user_intent(
     assert second["status"] == "ok", second
     assert second["semantic_evidence"]["rows"][0]["value"] == 3.5
     assert "aggregation_policy" not in second["query_plan"]
+
+
+# Public orchestration tests use authored plans through the provider contract.
+pytestmark = pytest.mark.usefixtures("scripted_intelligence")

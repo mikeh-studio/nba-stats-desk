@@ -26,6 +26,9 @@ independent versions of these rules in agent-specific files or chat memory.
 | `public-promotion` | Public: a specifically selected, sanitized component approved for publication |
 | `policy` | Either repository: instructions, ownership docs and boundary tooling |
 
+Public `make agent-start` defaults to `product-ui`; the direct script default and
+private Makefile remain `product`. Pass `PYTHON` to make to select an interpreter.
+
 Public app features start in public with `product-ui`; intelligence changes start
 in private with `product`. A valid intent never grants public publishing permission.
 PR #97 is merged; its existing private pin stays unchanged during this policy work.
@@ -60,6 +63,10 @@ origin push URLs, the repository role for the task, a `codex/` branch, and match
 local/staged guidance. It rejects dependency worktrees, missing/stale policy,
 wrong destinations, public production-intelligence work, private UI work, detached
 HEAD and main for implementation.
+Public UI/policy startup also rejects staged changes to private-owned paths using
+the staged map, including deletion and rename sources. Scoped shared maintenance
+and public promotion remain explicit exceptions; they grant no publishing permission.
+This is a staged-change check, not a branch-history or unstaged-content scan.
 It reports dirty state without discarding changes or printing their contents.
 It makes no network calls, reads no credentials, and does not mutate Git settings.
 `--check-policy` is CI layout verification and permits detached checkout; it must

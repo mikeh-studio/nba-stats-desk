@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.agent.router import AgentRoute
+from app.agent.legacy_types import AgentRoute
 
 ROUTE_LABELS = (
     "unsupported",
