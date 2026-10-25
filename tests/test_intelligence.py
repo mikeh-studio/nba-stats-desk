@@ -704,3 +704,169 @@ def test_missing_selected_key_is_a_sanitized_endpoint_failure(monkeypatch, endpo
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Example points per game?",
+        "Compare Blair Sample and Example points per game?",
+        "Compare Zqxv Blorp and Example points per game?",
+        "Compare Zqxv Blorp and Blair Sample and Example points per game?",
+    ],
+)
+def test_identity_candidates_precede_provider_planning(monkeypatch, caplog, question):
+    caplog.set_level("INFO", logger="nba.agent.intelligence")
+    players = [*PLAYERS, dict(player_id=3, player_name="Casey Example")]
+    provider = FixtureProvider(plan())
+    monkeypatch.setattr(host, "get_provider", lambda settings: provider)
+    monkeypatch.setattr(
+        provider,
+        "classify",
+        lambda context: pytest.fail("Ambiguous identity reached provider"),
+    )
+    result = host.plan_question(
+        None,
+        settings=settings(),
+        model="synthetic",
+        question=question,
+        selected_season="2024-25",
+        players=players,
+    )
+    assert result["status"] == "clarification_required"
+    assert result["queries"] == []
+    assert result["model_calls"] == 0
+    assert {row["player_id"] for row in result["identity"]["matches"]} == {1, 3}
+    assert "outcome=clarification_required calls=0" in caplog.text
+
+
+def test_exact_identity_still_reaches_provider(monkeypatch):
+    calls = []
+    provider = FixtureProvider(plan())
+    original = provider.classify
+    monkeypatch.setattr(host, "get_provider", lambda settings: provider)
+    monkeypatch.setattr(
+        provider,
+        "classify",
+        lambda context: (calls.append(context), original(context))[1],
+    )
+    result = host.plan_question(
+        None,
+        settings=settings(),
+        model="synthetic",
+        question="Alex Example points per game in the 2024-25 regular season",
+        selected_season="2024-25",
+        players=PLAYERS,
+    )
+    assert result["status"] == "query"
+    assert len(calls) == 1
+
+
+def test_shared_alias_clarifies_before_model(monkeypatch):
+    players = [
+        dict(player_id=1, player_name="Alex Example", aliases=["shared"]),
+        dict(player_id=2, player_name="Blair Sample", aliases=["shared"]),
+    ]
+    provider = FixtureProvider(plan())
+    monkeypatch.setattr(host, "get_provider", lambda settings: provider)
+    monkeypatch.setattr(
+        provider,
+        "classify",
+        lambda context: pytest.fail("Alias ambiguity reached provider"),
+    )
+    for question in ("What is shared averaging?", "shared points?"):
+        result = host.plan_question(
+            None,
+            settings=settings(),
+            model="synthetic",
+            question=question,
+            selected_season="2024-25",
+            players=players,
+        )
+        assert result["status"] == "clarification_required"
+        assert result["model_calls"] == 0
+        assert result["identity"]["status"] == "ambiguous"
+        assert len(result["identity"]["matches"]) == 2
+
+
+@pytest.mark.parametrize("typed", [False, True])
+@pytest.mark.parametrize(
+    "scope", ["in the 2024-25 regular season", "from 2025-01-01 through 2025-01-07"]
+)
+def test_shared_alias_choice_resumes_one_model_plan(
+    monkeypatch, scripted_intelligence, typed, scope
+):
+    from app.agent import semantic_answer
+    from app.agent.conversation import InMemoryConversationStore
+    from app.agent.service import StatsAgent
+    from tests.test_semantic_migration import Model, Warehouse
+
+    original_players = semantic_answer.source_players
+
+    def shared_players(evidence):
+        players = original_players(evidence)
+        for player in players:
+            if player["player_id"] in (1, 2):
+                player["aliases"] = [*player["aliases"], "shared"]
+        return players
+
+    monkeypatch.setattr(semantic_answer, "source_players", shared_players)
+    model = Model()
+    store = InMemoryConversationStore()
+    agent = StatsAgent(
+        settings(),
+        SimpleNamespace(),
+        client=model,
+        semantic_warehouse=Warehouse(),
+        conversation_store=store,
+    )
+    question = "shared points per game " + scope
+    first = agent.answer(question, conversation_id="alias-resume")
+    assert first["status"] == "clarification_required"
+    assert not model.calls
+    choice = next(p for p in first["clarification_options"] if p["player_id"] == 1)
+    final = agent.answer(
+        choice["player_name"] if typed else question,
+        conversation_id="alias-resume",
+        selected_player=None if typed else choice,
+    )
+    assert final["status"] == "ok", final
+    assert final["semantic_plan"]["model_calls"] == 1
+    assert len(model.calls) == 1
+    assert final["semantic_plan"]["queries"][0]["player_name"] == choice["player_name"]
+    assert store.get_pending_clarification("alias-resume") is None
+
+
+@pytest.mark.parametrize("question", ["", "   ", "Example points? " + "x" * 2000])
+def test_question_bounds_precede_identity_scanning(monkeypatch, question):
+    from app.agent import name_matching
+
+    monkeypatch.setattr(host, "get_provider", lambda settings: FixtureProvider(plan()))
+    monkeypatch.setattr(
+        host,
+        "_literal_player_resolutions",
+        lambda *args: pytest.fail("Invalid question reached literal identity scanning"),
+    )
+    monkeypatch.setattr(
+        name_matching,
+        "prepare_names",
+        lambda *args, **kwargs: pytest.fail("Invalid question reached fuzzy scanning"),
+    )
+    with pytest.raises(SemanticError) as error:
+        host.plan_question(
+            None,
+            settings=settings(),
+            model="synthetic",
+            question=question,
+            selected_season="2024-25",
+            players=PLAYERS,
+        )
+    assert error.value.code == "invalid_scope"
+
+
+def test_candidate_preflight_does_not_weaken_normal_name_validation():
+    from app.agent.name_matching import PlayerNameError, prepare_names
+
+    with pytest.raises(PlayerNameError) as error:
+        prepare_names("Compare Zqxv Blorp and Alex Example points?", PLAYERS)
+    assert error.value.result["status"] == "not_found"

@@ -213,11 +213,13 @@ def _spans(question, players):
     return sorted(set(spans))
 
 
-def prepare_names(question, players, *, strict=True):
+def prepare_names(question, players, *, strict=True, skip_not_found=False):
     """Resolve name spans against this route's roster, before planning/execution.
 
     strict=False is only for canonicalizing original wording in policy metadata,
     after the effective (possibly contextual) execution question was validated.
+    skip_not_found=True lets host preflight inspect later candidate-bearing spans;
+    ordinary identity validation still rejects unknown names by default.
     """
     session = _session.get()
     # Legacy selected-player paths pass the choice through their own roster
@@ -279,7 +281,7 @@ def prepare_names(question, players, *, strict=True):
                 session.notices.append(note)
                 session.selected_ids.add(chosen["player_id"])
         if result["status"] != "ok":
-            if not strict:
+            if not strict or (skip_not_found and result["status"] == "not_found"):
                 continue
             raise PlayerNameError(raw, result)
         chosen = result["matches"][0]
