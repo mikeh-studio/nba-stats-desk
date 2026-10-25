@@ -742,7 +742,7 @@ def plan_question(
         else question
     )
     # Identity clarification belongs to the host and must precede model I/O.
-    # Keep candidate choices even when an explicit provider cannot plan yet.
+    # Keep candidate choices even without a usable model client.
     from app.agent.name_matching import PlayerNameError, prepare_names
 
     try:
@@ -752,6 +752,14 @@ def plan_question(
         prepare_names(current_question, players)
     except PlayerNameError as exc:
         if exc.result.get("matches"):
+            _LOG.info(
+                "intelligence_result provider=%s version=%s api=%s outcome=%s calls=%s",
+                provider.descriptor.provider_id,
+                provider.descriptor.provider_version,
+                api.API_VERSION,
+                "clarification_required",
+                0,
+            )
             return dict(
                 status="clarification_required",
                 queries=[],

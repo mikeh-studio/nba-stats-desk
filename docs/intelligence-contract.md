@@ -313,3 +313,8 @@ classification or planning. Such a clarification preserves candidate choices and
 uses zero model calls, including when another player in the request is unambiguous.
 Provider discovery and readiness checks still apply; this does not enable fallback
 from a misconfigured explicit provider. Exact identities continue through planning.
+
+This host identity preflight applies to reference and installed providers alike.
+Candidate-bearing fuzzy spans clarify before model I/O even when another player
+in the question resolves exactly. A validated conversation choice is rewritten
+by the conversation identity layer before planning resumes.

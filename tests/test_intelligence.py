@@ -710,7 +710,8 @@ def test_missing_selected_key_is_a_sanitized_endpoint_failure(monkeypatch, endpo
     "question",
     ["Example points per game?", "Compare Blair Sample and Example points per game?"],
 )
-def test_identity_candidates_precede_provider_planning(monkeypatch, question):
+def test_identity_candidates_precede_provider_planning(monkeypatch, caplog, question):
+    caplog.set_level("INFO", logger="nba.agent.intelligence")
     players = [*PLAYERS, dict(player_id=3, player_name="Casey Example")]
     provider = FixtureProvider(plan())
     monkeypatch.setattr(host, "get_provider", lambda settings: provider)
@@ -731,6 +732,7 @@ def test_identity_candidates_precede_provider_planning(monkeypatch, question):
     assert result["queries"] == []
     assert result["model_calls"] == 0
     assert {row["player_id"] for row in result["identity"]["matches"]} == {1, 3}
+    assert "outcome=clarification_required calls=0" in caplog.text
 
 
 def test_exact_identity_still_reaches_provider(monkeypatch):
@@ -779,3 +781,51 @@ def test_shared_alias_clarifies_before_model(monkeypatch):
         assert result["model_calls"] == 0
         assert result["identity"]["status"] == "ambiguous"
         assert len(result["identity"]["matches"]) == 2
+
+
+@pytest.mark.parametrize("typed", [False, True])
+@pytest.mark.parametrize(
+    "scope", ["in the 2024-25 regular season", "from 2025-01-01 through 2025-01-07"]
+)
+def test_shared_alias_choice_resumes_one_model_plan(
+    monkeypatch, scripted_intelligence, typed, scope
+):
+    from app.agent import semantic_answer
+    from app.agent.conversation import InMemoryConversationStore
+    from app.agent.service import StatsAgent
+    from tests.test_semantic_migration import Model, Warehouse
+
+    original_players = semantic_answer.source_players
+
+    def shared_players(evidence):
+        players = original_players(evidence)
+        for player in players:
+            if player["player_id"] in (1, 2):
+                player["aliases"] = [*player["aliases"], "shared"]
+        return players
+
+    monkeypatch.setattr(semantic_answer, "source_players", shared_players)
+    model = Model()
+    store = InMemoryConversationStore()
+    agent = StatsAgent(
+        settings(),
+        SimpleNamespace(),
+        client=model,
+        semantic_warehouse=Warehouse(),
+        conversation_store=store,
+    )
+    question = "shared points per game " + scope
+    first = agent.answer(question, conversation_id="alias-resume")
+    assert first["status"] == "clarification_required"
+    assert not model.calls
+    choice = next(p for p in first["clarification_options"] if p["player_id"] == 1)
+    final = agent.answer(
+        choice["player_name"] if typed else question,
+        conversation_id="alias-resume",
+        selected_player=None if typed else choice,
+    )
+    assert final["status"] == "ok", final
+    assert final["semantic_plan"]["model_calls"] == 1
+    assert len(model.calls) == 1
+    assert final["semantic_plan"]["queries"][0]["player_name"] == choice["player_name"]
+    assert store.get_pending_clarification("alias-resume") is None
