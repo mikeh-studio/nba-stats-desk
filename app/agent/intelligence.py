@@ -160,8 +160,8 @@ def _scope(raw):
     )
 
 
-def authorized_players(question, players, prior=None):
-    """Only unambiguous literal mentions, or host-selected prior identities.
+def _literal_player_resolutions(question, players):
+    """Resolve literal identity spans, retaining ambiguous candidate choices.
 
     Longer matches consume aliases inside them. An ambiguous alias is never
     permission for a provider to select one candidate from the roster.
@@ -178,15 +178,22 @@ def authorized_players(question, players, prior=None):
                         r"(?<!\w)" + re.escape(name) + r"(?!\w)", question, re.I
                     )
                 )
-    selected, occupied = set(), []
+    occupied = []
     for start, end, name in sorted(spans, key=lambda s: (-(s[1] - s[0]), s[0])):
         if any(start < b and end > a for a, b in occupied):
             continue
         occupied.append((start, end))
-        resolved = resolve_entity(name, players)
-        if resolved["status"] == "ok":
-            selected.add(resolved["matches"][0]["player_name"])
-    if not occupied and prior:
+        yield resolve_entity(name, players)
+
+
+def authorized_players(question, players, prior=None):
+    resolutions = list(_literal_player_resolutions(question, players))
+    selected = {
+        result["matches"][0]["player_name"]
+        for result in resolutions
+        if result["status"] == "ok"
+    }
+    if not resolutions and prior:
         for name in prior.player_names:
             resolved = resolve_entity(name, players)
             if resolved["status"] == "ok":
@@ -734,6 +741,24 @@ def plan_question(
         if dated_points_eligible and dated_points_question
         else question
     )
+    # Identity clarification belongs to the host and must precede model I/O.
+    # Keep candidate choices even when an explicit provider cannot plan yet.
+    from app.agent.name_matching import PlayerNameError, prepare_names
+
+    try:
+        for resolved in _literal_player_resolutions(current_question, players):
+            if resolved["status"] == "ambiguous":
+                raise PlayerNameError(current_question, resolved)
+        prepare_names(current_question, players)
+    except PlayerNameError as exc:
+        if exc.result.get("matches"):
+            return dict(
+                status="clarification_required",
+                queries=[],
+                message=str(exc),
+                identity=exc.result,
+                model_calls=0,
+            )
     context = planning_context(
         current_question, selected_season, players, teams, conversation_context
     )

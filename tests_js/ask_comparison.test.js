@@ -181,3 +181,25 @@ test("identical initials fall back to surnames in compact labels", () => {
 test("old single-player payloads do not enter comparison rendering", () => {
   assert.equal(comparisonPresentation({}), null);
 });
+
+// Preserve detailed units/component coverage from the original public regression.
+test("additional comparisons render server differences, units and partial samples", () => {
+  const payload = fixture();
+  payload.semantic_evidence.comparison_sections = [{key:'shooting_efficiency',title:'Shooting efficiency',
+    description:'Percentages use total makes and attempts.',metrics:[{key:'ts_pct',label:'TS%',unit:'percent',
+      left:{value:54.095,valid_games:69,observed_games:69,missing_component_games:0,components:{fga:729,fta:47,fg3a:527}},
+      right:{value:53.981,valid_games:68,observed_games:68,missing_component_games:0,components:{fga:491,fta:168}},
+      comparison:'Klay Thompson is higher by 0.11 percentage points'}]}];
+  let html = comparisonTables(comparisonPresentation(payload));
+  assert.match(html,/54.1%/);
+  assert.match(html,/53.98|54.0%/);
+  assert.match(html,/0.11 percentage points/);
+  assert.match(html,/69 of 69 games/);
+  assert.match(html,/729 FGA/);
+  assert.match(html,/527 3PA/);
+  payload.semantic_evidence.comparison_sections[0].metrics[0].left.missing_component_games=1;
+  payload.semantic_evidence.comparison_sections[0].metrics[0].comparison='Comparison withheld: incomplete inputs';
+  html=comparisonTables(comparisonPresentation(payload));
+  assert.match(html,/partial inputs/);
+  assert.match(html,/Comparison withheld/);
+});

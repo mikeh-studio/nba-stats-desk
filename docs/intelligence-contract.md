@@ -307,3 +307,9 @@ checks only its selected model provider and returns sanitized `provider_unavaila
 if that pair is missing. Readiness is checked outside the cache: the immutable
 provider factory is cached by entry-point name only, so credential changes do not
 construct a second instance. Invalid package selection remains a startup error.
+
+The host resolves candidate-bearing identity ambiguity before invoking provider
+classification or planning. Such a clarification preserves candidate choices and
+uses zero model calls, including when another player in the request is unambiguous.
+Provider discovery and readiness checks still apply; this does not enable fallback
+from a misconfigured explicit provider. Exact identities continue through planning.

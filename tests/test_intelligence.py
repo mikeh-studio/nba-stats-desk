@@ -704,3 +704,78 @@ def test_missing_selected_key_is_a_sanitized_endpoint_failure(monkeypatch, endpo
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)
+
+
+@pytest.mark.parametrize(
+    "question",
+    ["Example points per game?", "Compare Blair Sample and Example points per game?"],
+)
+def test_identity_candidates_precede_provider_planning(monkeypatch, question):
+    players = [*PLAYERS, dict(player_id=3, player_name="Casey Example")]
+    provider = FixtureProvider(plan())
+    monkeypatch.setattr(host, "get_provider", lambda settings: provider)
+    monkeypatch.setattr(
+        provider,
+        "classify",
+        lambda context: pytest.fail("Ambiguous identity reached provider"),
+    )
+    result = host.plan_question(
+        None,
+        settings=settings(),
+        model="synthetic",
+        question=question,
+        selected_season="2024-25",
+        players=players,
+    )
+    assert result["status"] == "clarification_required"
+    assert result["queries"] == []
+    assert result["model_calls"] == 0
+    assert {row["player_id"] for row in result["identity"]["matches"]} == {1, 3}
+
+
+def test_exact_identity_still_reaches_provider(monkeypatch):
+    calls = []
+    provider = FixtureProvider(plan())
+    original = provider.classify
+    monkeypatch.setattr(host, "get_provider", lambda settings: provider)
+    monkeypatch.setattr(
+        provider,
+        "classify",
+        lambda context: (calls.append(context), original(context))[1],
+    )
+    result = host.plan_question(
+        None,
+        settings=settings(),
+        model="synthetic",
+        question="Alex Example points per game in the 2024-25 regular season",
+        selected_season="2024-25",
+        players=PLAYERS,
+    )
+    assert result["status"] == "query"
+    assert len(calls) == 1
+
+
+def test_shared_alias_clarifies_before_model(monkeypatch):
+    players = [
+        dict(player_id=1, player_name="Alex Example", aliases=["shared"]),
+        dict(player_id=2, player_name="Blair Sample", aliases=["shared"]),
+    ]
+    provider = FixtureProvider(plan())
+    monkeypatch.setattr(host, "get_provider", lambda settings: provider)
+    monkeypatch.setattr(
+        provider,
+        "classify",
+        lambda context: pytest.fail("Alias ambiguity reached provider"),
+    )
+    for question in ("What is shared averaging?", "shared points?"):
+        result = host.plan_question(
+            None,
+            settings=settings(),
+            model="synthetic",
+            question=question,
+            selected_season="2024-25",
+            players=players,
+        )
+        assert result["model_calls"] == 0
+        assert result["identity"]["status"] == "ambiguous"
+        assert len(result["identity"]["matches"]) == 2
