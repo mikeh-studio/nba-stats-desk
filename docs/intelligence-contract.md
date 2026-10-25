@@ -268,6 +268,33 @@ including overview and comparison; it is not shooting qualification.
 
 ## Version 2 compatibility and readiness
 
+### Public helper compatibility
+
+`app.agent.provider_host.HOST_HELPER_VERSION` identifies the supported helper
+surface independently of `nba_intelligence/2` and the semantic contract version.
+The initial value is `nba_provider_helpers/1`. `HELPER_AUDIT` records the eight
+public execution/scope/semantic symbols above; it is an audit list, not an import
+sandbox or permission to publish private functions. Contract records remain in
+`intelligence_contract` and are versioned by `API_VERSION`.
+
+Installed packages using this surface must call
+`require_host_helpers(("nba_provider_helpers/1",))` during provider module import
+or factory construction, before any request. The tuple must be the package's
+literal supported versions, not copied from the host constant. Missing helpers,
+a missing version module on an older host, or an unsupported version fail
+discovery with the existing sanitized configuration error. Existing v2 providers
+remain compatible; adoption of this check is a package release responsibility.
+
+Change the helper version whenever removing a listed symbol or changing its
+signature, return contract or behavior incompatibly. Update conformance tests
+with it. A compatible host code release need not change the helper version.
+Release verification must separately bind the approved tag to its exact SHA,
+source tree, requirements and import origins: this version check alone cannot
+detect a stale checkout, modified helper implementation or shadowing `app` package.
+The public repository is still a source host, not a pip-installable distribution.
+
+### Provider API and readiness
+
 Version 2 replaces the published version 1 shape: request-local player references,
 closed reason additions and planning-only `PromptBundle` are incompatible changes.
 Discovery uses `nba_stats_desk.intelligence.v2` and requires the literal descriptor
