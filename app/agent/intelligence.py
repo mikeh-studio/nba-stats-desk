@@ -224,11 +224,15 @@ def provider_plan_schema(context):
     return wrapped
 
 
+def _validate_question(question):
+    if not question.strip() or len(question) > 2000:
+        raise SemanticError("invalid_scope", "Question must contain 1..2000 characters")
+
+
 def planning_context(
     question, selected_season, players, teams, conversation_context=None
 ):
-    if not question.strip() or len(question) > 2000:
-        raise SemanticError("invalid_scope", "Question must contain 1..2000 characters")
+    _validate_question(question)
     contract = load_contract()
     context = conversation_context or {}
     prior = None
@@ -741,6 +745,7 @@ def plan_question(
         if dated_points_eligible and dated_points_question
         else question
     )
+    _validate_question(current_question)
     # Identity clarification belongs to the host and must precede model I/O.
     # Keep candidate choices even without a usable model client.
     from app.agent.name_matching import PlayerNameError, prepare_names
@@ -749,7 +754,7 @@ def plan_question(
         for resolved in _literal_player_resolutions(current_question, players):
             if resolved["status"] == "ambiguous":
                 raise PlayerNameError(current_question, resolved)
-        prepare_names(current_question, players)
+        prepare_names(current_question, players, skip_not_found=True)
     except PlayerNameError as exc:
         if exc.result.get("matches"):
             _LOG.info(

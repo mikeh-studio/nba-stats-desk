@@ -308,13 +308,11 @@ if that pair is missing. Readiness is checked outside the cache: the immutable
 provider factory is cached by entry-point name only, so credential changes do not
 construct a second instance. Invalid package selection remains a startup error.
 
-The host resolves candidate-bearing identity ambiguity before invoking provider
-classification or planning. Such a clarification preserves candidate choices and
-uses zero model calls, including when another player in the request is unambiguous.
-Provider discovery and readiness checks still apply; this does not enable fallback
-from a misconfigured explicit provider. Exact identities continue through planning.
-
-This host identity preflight applies to reference and installed providers alike.
-Candidate-bearing fuzzy spans clarify before model I/O even when another player
-in the question resolves exactly. A validated conversation choice is rewritten
-by the conversation identity layer before planning resumes.
+For reference and installed providers, the host enforces its 1–2,000 character
+question bound before identity scanning. Candidate-bearing ambiguity clarifies
+before provider classification or planning, preserves choices and uses zero model
+calls, including when an earlier name is unknown or another name resolves exactly.
+Unknown names remain subject to ordinary identity validation. Provider discovery
+and readiness checks still apply; a misconfigured explicit provider never falls
+back. Exact identities continue through planning, and the conversation identity
+layer rewrites validated choices before planning resumes.

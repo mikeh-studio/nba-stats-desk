@@ -708,7 +708,12 @@ def test_missing_selected_key_is_a_sanitized_endpoint_failure(monkeypatch, endpo
 
 @pytest.mark.parametrize(
     "question",
-    ["Example points per game?", "Compare Blair Sample and Example points per game?"],
+    [
+        "Example points per game?",
+        "Compare Blair Sample and Example points per game?",
+        "Compare Zqxv Blorp and Example points per game?",
+        "Compare Zqxv Blorp and Blair Sample and Example points per game?",
+    ],
 )
 def test_identity_candidates_precede_provider_planning(monkeypatch, caplog, question):
     caplog.set_level("INFO", logger="nba.agent.intelligence")
@@ -778,6 +783,7 @@ def test_shared_alias_clarifies_before_model(monkeypatch):
             selected_season="2024-25",
             players=players,
         )
+        assert result["status"] == "clarification_required"
         assert result["model_calls"] == 0
         assert result["identity"]["status"] == "ambiguous"
         assert len(result["identity"]["matches"]) == 2
@@ -829,3 +835,38 @@ def test_shared_alias_choice_resumes_one_model_plan(
     assert len(model.calls) == 1
     assert final["semantic_plan"]["queries"][0]["player_name"] == choice["player_name"]
     assert store.get_pending_clarification("alias-resume") is None
+
+
+@pytest.mark.parametrize("question", ["", "   ", "Example points? " + "x" * 2000])
+def test_question_bounds_precede_identity_scanning(monkeypatch, question):
+    from app.agent import name_matching
+
+    monkeypatch.setattr(host, "get_provider", lambda settings: FixtureProvider(plan()))
+    monkeypatch.setattr(
+        host,
+        "_literal_player_resolutions",
+        lambda *args: pytest.fail("Invalid question reached literal identity scanning"),
+    )
+    monkeypatch.setattr(
+        name_matching,
+        "prepare_names",
+        lambda *args, **kwargs: pytest.fail("Invalid question reached fuzzy scanning"),
+    )
+    with pytest.raises(SemanticError) as error:
+        host.plan_question(
+            None,
+            settings=settings(),
+            model="synthetic",
+            question=question,
+            selected_season="2024-25",
+            players=PLAYERS,
+        )
+    assert error.value.code == "invalid_scope"
+
+
+def test_candidate_preflight_does_not_weaken_normal_name_validation():
+    from app.agent.name_matching import PlayerNameError, prepare_names
+
+    with pytest.raises(PlayerNameError) as error:
+        prepare_names("Compare Zqxv Blorp and Alex Example points?", PLAYERS)
+    assert error.value.result["status"] == "not_found"
