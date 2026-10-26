@@ -30,15 +30,20 @@ ranking normalizations, then public scope/identity/semantic validation and norma
 evidence execution. Provider failures use sanitized error envelopes; they never
 trigger another provider.
 
-Governed answers continue to use deterministic public rendering. Optional answer
-prompt text is available through the contract but is not consumed by this path;
-there are no new model-written factual answers. Existing special public handlers
-and the optional legacy repository workflow keep their separate contracts.
+Governed answers use deterministic public rendering. Version 2 exposes only
+planning-system text; it has no answer-generation prompt or call. Special public
+handlers select validated scope or verified chart candidates before deterministic
+rendering. The optional legacy repository workflow retains its separate narration
+contract and is never a fallback for failed governed planning. See the
+[model-call inventory](intelligence-ownership-audit.md#model-call-boundary).
 
 See [conformance criteria](intelligence-acceptance.md), the
 [ownership audit](intelligence-ownership-audit.md), and the
 [provider contract](intelligence-contract.md). Local fixture tests do not establish
 live warehouse/model quality or authorize deployment or public publication.
+The full Python suite requires Node.js for the real browser-producer/Python-consumer
+contract test; use the JavaScript toolchain version configured in public CI.
+Isolated package acceptance runs its named conformance/regressions separately.
 
 The offline evaluation server explicitly installs its authored fixture adapter;
 it is never registered by the application loader. Set `ASK_EVAL_INTELLIGENCE=reference`

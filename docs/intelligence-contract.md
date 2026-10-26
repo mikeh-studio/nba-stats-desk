@@ -200,14 +200,14 @@ may remain private if no public responsibility needs extraction.
 | `explicit_metric_mentions` (`planner`) | `research_ask`, `semantic_answer`, `semantic_intent`, `serving_warehouse` |
 | `AgentRoute` labels (`router`) | `route_labels` |
 
-`semantic_answer` calls private `plan_question`; that call site becomes
-`provider.plan`. Planner prompts, model-backed planning and production planning
+`semantic_answer` uses the public intelligence host to reach `provider.plan`.
+Planner prompts, model-backed planning and production planning
 heuristics stay private. A symbol that turns out to need private planning data
 gets a separately reviewed typed extension instead. Record the per-symbol
 keep/extract/split decision and preserved test coverage. The ownership map and its
 JSON rules change with the resulting implementation diff, not preemptively for
-every name in the audit list. After the move no public module
-imports `question_intent`, `semantic_planner`, `planner` or `router`, apart from
+every name in the audit list. Public runtime modules no longer import
+`question_intent`, `semantic_planner`, `planner` or `router`, apart from
 one guarded optional legacy loader (below). Separate mixed execution/reference
 tests from private intelligence cases; retain all test intent.
 
@@ -225,8 +225,10 @@ package. Test a built wheel against this public candidate in isolated environmen
 record exact source commits and import origins. During transition, retain the
 existing pinned dependency and legacy compatibility tree for their own checks.
 The new integration environment runs the public app plus provider, not that legacy
-tree via `PYTHONPATH`. Extending package paths in ownership checks is required.
-Released dependency pinning and removal of the legacy tree are later work.
+tree via `PYTHONPATH`. Ownership checks include the package paths.
+Released host tags support isolated package assembly; see the
+[runtime guide](intelligence-runtime.md). Adopting a released host does not remove
+the legacy tree or authorize deployment. Those remain separately reviewed gates.
 
 ## Review decision
 

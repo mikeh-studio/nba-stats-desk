@@ -15,7 +15,7 @@
       "owner": "private",
       "private_presence": "owned",
       "priority": 100,
-      "description": "Production planner/router, intent heuristics, prompt text and private evaluation cases. The src package is the governed hook implementation; old app modules remain compatibility snapshots until Phase 4."
+      "description": "Production planner/router, intent heuristics, prompt text and private evaluation cases. The src package is the governed hook implementation; old app modules remain compatibility snapshots until separately approved cutover."
     },
     {
       "patterns": [
@@ -94,7 +94,7 @@
       "owner": "public",
       "private_presence": "frozen",
       "priority": 50,
-      "description": "Public app and implementation tests. Private copies remain only for runtime compatibility until Phase 4; the Active migration freeze still applies."
+      "description": "Public app and implementation tests. Private copies remain only for runtime compatibility until separately approved cutover; the Active migration freeze still applies."
     },
     {
       "patterns": [
