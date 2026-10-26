@@ -37,6 +37,9 @@ rendering. The optional legacy repository workflow retains its separate narratio
 contract and is never a fallback for failed governed planning. See the
 [model-call inventory](intelligence-ownership-audit.md#model-call-boundary).
 
+See [host releases](intelligence-contract.md#host-releases) for source tags and
+versioning.
+
 See [conformance criteria](intelligence-acceptance.md), the
 [ownership audit](intelligence-ownership-audit.md), and the
 [provider contract](intelligence-contract.md). Local fixture tests do not establish

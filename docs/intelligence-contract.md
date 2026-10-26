@@ -318,3 +318,22 @@ Unknown names remain subject to ordinary identity validation. Provider discovery
 and readiness checks still apply; a misconfigured explicit provider never falls
 back. Exact identities continue through planning, and the conversation identity
 layer rewrites validated choices before planning resumes.
+
+### Host releases
+
+A host release is an annotated `intelligence-host-vX.Y.Z` tag on a `main` commit
+whose push-to-`main` CI passed; the release is the source tree at that commit.
+Use patch versions for compatible fixes and minor versions for compatible
+additions. Breaking provider, helper or semantic changes need a migration review
+and matching contract-version changes. A tag label alone does not prove
+compatibility; run [acceptance](intelligence-acceptance.md) against the exact
+commit. Published tags are never moved or reused; repairs ship as a new version.
+Providers pin the tag object and its peeled commit, which can be checked with:
+
+```sh
+git ls-remote origin 'refs/tags/intelligence-host-vX.Y.Z' 'refs/tags/intelligence-host-vX.Y.Z^{}'
+git merge-base --is-ancestor 'refs/tags/intelligence-host-vX.Y.Z^{}' origin/main
+```
+
+Release notes and contract versions for each tag are listed on the repository's
+[releases page](https://github.com/mikeh-studio/nba-stats-desk/releases).
