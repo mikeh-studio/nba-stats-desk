@@ -1,50 +1,49 @@
 # Intelligence host releases
 
 A host release is an immutable annotated `intelligence-host-vX.Y.Z` Git tag on a
-reviewed public `main` commit with successful CI for that exact main commit.
-The artifact is this repository's source tree. It is not a pip distribution.
-A GitHub Release, binary or package-index publication, and deployment are separate
-operations; none is required to consume a source-host release.
+reviewed `main` commit whose CI passed for that exact commit. The released
+artifact is this repository's source tree, not a pip distribution. GitHub
+Releases, package publication and deployment are separate operations; none is
+required to consume a source-host release.
+
+Optional intelligence providers pin a host release so they build against a known
+[provider contract](intelligence-contract.md), helper surface and semantic version.
 
 ## Versions and compatibility
 
-Use patch versions for compatible corrections and documentation, and minor versions
-for compatible additions. Breaking provider, helper or semantic changes require
-an explicit migration review, corresponding contract-version changes and an
-explicitly proposed host version. The tag label cannot establish compatibility:
-check the [provider contract](intelligence-contract.md), helper surface and semantic
-version, and run [acceptance](intelligence-acceptance.md). Consumer package versions
-are independent of host tag versions. Documentation changes alone do not require
-publishing a tag or changing a consumer package version.
+- **Patch**: compatible corrections and documentation.
+- **Minor**: compatible additions.
+- **Breaking** provider, helper or semantic changes: require a migration review,
+  matching contract-version changes and an explicitly proposed host version.
 
-Never move, delete and recreate, or reuse a published tag to repair a release.
-Propose a new version, or have the consumer review a rollback to a prior accepted
-release. Consumers must pin the annotated object and peeled commit, not a branch,
-PR ref or a tag name without its immutable identity.
+A tag label does not establish compatibility. Check the provider contract, helper
+surface and semantic version, and run [acceptance](intelligence-acceptance.md).
+Provider package versions are independent of host tag versions, and documentation
+changes alone do not require a new tag.
 
-## Release sequence
+A published tag is never moved, deleted and recreated, or reused. Repairs ship as
+a new version, or consumers roll back to a prior accepted release. Consumers pin
+the annotated tag object and its peeled commit, not a branch, PR ref or bare tag
+name.
 
-1. Prepare a focused source PR and inspect its entire public diff. Obtain Mike's
-   explicit approval of that exact diff before its first public push. Keep private
-   source, prompts, cases, plans and operational evidence out of the public change.
-2. Require green checks on the final PR head and separately authorize the merge.
-   Record the resulting main commit and its successful `.github/workflows/ci.yml`
-   **push to main** run, including the successful `test` job. A green PR run does
-   not supply the main-commit evidence.
-3. Record installed-provider pairing evidence for the exact proposed main commit
-   and compatible consumer artifact. A pairing against a PR tree can inform review,
-   but does not replace recording the final commit's identity and pairing result.
-   Keep private pairing details in the consumer's private evidence; public notes
-   describe only the public compatibility contract.
-4. Review the proposed unused tag name, exact target SHA and complete sanitized
-   annotation. Obtain separate approval covering that exact tag publication.
-   Source-push or merge approval does not authorize a tag or deployment.
-5. Only after approval, create the annotated tag on the reviewed SHA and push that
-   one tag to `origin`. Inspect the remote tag object and peeled target and compare
-   both with the approved values. Record the result; do not silently replace an
-   unexpected remote object.
+## Release checklist
 
-Read-only inspection examples, replacing `VERSION` with the reviewed version:
+1. Merge a reviewed PR whose final head passed CI.
+2. Record the resulting `main` commit and its successful
+   `.github/workflows/ci.yml` **push to main** run, including the `test` job.
+   A green PR run is not evidence for the merged commit.
+3. Confirm provider compatibility against that exact `main` commit. A check
+   against a PR tree can inform review but does not replace it.
+4. Review the unused tag name, target SHA and complete annotation. Tag
+   publication is approved separately from the merge; neither authorizes a
+   deployment.
+5. Create the annotated tag on the reviewed SHA, push only that tag, then confirm
+   the remote tag object and peeled commit match the reviewed values. An
+   unexpected remote object is reported, not silently replaced.
+
+## Verifying a release
+
+Replace `VERSION` with the release version:
 
 ```sh
 git cat-file -t refs/tags/intelligence-host-vVERSION
@@ -54,50 +53,42 @@ git ls-remote origin 'refs/tags/intelligence-host-vVERSION' 'refs/tags/intellige
 git merge-base --is-ancestor 'refs/tags/intelligence-host-vVERSION^{}' origin/main
 ```
 
-The ancestry example uses the locally fetched `origin/main`; refresh it before a
-release decision. These commands inspect identity, not CI or compatibility. Reject
-lightweight/moved tags, unmerged targets, incompatible contracts and pending,
-failed or unavailable exact-main CI. If historical CI is unavailable, recover
-valid evidence for that exact commit where possible or review a new release;
-do not substitute another commit's successful run.
+Fetch `origin/main` before the ancestry check. These commands verify identity,
+not CI or compatibility. Reject lightweight or moved tags, targets not on `main`,
+incompatible contracts, and missing or failed CI for the exact commit; another
+commit's successful run is never a substitute.
 
-## Public annotation template
-
-Fill every field and review the complete text before tag publication. This is a
-future release template, not an instruction to publish now.
+## Annotation template
 
 ```text
 NBA Stats Desk intelligence host vX.Y.Z
 
-Source commit: <full public main SHA>
+Source commit: <full main SHA>
 Provider API: <API_VERSION>
 Helper surface: <HOST_HELPER_VERSION>
 Semantic contract: <semantic version>
 Public CI: <exact-main run URL>
 
-Public changes: <concise public behavior changes>
+Changes: <concise behavior changes>
 Compatibility: <supported interfaces and migration requirements>
 
 Reviewed source baseline for the standalone reference application and
 optional intelligence providers. This tag does not change deployment.
 ```
 
-Do not add private prompts, source, corpora/results, plans or internal review
-notes. Public notes document public changes; consumer adoption and distribution
-have their own review records.
+Annotations describe public behavior and interfaces only.
 
-## Existing source releases
+## Release history
 
-These historical identities and annotations were inspected from Git on 2026-10-25.
-Both declare `nba_intelligence/2`, `nba_provider_helpers/1` and `nba_semantics/0.1`.
-They are release history, not a claim about current deployment or consumer adoption.
+Both releases declare `nba_intelligence/2`, `nba_provider_helpers/1` and
+`nba_semantics/0.1`. Identities were verified against `origin` on 2026-10-25.
+This table records source history, not deployment or adoption.
 
-| Tag | Annotated object | Peeled source commit | Annotation summary |
+| Tag | Annotated object | Peeled source commit | Summary |
 | --- | --- | --- | --- |
-| `intelligence-host-v0.1.0` | `84556393ac34256b01a2751857bb8069a33f933d` | `62b8bf3811d040d2ec9e80e4d3e6112466ec452c` | Reviewed reference application and optional-provider baseline. |
-| `intelligence-host-v0.1.1` | `1b27f0d37775c7efe71e82323f69e89a977c395a` | `2f15c28306bbafcde983f0e1c905991b715a79e2` | Identity clarification before planning, question-bound validation before identity scanning, and restored comparison-format regression coverage; no deployment change. |
+| `intelligence-host-v0.1.0` | `84556393ac34256b01a2751857bb8069a33f933d` | `62b8bf3811d040d2ec9e80e4d3e6112466ec452c` | Reference application and optional-provider baseline. |
+| `intelligence-host-v0.1.1` | `1b27f0d37775c7efe71e82323f69e89a977c395a` | `2f15c28306bbafcde983f0e1c905991b715a79e2` | Identity clarification before planning, question-bound validation before identity scanning, and restored comparison-format regression coverage. |
 
-Later main commits and documentation are not retroactively part of these tags.
-In particular, subsequent ownership/documentation corrections do not move v0.1.1.
-See [runtime selection](intelligence-runtime.md) for explicit provider activation;
-installation and tagging do not change the reference default.
+Later `main` commits are not part of these tags. See
+[runtime selection](intelligence-runtime.md) for explicit provider activation;
+installing or tagging a provider does not change the reference default.

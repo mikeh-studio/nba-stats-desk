@@ -38,7 +38,7 @@ contract and is never a fallback for failed governed planning. See the
 [model-call inventory](intelligence-ownership-audit.md#model-call-boundary).
 
 See [host release policy](intelligence-releases.md) for immutable source tags,
-compatibility review and publication gates.
+compatibility review and release history.
 
 See [conformance criteria](intelligence-acceptance.md), the
 [ownership audit](intelligence-ownership-audit.md), and the
