@@ -14,18 +14,23 @@ synthetic fixtures are public. Private evaluation cases, including sanitized cas
 distilled from production failures, stay private unless specifically approved for
 publication. Raw conversations, captures and feedback remain outside Git.
 
-App composition and `service.py` orchestration are public; production prompt text
-inside mixed files is extracted later behind the private package hook. Governed
+App composition and `service.py` orchestration are public. The v2 hook supplies
+private production planning text and proposals. The v2 protocol has no answer-prose
+channel; the host rejects malformed or extra output. Providers are trusted
+in-process code, not sandboxed plugins.
+Bounded public scope/chart selection and the frozen legacy narration exception
+are classified in the [ownership audit](intelligence-ownership-audit.md). Governed
 calculations, evidence/claim validation, read adapters, pipelines and existing
 private research model ownership do not move. Deterministic prose stays public.
 
 ## Transition and dependency
 
-The target is a private Python package depending on a released public tag, loaded
-by the public app, which also runs standalone with a reference planner. Package
-hooks and the reference-planner implementation are Phase 3 work. Removing private
-app copies and replacing the submodule happen later. The private Active migration
-freeze is unchanged; existing copies are compatibility scaffolding, not ownership.
+The public app loads an optional intelligence package and runs standalone with
+the reference planner. Released host tags support reproducible package assembly.
+Select a reviewed immutable compatible host release for assembly. Removing old
+app copies or replacing the legacy submodule still requires a reviewed cutover.
+The private Active migration freeze is unchanged; existing copies are
+compatibility scaffolding, not ownership.
 
 PR #97 merged as `2e2a319`; the unchanged private pin `735bf4f` is now on public
 main. It is not a released tag or proof of live coverage. Do not bump the pin just

@@ -1067,3 +1067,14 @@ publications, the metric inventory, opt-in Phase 2 routing, request telemetry,
 and parity checks. Routing and deterministic planning remain off by default.
 Activation requires the contract's fresh measurements and explicit rollout gates;
 local and fixture validation do not establish production readiness.
+
+## Behavior documentation and ownership
+
+This guide is the authoritative app behavior reference; the
+[claim guide](ask-claim-bindings.md) defines verified surfaces and known gaps.
+The [ownership audit](intelligence-ownership-audit.md) connects those contracts to
+public owners, model-call boundaries and regression coverage. Optional intelligence
+packages supply planning through v2, which has no answer-generation API. Bounded
+public scope/chart selection and the explicitly non-governed legacy narrator keep
+the restrictions described above. Package-operation guides should link here rather
+than maintain a second app-behavior specification.

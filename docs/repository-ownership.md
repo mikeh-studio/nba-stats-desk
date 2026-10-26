@@ -38,8 +38,9 @@ unavailable, never falling back from a failed governed request.
 
 The private wheel has its own namespace and imports shared execution from the
 public application. The old private app/test tree remains on its existing pin for
-compatibility checks. Released dependency pinning, removal of old copies and
-production image changes are later phases. No package installation changes the
+compatibility checks. Released host tags and isolated package assembly are
+available. Removing old copies and changing production images still require
+separately reviewed cutover. No package installation changes the
 selected provider or authorizes deployment. Previously published code remains
 public; policy changes do not erase history.
 
@@ -59,7 +60,7 @@ through the public `app/**` rule. Invalid maps fail validation.
   unchanged. The private checker permits only paths in the staged manifest
   `imported_files`/`imported_test_files` inventories; new paths are rejected.
   Existing imported files may be edited subject to the repository policy. Remove
-  these copies in Phase 4.
+  these copies only after the separately approved deployment cutover.
 - `vendored`: shared public policy utilities and tests maintained identically in
   both repositories, independently of the runtime pin.
 - `exception`: a compatibility shim requires an exact path and explanation in
@@ -91,7 +92,8 @@ The private dependency still pins its ancestor `735bf4f0552209ccbc26e164692dbcd4
 That commit is on public main, but it is not a released tag or proof of live data
 readiness. Do not change the gitlink to obtain newer instructions.
 
-The temporary private app and submodule remain until the package conversion.
+The temporary private app and submodule remain until separately approved cutover;
+package assembly alone does not retire them.
 Keep upstream and third-party license notices and original import hashes. Never
 edit through dependency symlinks or automatically mirror branches. Public app/UI
 work starts in public; production intelligence starts in private. Every public
