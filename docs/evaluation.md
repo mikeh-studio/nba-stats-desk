@@ -884,42 +884,26 @@ and refusal behavior they exercise.
 
 The `research_intent/3` correction makes phase provenance server-authoritative;
 model provenance labels remain advisory. Synthetic JSON/SSE controls exercise
-correct values with misleading labels, contradictory values, and intent changes.
-They do not establish current provider reliability. A later authorized private
-v2 capture exposed the provenance-label refusals summarized in the public
-[PR86 findings](https://github.com/mikeh-studio/nba-stats-desk/pull/86). Current v3 evidence
-is controlled testing, pending a fresh versioned provider measurement. Historical recordings,
-expected checks, source bytes and private measurement ledgers remain unchanged;
-new contract evidence requires separately versioned evaluation.
+correct values with misleading labels, contradictory values and intent changes.
+An earlier live v2 measurement exposed provenance-label refusals summarized in the
+[PR86 findings](https://github.com/mikeh-studio/nba-stats-desk/pull/86).
 
 The dated-points default regression uses independent JSON/SSE endpoint holdouts,
 including zero and missing values, explicit-total contradictions and unmatched
-conditions. The original recording is incompatible with the new planner contract;
-controlled endpoint tests do not establish live-provider or warehouse accuracy.
+conditions.
 
+`semantic_intent/3` makes provenance server-owned and reuses canonical interval
+validation, so advisory model labels no longer govern execution. Endpoint controls
+use independently authored synthetic questions with inaccurate or missing labels,
+covering canonical and alternate ISO intervals, inherited value contradictions,
+zero/null samples and invalid scopes. Direct planner/executor checks verify that
+inputs 2/4/6 produce mean 4 and sum 12. The 147-case source, expected checks and
+historical recordings are unchanged; unchanged checks do not make new whole-case
+hashes human-approved.
 
-The `semantic_intent/2` controlled input migration changes planner responses only;
-case expectations and source bytes stay unchanged. That v2 contract required
-model provenance labels; ideal-plan controlled clients did not establish live
-provider reliability. Subsequent private live-provider measurement exposed correct
-plans refused for labels and wrong dated totals escaping alternate date wording.
-The v3 correction makes provenance server-owned and reuses canonical interval
-validation; advisory labels no longer govern execution. New whole-case hashes
-are not human-approved merely because their checks were unchanged. JSON/SSE dated
-points controls cover zero/null values, filters, explicit-total contradictions and
-compatible follow-up inheritance. Separate direct planner/executor checks verify
-that independent 2/4/6 inputs produce mean 4 and sum 12. These checks establish
-controlled endpoint and calculation behavior, respectively, not fresh provider
-accuracy or historical cassette compatibility.
-
-
-`semantic_intent/3` endpoint controls use independently authored public synthetic
-questions with intentionally inaccurate or missing model labels and count values.
-They cover canonical and alternate ISO intervals, explicit and inherited value
-contradictions, zero/null samples and invalid scopes. The existing 147-case source
-and expected checks and historical recordings remain unchanged. Controlled passes
-establish those endpoint behaviors only. Fresh live-provider measurement for v3
-is pending; the private v2 failures are regression evidence, not new heldouts.
+These controlled tests establish endpoint and calculation behavior, not live
+provider accuracy or historical cassette compatibility. A fresh versioned
+live-provider measurement for v3 is pending.
 
 ## Exact binding regressions
 

@@ -1,40 +1,15 @@
 # Agent Instructions
 
-## Required startup
-
-This repository follows the thin split. Before editing, read
-[the agent workflow](docs/agent-workflow.md) and run from the repository root:
-
-```bash
-python3 scripts/agent_startup.py --intent INTENT
-```
-
-Use `product-ui` for public web-app features; `product` for private production
-prompts, planner/router, intent heuristics and eval cases. `shared-fix`,
-`reference-maintenance` and `public-promotion` are public scopes; `policy` covers
-repository guidance/tooling in either repo. Default `product` remains private.
-Report the repository/branch, ownership decision, intended checks and push target.
-If blocked, change to the correct checkout or reconcile stale guidance; do not
-weaken the guard or relabel product work to bypass it. Create a fresh `codex/`
-branch from current `origin/main` before implementation. Preserve dirty work.
-
-Run the same check again before pushing. Public publication requires explicit
-user authorization covering the reviewed public diff before its first push.
-An intent flag, a passing check, or a PR opened after pushing is not authorization.
-Public PR #97 is merged; the existing private pin is an ancestor of public main.
-Never automatically mirror private branches or edit inside the shared dependency.
-
 Read optional `AGENTS.local.md` beside this file before working. If absent,
 continue; shared requirements must work in a fresh clone.
 
 ## Work safely
 
 - Inspect branch and working changes; preserve unrelated work and stage only task-owned files.
-- This public repository owns the platform and whole web app: composition, UI,
-  conversation workflow, deterministic prose, evaluation harness and a standalone
-  reference planner. Follow the [boundary policy](docs/public-private-boundary.md)
-  and [ownership map](docs/repository-ownership.md). Production prompts,
-  planner/router, intent heuristics and private eval cases belong in private.
+- This repository owns the platform and web app, including the standalone
+  reference planner. Model-backed planning lives in an optional installed provider
+  (see the [provider contract](docs/intelligence-contract.md)). Follow the
+  [boundary policy](docs/public-private-boundary.md).
 - Keep credentials, raw conversations, feedback, and exports out of Git.
   Keep provider catalog checks local; do not add provider keys to CI for them.
 

@@ -1072,9 +1072,8 @@ local and fixture validation do not establish production readiness.
 
 This guide is the authoritative app behavior reference; the
 [claim guide](ask-claim-bindings.md) defines verified surfaces and known gaps.
-The [ownership audit](intelligence-ownership-audit.md) connects those contracts to
-public owners, model-call boundaries and regression coverage. Optional intelligence
+The [provider contract](intelligence-contract.md#model-call-boundary) lists each
+model-call site with its boundary and regression coverage. Optional intelligence
 packages supply planning through v2, which has no answer-generation API. Bounded
-public scope/chart selection and the explicitly non-governed legacy narrator keep
-the restrictions described above. Package-operation guides should link here rather
-than maintain a second app-behavior specification.
+scope/chart selection and the explicitly non-governed legacy narrator keep the
+restrictions described above.

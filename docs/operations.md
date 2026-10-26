@@ -647,16 +647,15 @@ Failed source reads or validation leave serving data intact. A lost connection
 during publication is recorded as an unconfirmed outcome rather than falsely
 claiming the old data remains; inspect the BigQuery job before any retry.
 
-Scheduling this command is separate from validating one run. A local Codex
-heartbeat can invoke the publish command daily; it requires the local host and
-Codex to be available. It does not repair or restart the older
+Scheduling this command is separate from validating one run. A local scheduler
+can invoke the publish command daily; it does not repair or restart the
 [Airflow service](operations.md#local-airflow). The existing Airflow DAG remains the regular
 incremental ingestion path, whose 2025–26 scheduled window ended in July.
 
-The command itself makes no model calls. A Codex heartbeat uses its configured
-model to run and review it. Avoid automatic retries, source substitution, warehouse
-repairs outside this command, or paid Ask evaluations. Report new failures,
-recoveries, and validated changes, preserving prior receipts for comparison.
+The command makes no model calls. Scheduled runs should avoid automatic retries,
+source substitution, warehouse repairs outside this command, and paid Ask
+evaluations, and should report new failures, recoveries and validated changes while
+preserving prior receipts for comparison.
 
 Ask derives FG%, 3P%, FT%, eFG%, TS%, turnovers per game, and points/assists per
 36 from the published player-game inputs. Existing saved answers remain frozen;

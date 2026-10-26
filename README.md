@@ -1,9 +1,5 @@
 # NBA Stats Desk
 
-Agents: start with [AGENTS.md](AGENTS.md) and the required
-[startup workflow](docs/agent-workflow.md). The ownership map routes web-app work
-to public and production intelligence to private.
-
 [![CI](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mikeh-studio/nba-stats-desk/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
@@ -147,15 +143,14 @@ The project grew one layer at a time.
    [bounded execution](https://github.com/mikeh-studio/nba-stats-desk/pull/69), and
    [Redshift removal](https://github.com/mikeh-studio/nba-stats-desk/pull/74).
 
-## Public code, private operations
+## Pluggable planning, private operations
 
-This repository owns the shared platform and whole web app, including UI,
-composition, conversation workflows, deterministic presentation and eval harness.
-Production prompts, planner/router, intent heuristics and private evaluation cases
-are developed privately, with package integration planned separately. Public app
-work still requires review and explicit approval of the exact diff before pushing.
-Operational records, credentials, raw feedback and generated artifacts stay outside
-Git in access-controlled storage.
+This repository contains the full platform and web app, including a deterministic
+reference planner, so it runs end to end without model credentials. Model-backed
+planning plugs in as an optional installed package through a versioned
+[provider contract](docs/intelligence-contract.md): providers propose plans, and the
+host validates, executes and renders every answer. Operational records, credentials,
+raw feedback and generated artifacts stay outside Git in access-controlled storage.
 See the [public/private boundary](docs/public-private-boundary.md).
 
 The app supports Cloud Run deployment; this repository does not imply an active
