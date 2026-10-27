@@ -59,7 +59,7 @@ mapping. Canonical prose copied into a paragraph can establish transport fidelit
 but cannot independently establish the statistical semantics of its numbers.
 
 The separate `ask_ui_claim_bindings/1` DOM contract links canonical snapshots to
-exact leaf text and attributes. Overview/comparison tables and comparison chart
+exact leaf text and attributes. Comparison rows omit margin destinations for the shared similarity band while preserving canonical deltas. The three-decimal precision disclosure binds each value and absolute gap to the same player/metric evidence; it never treats rounded ties as player-quality evidence. Overview/comparison tables and comparison chart
 labels/geometry are mapped. Metric drawers map distribution summaries, point/bin
 geometry, tooltips, axes and available sample counts; variation point/summary
 geometry and peak details are mapped. Missing legacy sample fields and freeform

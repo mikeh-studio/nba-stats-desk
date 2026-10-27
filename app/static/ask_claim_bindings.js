@@ -1,4 +1,5 @@
-import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261024-compact-results-v2";
+import {comparisonLead} from "./comparison_policy.js?v=20261027-comparison-similar-rates-v2";
+import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261027-comparison-similar-rates-v2";
 // Exact canonical evidence -> final DOM relationships; rendered text is never an oracle.
 export const UI_CLAIM_VERSION = "ask_ui_claim_bindings/1";
 const finite = Number.isFinite,
@@ -182,6 +183,10 @@ export function formatClaim(v, f, c = {}) {
           ? `Partial: ${m.valid_games}/${m.observed_games} games`
           : "")
       );
+    case "comparison-precision":
+      return m.missing_component_games ? "Unavailable" : num(v, 3);
+    case "comparison-precision-gap":
+      return [m.left, m.right].every((side) => side && finite(side.value) && !side.missing_component_games) && finite(v) ? num(Math.abs(v), 3) : "Unavailable";
     case "comparison-margin":
       return `+${num(Math.abs(v))}`;
     case "scope":
@@ -429,7 +434,7 @@ export function claimSchema(payload, component, options = {}) {
     e.metrics.forEach((m, i) => {
       const p = base.concat("metrics", i),
         r = `.h2h-table tbody tr:nth-child(${i + 1})`;
-      add(`${r} > th`, p.concat("key"), "abbreviation", {
+      add(`${r} > th > .h2h-label`, p.concat("key"), "abbreviation", {
         metricIndex: i,
         metricKey: m.key,
       });
@@ -464,13 +469,19 @@ export function claimSchema(payload, component, options = {}) {
           );
         }
       });
-      // Only the leader's cell shows the margin; ties and missing edges have none.
-      if (finite(m.delta) && m.delta !== 0)
+      // Only a higher recorded rate outside the similarity band has a margin.
+      if (comparisonLead(m) !== null)
         add(`${r} .h2h-edge`, p.concat("delta"), "comparison-margin", {
           metric: m,
           metricIndex: i,
           metricKey: m.key,
         });
+    });
+    e.metrics.forEach((m, i) => {
+      const p = base.concat("metrics", i), r = `.comparison-precision tbody tr:nth-child(${i + 1})`;
+      add(`${r} > th`, p.concat("key"), "abbreviation", {metricKey: m.key, metricIndex: i});
+      ["left", "right"].forEach((side) => add(`${r} > td[data-side="${side}"]`, p.concat(side, "value"), "comparison-precision", {metric: m[side], metricKey: m.key, metricIndex: i, side}));
+      add(`${r} > .precision-gap`, p.concat("delta"), "comparison-precision-gap", {metric: m, metricKey: m.key, metricIndex: i});
     });
     (e.comparison_sections || []).forEach((section, si) =>
       section.metrics.forEach((m, i) => {

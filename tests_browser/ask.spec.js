@@ -75,7 +75,7 @@ test('non-scoring wording selects creation chart and omits generic limitations',
 test('comparison hides unavailable impact in fresh and legacy saved analyses', async ({page}, testInfo) => {
   const c = await prepare(page, 'two_player');
   await submit(page, c.turns[0].question);
-  await expect(page.locator('[data-agent-answer]')).toContainText('Availability');
+  await expect(page.locator('[data-agent-answer]')).toContainText('Playing time');
   await expect(page.locator('[data-agent-answer] .result-verdict')).toContainText('do not establish an overall winner');
   await expect(page.locator('[data-agent-tables] .h2h-table')).toContainText('+7.5');
   await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
