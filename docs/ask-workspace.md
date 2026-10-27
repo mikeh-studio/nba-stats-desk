@@ -865,6 +865,15 @@ waiting. This keeps unsent complete terminal payloads within the active-request
 count. A stalled response-body send can hold a slot beyond the computational
 deadline: no additional transport timeout is assumed or introduced here.
 
+The final JSON result or SSE terminal event is published only after normal
+telemetry finishes and worker ownership is marked complete. Slow telemetry can
+delay the terminal result; it does not leave a logging-only conversation lease
+after that result is delivered. Logging sink errors remain best-effort and do not
+replace the authored response. Response sending still owns its share of the lease
+until it closes or detaches, so a blocked send or unfinished worker continues to
+count toward admission. Separate bounded private trace persistence may still
+outlive admission. No automatic follow-up retry or new timeout is introduced.
+
 SSE stores serialized interim frames in a nonblocking mailbox, bounded by
 `AGENT_STREAM_BUFFER_BYTES` (**1,650 bytes**) and
 `AGENT_STREAM_BUFFER_EVENTS` (**9 events**). These defaults are the measured

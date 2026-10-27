@@ -1461,12 +1461,14 @@ async def _execute_admitted_agent(
                     # Error envelopes are authored locally and always serializable.
                     if status != 200 or not wire:
                         wire = _agent_terminal_bytes(terminal, streaming=streaming)
-                    # A reserved single terminal result bypasses interim quotas.
-                    delivery.finish(wire, status)
                     # Normal telemetry remains inside worker admission.
                     _emit_agent_trace(trace, private=False)
                 finally:
                     lease.complete(worker=True)
+                    # Publish only after worker ownership ends, so a returned
+                    # result cannot race logging on an immediate follow-up.
+                    # Delivery still owns the slot until its ASGI send closes.
+                    delivery.finish(wire, status)
                 # Only private persistence may outlive admission; globally bounded.
                 if trace.private_capture is not None:
                     trace.private_capture.finish(trace)
