@@ -9,7 +9,7 @@ from typing import Any, Callable
 from pydantic import ValidationError
 
 from app.agent.conversation import ConversationStore, PendingClarification
-from app.agent.execution import create_response, governed_request
+from app.agent.execution import ExecutionFailure, create_response, governed_request
 from app.agent.legacy_loader import (
     build_agent_plan,
     build_query_plan,
@@ -696,6 +696,10 @@ class StatsAgent:
         player_resolver: PlayerResolver | None = None,
         semantic_warehouse: Any | None = None,
     ) -> None:
+        from app.agent.runtime_policy import get_runtime_policy
+
+        if get_runtime_policy() is not None:
+            conversation_store = None
         self.settings = settings
         self.repo = repo
         from app.agent.semantic_answer import SemanticAsk
@@ -723,12 +727,17 @@ class StatsAgent:
         )
 
     def _get_client(self, provider: str = "openai") -> Any:
+        from app.agent.runtime_policy import get_runtime_policy, guard_client
+
+        runtime = get_runtime_policy()
+        if runtime is not None and provider != "openai":
+            raise ExecutionFailure("runtime_selection_denied")
         if provider == "openrouter":
             return self._get_openrouter_client()
         if provider == "claude":
             return self._get_claude_client()
         if self.client is not None:
-            return self.client
+            return guard_client(self.client, provider)
         if not self.settings.openai_agent_enabled:
             raise AgentDisabledError("The OpenAI stats agent is disabled.")
         if not self.settings.openai_api_key:
@@ -740,9 +749,13 @@ class StatsAgent:
                 "The openai package is not installed. Run pip install -r requirements.txt."
             ) from exc
         self.client = OpenAI(api_key=self.settings.openai_api_key, max_retries=0)
-        return self.client
+        return guard_client(self.client, provider)
 
     def _get_openrouter_client(self) -> Any:
+        from app.agent.runtime_policy import get_runtime_policy
+
+        if get_runtime_policy() is not None:
+            raise ExecutionFailure("runtime_selection_denied")
         if self.openrouter_client is not None:
             return self.openrouter_client
         if not self.settings.openai_agent_enabled:
@@ -765,6 +778,10 @@ class StatsAgent:
         return self.openrouter_client
 
     def _get_claude_client(self) -> Any:
+        from app.agent.runtime_policy import get_runtime_policy
+
+        if get_runtime_policy() is not None:
+            raise ExecutionFailure("runtime_selection_denied")
         if self.claude_client is not None:
             return self.claude_client
         if not self.settings.openai_agent_enabled:
@@ -1473,6 +1490,11 @@ class StatsAgent:
                 else self.settings.openai_agent_model
             )
         )
+        from app.agent.runtime_policy import get_runtime_policy
+
+        runtime = get_runtime_policy()
+        if runtime is not None:
+            runtime.validate_selection(provider_name, selected_model)
         if not self.settings.openai_agent_enabled:
             raise AgentDisabledError("The OpenAI stats agent is disabled.")
         from app.agent.intelligence import get_provider

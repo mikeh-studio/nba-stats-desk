@@ -96,6 +96,57 @@ rows, not independent completeness of NBA source observations. Historical injury
 ordering cannot be claimed from ambiguous game times; see the explicit cutoff
 in [Player context](pages.md#player-context).
 
+`BigQuerySemanticSource.capture(seasons)` keeps the ordinary all-phase capture
+contract. Call `capture_scoped(seasons, phases)` for explicit canonical phases, or
+wrap the source in `ScopedSemanticSource` for the warehouse loader protocol. Each
+UNION branch constrains season and phase with typed parameters before retrieval.
+Coverage records only observed scopes; a regular-season snapshot cannot certify
+playoff coverage. Cache identity includes source mode, relation configuration,
+phase scope and trusted policy, as well as seasons. Retrieval timestamp, count
+checks, checksum, null validation and truncation rejection still apply.
+
+Trusted server composition may install an immutable `SourcePolicy` before app
+lifespan with `configure_source_policy`, or propagate it through
+`source_policy_scope`. It binds season/relation pairs, canonical phases, snapshot
+timestamp, explicit identity IDs, source mode, row/byte caps and timeouts. No
+request payload configures it. It applies without Ask request tracing, including
+to startup and health reads. Conflicting process, context and repository policies
+fail closed. A restricted repository denies ordinary SQL and legacy identity
+fallbacks; only complete generated capture and fixed ID-bounded identity query
+shapes with matching typed parameters may dispatch. This comparison is not a
+general SQL parser or an arbitrary-SQL rewrite. Destination jobs, scripts, unknown
+job options and reads above the configured byte cap are rejected. Optional
+position-context artifacts are not approved by this source policy and fail closed.
+
+The explicit `retained_local_review` mode constructs `RetainedReviewSource`
+directly from approved relation bindings. It never probes an archive or falls
+back to ESPN, another season, or the serving cache. Its validated snapshot/output
+carries the retained relations, a local-review note and
+`archive_status: unavailable`; selecting this mode asserts the operator-reviewed
+archive limitation and does not repair archive publication. Ordinary archive and
+optional ESPN routing remain separate. Source policy alone does not enable a
+local-only HTTP ingress requirement; application composition must enforce that
+boundary when exposing a retained review session.
+
+Identity lookup reuses an already loaded complete scoped snapshot when available;
+otherwise it sends one fixed query to the approved relation, season, phases and
+IDs with the same snapshot timestamp and limits. A plain overview may add a
+prior period as optional context. Under a source policy, unapproved seasons used
+only by that optional context are omitted before retrieval when a complete, simple
+scoped-overview form is recognized. Additional or ambiguous modifiers retain the
+prior dependency and fail closed when it is unauthorized. Explicit year-over-year
+comparisons cannot become optional context. The requested dates,
+phases and required seasons remain unchanged. Previous-period metadata is retained
+so missing evidence withholds changes and baseline insights. Explicit baseline
+requests remain subject to source authorization. Conflicting names and truncated
+results fail without fallback. Duplicate names with distinct IDs remain ambiguous.
+Name-resolution rosters contain only approved identity IDs; statistical cohort
+rows remain complete. A single approved identity season is independent of the UI
+shell's default season. For multiple approved seasons, callers must choose an
+approved season explicitly or through the repository's selected season. Synthetic
+IDs exercise these contracts; real identities and source access require separate
+source verification.
+
 Public synthetic fixtures exercise identity, dates, ratios, missingness, ranking,
 and evidence boundaries. Historical evaluations compare against frozen reference
 results. Run instructions are in [Evaluation](evaluation.md). Passing fixtures

@@ -12,8 +12,13 @@ from typing import Any, Protocol
 from app.agent.clock import today as semantic_today
 from app.agent.execution import record_data_read, timed
 from app.agent.player_resolver import load_player_aliases, normalize_player_text
-from app.agent.semantic_source import BigQuerySemanticSource, snapshot_evidence
+from app.agent.semantic_source import (
+    BigQuerySemanticSource,
+    ScopedSemanticSource,
+    snapshot_evidence,
+)
 from app.agent.semantics import Evidence, SemanticError
+from app.agent.source_policy import denied, get_source_policy
 from app.seasons import DEFAULT_SEASON, SEASONS, season_bounds, validate_season
 
 
@@ -125,23 +130,44 @@ class SemanticWarehouse:
         self.source = source
         self.ttl_seconds = ttl_seconds
         self._lock = Lock()
-        self._cache: OrderedDict[tuple[str, ...], tuple[float, dict[str, Any]]] = (
+        self._cache: OrderedDict[tuple[Any, ...], tuple[float, dict[str, Any]]] = (
             OrderedDict()
         )
 
     def players(self, evidence: Evidence) -> list[dict[str, Any]]:
-        return source_players(evidence)
+        return source_players(
+            evidence, source_policy=getattr(self.source, "source_policy", None)
+        )
+
+    def _cache_key(self, seasons):
+        policy = get_source_policy(getattr(self.source, "source_policy", None))
+        return (
+            id(self.source),
+            getattr(self.source, "cache_identity", None),
+            policy,
+            *sorted(seasons),
+        )
+
+    def cached_snapshot(self, seasons):
+        """Return only an already loaded, validated scope; never dispatch a read."""
+        key = self._cache_key(seasons)
+        with self._lock:
+            cached = self._cache.get(key)
+            if not cached or monotonic() - cached[0] >= self.ttl_seconds:
+                return None
+            snapshot_evidence(cached[1])
+            return cached[1]
 
     @timed("evidence")
     def load(self, seasons: list[str]) -> tuple[dict[str, Any], Evidence]:
-        key = tuple(sorted(seasons))
+        key = self._cache_key(seasons)
         with self._lock:
             cached = self._cache.get(key)
             cache_hit = bool(cached and monotonic() - cached[0] < self.ttl_seconds)
             if cached and cache_hit:
                 snapshot = cached[1]
             else:
-                snapshot = self.source.capture(list(key))
+                snapshot = self.source.capture(sorted(seasons))
                 snapshot_evidence(snapshot)
                 self._cache[key] = (monotonic(), snapshot)
                 self._cache.move_to_end(key)
@@ -163,13 +189,40 @@ class SemanticWarehouse:
         return snapshot, evidence
 
 
-def source_players(evidence: Evidence) -> list[dict[str, Any]]:
-    return players_from_rows(evidence.rows)
+def source_players(evidence: Evidence, *, source_policy=None) -> list[dict[str, Any]]:
+    policy = get_source_policy(source_policy)
+    if policy is not None:
+        if not evidence.complete or not set(evidence.source.split(", ")) <= {
+            r for _, r in policy.relations
+        }:
+            denied("Identity evidence is outside the approved source relations")
+        if not evidence.covered_scopes <= {
+            (s, p) for s, _ in policy.relations for p in policy.phases
+        }:
+            denied("Identity evidence is outside the approved source scope")
+    return players_from_rows(evidence.rows, source_policy=policy)
 
 
 @timed("identity")
-def players_from_rows(rows) -> list[dict[str, Any]]:
+def players_from_rows(rows, *, source_policy=None) -> list[dict[str, Any]]:
     """Resolve identities from observed rows or bound appearance metadata."""
+    policy = get_source_policy(source_policy)
+    if policy is not None:
+        rows = list(rows)
+        allowed = {(s, p) for s, _ in policy.relations for p in policy.phases}
+        if any((r.get("season"), r.get("season_type")) not in allowed for r in rows):
+            denied("Identity rows are outside the approved source scope")
+        rows = [r for r in rows if r["player_id"] in policy.allowed_player_ids]
+        names = {}
+        for row in rows:
+            if (
+                row["player_id"] in names
+                and names[row["player_id"]] != row["player_name"]
+            ):
+                raise SemanticError(
+                    "ambiguous_identity", "Conflicting names for an approved identity"
+                )
+            names[row["player_id"]] = row["player_name"]
     players: dict[int, dict[str, Any]] = {}
     latest_teams: dict[int, tuple[str, str]] = {}
     for row in rows:
@@ -207,26 +260,43 @@ _factory_lock = Lock()
 
 def warehouse_for_repository(repo: Any) -> Any:
     with _factory_lock:
+        policy = get_source_policy(getattr(repo, "source_policy", None))
         warehouse = getattr(repo, "_governed_warehouse", None)
+        if (
+            warehouse is not None
+            and getattr(repo, "_governed_source_policy", None) != policy
+        ):
+            warehouse = None
         if warehouse is None:
             settings = repo.settings
             dataset = settings.gold_dataset
             if settings.season != DEFAULT_SEASON:
                 dataset = dataset.removesuffix("_" + settings.season.replace("-", "_"))
+            source_class = BigQuerySemanticSource
+            if policy and policy.source_mode == "retained_local_review":
+                from app.agent.espn_dev_source import RetainedReviewSource
+
+                source_class = RetainedReviewSource
+            source = source_class(
+                repo.client,
+                project=settings.project_id,
+                gold_dataset=dataset,
+                position_context_path=settings.agent_position_context_path,
+                source_policy=policy,
+                max_rows=policy.max_rows if policy else 100_000,
+                maximum_bytes_billed=policy.maximum_bytes_billed
+                if policy
+                else 100_000_000,
+            )
             warehouse = SemanticWarehouse(
-                BigQuerySemanticSource(
-                    repo.client,
-                    project=settings.project_id,
-                    gold_dataset=dataset,
-                    position_context_path=settings.agent_position_context_path,
-                ),
+                ScopedSemanticSource(source, policy.phases) if policy else source,
                 settings.agent_cache_ttl_seconds,
             )
-            if settings.ask_local_espn_dev:
+            if settings.ask_local_espn_dev and not policy:
                 from app.agent.espn_dev_source import ESPNDevSource
 
                 warehouse.source = ESPNDevSource(warehouse.source)
-            if settings.ask_serving_mode != "off":
+            if settings.ask_serving_mode != "off" and not policy:
                 from datetime import datetime
 
                 from app.agent.semantic_source import capture_timestamp
@@ -243,4 +313,5 @@ def warehouse_for_repository(repo: Any) -> Any:
                     families=settings.ask_serving_families,
                 )
             repo._governed_warehouse = warehouse
+            repo._governed_source_policy = policy
         return warehouse

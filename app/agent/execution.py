@@ -52,6 +52,10 @@ class RequestPolicy:
 
     @property
     def retries(self) -> int:
+        from app.agent.runtime_policy import get_runtime_policy
+
+        if get_runtime_policy() is not None:
+            return 0
         if self.retry_limit is not None:
             return self.retry_limit
         prefix = "anthropic" if self.provider == "claude" else self.provider
@@ -228,6 +232,12 @@ def create_response(
             return create_response(client, timeout_seconds=timeout_seconds, **kwargs)
     policy = CURRENT.get()
     assert policy is not None
+    from app.agent.runtime_policy import get_runtime_policy, guard_client
+
+    runtime = get_runtime_policy()
+    if runtime is not None:
+        runtime.validate_selection(policy.provider, kwargs.get("model"))
+        client = guard_client(client, policy.provider)
     callback = kwargs.pop("on_output_text_delta", None)
     emitted = False
 

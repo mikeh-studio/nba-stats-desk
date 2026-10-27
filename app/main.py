@@ -249,8 +249,13 @@ templates.env.filters["time_ago"] = _time_ago
 @asynccontextmanager
 async def _lifespan(_: FastAPI):
     from app.agent.intelligence import get_provider
+    from app.agent.runtime_policy import get_runtime_policy
 
-    get_provider(get_settings())
+    settings = _dependency_override_value(get_settings) or get_settings()
+    runtime = get_runtime_policy()
+    if runtime is not None:
+        runtime.validate_settings(settings)
+    get_provider(settings)
     _start_cache_prewarm()
     yield
 
@@ -321,8 +326,91 @@ class LocalDevSourceBoundary:
         await self.app(scope, receive, send)
 
 
+class TrustedRuntimeBoundary:
+    """Reject background/catalog requests before FastAPI dependencies execute."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        from app.agent.runtime_policy import get_runtime_policy, runtime_policy_scope
+
+        runtime = get_runtime_policy()
+        if runtime is None or scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        method, path = scope["method"], scope["path"]
+        allowed = (
+            method == "GET" and (path in {"/", "/ask"} or path.startswith("/static/"))
+        ) or (method == "POST" and path in {"/api/agent/ask", "/api/agent/ask/stream"})
+        if not allowed:
+            await JSONResponse(
+                status_code=403,
+                content={"detail": "Operation is outside the runtime policy."},
+            )(scope, receive, send)
+            return
+        with runtime_policy_scope(runtime):
+            if method != "POST":
+                await self.app(scope, receive, send)
+                return
+            from app.agent.runtime_policy import CURRENT_ADMISSION, admit_runtime
+
+            # Parse and authorize before any FastAPI dependency can construct a
+            # repository or client. Replay the bounded body for normal validation.
+            messages, body = [], b""
+            while True:
+                message = await receive()
+                if message["type"] != "http.request":
+                    return
+                messages.append(message)
+                body += message.get("body", b"")
+                if len(body) > 32768:
+                    await JSONResponse(
+                        status_code=403,
+                        content={"detail": "Request denied by runtime policy."},
+                    )(scope, receive, send)
+                    return
+                if not message.get("more_body", False):
+                    break
+            try:
+                payload = AgentAskRequest.model_validate_json(body)
+                settings = _dependency_override_value(get_settings) or get_settings()
+                runtime.validate_settings(settings)
+                if (
+                    payload.previous_context is not None
+                    or payload.selected_player_id is not None
+                    or payload.selected_player_name is not None
+                ):
+                    raise ExecutionFailure("runtime_context_denied")
+                admitted = admit_runtime(
+                    question=payload.question,
+                    streaming=path.endswith("/stream"),
+                    provider=_selected_agent_provider(payload),
+                    model=_selected_agent_model(payload, settings),
+                )
+            except Exception:
+                await JSONResponse(
+                    status_code=403,
+                    content={"detail": "Request denied by runtime policy."},
+                )(scope, receive, send)
+                return
+            token = CURRENT_ADMISSION.set(admitted)
+
+            async def replay():
+                return messages.pop(0) if messages else await receive()
+
+            try:
+                await self.app(scope, replay, send)
+            finally:
+                CURRENT_ADMISSION.reset(token)
+                if admitted is not None and not admitted.worker_started:
+                    admitted.cancelled.set()
+                    admitted.finish("admission_error")
+
+
 app.add_middleware(LocalDevSourceBoundary)
 app.add_middleware(SeasonMiddleware)
+app.add_middleware(TrustedRuntimeBoundary)
 
 
 def _dependency_override_value(callable_: Any) -> Any | None:
@@ -340,6 +428,13 @@ def _cached_repository(settings: Settings) -> BigQueryWarehouseRepository:
 def get_repository(
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> WarehouseRepository:
+    from app.agent.runtime_policy import get_runtime_policy
+
+    runtime = get_runtime_policy()
+    if runtime is not None and runtime.source_policy is None:
+        raise HTTPException(
+            status_code=403, detail="A trusted source policy is required."
+        )
     return _cached_repository(settings_for_season(settings, current_season()))
 
 
@@ -620,11 +715,15 @@ def _build_stats_agent(
     repo: WarehouseRepository,
     agent_client: Any | None,
 ) -> StatsAgent:
+    from app.agent.runtime_policy import get_runtime_policy
+
     return StatsAgent(
         settings_for_season(settings, current_season()),
         repo,
         client=agent_client,
-        conversation_store=_season_conversation_store(current_season()),
+        conversation_store=None
+        if get_runtime_policy() is not None
+        else _season_conversation_store(current_season()),
     )
 
 
@@ -996,6 +1095,10 @@ def _prewarm_performance_flow(repo: WarehouseRepository) -> None:
 
 
 def _start_cache_prewarm() -> None:
+    from app.agent.runtime_policy import get_runtime_policy
+
+    if get_runtime_policy() is not None:
+        return
     settings = _dependency_override_value(get_settings) or get_settings()
     if not settings.performance_cache_prewarm_enabled:
         return
@@ -1152,6 +1255,36 @@ class _AgentJSONResponse(Response):
 
 
 async def _start_agent_execution(
+    request, payload, repo, settings, agent_client, *, streaming
+):
+    from app.agent.runtime_policy import (
+        CURRENT_ADMISSION,
+        get_runtime_policy,
+    )
+
+    runtime = get_runtime_policy()
+    if runtime is None:
+        return await _execute_admitted_agent(
+            request, payload, repo, settings, agent_client, streaming=streaming
+        )
+    admitted = CURRENT_ADMISSION.get()
+    if admitted is None or admitted.policy is not runtime:
+        raise HTTPException(status_code=403, detail="Request denied by runtime policy.")
+    token = CURRENT_ADMISSION.set(admitted)
+    try:
+        return await _execute_admitted_agent(
+            request, payload, repo, settings, agent_client, streaming=streaming
+        )
+    except BaseException:
+        if admitted is not None:
+            admitted.cancelled.set()
+            admitted.finish("admission_error")
+        raise
+    finally:
+        CURRENT_ADMISSION.reset(token)
+
+
+async def _execute_admitted_agent(
     request: Request,
     payload: AgentAskRequest,
     repo: WarehouseRepository,
@@ -1186,10 +1319,19 @@ async def _start_agent_execution(
         ) from exc
     trace.capacity["active_at_admission"] = lease.active
     try:
+        from app.agent.runtime_policy import CURRENT_ADMISSION
+
+        runtime_admission = CURRENT_ADMISSION.get()
+
+        def detach():
+            if runtime_admission is not None:
+                runtime_admission.cancelled.set()
+            lease.complete(delivery=True)
+
         delivery = Delivery(
             max_bytes=settings.agent_stream_buffer_bytes,
             max_events=settings.agent_stream_buffer_events,
-            on_detach=lambda: lease.complete(delivery=True),
+            on_detach=detach,
         )
         request_context = copy_context()
 
@@ -1206,7 +1348,10 @@ async def _start_agent_execution(
             wire = b""
             try:
                 # Restore only after admission; rejected work cannot alter state.
-                _restore_agent_context(payload, settings, conversation_id)
+                from app.agent.runtime_policy import get_runtime_policy
+
+                if get_runtime_policy() is None:
+                    _restore_agent_context(payload, settings, conversation_id)
                 if trace.private_capture is not None:
                     trace.private_capture.context(
                         _season_conversation_store(current_season()), conversation_id
@@ -1296,6 +1441,23 @@ async def _start_agent_execution(
             finally:
                 try:
                     trace.capacity.update(delivery.metrics())
+                    if runtime_admission is not None:
+                        try:
+                            runtime_admission.finish(
+                                "cancelled"
+                                if runtime_admission.cancelled.is_set()
+                                else "success"
+                                if status == 200
+                                else "error"
+                            )
+                        except Exception:
+                            status = 502
+                            terminal = {
+                                "type": "error",
+                                "detail": AGENT_FAILED_DETAIL,
+                                "request_id": request_id,
+                            }
+                            wire = b""
                     # Error envelopes are authored locally and always serializable.
                     if status != 200 or not wire:
                         wire = _agent_terminal_bytes(terminal, streaming=streaming)
@@ -1310,6 +1472,8 @@ async def _start_agent_execution(
                     trace.private_capture.finish(trace)
 
         Thread(target=request_context.run, args=(worker,), daemon=True).start()
+        if runtime_admission is not None:
+            runtime_admission.worker_started = True
     except BaseException as exc:
         lease.release()
         if not isinstance(exc, Exception):

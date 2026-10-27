@@ -54,6 +54,7 @@ from app.agent.semantic_serving import (
 )
 from app.agent.semantic_source import capture_timestamp
 from app.agent.semantics import Query, SemanticError, run_query
+from app.agent.source_policy import get_source_policy
 from app.seasons import season_bounds
 
 # Semantic shapes (app.agent.routes) and the payload labels that tell them apart.
@@ -64,6 +65,45 @@ SEMANTIC_LABELS = {
     "overview": "player_overview",
     "metrics": "governed_metrics",
 }
+
+
+def plain_scoped_overview(question: str) -> bool:
+    """Recognize only simple overviews whose prior period is optional.
+
+    Under a restricted source policy, unrecognized modifiers retain the baseline
+    dependency. This deliberately favors a scope refusal over silently omitting
+    a comparison the user may have requested.
+    """
+    if re.search(
+        r"\b(?:yoy|year[ -]+(?:over|on)[ -]+year|season[ -]+(?:over|on)[ -]+season)\b",
+        question,
+        re.I,
+    ):
+        return False
+    name = r"(?P<player>[\w'’.-]+(?:\s+[\w'’.-]+){0,5}?)"
+    season = r"20\d{2}[-–/](?:20\d{2}|\d{2})"
+    phase = r"(?:regular[ -]season|playoffs?|postseason)"
+    dates = r"from \d{4}-\d{2}-\d{2} (?:to|through) \d{4}-\d{2}-\d{2}"
+    period = rf"(?: (?:in|during|for) (?:the )?(?:{season} {phase}|{phase} {season})| {dates}(?: {phase})?)"
+    templates = (
+        rf"(?:give me (?:a|an) (?:player )?(?:overview|profile|assessment|summary) of|"
+        rf"tell me about|summari[sz]e) {name}(?: (?:overall )?(?:performance|stats|statistics))?{period}",
+        rf"how (?:did|has) {name} (?:perform|performed|play|played|do|done){period}",
+        rf"{name} (?:overall )?performance{period}",
+    )
+    for template in templates:
+        match = re.fullmatch(template + r"[.!?]?", question.strip(), re.I)
+        if match is None:
+            continue
+        words = match["player"].split()
+        # The source roster will still resolve the identity. Lowercase clauses
+        # cannot be swallowed as a player's name by the intentionally small grammar.
+        if all(
+            word[0].isupper() or word in {"de", "del", "da", "van", "von"}
+            for word in words
+        ):
+            return True
+    return False
 
 
 def normalize_metric_plan_scope(
@@ -897,6 +937,30 @@ class SemanticAsk:
                 if overview
                 else requested_seasons(question, self.settings.season)
             )
+            source_policy = get_source_policy(
+                getattr(getattr(self.warehouse, "source", None), "source_policy", None)
+            )
+            if (
+                source_policy is not None
+                and overview
+                and not comparison
+                and not overview.get("comparison_intent", {}).get("baseline_period")
+                and plain_scoped_overview(question)
+            ):
+                # A plain overview adds an optional prior-period comparison.
+                # Keep every season in the requested window, even if disallowed,
+                # so policy still rejects required scope rather than shortening it.
+                # Retain overview's original seasons/previous bounds: missing
+                # baseline coverage must withhold changes and comparison insights.
+                seasons = [
+                    s
+                    for s in seasons
+                    if s in dict(source_policy.relations)
+                    or (
+                        season_bounds(s)[0] <= overview["end"]
+                        and season_bounds(s)[1] >= overview["start"]
+                    )
+                ]
             if split:
                 from app.agent.player_splits import split_seasons
 

@@ -19,6 +19,7 @@ from app.agent.semantic_source import (
     BigQuerySemanticSource,
     capture_timestamp,
     snapshot_digest,
+    snapshot_evidence,
 )
 from app.agent.semantics import SemanticError
 from app.seasons import DEFAULT_SEASON
@@ -189,11 +190,49 @@ class Retained2025Source(BigQuerySemanticSource):
         return super().source_for_season(season)
 
 
+class RetainedReviewSource(BigQuerySemanticSource):
+    """Explicit retained local review, without archive probing or provider fallback."""
+
+    source_mode = "retained_local_review"
+
+    def source_for_season(self, season):
+        from app.agent.source_policy import denied, get_source_policy
+
+        policy = get_source_policy(self.source_policy)
+        if policy is None or policy.source_mode != "retained_local_review":
+            denied("Retained review requires an explicit retained source policy")
+        return policy.relation(season)
+
+    def capture_scoped(self, seasons, phases):
+        value = super().capture_scoped(seasons, phases)
+        note = (
+            "Local review: figures use the explicitly selected retained warehouse "
+            "game records; a separate season archive is unavailable."
+        )
+        value["coverage_notes"] = [note]
+        value["scope_assumptions"] = [note]
+        value["limitations"].append(note)
+        value["review_metadata"] = {
+            "provider": "nba_warehouse",
+            "source_mode": "retained_local_review",
+            "retained_seasons": list(seasons),
+            "retained_relations": value["sources"],
+            "archive_status": "unavailable",
+        }
+        value["sha256"] = snapshot_digest(value)
+        snapshot_evidence(value)
+        return value
+
+
 class ESPNDevSource:
     def __init__(self, base):
         self.base = base
 
     def historical_capture(self, seasons):
+        from app.agent.source_policy import denied, get_source_policy
+
+        if get_source_policy(getattr(self.base, "source_policy", None)) is not None:
+            denied("Archive fallback is disabled by the scoped source policy")
         from google.api_core.exceptions import NotFound
 
         try:
@@ -230,6 +269,10 @@ class ESPNDevSource:
 
     @serialized_warehouse_read
     def capture(self, seasons):
+        from app.agent.source_policy import denied, get_source_policy
+
+        if get_source_policy(getattr(self.base, "source_policy", None)) is not None:
+            denied("ESPN fallback is disabled by the scoped source policy")
         if DEFAULT_SEASON not in seasons:
             return self.historical_capture(seasons)
         # Missing historical baselines stay explicit; caller can retry current only.
