@@ -213,7 +213,7 @@ def players_from_rows(rows, *, source_policy=None) -> list[dict[str, Any]]:
         if any((r.get("season"), r.get("season_type")) not in allowed for r in rows):
             denied("Identity rows are outside the approved source scope")
         rows = [r for r in rows if r["player_id"] in policy.allowed_player_ids]
-        names = {}
+        names: dict[int, str] = {}
         for row in rows:
             if (
                 row["player_id"] in names

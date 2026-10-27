@@ -159,7 +159,7 @@ class BigQuerySemanticSource:
             ):
                 denied("Source caps differ from the approved policy")
         sql = capture_sql(sources, phases)
-        params = [
+        params: list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter] = [
             bigquery.ScalarQueryParameter("snapshot_at", "TIMESTAMP", captured_at),
             bigquery.ScalarQueryParameter("row_limit", "INT64", self.max_rows + 1),
             *[

@@ -11,13 +11,13 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterator
+from typing import Iterator, NoReturn
 
 from app.agent.semantics import COMPONENTS, PHASES, SemanticError
 from app.seasons import validate_season
 
 
-def denied(message: str) -> None:
+def denied(message: str) -> NoReturn:
     raise SemanticError("source_policy_denied", message)
 
 

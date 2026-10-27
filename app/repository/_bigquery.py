@@ -663,7 +663,7 @@ class BigQueryWarehouseRepository:
                 denied("Cached identity source differs from approved scope")
         assert self.client is not None
         job = None
-        rows = None
+        rows: list[dict[str, Any]] | None = None
         failure = None
         try:
             if cached is None:
@@ -681,7 +681,7 @@ class BigQueryWarehouseRepository:
                     rows.append(dict(row))
             else:
                 rows = [r for r in cached["rows"] if r["player_id"] in player_ids]
-            players = {}
+            players: dict[int, dict[str, Any]] = {}
             for row in rows:
                 pid = row.get("player_id")
                 name = row.get("player_name")
