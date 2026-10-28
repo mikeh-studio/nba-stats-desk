@@ -1,6 +1,7 @@
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261027-comparison-similar-rates-v3";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261027-comparison-similar-rates-v3";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261027-comparison-similar-rates-v3";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261027-readable-results-v2";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261027-readable-results-v2";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261027-readable-results-v2";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261027-readable-results-v2";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -8,13 +9,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261027-comparison-similar-rates-v3";
+} from "./ask_comparison.js?v=20261027-readable-results-v2";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261027-comparison-similar-rates-v3";
+} from "./ask_sessions.js?v=20261027-readable-results-v2";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -22,8 +23,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261027-comparison-similar-rates-v3";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261027-comparison-similar-rates-v3";
+} from "./ask_presentation.js?v=20261027-readable-results-v2";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261027-readable-results-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -391,12 +392,15 @@ function renderTable(table) {
     ? "Games with data counts games with all the information needed for a stat, out of all games in that group. Counts can differ by stat. Complete data can still yield an unavailable rate when its denominator is zero."
     : "");
   return `
-    <section class="stack">
+    <section class="stack${table.presentation === "semantic" ? " semantic-results" : ""}">
       ${table.collapsible ? `<details><summary>${escHtml(table.title || "Table")}</summary>` : `<h3>${escHtml(table.title || "Table")}</h3>`}
+      ${table.subtitle ? `<p class="meta result-period">${escHtml(table.subtitle)}</p>` : ""}
+      ${table.qualification ? `<p class="meta result-qualification">${escHtml(table.qualification)}</p>` : ""}
+      ${table.help ? `<details class="result-help"><summary>About this stat and ranking</summary><p class="meta">${escHtml(table.help)}</p></details>` : ""}
       <div class="table-scroll">
         <table class="data-table compact">
           <thead>
-            <tr>${columns.map((column) => `<th>${escHtml(column.label || column.key)}</th>`).join("")}</tr>
+            <tr>${columns.map((column) => `<th scope="col" data-column="${escHtml(column.key || "")}">${escHtml(column.label || column.key)}</th>`).join("")}</tr>
           </thead>
           <tbody>
             ${rows
@@ -409,7 +413,7 @@ function renderTable(table) {
                       const display = legacyCoverage[columnIndex]
                         ? String(value).replace(/^(\d+)\/(\d+)$/, "$1 of $2")
                         : value;
-                      return `<td>${escHtml(display)}</td>`;
+                      return `<td${table.presentation === "semantic" ? ` data-column="${escHtml(columns[columnIndex]?.key || "")}"` : ""}>${escHtml(display)}</td>`;
                     })
                     .join("")}</tr>`,
               )
@@ -865,7 +869,7 @@ function renderContext(payload) {
         ${definitions
           .map(
             (item) =>
-              `<p><strong>${escHtml(item.label || item.key)}</strong><br /><span class="meta">${escHtml(item.definition)}</span></p>`,
+              `<p><strong>${escHtml(metricName(item))}</strong><br /><span class="meta">${escHtml(metricHelp(item) || item.definition)}</span></p>`,
           )
           .join("")}
       </section>
@@ -1068,7 +1072,7 @@ function renderAnswerPayload(payload, targetEl) {
   const overview = payload.award_evidence ? null : overviewPresentation(payload);
   targetEl.innerHTML = overview
     ? `<div class="result-layout overview-layout"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p${p === overview.summaryContext ? ' class="meta overview-scope"' : ""}>${escHtml(p)}</p>`).join("")}</div>${overviewTakeaways(overview)}</div>`
-    : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(answerWithoutScopeNotes(payload) || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
+    : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(semanticText(answerWithoutScopeNotes(payload), payload) || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
   if (payload.availability_evidence && !payload.availability_evidence.policy_version) {
     targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
   }
@@ -1146,9 +1150,9 @@ function renderAuxiliaryPayload(
   tableEl.innerHTML = overview
     ? renderOverviewTable(overview)
     : tables
-        .map((table) => payload.study_id
+        .map((table, index) => payload.study_id
           ? `<details><summary>See the stat comparison</summary>${renderTable(referenceTable(table, payload))}</details>`
-          : renderTable(referenceTable(table, payload)))
+          : renderTable(semanticTable(referenceTable(table, payload), payload, index)))
         .join("");
 
   const charts = asArray(payload.charts);
@@ -1156,7 +1160,7 @@ function renderAuxiliaryPayload(
   if (overview) { bindRenderedClaims(tableEl, payload, "overview", {}, overview.claimEvidence); bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }
   if (overview && charts.length)
     renderOverviewCharts(payload, overview.preferredMetric, root);
-  else chartEl.innerHTML = charts.map(renderChart).join("") + renderComparisonExplorer(payload);
+  else chartEl.innerHTML = charts.map((chart, index) => renderChart(semanticChart(chart, payload, index))).join("") + renderComparisonExplorer(payload);
   if (payload.comparison_explorer?.detail) {
     chartCard.hidden = false;
     bindComparisonExplorer(chartEl, payload);

@@ -1231,3 +1231,23 @@ html:has(.metric-drawer[open]) { overflow:hidden; scrollbar-gutter:stable; }
 .precision-table caption { text-align: left; color: var(--muted); padding: .5rem 0; }
 .precision-table :is(th, td) { padding: .5rem; border-bottom: 1px solid var(--line); text-align: right; }
 .precision-table th:first-child { text-align: left; }
+
+
+/* Readable governed rankings: units in headers, scope below the title. */
+.semantic-results { min-width: 0; gap: 10px; }
+.semantic-results h3 { margin-bottom: 0; overflow-wrap: anywhere; }
+.semantic-results .result-period, .semantic-results .result-qualification { margin: 0; }
+.semantic-results table { width: 100%; table-layout: fixed; }
+.semantic-results :is(th, td) { white-space: normal; overflow-wrap: anywhere; }
+.semantic-results [data-column="rank"] { width: 7%; }
+.semantic-results [data-column="player"] { width: 28%; }
+.semantic-results [data-column="percentile"] { color: var(--text-muted, #aab2bd); font-size: 0.8rem; }
+.semantic-results .result-help { font-size: 0.85rem; }
+.semantic-results .result-help summary { cursor: pointer; }
+@media (max-width: 600px) {
+  .semantic-results :is(th, td) { padding: 9px 4px; font-size: 0.8125rem; letter-spacing: 0; }
+  .semantic-results th { text-transform: none; }
+  .semantic-results [data-column="rank"] { width: 36px; }
+  .semantic-results [data-column="player"] { width: 30%; }
+  .semantic-results [data-column="percentile"] { font-size: 0.7rem; }
+}
