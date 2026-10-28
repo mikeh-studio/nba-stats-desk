@@ -49,7 +49,9 @@ SECRET = re.compile(
 # SDKs contain PEM delimiter constants. Require a body, but still inspect code
 # literals (including escaped newlines); never exempt Python from content checks.
 WHEEL_SECRET = re.compile(
-    rb"-----BEGIN ([A-Z ]*PRIVATE KEY)-----\s*(?:[A-Za-z0-9+/=]\s*){64,}-----END \1-----"
+    rb"-----BEGIN ([A-Z ]*PRIVATE KEY)-----\s*"
+    rb"(?:[A-Za-z][A-Za-z0-9-]*:[^\r\n]*\r?\n)*\s*"
+    rb"(?:[A-Za-z0-9+/=]\s*){64,}-----END \1-----"
     rb'|(?:AKIA|ASIA)[A-Z0-9]{16}|"type"\s*:\s*"service_account"'
 )
 EXTENSIONS = {
@@ -214,13 +216,11 @@ def check_wheel_path(original, effective):
     for path in (PurePosixPath(original), effective):
         parts = path.parts
         if any(
-            part.lower() in WHEEL_FORBIDDEN
-            or part.lower().startswith(".env")
-            or (
-                ("credential" in part.lower() or "secret" in part.lower())
-                and PurePosixPath(part).suffix not in WHEEL_SOURCE_SUFFIXES
-            )
+            part.lower() in WHEEL_FORBIDDEN or part.lower().startswith(".env")
             for part in parts
+        ) or (
+            ("credential" in path.name.lower() or "secret" in path.name.lower())
+            and path.suffix not in WHEEL_SOURCE_SUFFIXES
         ):
             raise ValueError("sensitive wheel member")
         if (
@@ -238,6 +238,21 @@ def check_wheel_path(original, effective):
             and parts[index + 1] in {"app", "shared", "shared_platform"}
         ):
             raise ValueError("shadow app or legacy wheel member")
+
+
+def wheel_has_credentials(raw, *, python_source=False):
+    candidates = [raw.replace(b"\\r", b"\r").replace(b"\\n", b"\n")]
+    if python_source:
+        # AST constants join adjacent literals without executing untrusted code.
+        for node in ast.walk(ast.parse(raw)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)):
+                value = node.value
+                candidates.append(
+                    value.encode("utf-8", errors="surrogatepass")
+                    if isinstance(value, str)
+                    else value
+                )
+    return any(WHEEL_SECRET.search(value) for value in candidates)
 
 
 def validate(root, data):
@@ -315,8 +330,7 @@ def validate(root, data):
                 raw = archive.read(member)
                 if path.suffix == ".py":
                     check_python(raw)
-                decoded_newlines = raw.replace(b"\\r", b"\r").replace(b"\\n", b"\n")
-                if WHEEL_SECRET.search(decoded_newlines):
+                if wheel_has_credentials(raw, python_source=path.suffix == ".py"):
                     raise ValueError("credential material in wheel")
     return {
         "status": "offline context valid; build approval still required",

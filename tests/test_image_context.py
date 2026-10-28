@@ -296,3 +296,45 @@ def test_wheel_key_material_is_rejected_even_inside_python(context, source_liter
     replace_wheel(context, member, raw)
     with pytest.raises(ValueError, match="credential material"):
         validate(*context)
+
+
+def test_public_certificate_bundle_in_dependency_namespace_is_allowed(context):
+    replace_wheel(
+        context,
+        "grpc/_cython/_credentials/roots.pem",
+        b"-----BEGIN CERTIFICATE-----\n" + b"A" * 96 + b"\n-----END CERTIFICATE-----",
+    )
+    assert validate(*context)["files"] == 5
+
+
+@pytest.mark.parametrize("form", ["adjacent_literals", "encrypted_pem"])
+def test_wheel_pem_body_cannot_hide_behind_literal_or_encryption_headers(context, form):
+    header = b"-----BEGIN " + b"RSA PRIVATE KEY-----\n"
+    footer = b"\n-----END " + b"RSA PRIVATE KEY-----"
+    if form == "adjacent_literals":
+        raw = (
+            b"KEY = ("
+            + repr(header).encode()
+            + b"\n"
+            + repr(b"A" * 96).encode()
+            + b"\n"
+            + repr(footer).encode()
+            + b")"
+        )
+        member = "provider/key.py"
+    else:
+        raw = (
+            header
+            + b"Proc-Type: 4,ENCRYPTED\nDEK-Info: AES-256-CBC,00000000000000000000000000000000\n\n"
+            + b"A" * 96
+            + footer
+        )
+        member = "provider/key.pem"
+    replace_wheel(context, member, raw)
+    with pytest.raises(ValueError, match="credential material"):
+        validate(*context)
+
+
+def test_noncredential_unicode_constant_in_wheel_is_allowed(context):
+    replace_wheel(context, "provider/unicode_helpers.py", b'LOW_SURROGATE = "\\udc80"')
+    assert validate(*context)["files"] == 5
