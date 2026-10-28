@@ -261,3 +261,38 @@ def test_legacy_import_scan_applies_after_every_wheel_relocation(context, scheme
     )
     with pytest.raises(ValueError):
         validate(*context)
+
+
+@pytest.mark.parametrize(
+    "member",
+    [
+        "openai/types/shared/__init__.py",
+        "openai/resources/realtime/client_secrets.py",
+        "google/auth/credentials.py",
+    ],
+)
+def test_dependency_code_names_are_not_private_artifacts(context, member):
+    replace_wheel(context, member, b"VALUE = None")
+    assert validate(*context)["files"] == 5
+
+
+def test_wheel_pem_marker_constant_is_not_key_material(context):
+    raw = b'HEADER = "-----BEGIN ' + b'RSA PRIVATE KEY-----"\n'
+    replace_wheel(context, "google/auth/crypt/_python_rsa.py", raw)
+    assert validate(*context)["files"] == 5
+
+
+@pytest.mark.parametrize("source_literal", [False, True])
+def test_wheel_key_material_is_rejected_even_inside_python(context, source_literal):
+    pem = (
+        b"-----BEGIN "
+        + b"PRIVATE KEY-----\n"
+        + b"A" * 96
+        + b"\n-----END "
+        + b"PRIVATE KEY-----"
+    )
+    member = "provider/key.py" if source_literal else "provider/key.pem"
+    raw = b"KEY = " + repr(pem).encode() if source_literal else pem
+    replace_wheel(context, member, raw)
+    with pytest.raises(ValueError, match="credential material"):
+        validate(*context)

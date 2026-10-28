@@ -1,6 +1,6 @@
-import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261027-comparison-similar-rates-v2";
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261027-comparison-similar-rates-v2";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261027-comparison-similar-rates-v2";
+import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261027-comparison-similar-rates-v3";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261027-comparison-similar-rates-v3";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261027-comparison-similar-rates-v3";
 
 const esc = (v) =>
   String(v ?? "")
@@ -80,7 +80,9 @@ export function comparisonPresentation(payload) {
     !m || !finite(m.delta)
       ? ""
       : deltaLead(m) === null
-        ? `${RATE_LABEL[m.key] || m.label} rates are similar`
+        ? comparisonStatus(m) === "Similar rates"
+          ? `${RATE_LABEL[m.key] || m.label} rates are similar`
+          : ""
         : `${surnames[deltaLead(m)]} averages ${num(Math.abs(m.delta))} more ${m.label.toLowerCase()}`;
   const pair = (m, lead) => {
     const [a, b] = lead === 0 ? [m.left, m.right] : [m.right, m.left];
@@ -132,8 +134,11 @@ export function comparisonPresentation(payload) {
     },
   ];
 
+  const summaryEdges = [edge(byKey.pts), edge(byKey.reb)].filter(Boolean);
   const verdict = {
-    text: [edge(byKey.pts), edge(byKey.reb)].filter(Boolean).join("; ") + ".",
+    text: summaryEdges.length
+      ? summaryEdges.join("; ") + "."
+      : "Complete points and rebounds data are unavailable.",
     note: "Recorded rates describe this sample and do not establish an overall winner or defensive ability.",
   };
 

@@ -42,7 +42,12 @@ editable requirements. Every supported wheel `.data` scheme (purelib, platlib,
 scripts, data and headers) is normalized to its effective install destination
 before sensitive-path and app-shadow checks; unknown schemes and colliding
 effective destinations are refused. Python import checks also inspect relocated
-code. The recipe installs only local hashed wheels with no
+code. Dependency namespaces such as `openai.types.shared` and Python modules
+named `credentials`/`client_secrets` are permitted; top-level app/bridge shadows,
+sensitive artifact paths and credential-shaped content are still refused. Wheel
+PEM checks distinguish delimiter constants from a key body, including bodies in
+Python literals. These targeted checks do not establish absence of every secret.
+The recipe installs only local hashed wheels with no
 index/cache/compilation and runs as UID/GID 65532. The optional compatibility
 loader can remain to return unavailable; `app/agent/planner.py` and `router.py`
 are excluded. This does not retire public legacy source or change normal runtime.

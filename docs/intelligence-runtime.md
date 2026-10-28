@@ -85,12 +85,14 @@ permit to reject raw SDK calls, retries and redirects. Observers are not themsel
 physical request; the offline tests also inspect actual SDK HTTP serialization.
 
 The profile skips startup prewarm, keeps credential readiness checks, refuses
-history/traces and alternate sources, and permits only the Ask shell, static assets
+history/traces, external position-context files and alternate sources, and permits only the Ask shell, static assets
 and JSON/SSE Ask endpoints. Unknown/background routes are rejected before their
 FastAPI dependencies. Its source policy is installed before lifespan and applies
 to identity and data reads. The production repository dependency requires a
 source policy whenever a runtime profile is installed. Model-only fixture
-compositions may omit a source policy with trusted dependency overrides. The
+compositions may omit a source policy with trusted dependency overrides. A data
+request without the required source policy is refused and its admission stays
+spent; configure the source policy before admitting data questions. The
 visible default season remains unchanged; explicit
 question and evidence scopes determine historical analysis. Disconnect/cancellation
 closes the admission to further attempts while an already dispatched request may

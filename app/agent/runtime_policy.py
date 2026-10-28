@@ -61,6 +61,7 @@ class RuntimePolicy:
             or settings.agent_trace_enabled
             or settings.ask_local_espn_dev
             or settings.ask_serving_mode != "off"
+            or settings.agent_position_context_path is not None
         ):
             raise ValueError("Runtime policy forbids optional persistence and sources")
 

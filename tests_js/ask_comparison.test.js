@@ -147,6 +147,7 @@ test("missing components withhold edges, meters and leans instead of becoming ze
   data.player_profiles[0].minutes_per_game = null;
   const view = comparisonPresentation(data);
   assert.ok(view.areas.every((a) => !("lean" in a)));
+  assert.equal(view.verdict.text, "Complete points and rebounds data are unavailable.");
   const table = comparisonTables(view);
   assert.match(table, /<span class="h2h-num">26\.0<small>Partial: 5\/6 games<\/small><\/span>/);
   assert.doesNotMatch(table, /h2h-edge|is-leader/);
@@ -235,4 +236,14 @@ test("additional comparisons render server differences, units and partial sample
   html=comparisonTables(comparisonPresentation(payload));
   assert.match(html,/partial inputs/);
   assert.match(html,/Comparison withheld/);
+});
+
+
+test("incomplete components never become a similar-rate verdict with a finite delta", () => {
+  const data = fixture();
+  for (const m of data.semantic_evidence.metrics) {
+    m.left.missing_component_games = 1;
+  }
+  const view = comparisonPresentation(data);
+  assert.equal(view.verdict.text, "Complete points and rebounds data are unavailable.");
 });

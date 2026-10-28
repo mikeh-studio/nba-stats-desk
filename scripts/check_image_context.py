@@ -32,9 +32,25 @@ FORBIDDEN = {
     "node_modules",
     "legacy",
 }
+# Package namespaces such as openai.types.shared are not repository artifacts.
+# Shadow app/bridge packages are checked at their effective import root below.
+WHEEL_FORBIDDEN = FORBIDDEN - {
+    "shared",
+    "shared_platform",
+    "legacy",
+    "reports",
+    "exports",
+}
+WHEEL_SOURCE_SUFFIXES = {".py", ".pyi"}
 LEGACY = {"planner.py", "router.py"}
 SECRET = re.compile(
     rb"-----BEGIN [A-Z ]*PRIVATE KEY-----|(?:AKIA|ASIA)[A-Z0-9]{16}|\"type\"\s*:\s*\"service_account\""
+)
+# SDKs contain PEM delimiter constants. Require a body, but still inspect code
+# literals (including escaped newlines); never exempt Python from content checks.
+WHEEL_SECRET = re.compile(
+    rb"-----BEGIN ([A-Z ]*PRIVATE KEY)-----\s*(?:[A-Za-z0-9+/=]\s*){64,}-----END \1-----"
+    rb'|(?:AKIA|ASIA)[A-Z0-9]{16}|"type"\s*:\s*"service_account"'
 )
 EXTENSIONS = {
     ".py",
@@ -198,10 +214,12 @@ def check_wheel_path(original, effective):
     for path in (PurePosixPath(original), effective):
         parts = path.parts
         if any(
-            part.lower() in FORBIDDEN
+            part.lower() in WHEEL_FORBIDDEN
             or part.lower().startswith(".env")
-            or "credential" in part.lower()
-            or "secret" in part.lower()
+            or (
+                ("credential" in part.lower() or "secret" in part.lower())
+                and PurePosixPath(part).suffix not in WHEEL_SOURCE_SUFFIXES
+            )
             for part in parts
         ):
             raise ValueError("sensitive wheel member")
@@ -252,7 +270,8 @@ def validate(root, data):
             raise ValueError("undeclared or changed context bytes")
         if file.suffix == ".py":
             check_python(file.read_bytes())
-        if SECRET.search(file.read_bytes()):
+        # Archives are inspected member-by-member below, not as opaque bytes.
+        if file.suffix != ".whl" and SECRET.search(file.read_bytes()):
             raise ValueError("credential material in context")
     if actual != set(expected):
         raise ValueError("context input missing")
@@ -296,7 +315,8 @@ def validate(root, data):
                 raw = archive.read(member)
                 if path.suffix == ".py":
                     check_python(raw)
-                if SECRET.search(raw):
+                decoded_newlines = raw.replace(b"\\r", b"\r").replace(b"\\n", b"\n")
+                if WHEEL_SECRET.search(decoded_newlines):
                     raise ValueError("credential material in wheel")
     return {
         "status": "offline context valid; build approval still required",

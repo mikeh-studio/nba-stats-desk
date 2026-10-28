@@ -410,3 +410,19 @@ def test_runtime_never_reads_or_restores_previous_conversation(installed, monkey
     )
     assert result.status_code == 200 and result.json()["status"] == "ok"
     assert len(sent) == authority.attempts == 1
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_position_context_is_refused_before_durable_admission(installed, streaming):
+    client, authority, sent, _, main = installed
+    config = main.app.dependency_overrides[main.get_settings]()
+    main.app.dependency_overrides[main.get_settings] = lambda: replace(
+        config, agent_position_context_path="synthetic-position-context.csv"
+    )
+    result = client.post(
+        "/api/agent/ask" + ("/stream" if streaming else ""),
+        json={"question": QUESTION},
+    )
+    assert result.status_code == 403
+    assert authority.events == []
+    assert sent == []
