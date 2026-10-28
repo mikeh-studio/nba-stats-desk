@@ -1,3 +1,4 @@
+import {comparisonLead, comparisonStatus} from "../app/static/comparison_policy.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -66,21 +67,55 @@ test("comparison keeps names and scope while hiding unavailable winning metrics"
   assert.equal(view.insights.length, 3);
 });
 
-test("areas lean by percentile gaps and minutes, with the documented even band", () => {
+test("summary describes recorded measures without aggregate winner meters", () => {
   const view = comparisonPresentation(fixture());
-  const [offense, defense, availability] = view.areas;
-  assert.deepEqual(view.areas.map((a) => a.title), ["Offense", "Defense", "Availability"]);
-  // Offense: (92-95 + 93-89) / 2 = 0.5 percentile points, inside the even band.
-  assert.equal(offense.lean.value, 0);
-  // Defense: (2 - 51 - 33) / 3 ≈ -27.3, strongly favoring the second player.
-  assert.ok(defense.lean.value > 0.8);
-  assert.match(defense.lean.label, /Favors Maxey, strongly/);
-  // Availability: 30 of 210 minutes ≈ 14%, a partial lean to the second player.
-  assert.ok(availability.lean.value > 0 && availability.lean.value < 1);
-  assert.match(view.verdict.text, /Maxey leads defense and availability; offense is even/);
+  assert.deepEqual(view.areas.map((a) => a.title), ["Scoring & assists", "Rebounds, steals & blocks", "Playing time"]);
   const answer = comparisonAnswer(view);
-  assert.match(answer, /role="img" aria-label="Favors Maxey, strongly"/);
-  assert.match(answer, /overall winner/);
+  assert.match(answer, /Comparison summary/);
+  assert.match(answer, /Small gaps and rounded ties/);
+  assert.match(answer, /do not establish an overall winner or defensive ability/);
+  assert.doesNotMatch(answer, /lean-meter|Favors |leads defense|>Verdict</);
+  assert.ok(view.areas.every((a) => !("lean" in a)));
+});
+
+test("rounded ties and negligible rates stay neutral while exact data remain inspectable", () => {
+  const data = fixture();
+  data.semantic_evidence.metrics[3] = metric("stl", "Steals", stat(1.401, 93), stat(1.419, 94));
+  data.semantic_evidence.metrics[4] = metric("blk", "Blocks", stat(0.779, 86), stat(0.827, 87));
+  const before = JSON.stringify(data);
+  const view = comparisonPresentation(data), table = comparisonTables(view);
+  assert.match(view.areas[1].text, /Steal rates are similar; Block rates are similar/);
+  const rows = [...table.matchAll(/<tr>(.*?)<\/tr>/g)].map((m) => m[1]);
+  for (const label of ["STL", "BLK"]) {
+    const row = rows.find((r) => r.includes(`h2h-label">${label}`));
+    assert.match(row, /Similar rates/);
+    assert.doesNotMatch(row, /is-leader|is-trailing|h2h-edge/);
+  }
+  assert.doesNotMatch(table, /\+0\.0|\+0\.1/);
+  assert.match(table, /More precision &amp; comparison rules/);
+  assert.match(table, /1\.401/);
+  assert.match(table, /1\.419/);
+  assert.match(table, /0\.018/);
+  assert.match(table, /not a test of statistical significance/);
+  assert.equal(JSON.stringify(data), before);
+  const claims = claimSchema(view.claimEvidence, "comparison");
+  assert.ok(!claims.some((r) => r.format === "comparison-margin" && ["stl", "blk"].includes(r.context.metricKey)));
+  assert.equal(claims.filter((r) => r.format === "comparison-precision").length, 10);
+  assert.equal(claims.filter((r) => r.format === "comparison-precision-gap").length, 5);
+});
+
+test("similarity boundaries cover displayed ties, absolute gaps, relative gaps and incomplete samples", () => {
+  const m = (a,b) => metric("pts", "Points", stat(a,50), stat(b,51));
+  assert.equal(comparisonLead(m(0.2,0.3)), null);
+  assert.equal(comparisonLead(m(0.2,0.301)), 1);
+  assert.equal(comparisonLead(m(10,10.5)), null);
+  assert.equal(comparisonLead(m(10,10.6)), 1);
+  assert.equal(comparisonLead(m(0.051,0.149)), null); // same visible 0.1
+  assert.equal(comparisonLead(m(0,0)), null);
+  assert.equal(comparisonStatus(m(0,0)), "Similar rates");
+  const missing=m(1,3); missing.left.missing_component_games=1;
+  assert.equal(comparisonLead(missing), null);
+  assert.equal(comparisonStatus(missing), "Incomplete data");
 });
 
 test("per-minute and efficiency text comes only from the server detail sections", () => {
@@ -98,8 +133,8 @@ test("per-minute and efficiency text comes only from the server detail sections"
 
 test("one player leading points and assists is named once", () => {
   const data = fixture();
-  data.semantic_evidence.metrics[0] = metric("pts", "Points", stat(28.5, 99), stat(27.6, 95));
-  assert.match(comparisonPresentation(data).areas[0].text, /^Brunson averages 0\.9 more points and 0\.7 more assists\./);
+  data.semantic_evidence.metrics[0] = metric("pts", "Points", stat(30.5, 99), stat(27.6, 95));
+  assert.match(comparisonPresentation(data).areas[0].text, /^Brunson averages 2\.9 more points and 0\.7 more assists\./);
 });
 
 test("missing components withhold edges, meters and leans instead of becoming zero", () => {
@@ -111,9 +146,8 @@ test("missing components withhold edges, meters and leans instead of becoming ze
   data.player_profiles[0].minutes = null;
   data.player_profiles[0].minutes_per_game = null;
   const view = comparisonPresentation(data);
-  assert.equal(view.areas[0].lean.value, null);
-  assert.equal(view.areas[1].lean.value, null);
-  assert.equal(view.areas[2].lean.value, 0); // equal games played
+  assert.ok(view.areas.every((a) => !("lean" in a)));
+  assert.equal(view.verdict.text, "Complete points and rebounds data are unavailable.");
   const table = comparisonTables(view);
   assert.match(table, /<span class="h2h-num">26\.0<small>Partial: 5\/6 games<\/small><\/span>/);
   assert.doesNotMatch(table, /h2h-edge|is-leader/);
@@ -125,10 +159,10 @@ test("head-to-head markup carries the exact text each claim expects", () => {
   const table = comparisonTables(view);
   const schema = claimSchema(view.claimEvidence, "comparison");
   const edges = schema.filter((r) => r.format === "comparison-margin");
-  // Every non-zero delta has exactly one margin destination, shown on the leader.
-  assert.equal(edges.length, 5);
+  // Only gaps outside the similarity band have a visible bound margin.
+  assert.equal(edges.length, 4);
   assert.equal(expectedClaim(view.claimEvidence, edges[0]), "+1.4");
-  assert.equal((table.match(/class="h2h-edge"/g) || []).length, 5);
+  assert.equal((table.match(/class="h2h-edge"/g) || []).length, 4);
   assert.match(table, /<td class="h2h-value h2h-value-b is-leader"><span class="h2h-num">27\.4<\/span><small class="h2h-edge">\+1\.4<\/small>/);
   for (const r of schema.filter((d) => d.format === "comparison-value"))
     assert.ok(table.includes(`<span class="h2h-num">${expectedClaim(view.claimEvidence, r)}</span>`));
@@ -202,4 +236,14 @@ test("additional comparisons render server differences, units and partial sample
   html=comparisonTables(comparisonPresentation(payload));
   assert.match(html,/partial inputs/);
   assert.match(html,/Comparison withheld/);
+});
+
+
+test("incomplete components never become a similar-rate verdict with a finite delta", () => {
+  const data = fixture();
+  for (const m of data.semantic_evidence.metrics) {
+    m.left.missing_component_games = 1;
+  }
+  const view = comparisonPresentation(data);
+  assert.equal(view.verdict.text, "Complete points and rebounds data are unavailable.");
 });

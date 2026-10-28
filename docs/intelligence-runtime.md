@@ -55,3 +55,52 @@ default. Provider startup accepts any configured provider key/model pair. Reques
 selected provider and fail with sanitized `provider_unavailable` if it lacks
 credentials/model. The factory cache is independent of readiness. Version 2
 entry points reject incompatible version 1 installations at discovery.
+
+## Trusted session profiles
+
+A Python composition root may install `RuntimePolicy` with
+`configure_runtime_policy(policy)` **before application lifespan**. With no policy,
+reference and normal configured runtime behavior are unchanged. HTTP cannot install
+or replace a policy. The consumer supplies an immutable model choice, positive call
+and output-token ceilings, a source policy and a durable `BudgetAuthority`:
+
+- `admit(question=..., streaming=..., provider=..., model=...)` returns an opaque
+  fixed-case admission. A failed admitted request remains consumed.
+- `reserve_attempt(admission, model=..., max_output_tokens=...)` durably reserves
+  each physical attempt before send, including attempts that fail. It must enforce
+  the session-wide ceiling across threads, processes, restarts and admissions.
+- `finish(admission, outcome=...)` records `success`, `error`, `cancelled` or
+  `admission_error`. Pending or failed journal writes must fail closed.
+
+The host retains one admission through the shared JSON/SSE worker path and copied
+contexts. SDK clones retain that authority. The initial profile supports only the
+OpenAI Responses SDK at its fixed API endpoint, schema-only planning, `tools=[]`
+and `store=False`. Planning and serialized output limits are clamped to the trusted
+ceiling; both application and SDK retries are disabled. Unsupported providers,
+client adapters, schema operations, endpoints and missing admissions fail before
+transport. `on_wire_attempt` is an optional bounded-metadata observer immediately
+at the SDK HTTP request hook, after reservation. The hook also checks the actual
+serialized endpoint, model, token cap, storage and tools, and uses a single-use
+permit to reject raw SDK calls, retries and redirects. Observers are not themselves proof of a
+physical request; the offline tests also inspect actual SDK HTTP serialization.
+
+The profile skips startup prewarm, keeps credential readiness checks, refuses
+history/traces, external position-context files and alternate sources, and permits only the Ask shell, static assets
+and JSON/SSE Ask endpoints. Unknown/background routes are rejected before their
+FastAPI dependencies. Its source policy is installed before lifespan and applies
+to identity and data reads. The production repository dependency requires a
+source policy whenever a runtime profile is installed. Model-only fixture
+compositions may omit a source policy with trusted dependency overrides. A data
+request without the required source policy is refused and its admission stays
+spent; configure the source policy before admitting data questions. The
+visible default season remains unchanged; explicit
+question and evidence scopes determine historical analysis. Disconnect/cancellation
+closes the admission to further attempts while an already dispatched request may
+still finish and remains charged.
+
+These controls govern trusted installed Python components through the host
+transport. They are not a sandbox for arbitrary Python code or an external network
+spending ceiling. A durable authority must implement its own exclusive session
+creation, crash/restart rules and admission validation. Tests use synthetic data
+and fake HTTP transports; zero-call deterministic answers establish bypass
+behavior, not live-model or source readiness.

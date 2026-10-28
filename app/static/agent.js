@@ -1,6 +1,6 @@
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261024-compact-results-v2";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261024-compact-results-v2";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261024-compact-results-v2";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261027-comparison-similar-rates-v3";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261027-comparison-similar-rates-v3";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261027-comparison-similar-rates-v3";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -8,13 +8,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261024-compact-results-v2";
+} from "./ask_comparison.js?v=20261027-comparison-similar-rates-v3";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261024-compact-results-v2";
+} from "./ask_sessions.js?v=20261027-comparison-similar-rates-v3";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -22,8 +22,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261024-compact-results-v2";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261024-compact-results-v2";
+} from "./ask_presentation.js?v=20261027-comparison-similar-rates-v3";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261027-comparison-similar-rates-v3";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")

@@ -159,20 +159,25 @@ A future verified impact metric is displayed only when both players have numeric
 values in the matching scope. This change does not connect locally scraped data
 or substitute raw plus/minus for net rating.
 
-The comparison result opens with compact player cards and a verdict, then three
-summary areas: **Offense** (points and assists, with per-36 and true-shooting
-rows from the detail sections), **Defense** (box-score rebounds, steals and
-blocks only) and **Availability** (games and minutes, which measure playing time,
-not health). Each area has a lean meter. Offense and Defense average the
-percentile gaps of complete metrics (under 5 points is even; 30 points fills the
-meter); Availability compares total minutes, or games when minutes are
-incomplete (under 5% is even; 25% fills it). Up to three takeaway cards name the
-favored player and cite their numbers. This browser text is derived from the
-comparison evidence, like the earlier category takeaways; the verdict states that
-box-score differences do not establish an overall winner. A per-game
-head-to-head table replaces the per-stat bar chart: bar length is each player's
-league percentile, the leader is bold with the unrounded-average margin, and its
-values, percentiles and margins carry claim bindings.
+The comparison opens with compact player cards and a descriptive summary, then
+**Scoring & assists**, **Rebounds, steals & blocks**, and **Playing time**.
+It does not combine percentile differences into offense/defense winner meters.
+Rebounds, steals and blocks describe recorded activity, not overall defensive ability.
+
+Core rate rows use a shared presentation policy: no higher-player emphasis or
+margin when either side is incomplete, when the one-decimal values match, or when
+the absolute gap is at most the larger of 0.1 per game and 5% of the larger rate.
+Complete close rows say **Similar rates**, including exact ties. These thresholds
+are a display policy, not a significance test or a declaration of equal ability.
+Canonical values, differences, percentiles and arithmetic remain unchanged.
+Larger gaps are described as higher recorded rates, never proof one player is better.
+
+The head-to-head retains qualified-cohort percentile bars without using their
+gaps as an aggregate verdict. A visible explanation precedes the summary areas;
+**More precision & comparison rules** exposes the policy and three-decimal
+values/absolute gaps. Main values, percentiles, displayed larger margins and
+precision-table values retain source claim bindings. Hidden small margins have
+no expected margin destination. Missing components remain unavailable.
 
 The comparison includes three additional sections, collapsed under the
 head-to-head table, using the same scoped appearances as the core scorecard: shooting efficiency (FG%, 3P%, FT%, eFG%, TS%),
@@ -859,6 +864,15 @@ JSON/SSE response send closes, including when a disconnected client stops
 waiting. This keeps unsent complete terminal payloads within the active-request
 count. A stalled response-body send can hold a slot beyond the computational
 deadline: no additional transport timeout is assumed or introduced here.
+
+The final JSON result or SSE terminal event is published only after normal
+telemetry finishes and worker ownership is marked complete. Slow telemetry can
+delay the terminal result; it does not leave a logging-only conversation lease
+after that result is delivered. Logging sink errors remain best-effort and do not
+replace the authored response. Response sending still owns its share of the lease
+until it closes or detaches, so a blocked send or unfinished worker continues to
+count toward admission. Separate bounded private trace persistence may still
+outlive admission. No automatic follow-up retry or new timeout is introduced.
 
 SSE stores serialized interim frames in a nonblocking mailbox, bounded by
 `AGENT_STREAM_BUFFER_BYTES` (**1,650 bytes**) and

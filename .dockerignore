@@ -1,0 +1,9 @@
+**
+!Dockerfile
+!image-context.json
+!host/
+!host/**
+!wheels/
+!wheels/*.whl
+!locks/
+!locks/runtime.lock

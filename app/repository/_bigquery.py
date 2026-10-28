@@ -24,6 +24,12 @@ from app.agent.execution import (
     warehouse_budget,
     warehouse_bytes_billed,
 )
+from app.agent.source_policy import (
+    SourcePolicy,
+    denied,
+    get_source_policy,
+    identity_sql,
+)
 from app.config import Settings
 from app.repository._constants import (
     COMPARE_FOCUS_CONFIG,
@@ -121,6 +127,7 @@ def _submit_player_query(fn, *args, **kwargs):
 class BigQueryWarehouseRepository:
     settings: Settings
     client: bigquery.Client | None = None
+    source_policy: SourcePolicy | None = None
     _recent_performance_rows_cache: tuple[float, list[dict[str, Any]]] | None = field(
         default=None,
         init=False,
@@ -222,6 +229,8 @@ class BigQueryWarehouseRepository:
     def _query(
         self, sql: str, params: list[bigquery.ScalarQueryParameter] | None = None
     ) -> list[dict[str, Any]]:
+        if get_source_policy(self.source_policy) is not None:
+            denied("Ordinary repository SQL is disabled by the source policy")
         job_config = (
             bigquery.QueryJobConfig(query_parameters=params or []) if params else None
         )
@@ -308,6 +317,12 @@ class BigQueryWarehouseRepository:
         return f"`{self._recent_performance_table_id()}`"
 
     def _fetch_recent_performance_table_rows_api(self) -> list[dict[str, Any]] | None:
+        # Tabledata/metadata APIs bypass _query, and their cache predates policy
+        # installation. Authorize before inspecting either cached or remote rows.
+        if get_source_policy(self.source_policy) is not None:
+            denied(
+                "Repository tabledata and metadata reads are disabled by the source policy"
+            )
         now = time.monotonic()
         with self._recent_performance_rows_lock:
             cached = self._recent_performance_rows_cache
@@ -582,6 +597,139 @@ class BigQueryWarehouseRepository:
         """
         return [self._decorate_dashboard_row(row) for row in self._query(sql, params)]
 
+    @serialized_warehouse_read
+    def _scoped_identity_rows(
+        self, player_ids: list[int], *, season: str | None = None
+    ) -> list[dict[str, Any]]:
+        """A fixed, ID-bounded query; never enters legacy lookup fallbacks."""
+        from app.agent.semantics import SemanticError
+
+        policy = get_source_policy(self.source_policy)
+        if policy is None:
+            denied("Scoped identity requires a trusted source policy")
+        # Identity follows the explicit trusted scope, independently of the UI shell.
+        if season is None:
+            season = (
+                policy.relations[0][0]
+                if len(policy.relations) == 1
+                else self.settings.season
+            )
+        policy.check_scope([season], policy.phases)
+        if (
+            not player_ids
+            or any(type(pid) is not int for pid in player_ids)
+            or not set(player_ids) <= policy.allowed_player_ids
+        ):
+            denied("Identity is outside the approved source scope")
+        sql = identity_sql(policy.relation(season))
+        params = [
+            bigquery.ScalarQueryParameter(
+                "snapshot_at", "TIMESTAMP", policy.snapshot_at
+            ),
+            bigquery.ScalarQueryParameter("season", "STRING", season),
+            bigquery.ArrayQueryParameter("player_ids", "INT64", sorted(player_ids)),
+            bigquery.ScalarQueryParameter(
+                "row_limit", "INT64", policy.identity_max_rows + 1
+            ),
+            bigquery.ArrayQueryParameter("phases", "STRING", list(policy.phases)),
+        ]
+        config = bigquery.QueryJobConfig(
+            query_parameters=params,
+            maximum_bytes_billed=warehouse_budget(policy.maximum_bytes_billed),
+            use_legacy_sql=False,
+            use_query_cache=False,
+        )
+        policy.authorize(
+            sql=sql,
+            config=config,
+            seasons=[season],
+            phases=policy.phases,
+            identity_ids=player_ids,
+        )
+        from app.agent.semantic_serving import SemanticWarehouse
+
+        cached = None
+        warehouse = getattr(self, "_governed_warehouse", None)
+        if (
+            isinstance(warehouse, SemanticWarehouse)
+            and getattr(self, "_governed_source_policy", None) == policy
+        ):
+            cached = warehouse.cached_snapshot([season])
+            if cached is not None and (
+                cached.get("sources") != [policy.relation(season)]
+                or cached.get("source_mode") != policy.source_mode
+                or cached.get("source_timestamp") != policy.snapshot_at
+            ):
+                denied("Cached identity source differs from approved scope")
+        assert self.client is not None
+        job = None
+        rows: list[dict[str, Any]] | None = None
+        failure = None
+        try:
+            if cached is None:
+                job = self.client.query(
+                    sql,
+                    job_config=config,
+                    timeout=bounded_timeout(policy.submission_timeout),
+                )
+                rows = []
+                for row in job.result(timeout=bounded_timeout(policy.result_timeout)):
+                    if len(rows) >= policy.identity_max_rows:
+                        raise SemanticError(
+                            "incomplete_evidence", "Scoped identity query was truncated"
+                        )
+                    rows.append(dict(row))
+            else:
+                rows = [r for r in cached["rows"] if r["player_id"] in player_ids]
+            players: dict[int, dict[str, Any]] = {}
+            for row in rows:
+                pid = row.get("player_id")
+                name = row.get("player_name")
+                if (
+                    type(pid) is not int
+                    or pid not in player_ids
+                    or row.get("season") != season
+                    or row.get("season_type") not in policy.phases
+                    or not isinstance(name, str)
+                    or not name.strip()
+                ):
+                    raise SemanticError(
+                        "invalid_evidence", "Identity row differs from approved scope"
+                    )
+                previous = players.get(pid)
+                if previous and previous["player_name"] != name:
+                    raise SemanticError(
+                        "ambiguous_identity",
+                        "Conflicting names for an approved identity",
+                    )
+                if previous is None:
+                    players[pid] = {
+                        "player_id": pid,
+                        "player_name": name,
+                        "latest_season": season,
+                        "team_abbr": row.get("team_abbr"),
+                        "latest_team_abbr": row.get("team_abbr"),
+                    }
+                elif previous["team_abbr"] != row.get("team_abbr"):
+                    # Multiple observed teams do not establish a latest team.
+                    previous["team_abbr"] = previous["latest_team_abbr"] = None
+            return list(players.values())
+        except Exception as exc:
+            failure = exc
+            raise
+        finally:
+            record_data_read(
+                kind="evidence_cache" if cached is not None else "warehouse",
+                status="error" if failure else "ok",
+                rows=len(rows) if rows is not None else None,
+                budget_ceiling=config.maximum_bytes_billed,
+                bytes_processed=getattr(job, "total_bytes_processed", None),
+                bytes_billed=warehouse_bytes_billed(job, failure),
+                cache_hit=True
+                if cached is not None
+                else getattr(job, "cache_hit", None),
+            )
+
     def _fetch_player_identity_from_search_table(
         self, table: str, player_id: int
     ) -> list[dict[str, Any]]:
@@ -612,6 +760,9 @@ class BigQueryWarehouseRepository:
         return self._query(sql, params)
 
     def _fetch_player_identity(self, player_id: int) -> dict[str, Any] | None:
+        if get_source_policy(self.source_policy) is not None:
+            rows = self._scoped_identity_rows([player_id])
+            return rows[0] if rows else None
         try:
             rows = self._fetch_player_identity_from_search_table(
                 self._agent_player_search_table(), player_id
@@ -1911,6 +2062,20 @@ class BigQueryWarehouseRepository:
         return self._query(sql, params)
 
     def search_players(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
+        policy = get_source_policy(self.source_policy)
+        if policy is not None:
+            if (
+                not query.strip()
+                or type(limit) is not int
+                or not 1 <= limit <= policy.identity_max_rows
+            ):
+                denied("Broad or unbounded identity search is disabled")
+            rows = self._scoped_identity_rows(sorted(policy.allowed_player_ids))
+            return [
+                row
+                for row in rows
+                if query.strip().casefold() in row["player_name"].casefold()
+            ][:limit]
         try:
             rows = self._search_players_from_search_table(
                 self._agent_player_search_table(), query, limit
@@ -1925,6 +2090,11 @@ class BigQueryWarehouseRepository:
         return [self._decorate_search_player_row(row) for row in rows]
 
     def list_agent_player_candidates(self, limit: int = 1000) -> list[dict[str, Any]]:
+        policy = get_source_policy(self.source_policy)
+        if policy is not None:
+            if type(limit) is not int or limit < len(policy.allowed_player_ids):
+                denied("Identity candidate limit would truncate the approved roster")
+            return self._scoped_identity_rows(sorted(policy.allowed_player_ids))
         try:
             rows = self._list_player_candidates_from_search_table(
                 self._agent_player_search_table(), limit

@@ -18,7 +18,8 @@ from app.agent.execution import (
     warehouse_budget,
     warehouse_bytes_billed,
 )
-from app.agent.semantics import COMPONENTS, PHASES, Evidence, SemanticError
+from app.agent.semantics import PHASES, Evidence, SemanticError
+from app.agent.source_policy import SourcePolicy, capture_sql, denied, get_source_policy
 from app.seasons import dataset_for_season, validate_season
 
 
@@ -70,6 +71,8 @@ class BigQuerySemanticSource:
     means complete warehouse rows, not independently proven NBA source coverage.
     """
 
+    source_mode = "warehouse"
+
     def __init__(
         self,
         client: Any,
@@ -79,6 +82,7 @@ class BigQuerySemanticSource:
         position_context_path: str | None = None,
         max_rows: int = 100_000,
         maximum_bytes_billed: int = 100_000_000,
+        source_policy: SourcePolicy | None = None,
     ):
         if not re.fullmatch(r"[a-z][a-z0-9-]{4,62}", project):
             raise SemanticError("invalid_scope", "Invalid project identifier")
@@ -91,6 +95,7 @@ class BigQuerySemanticSource:
             or not 1 <= maximum_bytes_billed <= 1_000_000_000
         ):
             raise SemanticError("invalid_scope", "Byte budget must be 1..1000000000")
+        self.source_policy = source_policy
         self.position_context_path = position_context_path
         self.client = client
         self.project = project
@@ -98,11 +103,38 @@ class BigQuerySemanticSource:
         self.max_rows = max_rows
         self.byte_budget = maximum_bytes_billed
 
+    @property
+    def cache_identity(self):
+        return (
+            type(self).__name__,
+            self.project,
+            self.dataset,
+            self.source_mode,
+            self.max_rows,
+            self.byte_budget,
+            get_source_policy(self.source_policy),
+        )
+
     def source_for_season(self, season: str) -> str:
         return f"{self.project}.{dataset_for_season(self.dataset, season)}.fct_player_game_stats"
 
-    @serialized_warehouse_read
     def capture(self, seasons: list[str]) -> dict[str, Any]:
+        """Broad all-phase capture; intentionally unchanged for ordinary callers."""
+        if get_source_policy(self.source_policy) is not None:
+            denied("Broad capture requires an explicit scoped source adapter")
+        return self._capture(seasons)
+
+    def capture_scoped(self, seasons: list[str], phases: list[str]) -> dict[str, Any]:
+        if (
+            not phases
+            or len(set(phases)) != len(phases)
+            or any(p not in PHASES for p in phases)
+        ):
+            raise SemanticError("invalid_scope", "Supply distinct canonical phases")
+        return self._capture(seasons, tuple(phases))
+
+    @serialized_warehouse_read
+    def _capture(self, seasons: list[str], phases=None) -> dict[str, Any]:
         from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound
         from google.cloud import bigquery
 
@@ -110,33 +142,24 @@ class BigQuerySemanticSource:
             raise SemanticError("invalid_scope", "Supply distinct explicit seasons")
         for season in seasons:
             validate_season(season)
-        captured_at = datetime.now(timezone.utc).isoformat()
+        policy = get_source_policy(self.source_policy)
+        captured_at = policy.snapshot_at if policy else capture_timestamp()
         sources = [self.source_for_season(s) for s in seasons]
-        columns = ", ".join(
-            [
-                "season",
-                "season_type",
-                "game_id",
-                "player_id",
-                "player_name",
-                "game_date",
-                "team_abbr",
-                "opponent_abbr",
-                "home_away",
-                *sorted(COMPONENTS),
-            ]
-        )
-        selects = [
-            f"SELECT {columns} FROM `{source}` FOR SYSTEM_TIME AS OF @snapshot_at "
-            f"WHERE season = @season_{i}"
-            for i, source in enumerate(sources)
-        ]
-        sql = (
-            "WITH source AS (" + " UNION ALL ".join(selects) + ") "
-            "SELECT *, COUNT(*) OVER() AS source_row_count FROM source "
-            "ORDER BY season, game_date, game_id, player_id LIMIT @row_limit"
-        )
-        params = [
+        if policy:
+            if policy.source_mode != self.source_mode:
+                denied("Source mode differs from the approved policy")
+            policy.check_scope(seasons, phases)
+            if self.position_context_path:
+                denied("Optional position context is outside the scoped source policy")
+            if sources != [policy.relation(s) for s in seasons]:
+                denied("Source relation differs from the approved relation")
+            if (
+                self.max_rows != policy.max_rows
+                or self.byte_budget != policy.maximum_bytes_billed
+            ):
+                denied("Source caps differ from the approved policy")
+        sql = capture_sql(sources, phases)
+        params: list[bigquery.ScalarQueryParameter | bigquery.ArrayQueryParameter] = [
             bigquery.ScalarQueryParameter("snapshot_at", "TIMESTAMP", captured_at),
             bigquery.ScalarQueryParameter("row_limit", "INT64", self.max_rows + 1),
             *[
@@ -144,6 +167,10 @@ class BigQuerySemanticSource:
                 for i, s in enumerate(seasons)
             ],
         ]
+        if phases is not None:
+            params.append(
+                bigquery.ArrayQueryParameter("phases", "STRING", list(phases))
+            )
         config = bigquery.QueryJobConfig(
             query_parameters=params,
             maximum_bytes_billed=warehouse_budget(self.byte_budget),
@@ -151,15 +178,21 @@ class BigQuerySemanticSource:
             use_query_cache=False,
             labels={"purpose": "semantic-evaluation"},
         )
+        if policy:
+            policy.authorize(sql=sql, config=config, seasons=seasons, phases=phases)
         started = datetime.now(timezone.utc)
         job = None
         failure: Exception | None = None
         rows = None
         read_status = "error"
-        submission_timeout = bounded_timeout(30)
+        submission_timeout = bounded_timeout(
+            policy.submission_timeout if policy else 30
+        )
         try:
             job = self.client.query(sql, job_config=config, timeout=submission_timeout)
-            result = job.result(timeout=bounded_timeout(120))
+            result = job.result(
+                timeout=bounded_timeout(policy.result_timeout if policy else 120)
+            )
             rows = [dict(row) for row in result]
             read_status = "ok"
         except Forbidden as exc:
@@ -189,9 +222,22 @@ class BigQuerySemanticSource:
             raise SemanticError("unsupported_coverage", "Empty source snapshot")
         if len(rows) > self.max_rows:
             raise SemanticError("incomplete_evidence", "Oversized source snapshot")
-        if any(row.pop("source_row_count") != len(rows) for row in rows):
+        if any(row.pop("source_row_count", None) != len(rows) for row in rows):
             raise SemanticError("incomplete_evidence", "Source query was truncated")
         for row in rows:
+            if row.get("season") not in seasons or (
+                phases is not None and row.get("season_type") not in phases
+            ):
+                raise SemanticError(
+                    "invalid_evidence", "Source returned rows outside requested scope"
+                )
+            if (
+                not isinstance(row.get("player_name"), str)
+                or not row["player_name"].strip()
+            ):
+                raise SemanticError(
+                    "invalid_evidence", "Source identity name is missing"
+                )
             row["game_date"] = str(row["game_date"])
         coverage = []
         for season in seasons:
@@ -221,6 +267,8 @@ class BigQuerySemanticSource:
             "source_timestamp": captured_at,
             "coverage": coverage,
             "rows": rows,
+            "source_mode": policy.source_mode if policy else "warehouse",
+            "requested_scopes": [[s, p] for s in seasons for p in (phases or PHASES)],
             "capture": {
                 "sql": sql,
                 "query_id": job.job_id,
@@ -230,7 +278,7 @@ class BigQuerySemanticSource:
                 "latency_ms": round(
                     (datetime.now(timezone.utc) - started).total_seconds() * 1000
                 ),
-                "maximum_bytes_billed": self.byte_budget,
+                "maximum_bytes_billed": config.maximum_bytes_billed,
             },
             "limitations": [
                 "Completeness verifies warehouse retrieval, not upstream NBA coverage.",
@@ -250,3 +298,29 @@ class BigQuerySemanticSource:
         snapshot["sha256"] = snapshot_digest(snapshot)
         snapshot_evidence(snapshot)
         return snapshot
+
+
+class ScopedSemanticSource:
+    """Adapt an explicit phase scope to the ordinary warehouse loader protocol."""
+
+    def __init__(self, source: BigQuerySemanticSource, phases):
+        if (
+            not phases
+            or any(p not in PHASES for p in phases)
+            or len(set(phases)) != len(phases)
+        ):
+            raise SemanticError("invalid_scope", "Supply distinct canonical phases")
+        self.source = source
+        self.phases = tuple(phases)
+
+    @property
+    def source_policy(self):
+        return self.source.source_policy
+
+    @property
+    def cache_identity(self):
+        policy = get_source_policy(self.source.source_policy)
+        return ("scoped", self.phases, policy, self.source.cache_identity)
+
+    def capture(self, seasons):
+        return self.source.capture_scoped(seasons, list(self.phases))

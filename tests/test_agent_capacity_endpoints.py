@@ -959,34 +959,78 @@ def test_logging_thread_exhaustion_cannot_mask_safe_capacity_failure(
             held.release()
 
 
-def test_response_may_finish_before_worker_logging_and_release_is_synchronized(
-    controlled, monkeypatch
+@pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])
+@pytest.mark.parametrize("failed_answer", [False, True])
+@pytest.mark.parametrize("failed_sink", [False, True])
+def test_terminal_waits_for_worker_logging_and_immediate_followup_is_admitted(
+    endpoint, failed_answer, failed_sink, controlled, monkeypatch
 ):
     from app.agent.observability import AgentTrace
 
     log_started, finish_log = Event(), Event()
     emit = AgentTrace.emit
+    first = True
 
     def delayed_emit(trace):
-        log_started.set()
-        assert finish_log.wait(5), "test logging gate was not released"
+        nonlocal first
+        if first:
+            first = False
+            log_started.set()
+            assert finish_log.wait(5), "test logging gate was not released"
+            if failed_sink:
+                raise RuntimeError("private logging sink failure")
         emit(trace)
 
     monkeypatch.setattr(AgentTrace, "emit", delayed_emit)
-    controlled["fail"] = True
+    controlled["fail"] = failed_answer
     controlled["gate"].set()
 
     async def scenario():
-        request = ASGIRequest("/api/agent/ask")
-        await asyncio.wait_for(request.run(), 5)
-        assert request.status == 502
-        assert await asyncio.to_thread(log_started.wait, 5)
-        assert controlled["main"].admission._active
-        waiting = asyncio.create_task(wait_workers(controlled))
-        await asyncio.sleep(0)
-        assert not waiting.done()
-        finish_log.set()
-        await asyncio.wait_for(waiting, 5)
+        request = ASGIRequest(endpoint)
+        task = asyncio.create_task(request.run())
+        try:
+            assert await asyncio.to_thread(log_started.wait, 5)
+            # Inspect the mailbox while telemetry is held: this deterministically
+            # catches early terminal publication, regardless of ASGI scheduling.
+            assert not controlled["deliveries"][0]._done
+            assert not controlled["worker_done"][0].is_set()
+            assert not task.done()
+            assert controlled["main"].admission._active
+            assert "event: final" not in request.wire
+            assert "event: error" not in request.wire
+
+            overlap = ASGIRequest(endpoint)
+            await asyncio.wait_for(overlap.run(), 5)
+            assert overlap.status == 409
+            excess = ASGIRequest(endpoint, "other-conversation")
+            await asyncio.wait_for(excess.run(), 5)
+            assert excess.status == 503
+        finally:
+            finish_log.set()
+            await asyncio.wait_for(task, 5)
+
+        assert request.status == (
+            502 if failed_answer and endpoint.endswith("ask") else 200
+        )
+        assert controlled["worker_done"][0].is_set()
+        assert not controlled["main"].admission._active
+        assert "private logging" not in request.wire
+        if endpoint.endswith("stream"):
+            terminal = "error" if failed_answer else "final"
+            assert request.wire.count(f"event: {terminal}") == 1
+        else:
+            assert bool(json.loads(request.wire).get("detail")) == failed_answer
+
+        # No worker wait, sleep, or retry between the returned result and the
+        # next request for the same conversation, including across protocols.
+        controlled["fail"] = False
+        followup_endpoint = (
+            "/api/agent/ask" if endpoint.endswith("stream") else "/api/agent/ask/stream"
+        )
+        followup = ASGIRequest(followup_endpoint)
+        await asyncio.wait_for(followup.run(), 5)
+        assert followup.status == 200
+        assert "successful" in followup.wire
         assert not controlled["main"].admission._active
 
     try:

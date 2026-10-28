@@ -1221,3 +1221,13 @@ html:has(.metric-drawer[open]) { overflow:hidden; scrollbar-gutter:stable; }
     min-width: 520px;
   }
 }
+
+/* Similar recorded rates stay neutral; the rule and precision are inspectable. */
+.h2h-status { display: block; margin-top: .2rem; font: 400 .68rem/1.3 var(--font-body); letter-spacing: normal; color: var(--text); }
+.comparison-precision { margin: .8rem 0; color: var(--text); }
+.comparison-precision summary { cursor: pointer; font-weight: 600; }
+.comparison-precision p { max-width: 75ch; font-size: .85rem; line-height: 1.5; color: var(--muted); }
+.precision-table { width: 100%; border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums; }
+.precision-table caption { text-align: left; color: var(--muted); padding: .5rem 0; }
+.precision-table :is(th, td) { padding: .5rem; border-bottom: 1px solid var(--line); text-align: right; }
+.precision-table th:first-child { text-align: left; }

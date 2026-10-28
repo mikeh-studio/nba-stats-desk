@@ -1,5 +1,6 @@
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261024-compact-results-v2";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261024-compact-results-v2";
+import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261027-comparison-similar-rates-v3";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261027-comparison-similar-rates-v3";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261027-comparison-similar-rates-v3";
 
 const esc = (v) =>
   String(v ?? "")
@@ -10,14 +11,14 @@ const esc = (v) =>
 const finite = (v) => typeof v === "number" && Number.isFinite(v);
 const num = (v, digits = 1) =>
   Number.isFinite(v) ? v.toFixed(digits) : "Unavailable";
-const clamp = (v) => Math.max(-1, Math.min(1, v));
 const usable = (side) => side && finite(side.value) && !side.missing_component_games;
 const ranked = (m) => [m.left, m.right].every((s) => usable(s) && finite(s.percentile));
 const SHORT = { pts: "PTS", reb: "REB", ast: "AST", stl: "STL", blk: "BLK", pts_per36: "PTS/36", ast_per36: "AST/36", ts_pct: "TS%" };
+const RATE_LABEL = {pts: "Scoring", reb: "Rebounding", ast: "Assist", stl: "Steal", blk: "Block"};
 const AREAS = [
-  { key: "offense", title: "Offense", icon: "chart-bar" },
-  { key: "defense", title: "Defense", icon: "shield" },
-  { key: "availability", title: "Availability", icon: "clock" },
+  { key: "offense", title: "Scoring & assists", icon: "chart-bar" },
+  { key: "defense", title: "Rebounds, steals & blocks", icon: "shield" },
+  { key: "availability", title: "Playing time", icon: "clock" },
 ];
 
 // Old saved comparisons retain their payloads; hide their obsolete missing-feed copy.
@@ -31,25 +32,6 @@ export function comparisonAssumptions(payload) {
     : assumptions;
 }
 
-// Lean rule: negative favors the first player. Offense and Defense average the
-// percentile gaps of their complete metrics; a 30-point gap fills the meter and
-// gaps under 5 points read as even. Availability compares total minutes (games
-// when minutes are incomplete); a 25% difference fills it, under 5% is even.
-export const LEAN_RULE = { evenPct: 5, fullPct: 30, evenShare: 0.05, fullShare: 0.25 };
-
-function percentileLean(metrics) {
-  const gaps = metrics.filter(ranked).map((m) => m.left.percentile - m.right.percentile);
-  if (!gaps.length) return null;
-  const gap = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-  return Math.abs(gap) < LEAN_RULE.evenPct ? 0 : -clamp(gap / LEAN_RULE.fullPct);
-}
-
-function shareLean(left, right) {
-  if (!finite(left) || !finite(right) || Math.max(left, right) <= 0) return null;
-  const share = (left - right) / Math.max(left, right);
-  return Math.abs(share) < LEAN_RULE.evenShare ? 0 : -clamp(share / LEAN_RULE.fullShare);
-}
-
 // Initials keep the meter compact; identical initials fall back to surnames.
 function shortNames(names) {
   const suffix = /^(jr\.?|sr\.?|ii|iii|iv)$/i;
@@ -57,12 +39,6 @@ function shortNames(names) {
   const surnames = names.map((n) => parts(n).at(-1) || n);
   const initials = names.map((n) => parts(n).filter((p) => /^[A-Za-z]/.test(p)).map((p) => p[0].toUpperCase()).join(""));
   return { surnames, tags: initials[0] && initials[0] !== initials[1] ? initials : surnames };
-}
-
-function leanLabel(value, surnames) {
-  if (value === null) return "Not enough complete data";
-  if (value === 0) return "Even";
-  return `Favors ${surnames[value < 0 ? 0 : 1]}${Math.abs(value) >= 0.7 ? ", strongly" : ""}`;
 }
 
 export function comparisonPresentation(payload) {
@@ -86,7 +62,7 @@ export function comparisonPresentation(payload) {
   const minutes = profiles.map((p) => p.minutes);
   const leadOf = (left, right) =>
     finite(left) && finite(right) && left !== right ? (left > right ? 0 : 1) : null;
-  const deltaLead = (m) => (m?.delta ? (m.delta > 0 ? 0 : 1) : null);
+  const deltaLead = comparisonLead;
   const cells = (values, lead, format) =>
     values.map((v, i) => ({ text: format(v), strong: lead === i, muted: lead === 1 - i }));
   const metricRow = (m) =>
@@ -103,8 +79,10 @@ export function comparisonPresentation(payload) {
   const edge = (m) =>
     !m || !finite(m.delta)
       ? ""
-      : m.delta === 0
-        ? `${m.label} are tied`
+      : deltaLead(m) === null
+        ? comparisonStatus(m) === "Similar rates"
+          ? `${RATE_LABEL[m.key] || m.label} rates are similar`
+          : ""
         : `${surnames[deltaLead(m)]} averages ${num(Math.abs(m.delta))} more ${m.label.toLowerCase()}`;
   const pair = (m, lead) => {
     const [a, b] = lead === 0 ? [m.left, m.right] : [m.right, m.left];
@@ -112,14 +90,14 @@ export function comparisonPresentation(payload) {
   };
   const widest = (list) =>
     list
-      .filter((m) => ranked(m) && m.delta)
+      .filter((m) => ranked(m) && deltaLead(m) !== null)
       .sort((a, b) => Math.abs(b.left.percentile - b.right.percentile) - Math.abs(a.left.percentile - a.right.percentile))[0];
 
   const pts36 = detail.pts_per36, ts = detail.ts_pct;
   const pointsLead = deltaLead(byKey.pts), assistLead = deltaLead(byKey.ast);
   const per36Lead = pts36 && usable(pts36.left) && usable(pts36.right) ? leadOf(pts36.left.value, pts36.right.value) : null;
   const offense = [
-    pointsLead !== null && pointsLead === assistLead
+    pointsLead !== null && assistLead !== null && pointsLead === assistLead
       ? `${surnames[pointsLead]} averages ${num(Math.abs(byKey.pts.delta))} more points and ${num(Math.abs(byKey.ast.delta))} more assists`
       : [edge(byKey.pts), edge(byKey.ast)].filter(Boolean).join("; ") || "Complete scoring and assist data are unavailable",
     per36Lead !== null
@@ -131,7 +109,8 @@ export function comparisonPresentation(payload) {
   const activityEdge = widest(activity);
   const defense = [
     "Box-score activity only: rebounds, steals and blocks",
-    activityEdge ? `${surnames[deltaLead(activityEdge)]}'s clearest edge is ${activityEdge.label.toLowerCase()}, ${pair(activityEdge, deltaLead(activityEdge))}` : "",
+    activityEdge ? `${surnames[deltaLead(activityEdge)]} has a higher recorded ${(RATE_LABEL[activityEdge.key] || activityEdge.label).toLowerCase()} rate, ${pair(activityEdge, deltaLead(activityEdge))}` : "",
+    activity.filter((m) => comparisonStatus(m) === "Similar rates").map((m) => `${RATE_LABEL[m.key] || m.label} rates are similar`).join("; "),
     "These counts do not measure overall defensive impact",
   ];
   const absent = names.filter((_, i) => games[i] === 0);
@@ -141,11 +120,6 @@ export function comparisonPresentation(payload) {
     "Minutes and run length affect totals; appearances are not a measure of health",
   ];
   const sentences = (parts) => parts.filter(Boolean).map((p) => `${p}.`).join(" ");
-  const leans = [
-    percentileLean(["pts", "ast"].map((k) => byKey[k]).filter(Boolean)),
-    percentileLean(activity),
-    shareLean(minutes[0], minutes[1]) ?? shareLean(games[0], games[1]),
-  ];
   const areas = [
     { ...AREAS[0], text: sentences(offense), rows: [metricRow(byKey.pts), metricRow(byKey.ast), detailRow(pts36), detailRow(detail.ast_per36), detailRow(ts)].filter(Boolean) },
     { ...AREAS[1], text: sentences(defense), rows: activity.map(metricRow) },
@@ -158,21 +132,14 @@ export function comparisonPresentation(payload) {
         { label: "Minutes", cells: cells(minutes, leadOf(minutes[0], minutes[1]), (v) => (finite(v) ? Math.round(v).toLocaleString("en-US") : "—")) },
       ],
     },
-  ].map((area, i) => ({ ...area, lean: { value: leans[i], label: leanLabel(leans[i], surnames) } }));
+  ];
 
-  const favored = [0, 1].map((side) =>
-    areas.filter((a) => finite(a.lean.value) && a.lean.value !== 0 && (a.lean.value < 0) === (side === 0)).map((a) => a.title.toLowerCase()),
-  );
-  const even = areas.filter((a) => a.lean.value === 0).map((a) => a.title.toLowerCase());
-  const list = (items) => (items.length > 1 ? `${items.slice(0, -1).join(", ")} and ${items.at(-1)}` : items[0]);
+  const summaryEdges = [edge(byKey.pts), edge(byKey.reb)].filter(Boolean);
   const verdict = {
-    text:
-      favored[0].length && favored[1].length
-        ? `Split decision: ${surnames[0]} leads ${list(favored[0])}; ${surnames[1]} leads ${list(favored[1])}.`
-        : favored[0].length || favored[1].length
-          ? `${surnames[favored[0].length ? 0 : 1]} leads ${list(favored[0].length ? favored[0] : favored[1])}${even.length ? `; ${list(even)} ${even.length > 1 ? "are" : "is"} even` : ""}.`
-          : "No clear edge on the available measures.",
-    note: "Box-score differences do not establish an overall winner.",
+    text: summaryEdges.length
+      ? summaryEdges.join("; ") + "."
+      : "Complete points and rebounds data are unavailable.",
+    note: "Recorded rates describe this sample and do not establish an overall winner or defensive ability.",
   };
 
   const takeaways = [];
@@ -181,25 +148,23 @@ export function comparisonPresentation(payload) {
   if (top) {
     const lead = deltaLead(top);
     takeaways.push({
-      title: Math.abs(top.left.percentile - top.right.percentile) >= 25
-        ? `${surnames[lead]} is well ahead on ${top.label.toLowerCase()}`
-        : `${surnames[lead]}'s biggest edge is ${top.label.toLowerCase()}`,
+      title: `${surnames[lead]} has a higher ${(RATE_LABEL[top.key] || top.label).toLowerCase()} rate`,
       text: `${pair(top, lead)}: the widest percentile gap in this comparison.`,
       evidence: evidenceLine(SHORT[top.key], top.left.value.toFixed(1), top.right.value.toFixed(1)),
     });
     const other = 1 - lead;
     const reply = widest(metrics.filter((m) => deltaLead(m) === other));
-    const close = metrics.filter(ranked).find((m) => Math.abs(m.left.percentile - m.right.percentile) < LEAN_RULE.evenPct);
+    const close = metrics.find((m) => comparisonStatus(m) === "Similar rates");
     if (reply)
       takeaways.push({
-        title: `${surnames[other]}'s strongest edge is ${reply.label.toLowerCase()}`,
+        title: `${surnames[other]} has a higher ${(RATE_LABEL[reply.key] || reply.label).toLowerCase()} rate`,
         text: `${pair(reply, other)}.`,
         evidence: evidenceLine(SHORT[reply.key], reply.left.value.toFixed(1), reply.right.value.toFixed(1)),
       });
     else if (close)
       takeaways.push({
-        title: `${close.label} is effectively even`,
-        text: `${close.left.value.toFixed(1)} vs ${close.right.value.toFixed(1)} per game, within ${LEAN_RULE.evenPct} percentile points.`,
+        title: `${RATE_LABEL[close.key] || close.label} rates are similar`,
+        text: `${close.left.value.toFixed(1)} vs ${close.right.value.toFixed(1)} per game; the difference is small under the display rule.`,
         evidence: evidenceLine(SHORT[close.key], close.left.value.toFixed(1), close.right.value.toFixed(1)),
       });
   }
@@ -239,22 +204,16 @@ export function comparisonPresentation(payload) {
   };
 }
 
-function leanMeter(lean, labels) {
-  if (!finite(lean.value)) return `<span class="lean-meter is-unavailable">${esc(lean.label)}</span>`;
-  const width = (side) => `${Math.round(Math.max(0, side * lean.value) * 100)}%`;
-  return `<span class="lean-meter" role="img" aria-label="${esc(lean.label)}"><span class="${lean.value < 0 ? "is-favored" : ""}">${esc(labels[0])}</span><span class="lean-track" aria-hidden="true"><span class="lean-half lean-half-a"><span class="lean-fill" style="width:${width(-1)}"></span></span><span class="lean-half lean-half-b"><span class="lean-fill" style="width:${width(1)}"></span></span></span><span class="${lean.value > 0 ? "is-favored" : ""}">${esc(labels[1])}</span></span>`;
-}
-
 export function comparisonAnswer(view) {
   const areas = view.areas
     .map(
-      (a) => `<section class="result-area" aria-labelledby="area-${a.key}"><div class="area-head"><img src="/static/icons/${a.icon}.svg" alt="" /><h3 id="area-${a.key}">${esc(a.title)}</h3>${leanMeter(a.lean, view.tags)}</div><p class="area-text">${esc(a.text)}</p><table class="area-numbers"><caption class="sr-only">${esc(a.title)} numbers</caption><thead><tr><td></td>${view.tags.map((t) => `<th scope="col">${esc(t)}</th>`).join("")}</tr></thead><tbody>${a.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th>${r.cells.map((c) => `<td class="${c.strong ? "is-leader" : c.muted ? "is-muted" : ""}">${esc(c.text)}</td>`).join("")}</tr>`).join("")}</tbody></table></section>`,
+      (a) => `<section class="result-area" aria-labelledby="area-${a.key}"><div class="area-head"><img src="/static/icons/${a.icon}.svg" alt="" /><h3 id="area-${a.key}">${esc(a.title)}</h3></div><p class="area-text">${esc(a.text)}</p><table class="area-numbers"><caption class="sr-only">${esc(a.title)} numbers</caption><thead><tr><td></td>${view.tags.map((t) => `<th scope="col">${esc(t)}</th>`).join("")}</tr></thead><tbody>${a.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th>${r.cells.map((c) => `<td class="${c.strong ? "is-leader" : c.muted ? "is-muted" : ""}">${esc(c.text)}</td>`).join("")}</tr>`).join("")}</tbody></table></section>`,
     )
     .join("");
   const takeaways = view.insights.length
     ? `<section class="result-takeaways" aria-label="Key takeaways"><h3 class="result-label">Key takeaways</h3><div class="takeaway-grid">${view.insights.map((i) => `<article class="takeaway-card"><h4>${esc(i.title)}</h4><p>${esc(i.text)}</p><p class="takeaway-evidence">${esc(i.evidence)}</p></article>`).join("")}</div></section>`
     : "";
-  return `<div class="result-layout"><div class="result-verdict"><p class="result-label">Verdict</p><p class="verdict-text">${esc(view.verdict.text)} <span class="verdict-note">${esc(view.verdict.note)}</span></p></div><p class="meta area-note">Each meter leans toward the player that area favors; an empty meter means even.</p><div class="result-areas">${areas}</div>${takeaways}</div>`;
+  return `<div class="result-layout"><div class="result-verdict"><p class="result-label">Comparison summary</p><p class="verdict-text">${esc(view.verdict.text)} <span class="verdict-note">${esc(view.verdict.note)}</span></p></div><p class="meta area-note">Similar rates receive equal emphasis. Small gaps and rounded ties do not support a player-quality judgment.</p><div class="result-areas">${areas}</div>${takeaways}</div>`;
 }
 
 function profileCard(profile, side) {
@@ -294,12 +253,16 @@ function barCell(side, name, label, trailing, align) {
 export function comparisonTables(view) {
   const rows = view.metrics
     .map((m) => {
-      const lead = m.delta ? (m.delta > 0 ? 0 : 1) : null;
-      return `<tr>${valueCell(m.left, m.delta, lead === 0, lead === 1, "a")}${barCell(m.left, view.names[0], m.label, lead === 1, "a")}<th scope="row">${esc(SHORT[m.key] || m.label)}</th>${barCell(m.right, view.names[1], m.label, lead === 0, "b")}${valueCell(m.right, m.delta, lead === 1, lead === 0, "b")}</tr>`;
+      const lead = comparisonLead(m);
+      return `<tr>${valueCell(m.left, m.delta, lead === 0, lead === 1, "a")}${barCell(m.left, view.names[0], m.label, lead === 1, "a")}<th scope="row"><span class="h2h-label">${esc(SHORT[m.key] || m.label)}</span>${comparisonStatus(m) === "Similar rates" ? `<small class="h2h-status">Similar rates</small>` : ""}</th>${barCell(m.right, view.names[1], m.label, lead === 0, "b")}${valueCell(m.right, m.delta, lead === 1, lead === 0, "b")}</tr>`;
     })
     .join("");
   const cohort = new Set(view.metrics.map((m) => m.left.cohort_size)).size === 1 ? `${view.metrics[0].left.cohort_size} qualified players` : "qualification varies by metric";
-  return `<p class="metric-comparison">${esc(view.scopeLabel)}</p><div class="table-scroll"><table class="h2h-table"><caption class="sr-only">Per-game head-to-head in the same dates and phases. Bar length is each player's league percentile for that stat.</caption><thead><tr><th scope="col" class="h2h-name h2h-name-a">${esc(view.names[0])}</th><td></td><th scope="col">Stat</th><td></td><th scope="col" class="h2h-name h2h-name-b">${esc(view.names[1])}</th></tr></thead><tbody>${rows}</tbody></table></div><p class="metric-footnote">Bar length = league percentile · bold = leader · minimum ${view.min_games} complete games per metric · ${cohort}. Percentiles describe each stat, not overall quality. Edges use unrounded averages. Meters average percentile gaps (under ${LEAN_RULE.evenPct} points is even); availability compares total minutes.</p>${view.sections.length ? `<details class="comparison-details"><summary>Shooting, ball security &amp; per-36 detail</summary>${comparisonAdditionalTables(view)}</details>` : ""}${comparisonImpactTable(view)}`;
+  return `<p class="metric-comparison">${esc(view.scopeLabel)}</p><div class="table-scroll"><table class="h2h-table"><caption class="sr-only">Per-game head-to-head in the same dates and phases. Bar length is each player's league percentile for that stat.</caption><thead><tr><th scope="col" class="h2h-name h2h-name-a">${esc(view.names[0])}</th><td></td><th scope="col">Stat</th><td></td><th scope="col" class="h2h-name h2h-name-b">${esc(view.names[1])}</th></tr></thead><tbody>${rows}</tbody></table></div><p class="metric-footnote">Bar length = league percentile · bold = higher recorded rate outside the similarity band · minimum ${view.min_games} complete games per metric · ${cohort}. Percentiles describe each stat, not overall quality. Unrounded values are preserved; small differences receive no winner styling.</p>${comparisonPrecision(view)}${view.sections.length ? `<details class="comparison-details"><summary>Shooting, ball security &amp; per-36 detail</summary>${comparisonAdditionalTables(view)}</details>` : ""}${comparisonImpactTable(view)}`;
+}
+
+function comparisonPrecision(view) {
+  return `<details class="comparison-precision"><summary>More precision &amp; comparison rules</summary><p>Values above are rounded to one decimal. Rates are marked similar when they round to the same value, or their gap is at most 0.1 per game or 5% of the larger rate. This is a display policy, not a test of statistical significance. Rebounds, steals and blocks do not establish defensive ability.</p><div class="table-scroll"><table class="precision-table"><caption>Recorded rates to three decimals; gaps use unrounded values</caption><thead><tr><th scope="col">Stat</th>${view.names.map((name) => `<th scope="col">${esc(name)}</th>`).join("")}<th scope="col">Absolute gap</th></tr></thead><tbody>${view.metrics.map((m) => `<tr><th scope="row">${esc(SHORT[m.key] || m.label)}</th>${[m.left, m.right].map((side, i) => `<td data-side="${i === 0 ? "left" : "right"}">${usable(side) ? num(side.value, 3) : "Unavailable"}</td>`).join("")}<td class="precision-gap">${finite(m.delta) && usable(m.left) && usable(m.right) ? num(Math.abs(m.delta), 3) : "Unavailable"}</td></tr>`).join("")}</tbody></table></div></details>`;
 }
 
 function comparisonAdditionalTables(view) {

@@ -141,7 +141,14 @@ def get_provider(settings):
     if not provider.descriptor.requires_model:
         return provider
     active = CURRENT.get()
-    prefixes = (active.provider,) if active else ("openai", "claude", "openrouter")
+    from app.agent.runtime_policy import get_runtime_policy
+
+    runtime = get_runtime_policy()
+    prefixes = (
+        ("openai",)
+        if runtime
+        else ((active.provider,) if active else ("openai", "claude", "openrouter"))
+    )
     ready = any(
         getattr(settings, f"{prefix}_agent_model", None)
         and getattr(settings, f"{prefix}_api_key", None)
@@ -300,6 +307,19 @@ class ModelGateway:
     """One host transport, schema and model; retries consume the same counter."""
 
     def __init__(self, client, model, budget, usage_callback=None, context=None):
+        from dataclasses import replace
+
+        from app.agent.runtime_policy import get_runtime_policy
+
+        runtime = get_runtime_policy()
+        if runtime is not None:
+            budget = replace(
+                budget,
+                max_model_calls=min(budget.max_model_calls, runtime.max_model_calls),
+                max_output_tokens=min(
+                    budget.max_output_tokens, runtime.max_output_tokens
+                ),
+            )
         self._client, self._model, self._budget = client, model, budget
         self._usage_callback = usage_callback
         self.calls = 0
@@ -316,6 +336,13 @@ class ModelGateway:
         self.calls += 1
 
     def _generate(self, system_prompt, user_payload):
+        import json
+
+        from app.agent.runtime_policy import AUTHORIZED_PLANNING_SCHEMA
+
+        schema_token = AUTHORIZED_PLANNING_SCHEMA.set(
+            json.dumps(self._schema, sort_keys=True)
+        )
         token = MODEL_ATTEMPT.set(self._attempt)
         try:
             response = create_response(
@@ -349,6 +376,8 @@ class ModelGateway:
         except ExecutionFailure as exc:
             if exc.code == "request_timeout":
                 raise
+            if exc.code == "budget_exhausted":
+                raise api.GatewayBudgetExhausted() from None
             if exc.code in ("invalid_plan", "invalid_response"):
                 raise ExecutionFailure("invalid_provider_output") from None
             if exc.code == "provider_timeout":
@@ -358,6 +387,7 @@ class ModelGateway:
             raise api.GatewayUnavailable() from None
         finally:
             MODEL_ATTEMPT.reset(token)
+            AUTHORIZED_PLANNING_SCHEMA.reset(schema_token)
 
     async def generate_plan(self, *, system_prompt, user_payload):
         if self.failure is not None:
@@ -807,7 +837,14 @@ def plan_question(
         active.deadline if active else float("inf"),
         monotonic() + getattr(settings, "agent_planner_timeout_seconds", 8.0),
     )
-    budget = api.PlanningBudget(deadline, 3, 3000)
+    from app.agent.runtime_policy import get_runtime_policy
+
+    runtime = get_runtime_policy()
+    budget = api.PlanningBudget(
+        deadline,
+        min(3, runtime.max_model_calls) if runtime else 3,
+        min(3000, runtime.max_output_tokens) if runtime else 3000,
+    )
     gateway = (
         ModelGateway(client, model, budget, usage_callback, context)
         if provider.descriptor.requires_model
