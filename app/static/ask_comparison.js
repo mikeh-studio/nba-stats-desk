@@ -1,6 +1,6 @@
-import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261027-comparison-similar-rates-v3";
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261027-comparison-similar-rates-v3";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261027-comparison-similar-rates-v3";
+import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261027-readable-results-v2";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261027-readable-results-v2";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261027-readable-results-v2";
 
 const esc = (v) =>
   String(v ?? "")

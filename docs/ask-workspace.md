@@ -1091,3 +1091,17 @@ model-call site with its boundary and regression coverage. Optional intelligence
 packages supply planning through v2, which has no answer-generation API. Bounded
 scope/chart selection and the explicitly non-governed legacy narrator keep the
 restrictions described above.
+
+
+## Metric result vocabulary
+
+Governed metric tables use a display-only vocabulary in `semantic_presentation.js`.
+Headings name the statistic, aggregation and ranking direction. Period subtitles
+format the selected cutoff as “Through Apr 12, 2026”; this is not a refresh date
+or proof of full-season coverage. Qualification counts and attempt minimums stay
+visible. Identical observed/valid game counts collapse into “Games played”; partial
+coverage shows “Games used” as, for example, “62 of 64”. League percentile stays
+secondary and its expandable explanation names the qualifying group and direction.
+Shooting percentages, totals, per-game averages, per-36 rates and custom estimates
+retain distinct units. Raw evidence, values, claim bindings and API fields remain
+unchanged, so saved answers can adopt the vocabulary without querying again.
