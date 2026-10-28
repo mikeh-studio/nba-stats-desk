@@ -1,6 +1,7 @@
-import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261027-readable-results-v2";
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261027-readable-results-v2";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261027-readable-results-v2";
+import {comparisonPlot} from "./comparison_plot_ui.js?v=20261028-comparison-distributions-v1";
+import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261028-comparison-distributions-v1";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261028-comparison-distributions-v1";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261028-comparison-distributions-v1";
 
 const esc = (v) =>
   String(v ?? "")
@@ -237,28 +238,17 @@ export function comparisonProfiles(view) {
   return `<div class="compare-cards">${profileCard(view.profiles[0], "a")}<span class="compare-vs" aria-hidden="true">vs</span>${profileCard(view.profiles[1], "b")}</div><p class="meta compare-scope">${esc(view.scopeLabel)} · Data through ${esc(dateLabel(view.data_through))}</p>`;
 }
 
-// Claim schema anchors: .h2h-num (value), .h2h-edge (margin), meter and .h2h-pct.
-function valueCell(side, delta, lead, trailing, align) {
-  const partial = side?.missing_component_games ? `<small>Partial: ${side.valid_games}/${side.observed_games} games</small>` : "";
-  return `<td class="h2h-value h2h-value-${align}${lead ? " is-leader" : ""}${trailing ? " is-trailing" : ""}"><span class="h2h-num">${num(side?.value)}${partial}</span>${lead ? `<small class="h2h-edge">+${num(Math.abs(delta))}</small>` : ""}</td>`;
-}
-
-function barCell(side, name, label, trailing, align) {
-  if (!finite(side?.percentile)) return `<td class="h2h-bar h2h-bar-${align}"><span class="meta">Not ranked</span></td>`;
-  const pct = `<span class="h2h-pct">${ordinal(side.percentile)}</span>`;
-  const meter = `<meter class="h2h-meter${trailing ? " is-trailing" : ""}" min="0" max="100" value="${Math.round(side.percentile)}" aria-label="${esc(`${name} ${label} percentile`)}">${ordinal(side.percentile)}</meter>`;
-  return `<td class="h2h-bar h2h-bar-${align}">${align === "a" ? pct + meter : meter + pct}</td>`;
+// Each side keeps its numeric average and its own full-sample game distribution.
+function playerCell(metric, side, name, align) {
+  const m = metric[side];
+  const partial = m?.missing_component_games ? `<small>Partial: ${m.valid_games}/${m.observed_games} games</small>` : "";
+  return `<td class="h2h-player h2h-player-${align}"><div class="h2h-side"><div class="h2h-value"><span class="h2h-num">${num(m?.value)}${partial}</span><small class="h2h-average-label">avg</small></div>${comparisonPlot(metric, side, name)}</div></td>`;
 }
 
 export function comparisonTables(view) {
-  const rows = view.metrics
-    .map((m) => {
-      const lead = comparisonLead(m);
-      return `<tr>${valueCell(m.left, m.delta, lead === 0, lead === 1, "a")}${barCell(m.left, view.names[0], m.label, lead === 1, "a")}<th scope="row"><span class="h2h-label">${esc(SHORT[m.key] || m.label)}</span>${comparisonStatus(m) === "Similar rates" ? `<small class="h2h-status">Similar rates</small>` : ""}</th>${barCell(m.right, view.names[1], m.label, lead === 0, "b")}${valueCell(m.right, m.delta, lead === 1, lead === 0, "b")}</tr>`;
-    })
-    .join("");
+  const rows = view.metrics.map((m) => `<tr>${playerCell(m, "left", view.names[0], "a")}<th scope="row"><span class="h2h-label">${esc(SHORT[m.key] || m.label)}</span>${comparisonStatus(m) === "Similar rates" ? `<small class="h2h-status">Similar rates</small>` : ""}</th>${playerCell(m, "right", view.names[1], "b")}</tr>`).join("");
   const cohort = new Set(view.metrics.map((m) => m.left.cohort_size)).size === 1 ? `${view.metrics[0].left.cohort_size} qualified players` : "qualification varies by metric";
-  return `<p class="metric-comparison">${esc(view.scopeLabel)}</p><div class="table-scroll"><table class="h2h-table"><caption class="sr-only">Per-game head-to-head in the same dates and phases. Bar length is each player's league percentile for that stat.</caption><thead><tr><th scope="col" class="h2h-name h2h-name-a">${esc(view.names[0])}</th><td></td><th scope="col">Stat</th><td></td><th scope="col" class="h2h-name h2h-name-b">${esc(view.names[1])}</th></tr></thead><tbody>${rows}</tbody></table></div><p class="metric-footnote">Bar length = league percentile · bold = higher recorded rate outside the similarity band · minimum ${view.min_games} complete games per metric · ${cohort}. Percentiles describe each stat, not overall quality. Unrounded values are preserved; small differences receive no winner styling.</p>${comparisonPrecision(view)}${view.sections.length ? `<details class="comparison-details"><summary>Shooting, ball security &amp; per-36 detail</summary>${comparisonAdditionalTables(view)}</details>` : ""}${comparisonImpactTable(view)}`;
+  return `<p class="metric-comparison">${esc(view.scopeLabel)}</p><table class="h2h-table"><caption class="sr-only">Per-game head-to-head in the same dates and phases. Each box plot describes that player's recorded games. Both players use the same increasing scale for each stat.</caption><thead><tr><th scope="col" class="h2h-name h2h-name-a">${esc(view.names[0])}</th><th scope="col">Stat</th><th scope="col" class="h2h-name h2h-name-b">${esc(view.names[1])}</th></tr></thead><tbody>${rows}</tbody></table><details class="h2h-plot-key"><summary>Plot key &amp; scale</summary><p>Box: middle 50% of recorded games (Q1–Q3). Line: median. Diamond: average. Whiskers: observed minimum–maximum, not confidence intervals. Hover, focus or tap a plot for Med, Min, Max, Q1, Q3.</p><p>Each pair shares the same per-game scale, increasing left to right. Narrower boxes describe less variation in the middle half of games, not better performance. Minutes, role and opponents can affect that variation. Incomplete game samples withhold the plot.</p><p>League percentiles describe season or period averages, not individual games or overall quality: minimum ${view.min_games} complete games per metric · ${cohort}. Similar rates is a display policy; exact values remain below.</p></details>${comparisonPrecision(view)}${view.sections.length ? `<details class="comparison-details"><summary>Shooting, ball security &amp; per-36 detail</summary>${comparisonAdditionalTables(view)}</details>` : ""}${comparisonImpactTable(view)}`;
 }
 
 function comparisonPrecision(view) {

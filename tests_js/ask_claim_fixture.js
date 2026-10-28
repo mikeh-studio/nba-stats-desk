@@ -101,6 +101,9 @@ export function comparisonFixture() {
     observed_games: 2,
     missing_component_games: 0,
     cohort_size: 3,
+    distribution: {version: "ask_metric_distribution/1", quantile_method: "linear (n-1)",
+      across_games: {summary: {n:2, min:0, q1:value/2, median:value, q3:1.5*value, max:2*value},
+        observed_games:2, missing_games:0, zero_denominator_games:0}},
   });
   return {
     player_profiles: [

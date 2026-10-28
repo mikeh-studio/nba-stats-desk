@@ -159,15 +159,12 @@ test("head-to-head markup carries the exact text each claim expects", () => {
   const table = comparisonTables(view);
   const schema = claimSchema(view.claimEvidence, "comparison");
   const edges = schema.filter((r) => r.format === "comparison-margin");
-  // Only gaps outside the similarity band have a visible bound margin.
-  assert.equal(edges.length, 4);
-  assert.equal(expectedClaim(view.claimEvidence, edges[0]), "+1.4");
-  assert.equal((table.match(/class="h2h-edge"/g) || []).length, 4);
-  assert.match(table, /<td class="h2h-value h2h-value-b is-leader"><span class="h2h-num">27\.4<\/span><small class="h2h-edge">\+1\.4<\/small>/);
+  assert.equal(edges.length, 0);
+  assert.doesNotMatch(table, /h2h-edge|<meter/);
   for (const r of schema.filter((d) => d.format === "comparison-value"))
     assert.ok(table.includes(`<span class="h2h-num">${expectedClaim(view.claimEvidence, r)}</span>`));
-  for (const r of schema.filter((d) => d.format === "meter"))
-    assert.ok(table.includes(`value="${expectedClaim(view.claimEvidence, r)}"`));
+  for (const r of schema.filter((d) => d.format === "comparison-percentile"))
+    assert.ok(table.includes(expectedClaim(view.claimEvidence, r)));
   assert.ok(schema.some((r) => r.selector === ".h2h-table thead th.h2h-name-b"));
   assert.ok(schema.every((r) => !r.selector.includes("comparison-table")));
 });

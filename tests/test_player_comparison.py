@@ -263,3 +263,31 @@ def test_service_uses_no_model_and_saves_both_players(evidence, monkeypatch):
     assert result["status"] == "ok"
     assert result["semantic_plan"]["model_calls"] == 0
     assert "Victor Wembanyama" in store.get_turns("compare", max_turns=1)[0].question
+
+
+def test_comparison_distributions_use_exact_player_and_date_scope(evidence):
+    for row, value in zip(evidence.rows[:6], [0, 0, 1, 3, 8, 20]):
+        row["stl"] = value
+    selected = {**scope(), "start": date(2026, 5, 2), "end": date(2026, 5, 5)}
+    result = build_comparison(
+        "Jalen Brunson vs Wemby playoffs", evidence, source_players(evidence), selected
+    )
+    steals = result["semantic_evidence"]["metrics"][3]
+    assert steals["left"]["distribution"]["across_games"]["summary"] == {
+        "n": 4,
+        "min": 0,
+        "q1": 0.75,
+        "median": 2.0,
+        "q3": 4.25,
+        "max": 8,
+    }
+    assert steals["left"]["value"] == 3
+    assert steals["right"]["distribution"]["across_games"]["summary"] == {
+        "n": 4,
+        "min": 2,
+        "q1": 2.0,
+        "median": 2.0,
+        "q3": 2.0,
+        "max": 2,
+    }
+    assert steals["left"]["percentile"] is None
