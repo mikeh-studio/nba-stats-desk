@@ -241,7 +241,7 @@ def check_wheel_path(original, effective):
 
 
 def wheel_has_credentials(raw, *, python_source=False):
-    candidates = [raw.replace(b"\\r", b"\r").replace(b"\\n", b"\n")]
+    candidates = [raw]
     if python_source:
         # AST constants join adjacent literals without executing untrusted code.
         for node in ast.walk(ast.parse(raw)):
@@ -252,7 +252,10 @@ def wheel_has_credentials(raw, *, python_source=False):
                     if isinstance(value, str)
                     else value
                 )
-    return any(WHEEL_SECRET.search(value) for value in candidates)
+    return any(
+        WHEEL_SECRET.search(value.replace(b"\\r", b"\r").replace(b"\\n", b"\n"))
+        for value in candidates
+    )
 
 
 def validate(root, data):

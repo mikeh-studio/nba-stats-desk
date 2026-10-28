@@ -307,7 +307,7 @@ def test_public_certificate_bundle_in_dependency_namespace_is_allowed(context):
     assert validate(*context)["files"] == 5
 
 
-@pytest.mark.parametrize("form", ["adjacent_literals", "encrypted_pem"])
+@pytest.mark.parametrize("form", ["adjacent_literals", "raw_literals", "encrypted_pem"])
 def test_wheel_pem_body_cannot_hide_behind_literal_or_encryption_headers(context, form):
     header = b"-----BEGIN " + b"RSA PRIVATE KEY-----\n"
     footer = b"\n-----END " + b"RSA PRIVATE KEY-----"
@@ -320,6 +320,17 @@ def test_wheel_pem_body_cannot_hide_behind_literal_or_encryption_headers(context
             + b"\n"
             + repr(footer).encode()
             + b")"
+        )
+        member = "provider/key.py"
+    elif form == "raw_literals":
+        raw = (
+            b'KEY = (r"'
+            + header.replace(b"\n", b"\\n")
+            + b'" r"'
+            + b"A" * 96
+            + b'" r"'
+            + footer.replace(b"\n", b"\\n")
+            + b'" )'
         )
         member = "provider/key.py"
     else:

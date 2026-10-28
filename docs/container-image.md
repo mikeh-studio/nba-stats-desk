@@ -43,11 +43,13 @@ scripts, data and headers) is normalized to its effective install destination
 before sensitive-path and app-shadow checks; unknown schemes and colliding
 effective destinations are refused. Python import checks also inspect relocated
 code. Dependency namespaces such as `openai.types.shared` and Python modules
-named `credentials`/`client_secrets` and gRPC's public certificate namespace are
-permitted; top-level app/bridge shadows,
+named `credentials`/`client_secrets` are permitted. Credential/secret substrings
+are checked on leaf filenames; directories use exact forbidden artifact names,
+allowing SDK namespaces such as gRPC's public certificate directory. Top-level
+app/bridge shadows,
 sensitive artifact paths and credential-shaped content are still refused. Wheel
 PEM checks distinguish delimiter constants from a key body, including bodies in
-constant Python literals, implicit literal concatenation and traditional PEM
+constant `.py` literals (including raw and adjacent literals) and traditional PEM
 headers. These targeted checks do not establish absence of every secret.
 The recipe installs only local hashed wheels with no
 index/cache/compilation and runs as UID/GID 65532. The optional compatibility
