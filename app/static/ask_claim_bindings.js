@@ -1,5 +1,5 @@
-import {comparisonLead} from "./comparison_policy.js?v=20261027-readable-results-v2";
-import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261027-readable-results-v2";
+import {comparisonDistribution, distributionNumber} from "./comparison_distribution.js?v=20261028-comparison-distributions-v1";
+import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261028-comparison-distributions-v1";
 // Exact canonical evidence -> final DOM relationships; rendered text is never an oracle.
 export const UI_CLAIM_VERSION = "ask_ui_claim_bindings/1";
 const finite = Number.isFinite,
@@ -183,6 +183,24 @@ export function formatClaim(v, f, c = {}) {
           ? `Partial: ${m.valid_games}/${m.observed_games} games`
           : "")
       );
+    case "comparison-percentile":
+      return `${ordinal(v)} percentile`;
+    case "comparison-summary":
+      return distributionNumber(v);
+    case "comparison-plot-label":
+      return `${c.player} ${c.label}: game-by-game distribution over ${v} recorded games`;
+    case "comparison-box-position":
+      return String(Number((5 + 90 * (v - c.lo) / (c.hi - c.lo)).toFixed(3)));
+    case "comparison-box-width": {
+      const x = (value) => Number((5 + 90 * (value-c.lo)/(c.hi-c.lo)).toFixed(3));
+      return String(Number((x(c.q3)-x(v)).toFixed(3)));
+    }
+    case "comparison-mean-position": {
+      const x = Number((5 + 90 * (v-c.lo)/(c.hi-c.lo)).toFixed(3));
+      return `${x},6 ${Number((x+1.8).toFixed(3))},12 ${x},18 ${Number((x-1.8).toFixed(3))},12`;
+    }
+    case "comparison-axis":
+      return distributionNumber(comparisonDistribution(v)[c.endpoint]);
     case "comparison-precision":
       return m.missing_component_games ? "Unavailable" : num(v, 3);
     case "comparison-precision-gap":
@@ -448,34 +466,33 @@ export function claimSchema(payload, component, options = {}) {
             player: names[j],
           };
         add(
-          `${r} > td.h2h-value-${cell} > .h2h-num`,
+          `${r} .h2h-player-${cell} .h2h-num`,
           p.concat(side, "value"),
           "comparison-value",
           c,
         );
         if (finite(m[side].percentile)) {
-          add(
-            `${r} > td.h2h-bar-${cell} meter`,
-            p.concat(side, "percentile"),
-            "meter",
-            c,
-            "value",
-          );
-          add(
-            `${r} > td.h2h-bar-${cell} .h2h-pct`,
-            p.concat(side, "percentile"),
-            "ordinal",
-            c,
-          );
+          add(`${r} .h2h-player-${cell} .h2h-pct`, p.concat(side, "percentile"), "comparison-percentile", c);
+        }
+        const scale = comparisonDistribution(m), summary = scale[side];
+        if (summary) {
+          const plot = `${r} .h2h-player-${cell}`, sp = p.concat(side, "distribution", "across_games", "summary");
+          const geometry = {...c, lo:scale.lo, hi:scale.hi};
+          add(`${plot} .h2h-plot-trigger`, sp.concat("n"), "comparison-plot-label", {...c, label:m.label}, "aria-label");
+          for (const key of ["median", "min", "max", "q1", "q3"])
+            add(`${plot} [data-summary="${key}"]`, sp.concat(key), "comparison-summary", c);
+          for (const [selector, attribute, key] of [
+            [".h2h-whisker","x1","min"], [".h2h-whisker","x2","max"],
+            [".h2h-min","x1","min"], [".h2h-min","x2","min"],
+            [".h2h-max","x1","max"], [".h2h-max","x2","max"],
+            [".h2h-box","x","q1"], [".h2h-median","x1","median"], [".h2h-median","x2","median"]
+          ]) add(`${plot} ${selector}`, sp.concat(key), "comparison-box-position", geometry, attribute);
+          add(`${plot} .h2h-box`, sp.concat("q1"), "comparison-box-width", {...geometry, q3:summary.q3}, "width");
+          add(`${plot} .h2h-mean`, p.concat(side,"value"), "comparison-mean-position", geometry, "points");
+          for (const [selector, endpoint] of [["min","lo"],["max","hi"]])
+            add(`${plot} .h2h-axis-${selector}`, p, "comparison-axis", {...c, endpoint});
         }
       });
-      // Only a higher recorded rate outside the similarity band has a margin.
-      if (comparisonLead(m) !== null)
-        add(`${r} .h2h-edge`, p.concat("delta"), "comparison-margin", {
-          metric: m,
-          metricIndex: i,
-          metricKey: m.key,
-        });
     });
     e.metrics.forEach((m, i) => {
       const p = base.concat("metrics", i), r = `.comparison-precision tbody tr:nth-child(${i + 1})`;

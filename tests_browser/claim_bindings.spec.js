@@ -121,7 +121,7 @@ for (const component of [
     );
     expect(checks).toEqual(Array(9).fill("invalid"));
   });
-test("equal-valued side swaps, labels, percentile meters and fail-closed replacement", async ({
+test("equal-valued side swaps, labels, percentiles and fail-closed replacement", async ({
   page,
 }) => {
   await setup(page);
@@ -141,7 +141,7 @@ test("equal-valued side swaps, labels, percentile meters and fail-closed replace
       t.root.uiClaimSession,
     ).status;
     paintClaim("comparison");
-    t.root.querySelector(".h2h-table meter").setAttribute("value", "1");
+    t.root.querySelector(".h2h-pct").textContent = "1st percentile";
     const meter = t.a.enforceRenderedClaims(t.root, t.payload).status;
     return { swapped, identity, meter, text: t.root.textContent };
   });

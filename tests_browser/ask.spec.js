@@ -77,7 +77,7 @@ test('comparison hides unavailable impact in fresh and legacy saved analyses', a
   await submit(page, c.turns[0].question);
   await expect(page.locator('[data-agent-answer]')).toContainText('Playing time');
   await expect(page.locator('[data-agent-answer] .result-verdict')).toContainText('do not establish an overall winner');
-  await expect(page.locator('[data-agent-tables] .h2h-table')).toContainText('+7.5');
+  await expect(page.locator('[data-agent-tables] .h2h-boxplot')).toHaveCount(10);
   await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
   await expect(page.locator('.comparison-impact')).toHaveCount(0);
   await expect(page.locator('[data-comparison-metric="impact"]')).toHaveCount(0);
@@ -92,10 +92,15 @@ test('comparison hides unavailable impact in fresh and legacy saved analyses', a
     localStorage.setItem(key, JSON.stringify(history));
   });
   await page.reload();
-  await expect(page.locator('[data-agent-tables] .h2h-table')).toContainText('+7.5');
+  await expect(page.locator('[data-agent-tables] .h2h-boxplot')).toHaveCount(10);
   await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
   await expect(page.locator('.comparison-impact')).toHaveCount(0);
   await expect(page.locator('[data-answer-context]')).not.toContainText(/Win Shares|possession/i);
+  // The saved result uses its original game summaries without replaying a request.
+  await page.locator('.h2h-plot-trigger').first().hover();
+  await expect(page.locator('.h2h-plot-tooltip').first()).toBeVisible();
+  await expect(page.locator('.h2h-plot-tooltip').first().locator('dt')).toHaveText(['Med','Min','Max','Q1','Q3']);
+  expect(await page.locator('[data-agent-tables]').evaluate(el=>el.uiClaimReport.errors)).toEqual([]);
   // The head-to-head replaces the per-stat chart; every core stat stays visible.
   await expect(page.locator('[data-agent-chart-card]')).toBeHidden();
   await expect(page.locator('.h2h-table tbody tr')).toHaveCount(5);
@@ -922,3 +927,38 @@ test('Ask recovers when the active saved chat cannot be restored', async ({page}
   await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
   expect(errors).toEqual([]);
 });
+
+for (const width of [1280,768,390,320]) {
+  test(`comparison whole section alignment at ${width}px`, async ({page},testInfo) => {
+    await page.setViewportSize({width,height:1000});
+    const c=await prepare(page,'two_player');
+    await submit(page,c.turns[0].question);
+    const section=page.locator('[data-agent-table-card]');
+    const table=section.locator('.h2h-table');
+    await expect(table.locator('.h2h-boxplot')).toHaveCount(10);
+    await page.evaluate(()=>document.fonts.ready);
+    const bounds=await section.boundingBox(), grid=await table.boundingBox();
+    const center=await table.locator('thead th').nth(1).boundingBox();
+    const detail=await section.locator('.comparison-details').boundingBox();
+    const heading=await section.locator('[data-table-heading]').boundingBox();
+    const scope=await section.locator('.metric-comparison').boundingBox();
+    expect(Math.abs(grid.x-bounds.x)).toBeLessThan(1);
+    expect(Math.abs(grid.width-bounds.width)).toBeLessThan(1);
+    expect(Math.abs(center.x+center.width/2-(bounds.x+bounds.width/2))).toBeLessThan(1);
+    expect(Math.abs(detail.x+detail.width-(grid.x+grid.width))).toBeLessThan(1);
+    expect(Math.abs(heading.x-grid.x)).toBeLessThan(1);
+    if(width<=600) expect(scope.y).toBeGreaterThanOrEqual(heading.y+heading.height);
+    expect(await table.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.mouse.move(0,0);
+    await page.keyboard.press("Escape");
+    await section.screenshot({path:testInfo.outputPath(`whole-section-${width}.png`)});
+    await table.locator('.h2h-plot-trigger').last().click();
+    const tip=section.locator('.h2h-plot-tooltip').last();
+    await expect(tip).toBeVisible();
+    const tooltip=await tip.boundingBox();
+    expect(tooltip.x).toBeGreaterThanOrEqual(0);
+    expect(tooltip.x+tooltip.width).toBeLessThanOrEqual(width);
+    await page.screenshot({path:testInfo.outputPath(`section-tooltip-${width}.png`)});
+  });
+}

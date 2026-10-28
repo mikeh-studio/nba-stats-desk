@@ -172,12 +172,31 @@ are a display policy, not a significance test or a declaration of equal ability.
 Canonical values, differences, percentiles and arithmetic remain unchanged.
 Larger gaps are described as higher recorded rates, never proof one player is better.
 
-The head-to-head retains qualified-cohort percentile bars without using their
-gaps as an aggregate verdict. A visible explanation precedes the summary areas;
-**More precision & comparison rules** exposes the policy and three-decimal
-values/absolute gaps. Main values, percentiles, displayed larger margins and
-precision-table values retain source claim bindings. Hidden small margins have
-no expected margin destination. Missing components remain unavailable.
+The compact head-to-head places each player's game distribution beside their
+average, on opposite sides of the stat label. The table fills the section width,
+with its center stat column aligned to the section midpoint; narrow screens keep
+both players side by side with wrapping names and a stacked date label. It uses the canonical
+`distribution.across_games.summary` from the exact scoped appearances, never
+league-distribution summaries or the capped display points. The box is Q1–Q3,
+its line is the median, the diamond is the average, and whiskers are observed
+minimum–maximum (not confidence intervals or Tukey fences). Quartiles use the
+server's linear `(n-1)` method. Both sides share an increasing per-game axis;
+constant samples retain zero spread, including all-zero samples.
+
+Median is not printed beside the average. Hover, keyboard focus or tap exposes
+**Med, Min, Max, Q1, Q3**; Escape dismisses the tooltip. The small league label
+spells out **percentile** with its own explanation, distinct from shooting %.
+Low ranking qualification does not remove a complete game distribution. Missing,
+malformed, mismatched or incomplete game summaries withhold the plot; older saved
+responses show **Distribution unavailable** without fabricated or newly fetched
+observations. Narrower boxes describe variation, not player quality.
+
+The main rows use equal emphasis and omit winner margins. The shared similarity
+policy still labels close rates. **Plot key & scale** explains the display;
+**More precision & comparison rules** retains the policy and three-decimal
+values/absolute gaps. Averages, percentiles, tooltip values, sample labels, axes
+and box-plot geometry retain exact source claim bindings. Saved payloads remain
+unchanged; this is a rendering change with no new source or model request.
 
 The comparison includes three additional sections, collapsed under the
 head-to-head table, using the same scoped appearances as the core scorecard: shooting efficiency (FG%, 3P%, FT%, eFG%, TS%),
