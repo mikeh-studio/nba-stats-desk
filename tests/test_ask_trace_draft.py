@@ -19,7 +19,7 @@ def inputs(tmp_path, monkeypatch):
     cases["cases"] = cases["cases"][:1]
     from app.agent.observability import AgentTrace
     from app.agent.private_traces import PrivateCapture
-    from tests.test_api import _test_settings
+    from tests.support.api import _test_settings
 
     captured = []
     monkeypatch.setattr(

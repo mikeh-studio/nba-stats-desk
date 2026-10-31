@@ -21,7 +21,7 @@ from scripts.ask_eval.fixtures import (
     fixture_artifacts,
     frozen_repository,
 )
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = json.loads((ROOT / "tests/fixtures/ask/source.json").read_text())
@@ -404,7 +404,7 @@ def test_stored_route_is_not_sent_to_the_metrics_planner():
 
 
 def test_legacy_repository_route_names_its_sub_route():
-    from tests.test_agent_service import (
+    from tests.support.agent import (
         AgentServiceFakeRepository,
         SequenceClient,
         _settings,

@@ -20,7 +20,7 @@ from app.agent.serving_warehouse import RefreshingServingWarehouse, ServingWareh
 from app.repository import BigQueryWarehouseRepository
 from google.api_core.exceptions import NotFound
 from scripts.ask_eval.fixtures import ControlledModel
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 from tests.test_semantic_source import Client as SourceClient
 from tests.test_serving_bigquery import Client as WireClient
 from tests.test_serving_bigquery import wire

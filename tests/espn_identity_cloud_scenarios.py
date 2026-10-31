@@ -15,8 +15,7 @@ from dotenv import load_dotenv  # noqa: E402
 from scripts.espn_identity import crosswalk  # noqa: E402
 from scripts.espn_ingestion import make_store  # noqa: E402
 from scripts.espn_store import validate  # noqa: E402
-
-from test_espn_pilot import REF, candidate  # noqa: E402
+from tests.support.espn import REF, candidate  # noqa: E402
 
 
 def main():
