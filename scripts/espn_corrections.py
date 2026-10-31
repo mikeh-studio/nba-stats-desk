@@ -6,8 +6,8 @@ import copy
 from datetime import date, datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from scripts import espn_only_store as only
 from scripts import espn_sources as source
+from scripts.espn_payload import source_input
 from scripts.gamebook_sources import season_bounds
 from scripts.gamebook_store import canonical, require
 from scripts.parse_gamebooks import sha
@@ -37,7 +37,7 @@ def normalize(payload, game, layer):
         selected["boxscore"] = payload["boxscore"]
     if layer == "pbp":
         selected["plays"] = payload["plays"]
-    captured = only.source_input(selected)
+    captured = source_input(selected)
     confirmed = source.event_game(
         captured["header"], game["season"], date.fromisoformat(game["date"])
     )
@@ -57,6 +57,8 @@ def normalize(payload, game, layer):
         result["result_revision"] = revision(normalize(payload, game, "result"))
         result["players"] = source.normalize_box(captured, game, [])
     if layer == "pbp":
+        from scripts import espn_pbp_contract as only
+
         reconciled = only.normalize(captured, game)
         result.update(
             box_revision=revision(normalize(payload, game, "box")),

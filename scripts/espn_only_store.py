@@ -2,116 +2,12 @@
 
 from __future__ import annotations
 
-import copy
 from uuid import uuid4
 
-from scripts import espn_sources as source
+from scripts.espn_payload import source_input  # noqa: F401
+from scripts.espn_pbp_contract import VERSION, normalize, validate  # noqa: F401
 from scripts.espn_store import ESPNStore
-from scripts.gamebook_store import canonical, require
-from scripts.parse_gamebooks import sha
-
-VERSION = "espn-only/1"
-
-
-def source_input(payload):
-    """Keep only fields needed for reproducible event and box reconciliation."""
-    header = payload["header"]
-    competition = header["competitions"]
-    require(len(competition) == 1, "Ambiguous competition")
-    comp = competition[0]
-    result = {
-        "header": {
-            "id": header["id"],
-            "season": header["season"],
-            "competitions": [
-                {
-                    "id": comp["id"],
-                    "date": comp["date"],
-                    "status": {"type": comp["status"]["type"]},
-                    "competitors": [
-                        {
-                            "homeAway": t["homeAway"],
-                            "score": t["score"],
-                            "team": {k: t["team"][k] for k in ("id", "abbreviation")},
-                        }
-                        for t in comp["competitors"]
-                    ],
-                }
-            ],
-        },
-        "boxscore": {"players": []},
-        "plays": [],
-    }
-    for team in payload["boxscore"]["players"]:
-        groups = []
-        for group in team["statistics"]:
-            groups.append(
-                {
-                    "labels": group["labels"],
-                    "athletes": [
-                        {
-                            "athlete": {
-                                k: a["athlete"][k] for k in ("id", "displayName")
-                            },
-                            "didNotPlay": a["didNotPlay"],
-                            "stats": a.get("stats", []),
-                        }
-                        for a in group["athletes"]
-                    ],
-                }
-            )
-        result["boxscore"]["players"].append(
-            {
-                "team": {k: team["team"][k] for k in ("id", "abbreviation")},
-                "statistics": groups,
-            }
-        )
-    for play in payload["plays"]:
-        row = {
-            k: play[k]
-            for k in (
-                "id",
-                "text",
-                "scoringPlay",
-                "scoreValue",
-                "homeScore",
-                "awayScore",
-            )
-        }
-        row.update(
-            period={"number": play["period"]["number"]},
-            clock={"displayValue": play["clock"]["displayValue"]},
-            team={"id": play.get("team", {}).get("id")},
-            participants=[
-                {"athlete": {"id": pid}}
-                for pid in sorted(
-                    {p["athlete"]["id"] for p in play.get("participants", [])}
-                )
-            ],
-        )
-        result["plays"].append(row)
-    return copy.deepcopy(result)
-
-
-def normalize(payload, game):
-    captured = source_input(payload)
-    candidate = source.normalize_summary(captured, game, [])
-    candidate.update(
-        schema_version=VERSION,
-        nba_game_id=None,
-        reconciliation_status="reconciled",
-        pdf_validation={"status": "not_attempted", "matches": []},
-        reconciliation_input=captured,
-    )
-    return candidate
-
-
-def validate(candidate):
-    require(candidate["schema_version"] == VERSION, "Wrong ESPN-only schema")
-    # Recompute from preserved PBP and box inputs: do not trust status flags/counts.
-    expected = normalize(candidate["reconciliation_input"], candidate["game"])
-    require(candidate == expected, "ESPN-only candidate differs from recomputed source")
-    return sha(canonical(candidate).encode())
+from scripts.gamebook_store import require
 
 
 class ESPNOnlyStore(ESPNStore):
