@@ -11,9 +11,9 @@ from app.agent import intelligence_contract as api
 from app.agent.runtime_policy import configure_runtime_policy
 from app.repository import BigQueryWarehouseRepository
 from fastapi.testclient import TestClient
+from tests.support.semantic import settings
 from tests.test_reference_intelligence import source
 from tests.test_runtime_policy import Authority, policy, response, sdk
-from tests.test_semantic_migration import settings
 
 
 class Provider:

@@ -380,7 +380,11 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
         "metric_definitions": summaries[0]["metric_definitions"],
         "assumptions": [
             f"Shared dates: {scope['start']} through {scope['end']}; {' + '.join(scope['phases'])}.",
-            f"Percentiles use all eligible players in these dates and phases, minimum {contract.min_games} games and complete data per metric. They are not head-to-head win probabilities.",
+            (
+                f"Percentiles use all eligible players in these dates and phases, minimum {contract.min_games} games and complete data per metric. They are not head-to-head win probabilities."
+                if evidence.cohort_complete
+                else "This comparison uses captured appearances only. League ranks and percentiles are withheld because league coverage is incomplete; small samples do not establish season-long performance."
+            ),
             "Missing components withhold comparison edges and percentiles. Partial averages show their valid-game sample.",
             f"Source: {evidence.source}; snapshot {evidence.snapshot_id}. Warehouse coverage is not independent proof of complete NBA coverage.",
             "Comparisons describe recorded box-score production, not isolated player impact.",
@@ -388,6 +392,7 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
         ],
         "semantic_evidence": {
             "kind": "player_comparison",
+            "cohort_complete": evidence.cohort_complete,
             "scope": {
                 k: str(v) if isinstance(v, date) else v
                 for k, v in scope.items()

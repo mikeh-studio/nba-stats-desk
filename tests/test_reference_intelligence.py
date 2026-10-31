@@ -9,7 +9,7 @@ from app.agent.conversation import InMemoryConversationStore
 from app.agent.observability import AgentTrace
 from app.agent.service import StatsAgent
 from fastapi.testclient import TestClient
-from tests.test_semantic_migration import Warehouse, settings
+from tests.support.semantic import Warehouse, settings
 
 
 def source():

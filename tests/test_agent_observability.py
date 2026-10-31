@@ -76,7 +76,7 @@ def test_cache_does_not_rebill_warehouse_and_metadata_is_private_safe():
     from app.agent.execution import request_policy
     from app.agent.semantic_serving import SemanticWarehouse
     from app.agent.semantic_source import BigQuerySemanticSource
-    from tests.test_agent_service import _settings
+    from tests.support.agent import _settings
     from tests.test_semantic_source import Client
 
     trace = AgentTrace("id", "private", "model")
@@ -109,7 +109,7 @@ def test_failed_warehouse_attempt_is_recorded_without_error_body():
     from app.agent.semantic_source import BigQuerySemanticSource
     from app.agent.semantics import SemanticError
     from google.api_core.exceptions import Forbidden
-    from tests.test_agent_service import _settings
+    from tests.support.agent import _settings
     from tests.test_semantic_source import Client
 
     trace = AgentTrace("id", "private", "model")
@@ -124,7 +124,7 @@ def test_failed_warehouse_attempt_is_recorded_without_error_body():
 
 def test_metadata_truncation_is_visible():
     from app.agent.execution import record_data_read, request_policy
-    from tests.test_agent_service import _settings
+    from tests.support.agent import _settings
 
     trace = AgentTrace("id", "private", "model")
     with request_policy(_settings(), "openai", trace):
@@ -172,7 +172,7 @@ def test_shared_byte_budget_survives_optional_deadline_scope():
         request_policy,
         warehouse_budget,
     )
-    from tests.test_agent_service import _settings
+    from tests.support.agent import _settings
 
     with request_policy(_settings(), "openai"):
         with optional_model_budget(1):

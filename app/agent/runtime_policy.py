@@ -42,6 +42,8 @@ class RuntimePolicy:
     source_policy: Any = None
     endpoint: str = "https://api.openai.com/v1"
     on_wire_attempt: Callable[[dict[str, Any]], None] | None = None
+    # Trusted local assembly only; never enabled by a request or environment file.
+    on_request_event: Callable[[str, Any], None] | None = None
 
     def __post_init__(self):
         for value in (self.max_model_calls, self.max_output_tokens):
@@ -56,10 +58,13 @@ class RuntimePolicy:
                 raise ValueError("Runtime authority is incomplete")
 
     def validate_settings(self, settings):
+        from app.agent.espn_review_policy import ESPNReviewPolicy
+
+        espn_review = type(self.source_policy) is ESPNReviewPolicy
         if (
             settings.agent_history_enabled
             or settings.agent_trace_enabled
-            or settings.ask_local_espn_dev
+            or settings.ask_local_espn_dev != espn_review
             or settings.ask_serving_mode != "off"
             or settings.agent_position_context_path is not None
         ):
@@ -84,6 +89,16 @@ CURRENT_ADMISSION: ContextVar[RuntimeAdmission | None] = ContextVar(
 
 def get_runtime_policy() -> RuntimePolicy | None:
     return _SCOPED_POLICY.get() or _PROCESS_POLICY
+
+
+def observe_request(event: str, trace: Any) -> None:
+    policy = get_runtime_policy()
+    if policy is not None and policy.on_request_event is not None:
+        try:
+            policy.on_request_event(event, trace)
+        except Exception:
+            # Observability cannot alter admission, source policy or delivery.
+            pass
 
 
 def configure_runtime_policy(policy: RuntimePolicy | None) -> None:

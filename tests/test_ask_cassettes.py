@@ -253,7 +253,17 @@ assert len(errors)==5
     subprocess.run([sys.executable, "-c", code], check=True)
 
 
-def test_semantic_clock_does_not_replace_real_date():
+def test_semantic_clock_does_not_replace_real_date(monkeypatch):
+    from datetime import datetime, timezone
+
+    from app.agent import request_journal
+
+    operational_time = datetime(2026, 10, 30, 12, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        request_journal,
+        "datetime",
+        SimpleNamespace(now=lambda tz: operational_time),
+    )
     assert today() == date.today()
     token = semantic_date.set(date(2020, 1, 2))
     try:
@@ -261,6 +271,7 @@ def test_semantic_clock_does_not_replace_real_date():
         from app.agent.time_defaults import resolve_time_defaults
 
         assert "January 2020" in resolve_time_defaults("Avery in January")[0]
+        assert request_journal.now() == operational_time.isoformat()
     finally:
         semantic_date.reset(token)
     assert today() == date.today()
@@ -332,8 +343,8 @@ def test_budget_exhaustion_is_sticky(tmp_path):
 def test_visualization_fallback_cannot_hide_miss(tmp_path):
     from app.agent.execution import create_response
     from app.agent.visualization import VisualizationAgent, study_charts
+    from tests.support.semantic import settings
     from tests.test_research_insights import presentation_study
-    from tests.test_semantic_migration import settings
 
     path = record(tmp_path)
     replay = CassetteStore(path, "replay", BINDING)
@@ -462,8 +473,8 @@ def test_terminal_response_metadata_failure_survives_replay(tmp_path, metadata, 
 def test_optional_visualization_fallback_retains_incomplete_attempt(tmp_path):
     from app.agent.execution import create_response
     from app.agent.visualization import VisualizationAgent, study_charts
+    from tests.support.semantic import settings
     from tests.test_research_insights import presentation_study
-    from tests.test_semantic_migration import settings
 
     response = SimpleNamespace(
         output_text="truncated JSON",
@@ -544,12 +555,25 @@ def test_semantic_clock_ast_inventory():
         if path.name in allow:
             continue
         tree = ast.parse(path.read_text())
+        # Approve only the journal's UTC timestamp helper, not the whole module:
+        # a newly introduced semantic-date read elsewhere must still fail.
+        metadata_calls = {
+            id(call)
+            for function in tree.body
+            if path.name == "request_journal.py"
+            and isinstance(function, ast.FunctionDef)
+            and function.name == "now"
+            for call in ast.walk(function)
+            if isinstance(call, ast.Call)
+            and ast.unparse(call) == "datetime.now(timezone.utc)"
+        }
         assert not [
             n.lineno
             for n in ast.walk(tree)
             if isinstance(n, ast.Call)
             and isinstance(n.func, ast.Attribute)
             and n.func.attr in {"today", "now"}
+            and id(n) not in metadata_calls
         ], path
 
 
@@ -794,7 +818,7 @@ def test_trace_only_settings_do_not_change_binding_or_replay(tmp_path):
     from dataclasses import replace
 
     from scripts.ask_eval.cassettes import settings_binding
-    from tests.test_api import _test_settings
+    from tests.support.api import _test_settings
 
     base = _test_settings()
     traced = replace(
@@ -850,7 +874,7 @@ def test_generation_scope_execution_settings_remain_bound(changes):
     from dataclasses import replace
 
     from scripts.ask_eval.cassettes import settings_binding
-    from tests.test_api import _test_settings
+    from tests.support.api import _test_settings
 
     base = _test_settings()
     assert settings_binding(base) != settings_binding(replace(base, **changes))
@@ -885,7 +909,7 @@ def test_default_off_settings_preserve_pre_phase2_cassette_binding():
     from dataclasses import fields, make_dataclass, replace
 
     from scripts.ask_eval.cassettes import settings_binding
-    from tests.test_semantic_migration import settings
+    from tests.support.semantic import settings
 
     config = settings()
     new = {

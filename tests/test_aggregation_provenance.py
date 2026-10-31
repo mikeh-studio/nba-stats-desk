@@ -7,13 +7,50 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from app.agent.semantic_intent import resolve_aggregation_intent
+from app.agent.semantics import SemanticError
 from fastapi.testclient import TestClient
 from scripts.ask_eval.fixtures import frozen_repository
+from tests.support.semantic import settings
 from tests.test_dated_points_default import SOURCE
-from tests.test_semantic_migration import settings
 
 QUESTION = "Casey Orbit points from 2025-03-04 through 2025-03-06 in 2024-25"
 LABELS = ["explicit", "inherited", "omitted", "planner_selected", None]
+INTERVALS = [
+    "from 2025-03-04 through 2025-03-06",
+    "between 2025-03-04 and 2025-03-06",
+    "over 2025-03-04 to 2025-03-06",
+]
+
+
+def base_query(**overrides):
+    return {
+        "metric": "pts",
+        "season": "2024-25",
+        "season_type": "Regular Season",
+        "operation": "summary",
+        "window": "date_range",
+        "start_date": "2025-03-04",
+        "as_of": "2025-03-06",
+        "player_name": "resolved_player_202",
+        "aggregation": "total",
+        "aggregation_source": "explicit",
+        **overrides,
+    }
+
+
+def resolve_intent(question, **overrides):
+    plan = {"status": "query", "message": "", "queries": [base_query(**overrides)]}
+    policy = resolve_aggregation_intent(
+        question,
+        plan,
+        {"Casey Orbit": "recognized_player"},
+        {"recognized_player": "resolved_player_202"},
+        "2024-25",
+        {},
+        True,
+    )
+    return policy, plan
 
 
 @pytest.fixture
@@ -52,19 +89,7 @@ def endpoint_v3():
                 expect_error=False,
                 **overrides,
             ):
-                query = dict(
-                    metric="pts",
-                    season="2024-25",
-                    season_type="Regular Season",
-                    operation="summary",
-                    window="date_range",
-                    start_date="2025-03-04",
-                    as_of="2025-03-06",
-                    player_name="resolved_player_202",
-                    aggregation="total",
-                    aggregation_source="explicit",
-                )
-                query.update(overrides)
+                query = base_query(**overrides)
                 if omit_phase:
                     query.pop("season_type")
                 if omit_label:
@@ -106,22 +131,62 @@ def endpoint_v3():
         app.dependency_overrides.update(previous)
 
 
-@pytest.mark.parametrize("transport", ["json", "sse"])
 @pytest.mark.parametrize("value", ["total", "average", "unspecified"])
 @pytest.mark.parametrize("label", LABELS)
+@pytest.mark.parametrize("interval", INTERVALS)
+def test_omitted_aggregation_policy_matrix(value, label, interval):
+    policy, plan = resolve_intent(
+        QUESTION.replace(INTERVALS[0], interval),
+        aggregation=value,
+        aggregation_source=label,
+    )
+    assert policy["original_aggregation"] == value
+    assert policy["chosen_aggregation"] == "average"
+    assert policy["unit"] == "points per game"
+    assert plan["queries"][0]["aggregation"] == "average"
+    assert "aggregation_source" not in plan["queries"][0]
+    resolution = plan["aggregation_resolution"][0]
+    assert resolution["source"] == "omitted_default"
+    assert resolution["model_aggregation_source"] == label
+
+
+@pytest.mark.parametrize("label", LABELS)
+@pytest.mark.parametrize("value", ["total", "average"])
+@pytest.mark.parametrize("interval", INTERVALS)
+def test_explicit_aggregation_policy_matrix(label, value, interval):
+    question = QUESTION.replace(INTERVALS[0], interval).replace(
+        "points", value + " points"
+    )
+    policy, plan = resolve_intent(question, aggregation=value, aggregation_source=label)
+    assert policy is None
+    assert plan["queries"][0]["aggregation"] == value
+    assert plan["aggregation_resolution"][0]["source"] == "explicit"
+    assert plan["aggregation_resolution"][0]["model_aggregation_source"] == label
+    with pytest.raises(SemanticError, match="contradicts the current request"):
+        resolve_intent(
+            question,
+            aggregation="average" if value == "total" else "total",
+            aggregation_source=label,
+        )
+
+
+# API cases retain every value/label combination and both transports. Rotate
+# wording instead of multiplying the endpoint grid by every equivalent phrase;
+# the complete wording cross product remains in the policy matrices above.
+@pytest.mark.parametrize("transport", ["json", "sse"])
 @pytest.mark.parametrize(
-    "interval",
+    "value,label,interval",
     [
-        "from 2025-03-04 through 2025-03-06",
-        "between 2025-03-04 and 2025-03-06",
-        "over 2025-03-04 to 2025-03-06",
+        (value, label, INTERVALS[(value_index + label_index) % len(INTERVALS)])
+        for value_index, value in enumerate(["total", "average", "unspecified"])
+        for label_index, label in enumerate(LABELS)
     ],
 )
 def test_omitted_aggregation_is_server_owned(
     endpoint_v3, transport, value, label, interval
 ):
     payload = endpoint_v3(
-        QUESTION.replace("from 2025-03-04 through 2025-03-06", interval),
+        QUESTION.replace(INTERVALS[0], interval),
         transport,
         aggregation=value,
         aggregation_source=label,
@@ -139,14 +204,19 @@ def test_omitted_aggregation_is_server_owned(
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
-@pytest.mark.parametrize("label", LABELS)
-@pytest.mark.parametrize("value,expected", [("total", 3), ("average", 1.5)])
 @pytest.mark.parametrize(
-    "interval",
+    "value,expected,label,interval",
     [
-        "from 2025-03-04 through 2025-03-06",
-        "between 2025-03-04 and 2025-03-06",
-        "over 2025-03-04 to 2025-03-06",
+        (
+            value,
+            expected,
+            label,
+            INTERVALS[(value_index + label_index) % len(INTERVALS)],
+        )
+        for value_index, (value, expected) in enumerate(
+            [("total", 3), ("average", 1.5)]
+        )
+        for label_index, label in enumerate(LABELS)
     ],
 )
 def test_explicit_values_survive_inaccurate_labels(

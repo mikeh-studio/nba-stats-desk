@@ -20,7 +20,7 @@ from app.agent.runtime_policy import (
     runtime_policy_scope,
 )
 from openai import OpenAI
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 
 class Authority:

@@ -292,6 +292,11 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             "The requested period starts before available 2023–24 coverage.",
         )
     return dict(
+        window_kind=(
+            "date_range"
+            if explicit or trailing or calendar_scope or recent or first
+            else "season"
+        ),
         comparison_intent=comparison,
         recent_appearances=10 if recent else None,
         first_appearances=2 if first else None,
@@ -523,6 +528,19 @@ def build_overview(question, evidence, players, scope, selected=None):
             ):
                 baseline_covered = False
     grain = scope.get("chart_grain", "daily" if (end - start).days < 31 else "monthly")
+    if (
+        own
+        and scope.get("window_kind") == "season"
+        and (
+            (
+                max(date.fromisoformat(str(r["game_date"])) for r in own)
+                - min(date.fromisoformat(str(r["game_date"])) for r in own)
+            ).days
+            < 31
+        )
+    ):
+        grain = "daily"
+    scope = {**scope, "chart_grain": grain}
     metrics, charts = [], []
     grouped = defaultdict(list)
     for row in current:
@@ -586,7 +604,9 @@ def build_overview(question, evidence, players, scope, selected=None):
     from app.agent.overview_percentiles import add_percentiles
 
     cohort = grouped if evidence.cohort_complete else {}
-    add_percentiles(metrics + extra, cohort, player["player_id"], contract.min_games)
+    add_percentiles(
+        metrics + extra, cohort, player["player_id"], contract.min_games, own_rows=own
+    )
     add_position_comparisons(
         metrics + extra,
         cohort,

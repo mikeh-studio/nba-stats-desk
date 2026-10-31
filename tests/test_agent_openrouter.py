@@ -7,8 +7,8 @@ from app.agent.openrouter_client import OpenRouterResponsesClient
 from app.agent.service import AgentDisabledError, StatsAgent
 from jsonschema import ValidationError
 from openai.types.chat import ChatCompletion
-from tests.test_agent_service import AgentServiceFakeRepository, _settings
-from tests.test_api import FakeOpenAIClient, _test_settings, build_client
+from tests.support.agent import AgentServiceFakeRepository, _settings
+from tests.support.api import FakeOpenAIClient, _test_settings, build_client
 
 MODEL = "deepseek/deepseek-v4.1-flash"
 FORMAT = {

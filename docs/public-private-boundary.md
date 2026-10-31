@@ -49,6 +49,12 @@ direct-local predicate; remote requests are simply not captured. Records hold
 bounded, redacted projections and stay out of Git. See
 [trace storage and deletion](operations.md#private-local-ask-traces).
 
+An explicitly assembled [local request journal](operations.md#local-ask-request-journal)
+can record bounded, redacted queries alongside operational usage/cost fields.
+It is separate from service logs and full debug traces, has no public API, and
+must remain outside Git and deployment artifacts. The runtime callback is a
+trusted startup hook; browser requests cannot enable it or select its file path.
+
 ## Ask ingress
 
 Run `python -m app` or pass `--no-proxy-headers` to Uvicorn so the app sees the

@@ -60,6 +60,11 @@ make airflow-unpause
 
 ### Daily Local Scheduler
 
+For a personal project that only needs weekly updates, use the
+[weekly one-shot worker](weekly-refresh.md). It prepares a Sunday morning
+LaunchAgent and checks season preservation before installation. The legacy
+daily scheduler below remains available; do not run both against the same data.
+
 For a hands-off local setup on macOS, install a LaunchAgent generated for the
 current checkout. It starts the Airflow scheduler at login, keeps it alive, and
 writes scheduler logs under ignored local `logs/` files:
@@ -719,6 +724,47 @@ Provider API references:
 - https://developers.openai.com/api/reference/python/resources/models/methods/list
 - https://platform.claude.com/docs/en/api/models/list
 
+## Local Ask request journal
+
+The trusted local runtime can attach `RequestJournal.observe` using
+`RuntimePolicy.on_request_event` and wrap its ASGI app in
+`RequestJournalMiddleware`. This is explicit startup configuration, off by
+default; requests and environment files cannot activate it. Full private traces
+and history can remain disabled. Direct-local ingress uses the same socket,
+Host/Origin and forwarding-header checks as private traces.
+
+The journal is a private append-only JSONL file: `request_started` and
+`request_completed` share a `journal_id`; completed traces also have the app's
+server-generated `request_id`. A start without a completion indicates unfinished
+work, including process loss. Completion waits for both the transport and worker
+telemetry, retaining late usage after disconnects. Invalid bodies and pre-trace
+rejections are recorded without inventing missing query text. Remote requests
+are not captured. No historical requests are backfilled.
+
+Completion records contain UTC timestamps, bounded query text (2000 characters),
+selected provider/model, actual models/call counts, canonical question route and
+outcome, HTTP status, total/processing duration, input/output/cached/reasoning
+tokens, usage completeness and estimated model cost in USD. Pre-route question
+types are explicitly marked as inferred. Recognizable secrets and personal paths
+are redacted; this is best effort, so the entire ledger remains private.
+Prompts, response bodies, credentials and raw exception messages are excluded.
+Ordinary content-free service summaries remain unchanged.
+
+Cost calculation reuses the price-injected evaluator with exact model matching,
+usage completeness and cache accounting. The rate source, as-of date and input
+rates are stored in each record. Missing usage/pricing is null, never $0; no-model
+requests have zero model cost. Estimates exclude warehouse, ingestion, storage,
+hosting, taxes and account discounts. Startup warehouse captures are not charged
+again to every Ask request. Update verified rates in the trusted launcher when
+changing model or pricing tier; no price is inferred from a model family name.
+
+The directory must be owned by the current user with mode 0700 and the single-link
+regular file must be 0600. Symlink paths and simultaneous writers are refused.
+Writes are locked and synced; logging failures emit only
+`request_journal_write_failed` and do not alter answers. This initial ledger has no
+automatic retention deletion or public read endpoint. Keep it outside Git and
+deployment uploads; retention and backups are local operator responsibilities.
+
 ## Private local Ask traces
 
 Set `AGENT_TRACE_ENABLED=true` only for local diagnosis. The default is false.
@@ -814,6 +860,16 @@ Existing destination datasets cause refusal, including partial runs. Keep failed
 copies for inspection; do not delete or retry over them automatically. Stop if
 any validation fails, the source changes, or time travel is unavailable. No
 manifest means the archive has not passed publication validation.
+
+For an inspected partial copy, explicit operator recovery is available with
+`--publish --writers-stopped --resume-snapshot-ms ORIGINAL_SNAPSHOT_MS`.
+Recover that exact timestamp from the original successful copy job's source
+table decorator, and audit destination objects before proceeding. Recovery never
+overwrites existing tables or views: it verifies copied tables against the
+original snapshot, requires current source fingerprints to remain identical,
+copies only missing objects, and still publishes the manifest last. Unexpected
+objects, a pre-existing manifest, changed sources or mismatched copies stop it.
+The ordinary command continues to refuse existing destinations.
 
 After publication, grant the app principal dataset read access to the archived
 gold, agent, and metadata datasets. With the rollover app running locally against
