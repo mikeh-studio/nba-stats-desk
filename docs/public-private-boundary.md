@@ -6,29 +6,43 @@ a standalone reference planner. Model-backed planning can be supplied by an opti
 installed provider through the [provider contract](intelligence-contract.md); the
 app runs fully without one.
 
-## Showcase ownership amendment: acquisition and unified-data Phases 1–2
+## Acquisition and unified data development boundary
 
-Production acquisition/recovery and the unified-data Phase 1–2 implementation
-have private forward-development ownership. Their exact file inventory and
-transfer plan are maintained in the private product repository. This policy
-amendment accompanies a privately validated offline transfer. It removes no public
-compatibility files and changes no source guard, application behavior, source
-access, scheduler, warehouse or dependency pin.
+The [exact public source-path map](acquisition-development-boundary.json) identifies
+compatibility-only acquisition/unified paths and shared source guards. It contains
+no private implementation or destinations. Production forward development at
+compatibility-only paths belongs privately; existing public code is retained.
+Shared public runtime guards and contracts have one public development authority.
+Necessary correctness/security maintenance remains reviewable here.
 
-The existing public baseline remains available and unchanged by the transfer.
-The private implementation is not automatically selected by any public reader or
-scheduler. Necessary baseline correctness and security fixes remain reviewable
-here; new production acquisition and unified
-data enhancements are not public by default. UI, serving, dbt, reference planning,
-generic evaluation infrastructure and existing documentation remain public for
-this slice; their retention is not approval for every future product enhancement.
+Public main and the [disclosed draft checkpoint #112](https://github.com/mikeh-studio/nba-stats-desk/pull/112)
+are separate trees. Paths marked draft-only are already disclosed, but are not
+part of main and receive no blanket merge exception. The private extraction's
+historical source is distinct from its supported public dependency. This policy
+changes no source guard, app behavior, source access, scheduler, warehouse, host
+lock or dependency pin, and removes no public code.
 
-The intended public showcase consists of reviewed screenshots, high-level
-engineering case studies and selected runnable synthetic examples. No new sample
-or extraction is approved for publication by this amendment. Do not copy private
-implementation or private planning records into public documentation or fixtures.
-Previously published versions remain disclosed. Source guards must remain
-effective in both retained public execution and any later private implementation.
+Public UI, serving, dbt models, reference behavior and shared interfaces retain
+public ownership. Acquisition orchestration helpers such as `dags/dbt_builds.py`,
+`dags/nba_pipeline.py`, `dags/publication.py`, `dags/warehouse_stages.py` and
+`dags/season_config.py` are separately classified in the map; retaining dbt models
+does not assign all orchestration forward development to public.
+
+Run `scripts/check_acquisition_boundary.py --base BASE_SHA` to compare a proposed
+change with its reviewed base. Restricted file changes require an exact
+before/after hash and a correctness/security or approved public-promotion reason
+in [the maintenance record](acquisition-maintenance.json). Stale records fail.
+Existing restrictions cannot be silently removed or reclassified. The check
+reports policy-file changes for human review; it cannot establish the truth of
+a maintenance reason or authorize publication. Contributor-written dispositions
+are proposals. Human approval of the entire exact public diff remains mandatory.
+The initial introduction of this map is explicitly reported as policy bootstrap.
+
+The intended showcase consists of reviewed screenshots, high-level case studies
+and individually approved synthetic examples. Do not copy private plans, source,
+evaluation material or operational evidence into public files. Previously
+disclosed history remains public. Public removal and runtime migration remain
+separately reviewed actions.
 
 Operational data never belongs in Git, public or private: raw conversations, user
 feedback, traces, real evaluation captures, credentials, warehouse exports,

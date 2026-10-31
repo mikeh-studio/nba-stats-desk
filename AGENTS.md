@@ -10,14 +10,15 @@ continue; shared requirements must work in a fresh clone.
   reference planner. Model-backed planning lives in an optional installed provider
   (see the [provider contract](docs/intelligence-contract.md)). Follow the
   [boundary policy](docs/public-private-boundary.md).
-- The showcase ownership amendment assigns production-development
-  ownership of acquisition and unified-data Phases 1–2 to the private product
-  repository. Its offline implementation is transferred privately; existing
-  public implementation stays as the unchanged compatibility baseline. Do not
-  publish new production acquisition/recovery or unified-layer enhancements by
-  default; retain source guards and runtime behavior.
-  Public UI, serving, dbt and reference behavior remain unchanged in this slice.
-  Synthetic showcase examples require a separately reviewed exact public diff.
+- Follow the exact [acquisition development boundary](docs/acquisition-development-boundary.json).
+  Production acquisition/unified enhancements at compatibility-only paths develop
+  privately. Public source guards retain public authority and remain fixable.
+  The disclosed draft #112 is an extraction checkpoint, not the public-main
+  compatibility baseline or a blanket publication exception. Retain current app,
+  source guards and scheduler behavior. Changes to restricted paths require an
+  exact maintenance disposition and human review; passing CI grants no publication.
+  Public UI, dbt models and shared interfaces retain public ownership. Pipeline
+  orchestration paths have the separate classifications in the path map.
 - Keep credentials, raw conversations, feedback, and exports out of Git.
   Keep provider catalog checks local; do not add provider keys to CI for them.
 
