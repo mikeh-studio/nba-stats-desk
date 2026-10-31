@@ -10,6 +10,17 @@ continue; shared requirements must work in a fresh clone.
   reference planner. Model-backed planning lives in an optional installed provider
   (see the [provider contract](docs/intelligence-contract.md)). Follow the
   [boundary policy](docs/public-private-boundary.md).
+- Follow the exact [acquisition development boundary](docs/acquisition-development-boundary.json).
+  Production acquisition/unified enhancements at compatibility-only paths develop
+  privately. Public source guards retain public authority and remain fixable.
+  The disclosed draft #112 is an extraction checkpoint, not the public-main
+  compatibility baseline or a blanket publication exception. Retain current app,
+  source guards and scheduler behavior. Changes to compatibility-only paths require an
+  exact maintenance disposition and human review. Shared guard changes use ordinary
+  public review/tests and are reported without private maintenance records. Passing
+  CI grants no publication.
+  Public UI, dbt models and shared interfaces retain public ownership. Pipeline
+  orchestration paths have the separate classifications in the path map.
 - Keep credentials, raw conversations, feedback, and exports out of Git.
   Keep provider catalog checks local; do not add provider keys to CI for them.
 

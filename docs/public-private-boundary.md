@@ -1,10 +1,57 @@
 # Public / Private Boundary
 
-This repository is the complete public platform: ingestion, contracts, dbt models,
+This repository retains the existing public platform: ingestion, contracts, dbt models,
 the web app, Ask orchestration, deterministic rendering, the evaluation harness and
 a standalone reference planner. Model-backed planning can be supplied by an optional
 installed provider through the [provider contract](intelligence-contract.md); the
 app runs fully without one.
+
+## Acquisition and unified data development boundary
+
+The [exact public source-path map](acquisition-development-boundary.json) identifies
+compatibility-only acquisition/unified paths and shared source guards. It contains
+no private implementation or destinations. Production forward development at
+compatibility-only paths belongs privately; existing public code is retained.
+Shared public runtime guards and contracts have one public development authority.
+Necessary correctness/security maintenance remains reviewable here.
+
+Public main and the [disclosed draft checkpoint #112](https://github.com/mikeh-studio/nba-stats-desk/pull/112)
+are separate trees. The map’s `presence_at_snapshot` describes membership only at its exact
+`main_snapshot`; `absent_from_main_snapshot` makes no claim about moving main.
+All entries were disclosed in that checkpoint, which receives no blanket merge
+exception. The private extraction's
+historical source is distinct from its supported public dependency. This policy
+changes no source guard, app behavior, source access, scheduler, warehouse, host
+lock or dependency pin, and removes no public code.
+
+Public UI, serving, dbt models, reference behavior and shared interfaces retain
+public ownership. Acquisition orchestration helpers such as `dags/dbt_builds.py`,
+`dags/nba_pipeline.py`, `dags/publication.py`, `dags/warehouse_stages.py` and
+`dags/season_config.py` are separately classified in the map; retaining dbt models
+does not assign all orchestration forward development to public.
+
+Run `scripts/check_acquisition_boundary.py --base BASE_SHA` to compare a proposed
+change with its reviewed base. Only compatibility-only file changes require an exact
+before/after hash and a correctness/security or approved public-promotion reason
+in [the maintenance record](acquisition-maintenance.json). Missing or mismatched
+records for those changed paths fail; unused historical records are reported and
+authorize nothing. Shared public guards may receive normal feature work under
+ordinary public review and tests; the check reports these changes without requiring
+a private-maintenance record.
+Snapshot values and membership are validated against the declared immutable Git
+tree, and the snapshot must be an ancestor of the reviewed base commit. This
+uses the supplied base rather than moving live main. Presence metadata can be
+refreshed without changing ownership; ownership restrictions cannot be silently removed or reclassified. The check
+reports policy-file changes in the Actions step summary for human review; it cannot establish the truth of
+a maintenance reason or authorize publication. Contributor-written dispositions
+are proposals. Human approval of the entire exact public diff remains mandatory.
+The initial introduction of this map is explicitly reported as policy bootstrap.
+
+The intended showcase consists of reviewed screenshots, high-level case studies
+and individually approved synthetic examples. Do not copy private plans, source,
+evaluation material or operational evidence into public files. Previously
+disclosed history remains public. Public removal and runtime migration remain
+separately reviewed actions.
 
 Operational data never belongs in Git, public or private: raw conversations, user
 feedback, traces, real evaluation captures, credentials, warehouse exports,
