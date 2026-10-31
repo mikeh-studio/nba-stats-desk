@@ -1,9 +1,19 @@
 """Exact maintenance records flag restricted changes without claiming approval."""
 
 import copy
+import importlib.util
+from pathlib import Path
 
 import pytest
-from scripts.check_acquisition_boundary import digest, validate
+
+# Load this standalone checker independently of other tests' sys.path changes.
+_spec = importlib.util.spec_from_file_location(
+    "acquisition_boundary_under_test",
+    Path(__file__).resolve().parents[1] / "scripts/check_acquisition_boundary.py",
+)
+_boundary = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_boundary)
+digest, validate = _boundary.digest, _boundary.validate
 
 
 def test_boundary_changes_require_exact_records_and_keep_human_review():
