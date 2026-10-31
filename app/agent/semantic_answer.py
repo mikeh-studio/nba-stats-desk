@@ -662,6 +662,35 @@ class SemanticAsk:
         from app.agent.availability_ask import wants_availability
         from app.agent.research_ask import refusal
 
+        if getattr(self.settings, "ask_local_espn_dev", False):
+            from app.agent.captured_scoring import answer_captured_scoring
+
+            try:
+                captured = answer_captured_scoring(
+                    question,
+                    self.warehouse,
+                    self.settings.season,
+                    render_answer,
+                    conversation_id,
+                )
+            except SemanticError as exc:
+                captured = route_hint(
+                    _payload(str(exc), exc.code),
+                    route="governed_metrics",
+                    source="deterministic",
+                )
+            if captured is not None:
+                if trace:
+                    trace.set_plan(route="governed_metrics", confidence=1.0)
+                    trace.outcome = (
+                        "clarified"
+                        if captured["status"] == "clarification_required"
+                        else "answered"
+                        if captured["status"] == "ok"
+                        else captured["status"]
+                    )
+                return captured
+
         if wants_availability(question):
             return route_hint(
                 refusal(
@@ -1171,13 +1200,20 @@ class SemanticAsk:
                     }
                     dev_phase_notice = "This preview covers regular-season box scores only; this overview uses the regular season."
                 if not evidence.cohort_complete and (
-                    comparison
-                    or split
+                    split
                     or position_group
                     or re.search(
-                        r"\b(rank|rankings|percentiles?|baseline|cohort|peers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
+                        r"\b(rank|rankings|percentiles?|baseline|cohort|peers|other players|league average)\b",
                         question,
                         re.I,
+                    )
+                    or (
+                        not comparison
+                        and re.search(
+                            r"\b(compar(?:e[sd]?|ing|isons?)|versus|vs)\b",
+                            question,
+                            re.I,
+                        )
                     )
                 ):
                     raise SemanticError(
