@@ -1,10 +1,34 @@
 # Public / Private Boundary
 
-This repository is the complete public platform: ingestion, contracts, dbt models,
+This repository retains the existing public platform: ingestion, contracts, dbt models,
 the web app, Ask orchestration, deterministic rendering, the evaluation harness and
 a standalone reference planner. Model-backed planning can be supplied by an optional
 installed provider through the [provider contract](intelligence-contract.md); the
 app runs fully without one.
+
+## Showcase ownership amendment: acquisition and unified-data Phases 1–2
+
+Production acquisition/recovery and the unified-data Phase 1–2 implementation
+have private forward-development ownership. Their exact file inventory and
+transfer plan are maintained in the private product repository. This policy
+amendment accompanies a privately validated offline transfer. It removes no public
+compatibility files and changes no source guard, application behavior, source
+access, scheduler, warehouse or dependency pin.
+
+The existing public baseline remains available and unchanged by the transfer.
+The private implementation is not automatically selected by any public reader or
+scheduler. Necessary baseline correctness and security fixes remain reviewable
+here; new production acquisition and unified
+data enhancements are not public by default. UI, serving, dbt, reference planning,
+generic evaluation infrastructure and existing documentation remain public for
+this slice; their retention is not approval for every future product enhancement.
+
+The intended public showcase consists of reviewed screenshots, high-level
+engineering case studies and selected runnable synthetic examples. No new sample
+or extraction is approved for publication by this amendment. Do not copy private
+implementation or private planning records into public documentation or fixtures.
+Previously published versions remain disclosed. Source guards must remain
+effective in both retained public execution and any later private implementation.
 
 Operational data never belongs in Git, public or private: raw conversations, user
 feedback, traces, real evaluation captures, credentials, warehouse exports,
