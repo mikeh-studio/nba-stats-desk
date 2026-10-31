@@ -1,6 +1,6 @@
 {
   "schema": "acquisition-development-boundary/1",
-  "scope": "Exact source paths; no private destinations or implementation details. Existing public compatibility is retained.",
+  "scope": "Exact ownership paths. Presence describes only main_snapshot, not moving public main or the current PR #112 ref.",
   "disclosed_checkpoint": "https://github.com/mikeh-studio/nba-stats-desk/pull/112",
   "main_snapshot": "070f213cca72339752256bc2fd4f1c743cf283fa",
   "paths": [
@@ -8,1045 +8,1045 @@
       "path": "app/agent/espn_dev_source.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/espn_review_policy.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/agent/plan_execution.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/runtime_policy.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/scope_policy.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/semantic_answer.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/semantic_source.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/semantics.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/serving_runtime.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/agent/source_policy.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "app/data/unified/__init__.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/artifacts.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/date_review.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/espn.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/evaluation.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/freshness.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/historical.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/identity.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/ledger.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/pdf_checks.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/selection.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/snapshot.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "app/data/unified/store.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/espn_player_catalog.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/espn_reviewed_player_mappings.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/game_line_scores.yml",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/game_logs.yml",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/gamebook_bigquery.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/gamebook_storage.sql",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/injury_reports.yml",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/player_reference.yml",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/player_shot_locations.yml",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/schedule.yml",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "contracts/unified_data/espn-retained-game.schema.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/unified_data/evaluation-metrics.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/unified_data/ledger.schema.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/unified_data/nba-archive-date-review.schema.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/unified_data/nba-archive-game.schema.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/unified_data/observation.schema.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "contracts/unified_data/source-selection-policy.json",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "dags/dbt_builds.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/nba_analytics_dag.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/nba_espn_dev_dag.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/nba_gamebook_dev_dag.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/nba_pipeline.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/nba_pipeline_triage.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/nba_source_contracts.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/optional_assets.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/publication.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/run_results.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/season_config.py",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/source_landing.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "dags/warehouse_stages.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/espn-corrections-dev.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/espn-dev-pilot.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/espn-only-dev.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/game-mapping-recovery.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "docs/gamebook-cloud.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/gamebook-ingestion.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/gamebook-retrieval.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/gamebook-storage.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/play-by-play-alternatives.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "docs/unified-data-offline.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "docs/unified-reconciliation.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "docs/unified-source-selection.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "docs/weekly-refresh.md",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/airflow_live_validate.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/airflow_local_settings.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/archive_season_copy.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/backfill_historical_seasons.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/backfill_injury_reports.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/build_gamebook_identity_map.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/capture_context_injuries.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/check_unified_pdfs.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/espn_box_refresh.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/espn_corrections.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_coverage.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/espn_game_mapping_recovery.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/espn_game_mapping_weekly.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/espn_identity.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_ingestion.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_layer_ingestion.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_layer_store.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_only_ingestion.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_only_store.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_payload.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/espn_pbp_contract.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/espn_pbp_probe.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_sources.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/espn_store.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/evaluate_unified_coverage.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/fetch_gamebook_identities.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/fetch_gamebooks.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/gamebook_cloud.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/gamebook_ingestion.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/gamebook_pair_report.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/gamebook_publication.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/gamebook_sources.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/gamebook_store.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/gamebook_warehouse_discovery.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/historical_sources.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/install_airflow_launch_agent.sh",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/install_weekly_refresh.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/normalize_historical_observations.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/normalize_unified_observations.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/parse_gamebooks.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/promote_game_log_repair.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/repair_availability_evidence.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/repair_context_snapshot.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/repair_game_schedule.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/select_unified_sources.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "scripts/stage_game_log_repair.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/start_airflow_scheduler.sh",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/verify_espn_game_ids.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "scripts/weekly_refresh.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "season.yml",
       "maintenance": "shared_guard",
       "forward_development": "public",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/espn_cloud_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/espn_identity_cloud_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/espn_layer_cloud_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/espn_only_cloud_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/gamebook_airflow_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/gamebook_automation_cloud_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/gamebook_cloud_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/gamebook_storage_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/support/espn.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/support/historical.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_airflow_live_validate.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_archive_recovery.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_context_data_repair.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_dbt_builds.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_espn_box_refresh.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_espn_corrections.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_espn_coverage.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_espn_dag.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_espn_game_ids.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_espn_game_mapping_recovery.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_espn_game_mapping_weekly.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_espn_identity.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_espn_only.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_espn_pbp_probe.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_espn_pilot.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_game_log_repair_stage.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_assists.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_cloud.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_dag.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_identity_map.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_ingestion.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_publication.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_retrieval.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_storage.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_gamebook_warehouse_discovery.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_historical_seasons.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_incremental_pipeline.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_injury_backfill.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_pipeline_triage.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_publication.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_repair_game_schedule.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_repair_promotion.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_rollover_review_fixes.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_run_results.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_season_rollover.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_source_contracts.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_source_landing.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_unified_date_review.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_espn.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_evaluation.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_evaluation_review.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_freshness.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_historical.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_historical_cli.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_pdf_checks.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_unified_selection.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
       "path": "tests/test_warehouse_stages.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "public_main"
+      "presence_at_snapshot": "public_main"
     },
     {
       "path": "tests/test_weekly_refresh.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",
-      "presence": "disclosed_draft_112_only"
+      "presence_at_snapshot": "absent_from_main_snapshot"
     }
   ]
 }

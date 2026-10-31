@@ -35,7 +35,7 @@ jobs:
       - name: Check acquisition maintenance boundary
         env:
           BOUNDARY_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: python scripts/check_acquisition_boundary.py --base "$BOUNDARY_BASE"
+        run: python scripts/check_acquisition_boundary.py --base "$BOUNDARY_BASE" --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
