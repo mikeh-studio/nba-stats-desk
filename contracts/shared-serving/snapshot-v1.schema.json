@@ -1,0 +1,339 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "snapshot_id",
+    "projection_version",
+    "metric_semantics",
+    "metric_semantics_id",
+    "scope",
+    "lineage",
+    "clocks",
+    "freshness_policy_id",
+    "capabilities",
+    "shards",
+    "row_count",
+    "dependency_ids"
+  ],
+  "properties": {
+    "schema": {
+      "const": "nba_shared_serving_snapshot/1"
+    },
+    "snapshot_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "projection_version": {
+      "const": "affirmative-played-pts/2"
+    },
+    "metric_semantics": {
+      "const": {
+        "metric_id": "pts",
+        "components": [
+          "pts"
+        ],
+        "unit": "count",
+        "aggregation_rule_id": "selected_pts_sum_or_valid_appearance_average/1",
+        "appearance_rule_id": "affirmative_played_canonical_player_game/1",
+        "null_policy_id": "missing_component_is_unknown/1",
+        "precision_rule_id": "finite_nonnegative_integer_count/1",
+        "supported_aggregations": [
+          "total",
+          "average"
+        ]
+      }
+    },
+    "metric_semantics_id": {
+      "const": "25cda7c21a78367d4faa59e6a183a89ea6ac8f854d71ef88f0ad2a742752ecd2"
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "season",
+        "phase",
+        "start_date",
+        "end_date",
+        "as_of",
+        "cutoff"
+      ],
+      "properties": {
+        "season": {
+          "const": "2025-26"
+        },
+        "phase": {
+          "const": "Regular Season"
+        },
+        "start_date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cutoff": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_inventory_id",
+        "identity_id",
+        "selection_id",
+        "policy_id",
+        "coverage_id",
+        "final_capability_id"
+      ],
+      "properties": {
+        "source_inventory_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "identity_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "selection_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "policy_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "coverage_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "final_capability_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "clocks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_captured_at",
+        "discovered_at",
+        "revalidated_at",
+        "reviewed_at",
+        "hard_expiry"
+      ],
+      "properties": {
+        "source_captured_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "discovered_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "revalidated_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "hard_expiry": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "freshness_policy_id": {
+      "const": "historical-integrity/1"
+    },
+    "capabilities": {
+      "const": {
+        "metric_id": "pts",
+        "aggregations": [
+          "total",
+          "average"
+        ],
+        "observed_sample": true,
+        "cohort_complete": false,
+        "runtime_eligible": false
+      }
+    },
+    "shards": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "byte_count",
+          "row_count",
+          "min_date",
+          "max_date"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "pattern": "^facts/[0-9]{6}\\.json$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "byte_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 52428800
+          },
+          "row_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          },
+          "min_date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          },
+          "max_date": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+          }
+        }
+      }
+    },
+    "row_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100000
+    },
+    "dependency_ids": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 512,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9a-f]{64}$"
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nba-stats-desk.local/contracts/shared-serving/snapshot-v1.schema.json",
+  "title": "Offline observed PTS snapshot, version 1",
+  "$defs": {
+    "row": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "season",
+        "phase",
+        "game_id",
+        "player_id",
+        "team_id",
+        "game_date",
+        "played",
+        "pts",
+        "minutes"
+      ],
+      "properties": {
+        "season": {
+          "const": "2025-26"
+        },
+        "phase": {
+          "const": "Regular Season"
+        },
+        "game_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+        },
+        "player_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "team_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.:-]{1,64}$"
+        },
+        "game_date": {
+          "type": "string",
+          "format": "date",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+        },
+        "played": {
+          "const": true
+        },
+        "pts": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "minutes": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1000
+        }
+      }
+    },
+    "shard": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100000,
+      "items": {
+        "$ref": "#/$defs/row"
+      }
+    }
+  },
+  "$comment": "Canonical UTF-8 JSON, cross-field hashes/counts/order/date bounds, duplicate JSON keys, and trusted authority/freshness checks are additionally enforced by app.serving. Schema validity grants no permission or runtime eligibility. Integer fields additionally require JSON integer tokens (1.0 is rejected); policy may only tighten schema budgets."
+}

@@ -841,6 +841,7 @@ def test_thin_focus_uses_one_warning_and_no_filler_takeaways(evidence):
     ],
 )
 def test_conversational_defaults_answer_json_and_sse(evidence, question):
+    from app.agent.clock import semantic_date
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
@@ -855,6 +856,8 @@ def test_conversational_defaults_answer_json_and_sse(evidence, question):
         load=lambda seasons: ({"capture": {}}, evidence)
     )
     old = dict(app.dependency_overrides)
+    # Relative questions use the synthetic snapshot's calendar, not the CI date.
+    calendar_token = semantic_date.set(date(2026, 10, 12))
     app.dependency_overrides.update(
         {
             get_settings: lambda: config,
@@ -893,6 +896,7 @@ def test_conversational_defaults_answer_json_and_sse(evidence, question):
                     assert pts["value"] == 20
                     assert len(payload["period_options"]) == 2
     finally:
+        semantic_date.reset(calendar_token)
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)
 
