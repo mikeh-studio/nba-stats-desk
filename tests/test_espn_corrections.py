@@ -11,8 +11,7 @@ from scripts.espn_corrections import (
     validate,
 )
 from scripts.espn_sources import scoreboard
-
-from test_espn_pilot import DAY, SEASON, fixtures
+from tests.support.espn import DAY, SEASON, fixtures
 
 
 def inputs():

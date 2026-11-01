@@ -10,8 +10,8 @@ from app.agent.semantic_serving import (
 )
 from app.agent.semantics import SemanticError
 from app.agent.service import StatsAgent
+from tests.support.semantic import Model, Warehouse, settings
 from tests.test_research_api import research_client as _research_client
-from tests.test_semantic_migration import Model, Warehouse, settings
 
 research_client = _research_client
 

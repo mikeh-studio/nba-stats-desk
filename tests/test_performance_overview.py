@@ -61,6 +61,20 @@ def scope():
     )
 
 
+def test_scope_distinguishes_season_routing_bounds_from_explicit_dates():
+    seasonal = overview_scope(
+        "overview in the 2026-27 regular season", "2026-27", date(2026, 10, 28)
+    )
+    explicit = overview_scope(
+        "overview from 2026-07-01 through 2026-10-28 regular season",
+        "2026-27",
+        date(2026, 10, 28),
+    )
+    assert seasonal["window_kind"] == "season"
+    assert explicit["window_kind"] == "date_range"
+    assert seasonal["start"] == explicit["start"] == date(2026, 7, 1)
+
+
 def test_calendar_scope_includes_baseline_seasons_and_both_phases():
     s = scope()
     assert (s["start"], s["end"]) == (date(2025, 9, 13), date(2026, 9, 12))
@@ -112,6 +126,20 @@ def test_missing_values_are_not_zero_or_qualified(evidence):
     assert "5/6 valid appearances" in row[5]
     assert len(result["charts"]) == 4
     assert "2.0 steals" not in result["answer"]
+
+
+def test_partial_cohort_keeps_own_game_distributions_without_enabling_ranks(evidence):
+    from dataclasses import replace
+
+    partial = replace(evidence, cohort_complete=False)
+    result = build_overview(
+        "Player 1 performance", partial, source_players(partial), scope()
+    )
+    points = result["semantic_evidence"]["metrics"][0]
+    assert points["percentile"] is None
+    assert points["distribution"]["among_players"]["summary"]["n"] == 0
+    assert points["distribution"]["across_games"]["summary"]["n"] == 6
+    assert len(points["distribution"]["across_games"]["points"]) == 6
 
 
 def test_duplicate_names_require_selection_or_chat(evidence):
@@ -417,7 +445,7 @@ def test_historical_playoff_year_is_not_default_season():
 @pytest.mark.parametrize(
     "question,grain",
     [
-        ("How well did Player 1 play in the 2025-26 playoffs?", "monthly"),
+        ("How well did Player 1 play in the 2025-26 playoffs?", "daily"),
         ("How did Player 1 perform in November 2025?", "daily"),
         ("How did Player 1 perform week of 2025-11-01?", "daily"),
         (
@@ -430,7 +458,7 @@ def test_three_paragraph_overview_json_and_stream_agree(evidence, question, grai
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
-    from tests.test_semantic_migration import settings
+    from tests.support.semantic import settings
 
     config = settings("2025-26")
     repo = BigQueryWarehouseRepository(config, client=SimpleNamespace())
@@ -845,7 +873,7 @@ def test_conversational_defaults_answer_json_and_sse(evidence, question):
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
-    from tests.test_semantic_migration import settings
+    from tests.support.semantic import settings
 
     for row in evidence.rows:
         if row["player_id"] == 1:

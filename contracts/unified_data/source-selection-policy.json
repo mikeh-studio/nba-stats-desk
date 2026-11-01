@@ -1,0 +1,19 @@
+{
+  "version": "unified_source_selection/1",
+  "phase_zero_policy": "unified_policy/1.0.0",
+  "mode": "single_provider_per_season_phase",
+  "allow_fallback": false,
+  "allow_mixed_games": false,
+  "scopes": [
+    {
+      "season": "2025-26",
+      "phase": "Regular Season",
+      "provider": "nba_api"
+    },
+    {
+      "season": "2026-27",
+      "phase": "Regular Season",
+      "provider": "espn"
+    }
+  ]
+}

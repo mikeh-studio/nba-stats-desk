@@ -115,15 +115,9 @@ def summarize_workload(
     allocated = 0.0 if bigquery_billing == "on_demand" else capacity_cost
     costs = [r.get("variable_request_estimate") for r in requests]
     success = sum(r.get("success") is True for r in requests)
-    complete = bool(requests) and all(
-        v is not None
-        for v in costs + [refresh_cost, storage_cost, hosting_cost, allocated]
-    )
-    total = (
-        sum(costs) + refresh_cost + storage_cost + hosting_cost + allocated
-        if complete
-        else None
-    )
+    components = costs + [refresh_cost, storage_cost, hosting_cost, allocated]
+    complete = bool(requests) and all(v is not None for v in components)
+    total = sum(v for v in components if v is not None) if complete else None
     return dict(
         attempts=len(requests),
         successes=success,

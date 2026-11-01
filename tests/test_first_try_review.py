@@ -23,8 +23,8 @@ from app.main import app, get_agent_client, get_repository, get_settings
 from app.repository import BigQueryWarehouseRepository
 from fastapi.testclient import TestClient
 from tests.semantic_intent_fixtures import migrate_legacy_plan
+from tests.support.semantic import Warehouse, settings
 from tests.test_first_try_defaults import rank
-from tests.test_semantic_migration import Warehouse, settings
 from tests.test_semantic_source import Client as SourceClient
 from tests.test_semantic_source import source_rows
 from tests.test_serving_bigquery import Client, wire

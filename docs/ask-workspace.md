@@ -149,6 +149,10 @@ The scorecard shares one date/phase scope and one qualified cohort per metric
 across points, rebounds, assists, steals and blocks. Minutes and sample sizes
 come from the same appearances. Differences use unrounded averages; missing
 components withhold edges and percentiles rather than becoming zero.
+For partial ESPN captures, the same scorecard uses recorded appearances with
+individual sample counts and an explicit partial-coverage notice. League ranks,
+percentiles and peer distributions stay withheld. The head-to-head table does not
+apply league qualification minimums to the displayed individual averages.
 
 Unavailable winning-impact measures are omitted from the comparison UI and
 analysis. The governed player-game source has no connected Win Shares or on/off
@@ -1114,6 +1118,41 @@ restrictions described above.
 
 ## Metric result vocabulary
 
+Overview reading order is profile/scope, summary, Key Metrics, an always-visible
+**Performance Over Time** section, then collapsed **View Other Metrics**. There is
+no Samples & Methodology disclosure or repeated Limited badge. Appearance counts
+remain in the profile; a metric using fewer observations says, for example,
+“2 of 3 appearances”. Source coverage and ranking qualification guards remain.
+
+Season overviews spanning fewer than 31 days of actual recorded appearances use
+game-level trends, even when the internal season filter begins in July. A companion
+boxplot uses server-authored per-game quartiles: middle 50% box, median line,
+minimum/maximum whiskers and individual recorded-game dots. It is descriptive,
+including for small samples. The box summarizes every valid appearance; at most
+40 latest dots are displayed and truncation is disclosed. Empty game evidence
+produces no boxplot; a saved monthly average is never converted into invented games.
+Metric switching updates both plots and their source bindings. Own-game evidence
+is independent of league-cohort completeness: partial ESPN captures can show game
+distributions while league ranks/percentiles remain withheld. Backend evidence,
+sample assessments and methodology remain available for audit.
+
+Overview/comparison regular-season windows display official opening night and the
+selected query cutoff, such as “Oct 20, 2026 – Oct 28, 2026”. The cutoff does not
+assert source completeness or the date of the last game. July–June bounds are internal warehouse
+routing bounds, not the first/last dates of basketball games. New scopes distinguish
+season windows from explicit date ranges; custom and appearance windows retain
+their exact dates. Saved annual scopes receive the same opening-date presentation.
+Profile, follow-up context, comparison and drawer labels share this formatting
+with their claim schemas. Evidence filters and statistical values are unchanged.
+Opening dates are season-specific and sourced from official NBA schedule releases:
+[2023–24](https://www.nba.com/news/2023-24-nba-regular-season-schedule),
+[2024–25](https://pr.nba.com/2024-25-nba-regular-season-schedule/),
+[2025–26](https://www.nba.com/news/2025-26-nba-regular-season-schedule), and
+[2026–27](https://pr.nba.com/2026-27-nba-regular-season-schedule).
+Unknown seasons and playoff-only windows keep a season label rather than borrowing
+another season or phase's opening date. Before opening night, the label says the
+season has yet to start; it never displays a reversed date range.
+
 Governed metric tables use a display-only vocabulary in `semantic_presentation.js`.
 Headings name the statistic, aggregation and ranking direction. Period subtitles
 format the selected cutoff as “Through Apr 12, 2026”; this is not a refresh date
@@ -1121,6 +1160,19 @@ or proof of full-season coverage. Qualification counts and attempt minimums stay
 visible. Identical observed/valid game counts collapse into “Games played”; partial
 coverage shows “Games used” as, for example, “62 of 64”. League percentile stays
 secondary and its expandable explanation names the qualifying group and direction.
+Standard answer tables hide columns whose displayed rows are all unavailable,
+including rank and league percentile. Zero is available data; mixed columns retain
+their unavailable cells. The percentile explanation is omitted with its column.
+Player overviews apply the same rule independently to the primary and additional
+metrics tables, including averages, league percentiles and changes. Stat labels
+remain single-line without standalone Distribution buttons; the always-visible
+trend and game-spread plots provide the primary game-distribution view. Qualified
+percentile cells retain their existing detail interaction when present.
+Comparison scorecards, summary areas, precision and detail tables evaluate each
+player/percentile/gap column independently. Sample and source caveats remain.
+Renderers and claim schemas share the visibility policy; visible cells bind by
+column or player-side identity rather than a shifting column position. Hidden
+columns have no expected claim destination and do not alter canonical evidence.
 Shooting percentages, totals, per-game averages, per-36 rates and custom estimates
 retain distinct units. Raw evidence, values, claim bindings and API fields remain
 unchanged, so saved answers can adopt the vocabulary without querying again.

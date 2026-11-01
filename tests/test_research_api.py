@@ -6,7 +6,7 @@ import pytest
 from app import main
 from app.agent import research_ask
 from app.research import ResearchQuery
-from tests.test_api import _test_settings, build_client
+from tests.support.api import _test_settings, build_client
 from tests.test_research import evidence
 from tests.test_teammate_ask import Client
 
@@ -428,7 +428,7 @@ def test_missing_study_trace_is_classified_without_sensitive_content(
 
     from app.agent.observability import AgentTrace
     from app.research_studies import PAIRS, pending
-    from tests.test_agent_service import _settings
+    from tests.support.agent import _settings
 
     trace = AgentTrace("fixture", "private-question", "fixture-model")
     monkeypatch.setattr(research_ask, "catalog", lambda path: [pending(PAIRS[0])])

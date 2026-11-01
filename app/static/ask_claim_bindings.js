@@ -1,5 +1,9 @@
-import {comparisonDistribution, distributionNumber} from "./comparison_distribution.js?v=20261028-comparison-distributions-v1";
-import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261028-comparison-distributions-v1";
+import {comparisonDistribution, distributionNumber} from "./comparison_distribution.js?v=20261030-unified-checkpoint-v1";
+import {boxValue, boxX, boxplotContext, boxPointLabel, boxSample} from "./overview_chart.js?v=20261030-unified-checkpoint-v1";
+import {comparisonLead} from "./comparison_policy.js?v=20261030-unified-checkpoint-v1";
+import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261030-unified-checkpoint-v1";
+import {metricAppearances, overviewTableColumns, comparisonTableColumns, comparisonPrecisionColumns, comparisonDetailColumns} from "./table_visibility.js?v=20261030-unified-checkpoint-v1";
+import {periodRange} from "./period_labels.js?v=20261030-unified-checkpoint-v1";
 // Exact canonical evidence -> final DOM relationships; rendered text is never an oracle.
 export const UI_CLAIM_VERSION = "ask_ui_claim_bindings/1";
 const finite = Number.isFinite,
@@ -91,6 +95,10 @@ export function formatClaim(v, f, c = {}) {
   const m = c.metric || {},
     e = c.evidence || {};
   switch (f) {
+    case "box-value": return boxValue(v);
+    case "box-point": return boxPointLabel(v);
+    case "box-sample": return boxSample(boxplotContext(m));
+    case "box-geometry": return String(c.width ? Math.max(1,boxX(v,c)-boxX(c.q1,c)) : boxX(v,c));
     case "abbreviation":
       return (
         {
@@ -156,7 +164,7 @@ export function formatClaim(v, f, c = {}) {
     case "overview-value":
       return (
         (finite(v) ? num(v, 1, true) + suffix(m.unit || "per game") : "—") +
-        (m.sample?.status === "limited" ? " Limited" : "")
+        (metricAppearances(m) ? " " + metricAppearances(m) : "")
       );
     case "overview-value-aria":
       return finite(v)
@@ -208,9 +216,9 @@ export function formatClaim(v, f, c = {}) {
     case "comparison-margin":
       return `+${num(Math.abs(v))}`;
     case "scope":
-      return `${e.scope.phases.join(" + ")} · ${date(e.scope.start)} – ${date(e.scope.end)}`;
+      return `${e.scope.phases.join(" + ")} · ${periodRange(e.scope)}`;
     case "overview-scope":
-      return `Versus ${(e.scope.previous_phases || e.scope.phases).join(" + ")} · ${date(e.scope.previous_start)} – ${date(e.scope.previous_end)}`;
+      return `Versus ${(e.scope.previous_phases || e.scope.phases).join(" + ")} · ${periodRange(e.scope, true)}`;
     case "detail-value":
       return (
         num(v) +
@@ -231,7 +239,7 @@ export function formatClaim(v, f, c = {}) {
     case "drawer-title":
       return `${m.display_label || m.label} · ${c.name}`;
     case "drawer-scope":
-      return `${date(e.scope.start)} – ${date(e.scope.end)} · ${e.scope.phases.join(" + ")}`;
+      return `${periodRange(e.scope)} · ${e.scope.phases.join(" + ")}`;
     case "drawer-value":
       return fmt(v, m.unit);
     case "drawer-count":
@@ -388,7 +396,8 @@ export function claimSchema(payload, component, options = {}) {
             .filter((i) => i >= 0)
         : e.metrics.map((_, i) => i),
       extra = e.metrics.map((_, i) => i).filter((i) => !primary.includes(i));
-    [primary, extra].forEach((indices, group) =>
+    [primary, extra].forEach((indices, group) => {
+      const columns = overviewTableColumns(indices.map(i => e.metrics[i]));
       indices.forEach((i, ri) => {
         const m = e.metrics[i],
           p = base.concat("metrics", i),
@@ -401,19 +410,21 @@ export function claimSchema(payload, component, options = {}) {
           "abbreviation",
           c,
         );
-        add(`${s} > td:nth-child(2)`, p.concat("value"), "overview-value", c);
-        add(
-          `${s} > td:nth-child(2)`,
-          p.concat("value"),
-          "overview-value-aria",
-          c,
-          "aria-label",
-        );
-        const change = m.sample ? "display_change" : "change";
-        if (Object.hasOwn(m, change)) {
-          add(`${s} > td:nth-child(4)`, p.concat(change), "change", c);
+        if (columns.includes('value')) {
+          add(`${s} > td[data-column="value"]`, p.concat("value"), "overview-value", c);
           add(
-            `${s} > td:nth-child(4)`,
+            `${s} > td[data-column="value"]`,
+            p.concat("value"),
+            "overview-value-aria",
+            c,
+            "aria-label",
+          );
+        }
+        const change = m.sample ? "display_change" : "change";
+        if (columns.includes('change') && Object.hasOwn(m, change)) {
+          add(`${s} > td[data-column="change"]`, p.concat(change), "change", c);
+          add(
+            `${s} > td[data-column="change"]`,
             p.concat(change),
             "change-aria",
             c,
@@ -435,20 +446,23 @@ export function claimSchema(payload, component, options = {}) {
             c,
           );
         }
-      }),
-    );
-    add(":scope > .metric-comparison", base.concat("scope"), "overview-scope");
+      });
+    });
+    if (overviewTableColumns(e.metrics).includes('change'))
+      add(":scope > .metric-comparison", base.concat("scope"), "overview-scope");
   }
   if (component === "comparison") {
+    const columns = comparisonTableColumns(e.metrics);
+    const precisionColumns = comparisonPrecisionColumns(e.metrics);
     add(":scope > .metric-comparison", base.concat("scope"), "scope");
-    names.forEach((_, i) =>
-      add(
+    names.forEach((_, i) => {
+      if (columns.includes(i === 0 ? 'left' : 'right') || columns.includes(i === 0 ? 'left_percentile' : 'right_percentile')) add(
         `.h2h-table thead th.h2h-name-${i === 0 ? "a" : "b"}`,
         ["player_profiles", i, "player", "player_name"],
         "text",
         { side: i },
-      ),
-    );
+      );
+    });
     e.metrics.forEach((m, i) => {
       const p = base.concat("metrics", i),
         r = `.h2h-table tbody tr:nth-child(${i + 1})`;
@@ -465,7 +479,7 @@ export function claimSchema(payload, component, options = {}) {
             side,
             player: names[j],
           };
-        add(
+        if (columns.includes(side)) add(
           `${r} .h2h-player-${cell} .h2h-num`,
           p.concat(side, "value"),
           "comparison-value",
@@ -497,10 +511,11 @@ export function claimSchema(payload, component, options = {}) {
     e.metrics.forEach((m, i) => {
       const p = base.concat("metrics", i), r = `.comparison-precision tbody tr:nth-child(${i + 1})`;
       add(`${r} > th`, p.concat("key"), "abbreviation", {metricKey: m.key, metricIndex: i});
-      ["left", "right"].forEach((side) => add(`${r} > td[data-side="${side}"]`, p.concat(side, "value"), "comparison-precision", {metric: m[side], metricKey: m.key, metricIndex: i, side}));
-      add(`${r} > .precision-gap`, p.concat("delta"), "comparison-precision-gap", {metric: m, metricKey: m.key, metricIndex: i});
+      ["left", "right"].filter(side => precisionColumns.includes(side)).forEach((side) => add(`${r} > td[data-side="${side}"]`, p.concat(side, "value"), "comparison-precision", {metric: m[side], metricKey: m.key, metricIndex: i, side}));
+      if (precisionColumns.includes('gap')) add(`${r} > .precision-gap`, p.concat("delta"), "comparison-precision-gap", {metric: m, metricKey: m.key, metricIndex: i});
     });
-    (e.comparison_sections || []).forEach((section, si) =>
+    (e.comparison_sections || []).forEach((section, si) => {
+      const detailColumns = comparisonDetailColumns(section.metrics);
       section.metrics.forEach((m, i) => {
         const p = base.concat("comparison_sections", si, "metrics", i),
           r = `[data-comparison-section-index="${si}"] tbody tr:nth-child(${i + 1})`;
@@ -508,16 +523,16 @@ export function claimSchema(payload, component, options = {}) {
           unit: m.unit,
           metricKey: m.key,
         });
-        ["left", "right"].forEach((side, j) =>
+        ["left", "right"].filter(side => detailColumns.includes(side)).forEach((side) =>
           add(
-            `${r} > td:nth-child(${j + 2})`,
+            `${r} > td[data-side="${side}"]`,
             p.concat(side, "value"),
             "detail-value",
             { metric: m[side], unit: m.unit, metricKey: m.key, side },
           ),
         );
-      }),
-    );
+      });
+    });
     let shown = 0;
     (e.impact || []).forEach((m, i) => {
       if (!finite(m.left) || !finite(m.right)) return;
@@ -756,106 +771,25 @@ export function claimSchema(payload, component, options = {}) {
         );
       });
     });
-    const vi = e.insights?.findIndex((v) => v.game_variation),
-      v = vi >= 0 ? e.insights[vi].game_variation : null;
-    if (v) {
-      const mi = e.metrics.findIndex((m) => m.key === v.metric_key),
-        m = e.metrics[mi],
-        games = m?.distribution?.across_games,
-        stats = v.summary;
-      if (
-        games?.points?.some(
-          (p) => finite(p.value) && Number.isFinite(Date.parse(p.date)),
-        ) &&
-        stats &&
-        [stats.min, stats.max, stats.median, stats.q1, stats.q3].every(finite)
-      ) {
-        const sp = base.concat("insights", vi, "game_variation", "summary"),
-          r = "[data-game-variation]",
-          c = { min: stats.min, max: stats.max, q3: stats.q3 };
-        const points = games.points
-            .map((point, index) => ({ point, index }))
-            .filter(
-              ({ point }) =>
-                finite(point.value) && Number.isFinite(Date.parse(point.date)),
-            ),
-          times = points.map(({ point }) => Date.parse(point.date)),
-          low = Math.min(...times),
-          high = Math.max(...times);
-        points.forEach(({ point, index }, shown) => {
-          const pp = base.concat(
-              "metrics",
-              mi,
-              "distribution",
-              "across_games",
-              "points",
-              index,
-            ),
-            sel = `${r} svg > circle:nth-of-type(${shown + 1})`,
-            context = { ...c, low, high, metricKey: m.key, label: m.label };
-          add(`${sel} > title`, pp, "variation-point-label", context);
-          add(sel, pp.concat("date"), "variation-point-x", context, "cx");
-          add(
-            sel,
-            pp.concat("value"),
-            "variation-geometry",
-            { ...context, coordinate: "y" },
-            "cy",
-          );
-          add(sel, pp.concat("value"), "variation-point-radius", context, "r");
-          add(
-            sel,
-            pp.concat("value"),
-            "variation-point-color",
-            context,
-            "fill",
-          );
-        });
-        [0, points.length - 1].forEach((shown, label) =>
-          add(
-            `${r} svg > text:nth-of-type(${label + 1})`,
-            base.concat(
-              "metrics",
-              mi,
-              "distribution",
-              "across_games",
-              "points",
-              points[shown].index,
-              "date",
-            ),
-            "text",
-          ),
-        );
-        add(`${r} svg > text:nth-of-type(3)`, sp.concat("max"), "text");
-        add(`${r} svg > text:nth-of-type(4)`, sp.concat("min"), "text");
-        add(
-          `${r} svg > rect`,
-          sp.concat("q3"),
-          "variation-geometry",
-          { ...c, coordinate: "y" },
-          "y",
-        );
-        add(
-          `${r} svg > rect`,
-          sp.concat("q1"),
-          "variation-geometry",
-          { ...c, coordinate: "height" },
-          "height",
-        );
-        ["y1", "y2"].forEach((attr) =>
-          add(
-            `${r} svg > line`,
-            sp.concat("median"),
-            "variation-geometry",
-            { ...c, coordinate: attr },
-            attr,
-          ),
-        );
-        add(`${r} > .meta`, sp.concat("n"), "variation-count", {
-          truncated: !!games.points_truncated,
-          displayed: games.displayed_games,
-        });
-      }
+
+  }
+  if (component === "overview" && options.chartKey) {
+    const i = e.metrics.findIndex(m => m.key === options.chartKey);
+    const m = e.metrics[i], c = boxplotContext(m);
+    if (c) {
+      const p = base.concat("metrics", i, "distribution", "across_games"), sp = p.concat("summary");
+      const r = '[data-overview-performance] .overview-boxplot';
+      const context = {metric:m,metricIndex:i,metricKey:m.key,lo:c.lo,hi:c.hi,q1:c.summary.q1};
+      for (const key of ['min','q1','median','q3','max']) add(`${r} [data-box-stat="${key}"]`,sp.concat(key),'box-value',context);
+      add(`${r} .box-sample`,sp.concat('n'),'box-sample',context);
+      const coords = [['[data-box-range]','x1','min'],['[data-box-range]','x2','max'],['[data-box-min]','x1','min'],['[data-box-min]','x2','min'],['[data-box-max]','x1','max'],['[data-box-max]','x2','max'],['[data-box-middle]','x','q1'],['[data-box-middle]','width','q3'],['[data-box-median]','x1','median'],['[data-box-median]','x2','median']];
+      coords.forEach(([sel,attribute,key])=>add(`${r} ${sel}`,sp.concat(key),'box-geometry',{...context,width:attribute==='width'},attribute));
+      c.points.forEach(point=>{
+        const path=p.concat('points',point.index), sel=`${r} [data-box-point="${point.index}"]`;
+        add(sel,path.concat('value'),'box-geometry',context,'cx');
+        add(`${sel} > title`,path,'box-point',context);
+        add(sel,path,'box-point',context,'aria-label');
+      });
     }
   }
   return records;

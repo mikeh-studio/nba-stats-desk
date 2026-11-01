@@ -27,7 +27,7 @@ def test_request_formula_flag_is_independent_and_resets():
 
     from app.agent.execution import request_policy
     from app.agent.formulas import FORMULA_CACHE
-    from tests.test_semantic_migration import settings
+    from tests.support.semantic import settings
 
     assert not FORMULA_CACHE.get()
     with request_policy(replace(settings(), ask_formula_cache_enabled=True), "openai"):

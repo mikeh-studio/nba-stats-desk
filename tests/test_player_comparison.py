@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from types import SimpleNamespace
 
@@ -103,6 +104,27 @@ def test_missing_partial_and_zero_data(evidence):
         "Jalen Brunson vs Wemby playoffs", evidence, source_players(evidence), scope()
     )
     assert result["semantic_evidence"]["metrics"][3]["delta"] == 0
+
+
+@pytest.mark.parametrize("missing", [False, True])
+def test_partial_cohort_keeps_game_distributions_and_input_guards(evidence, missing):
+    evidence = replace(evidence, cohort_complete=False)
+    if missing:
+        evidence.rows[0]["pts"] = None
+    result = build_comparison(
+        "Jalen Brunson vs Wemby playoffs", evidence, source_players(evidence), scope()
+    )
+    points = result["semantic_evidence"]["metrics"][0]
+    assert points["delta"] == (None if missing else 1)
+    assert points["left"]["valid_games"] == (5 if missing else 6)
+    assert all(
+        m[side]["percentile"] is None
+        for m in result["semantic_evidence"]["metrics"]
+        for side in ("left", "right")
+    )
+    assert points["left"]["distribution"]["across_games"]["observed_games"] == 6
+    assert points["left"]["distribution"]["among_players"]["summary"]["n"] == 0
+    assert "small samples" in " ".join(result["assumptions"])
 
 
 def test_additional_sections_use_weighted_shooting_and_total_minutes(evidence):

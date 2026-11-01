@@ -1,0 +1,359 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "nba_archive_game/1"
+    },
+    "provider": {
+      "const": "nba_api"
+    },
+    "season": {
+      "const": "2025-26"
+    },
+    "phase": {
+      "const": "Regular Season"
+    },
+    "game": {
+      "type": "object",
+      "properties": {
+        "game_id": {
+          "type": "string",
+          "pattern": "^00225[0-9]{5}$"
+        },
+        "season": {
+          "const": "2025-26"
+        },
+        "game_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "home_team_abbr": {
+          "type": "string"
+        },
+        "away_team_abbr": {
+          "type": "string"
+        },
+        "home_team_pts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "away_team_pts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "is_overtime": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "game_id",
+        "season",
+        "game_date",
+        "home_team_abbr",
+        "away_team_abbr",
+        "home_team_pts",
+        "away_team_pts"
+      ],
+      "additionalProperties": true
+    },
+    "appearances": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "properties": {
+          "game_id": {
+            "type": "string"
+          },
+          "player_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "season": {
+            "const": "2025-26"
+          },
+          "season_type": {
+            "const": "Regular Season"
+          },
+          "game_date": {
+            "type": "string",
+            "format": "date"
+          },
+          "team_abbr": {
+            "type": "string"
+          },
+          "opponent_abbr": {
+            "type": "string"
+          },
+          "home_away": {
+            "enum": [
+              "HOME",
+              "AWAY"
+            ]
+          },
+          "min": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pts": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fgm": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fga": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fg3m": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fg3a": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ftm": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "fta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "oreb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "dreb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "reb": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "ast": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "stl": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "blk": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "tov": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "pf": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "plus_minus": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "game_id",
+          "player_id",
+          "season",
+          "season_type",
+          "game_date",
+          "team_abbr",
+          "opponent_abbr",
+          "home_away",
+          "pts",
+          "fgm",
+          "fg3m",
+          "ftm"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "membership": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "schema_version": {
+              "const": "nba_participants/1"
+            },
+            "game_id": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "object",
+              "properties": {
+                "league": {
+                  "const": "nba"
+                },
+                "season": {
+                  "const": "2025-26"
+                },
+                "phase": {
+                  "const": "Regular Season"
+                },
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "home": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                },
+                "away": {
+                  "type": "string",
+                  "pattern": "^[A-Z]{3}$"
+                }
+              },
+              "required": [
+                "league",
+                "season",
+                "phase",
+                "date",
+                "home",
+                "away"
+              ],
+              "additionalProperties": false
+            },
+            "input_game_hash": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "participants": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 100,
+              "items": {
+                "type": "object",
+                "properties": {
+                  "player_id": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "team": {
+                    "type": "string"
+                  },
+                  "played": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "player_id",
+                  "team",
+                  "played"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "evidence": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "captured_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "kind": {
+                  "enum": [
+                    "archive_snapshot",
+                    "provider_capture",
+                    "reviewed_identity",
+                    "synthetic_fixture"
+                  ]
+                }
+              },
+              "required": [
+                "sha256",
+                "reference",
+                "captured_at",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "schema_version",
+            "game_id",
+            "scope",
+            "input_game_hash",
+            "participants",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "required": [
+    "schema_version",
+    "provider",
+    "season",
+    "phase",
+    "game",
+    "appearances"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nba-stats-desk:nba-archive-game:1",
+  "title": "Retained historical NBA game input"
+}

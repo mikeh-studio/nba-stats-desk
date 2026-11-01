@@ -12,7 +12,7 @@ from app.agent.semantic_answer import SemanticAsk
 from app.agent.semantic_serving import source_players
 from app.agent.semantics import COMPONENTS, Evidence, SemanticError
 from app.agent.service import StatsAgent
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 
 @pytest.fixture

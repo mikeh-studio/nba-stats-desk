@@ -7,8 +7,7 @@ from datetime import date
 import pytest
 from scripts import espn_pbp_probe as probe
 from scripts import espn_sources as source
-
-from test_espn_pilot import DAY, SEASON, fixtures
+from tests.support.espn import DAY, SEASON, fixtures
 
 
 def sample():

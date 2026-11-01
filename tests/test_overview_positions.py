@@ -345,7 +345,7 @@ def test_position_group_at_application_endpoints(
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
-    from tests.test_semantic_migration import settings
+    from tests.support.semantic import settings
 
     grouped, c = fixture(position=position)
     rows = [r for rs in grouped.values() for r in rs]

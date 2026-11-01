@@ -273,6 +273,10 @@ def warehouse_for_repository(repo: Any) -> Any:
             if settings.season != DEFAULT_SEASON:
                 dataset = dataset.removesuffix("_" + settings.season.replace("-", "_"))
             source_class = BigQuerySemanticSource
+            if policy and policy.source_mode == "espn_pinned_review":
+                from app.agent.espn_review_policy import PinnedESPNSource
+
+                source_class = PinnedESPNSource
             if policy and policy.source_mode == "retained_local_review":
                 from app.agent.espn_dev_source import RetainedReviewSource
 

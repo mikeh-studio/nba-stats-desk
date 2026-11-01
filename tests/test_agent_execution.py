@@ -13,7 +13,7 @@ from app.agent.openrouter_client import OpenRouterResponsesClient
 from app.agent.semantic_planner import plan_question
 from app.agent.semantics import SemanticError
 from app.config import OPENROUTER_AGENT_MODEL_VALUES
-from tests.test_agent_service import _settings
+from tests.support.agent import _settings
 
 
 class Clock:
@@ -378,7 +378,7 @@ def test_real_endpoints_preserve_terminal_failure_and_privacy(
 
     from app.main import _season_conversation_store, app
     from scripts.ask_eval.fixtures import frozen_repository, load_inputs
-    from tests.test_api import build_client
+    from tests.support.api import build_client
 
     source, _ = load_inputs(Path(__file__).resolve().parents[1])
     history = tmp_path / "history.jsonl"

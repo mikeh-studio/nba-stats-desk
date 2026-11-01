@@ -8,8 +8,7 @@ from scripts.espn_only_ingestion import read_capture
 from scripts.espn_sources import scoreboard
 from scripts.espn_store import validate as legacy_validate
 from scripts.fetch_gamebooks import digest
-
-from test_espn_pilot import DAY, SEASON, fixtures
+from tests.support.espn import DAY, SEASON, fixtures
 
 
 def candidate():
@@ -91,8 +90,7 @@ def test_failed_validation_preserves_source_input():
 
 def test_pdf_cannot_verify_using_conflicting_player_mapping(tmp_path):
     from scripts.espn_only_ingestion import verify_pdf
-
-    from test_espn_pilot import REF
+    from tests.support.espn import REF
 
     cloud = SimpleNamespace(
         query=lambda *args: [{"source_player_id": "100", "nba_player_id": "99"}],
@@ -166,7 +164,7 @@ def test_enrichment_failure_does_not_gate_valid_facts(tmp_path, monkeypatch, def
     def catalog(*args):
         if defect == "catalog":
             raise SourceUnavailable("synthetic catalog outage")
-        from test_espn_pilot import REF
+        from tests.support.espn import REF
 
         return REF, {"method": "synthetic", "sha256": "synthetic"}
 

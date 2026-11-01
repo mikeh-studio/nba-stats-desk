@@ -14,7 +14,7 @@ from app.agent.semantic_source import snapshot_digest
 from app.agent.semantics import COMPONENTS, SemanticError
 from app.availability import compare_availability, load_availability
 from app.research_snapshots import append_snapshot, digest
-from tests.test_api import _test_settings, build_client
+from tests.support.api import _test_settings, build_client
 from tests.test_teammate_ask import Client
 
 
@@ -892,7 +892,7 @@ def test_ordinary_questions_reach_governed_stats_route(bundle, question):
     from types import SimpleNamespace
 
     from app.agent.service import StatsAgent
-    from tests.test_api import FakeRepository
+    from tests.support.api import FakeRepository
 
     agent = StatsAgent(
         settings=_test_settings(
@@ -910,7 +910,7 @@ def test_ordinary_questions_reach_governed_stats_route(bundle, question):
 def test_research_followup_keeps_research_route(bundle, monkeypatch):
     from app.agent import research_ask
     from app.agent.service import StatsAgent
-    from tests.test_api import FakeRepository
+    from tests.support.api import FakeRepository
 
     store = InMemoryConversationStore()
     store.append_turn(

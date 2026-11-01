@@ -9,8 +9,8 @@ from app.agent.semantic_source import BigQuerySemanticSource, snapshot_evidence
 from app.agent.semantics import Query, SemanticError, run_query
 from scripts.espn_corrections import normalize, validate
 from scripts.espn_sources import scoreboard
+from tests.support.espn import DAY, SEASON, fixtures
 
-from test_espn_pilot import DAY, SEASON, fixtures
 from test_semantic_source import Client, source_rows
 
 
@@ -50,6 +50,8 @@ def test_box_evidence_keeps_pending_pbp_separate_and_identity_explicit():
     assert evidence.rows[0]["min"] == 24
     assert evidence.rows[0]["home_away"] == "HOME"
     assert evidence.rows[1]["pts"] == 3
+    assert all(r["dreb"] + r["oreb"] == r["reb"] for r in evidence.rows)
+    assert all("pf" in r for r in evidence.rows)
 
 
 @pytest.mark.parametrize("status", ["stale", "retained_after_failure", "unavailable"])
@@ -131,13 +133,14 @@ def test_rehashed_but_inconsistent_box_is_not_served(change_input):
 
 
 @pytest.mark.parametrize("suffix", ["", "/stream"])
-@pytest.mark.parametrize("kind", ["nba", "league", "baseline", "similarity"])
+@pytest.mark.parametrize(
+    "kind", ["nba", "league", "baseline", "similarity", "comparison", "comparison_rank"]
+)
 def test_partial_source_at_actual_endpoints(suffix, kind):
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
-
-    from test_semantic_migration import settings
+    from tests.support.semantic import settings
 
     value = snapshot(bundle(), SEASON, "synthetic")
     evidence = snapshot_evidence(value)
@@ -149,6 +152,8 @@ def test_partial_source_at_actual_endpoints(suffix, kind):
         "league": "How did Avery Able perform in the league this season?",
         "baseline": "Compare Avery Able points with the league average this season",
         "similarity": "Who is similar to Avery Able this season?",
+        "comparison": "Compare Avery Able and Blake Baker this season",
+        "comparison_rank": "Compare Avery Able and Blake Baker league percentiles this season",
     }[kind]
     previous = dict(app.dependency_overrides)
     app.dependency_overrides.update(
@@ -175,9 +180,40 @@ def test_partial_source_at_actual_endpoints(suffix, kind):
                 result = next(e["payload"] for e in events if e.get("type") == "final")
             else:
                 result = response.json()
-            if kind in {"baseline", "similarity"}:
+            if kind in {"baseline", "similarity", "comparison_rank"}:
                 assert result["status"] == "unsupported_coverage"
                 assert not result["tables"]
+            elif kind == "comparison":
+                assert result["status"] == "ok"
+                ev = result["semantic_evidence"]
+                assert ev["kind"] == "player_comparison"
+                assert ev["cohort_complete"] is False
+                assert ev["scope"]["phases"] == ["Regular Season"]
+                assert [
+                    p["player"]["games_sampled"] for p in result["player_profiles"]
+                ] == [1, 1]
+                points = next(m for m in ev["metrics"] if m["key"] == "pts")
+                assert (
+                    points["left"]["value"],
+                    points["right"]["value"],
+                    points["delta"],
+                ) == (0, 3, -3)
+                assert all(
+                    m[side]["percentile"] is None
+                    for m in ev["metrics"]
+                    for side in ("left", "right")
+                )
+                assert all(
+                    m[side]["distribution"]["among_players"]["summary"]["n"] == 0
+                    for m in ev["metrics"]
+                    for side in ("left", "right")
+                )
+                assert result["source_coverage"]["provider"] == "espn"
+                assert any(
+                    "captured appearances only" in note
+                    for note in result["assumptions"]
+                )
+                assert result["semantic_plan"]["model_calls"] == 0
             else:
                 assert result["status"] == "ok"
                 ev = result["semantic_evidence"]
@@ -268,8 +304,34 @@ def test_local_historical_archive_remains_preferred(season):
     assert "review_metadata" not in value
 
 
-@pytest.mark.parametrize("word", ["compare", "compares", "comparison"])
-def test_partial_preview_refuses_comparisons_before_planning(word):
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Compare Avery Able and Blake Baker this season",
+        "Avery Able vs Blake Baker this season",
+        "How does Avery Able compare to Blake Baker this season?",
+    ],
+)
+def test_partial_preview_allows_named_scorecards_without_model_or_cohort(question):
+    from app.agent.semantic_answer import SemanticAsk
+
+    value = snapshot(bundle(), SEASON, "synthetic")
+    evidence = snapshot_evidence(value)
+    agent = SemanticAsk(
+        SimpleNamespace(season=SEASON, agent_conversation_max_turns=6),
+        SimpleNamespace(load=lambda seasons: (value, evidence)),
+    )
+    result = agent.answer(question, client=None, model="synthetic")
+    assert result["status"] == "ok"
+    assert result["semantic_evidence"]["kind"] == "player_comparison"
+    assert result["semantic_plan"]["model_calls"] == 0
+
+
+@pytest.mark.parametrize(
+    "constraint",
+    ["league rankings", "percentile", "league average", "peers", "baseline"],
+)
+def test_named_scorecard_does_not_bypass_partial_cohort_guards(constraint):
     from app.agent.semantic_answer import SemanticAsk
 
     value = snapshot(bundle(), SEASON, "synthetic")
@@ -279,9 +341,38 @@ def test_partial_preview_refuses_comparisons_before_planning(word):
         SimpleNamespace(load=lambda seasons: (value, evidence)),
     )
     result = agent.answer(
-        f"How does Player One {word} to Player Two this season?",
+        f"Compare Avery Able and Blake Baker {constraint} this season",
         client=None,
         model="synthetic",
     )
     assert result["status"] == "unsupported_coverage"
     assert not result["tables"]
+
+
+def test_provider_missing_minutes_remain_null_without_blocking_counting_stats():
+    data = bundle()
+    candidate = json.loads(data["games"][0]["payload"])
+    candidate["input"]["boxscore"]["players"][0]["statistics"][0]["athletes"][0][
+        "stats"
+    ][0] = "--"
+    updated = normalize(candidate["input"], candidate["game"], "box")
+    data["games"][0]["payload"] = json.dumps(updated)
+    data["games"][0]["box_revision"] = validate(updated)
+    value = snapshot(data, SEASON, "synthetic")
+    evidence = snapshot_evidence(value)
+    row = next(r for r in evidence.rows if r["player_id"] == 10)
+    assert row["min"] is None
+    assert value["review_metadata"]["missing_minutes"] == 1
+    assert "unknown, not zero" in value["limitations"][0]
+    result = run_query(
+        evidence,
+        Query(
+            metric="pts",
+            season=SEASON,
+            aggregation="average",
+            player_id=10,
+            min_games=1,
+        ),
+    )
+    assert result["rows"][0]["value"] == 0
+    assert minutes("--") is None
