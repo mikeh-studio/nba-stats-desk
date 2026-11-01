@@ -2,6 +2,10 @@
 
 
 def contracts(payload):
+    if (payload.get("semantic_evidence") or {}).get("kind") == "observed_pts_shadow":
+        from app.serving.presentation import claim_contracts
+
+        return claim_contracts(payload)
     e = payload.get("semantic_evidence") or {}
     result = {}
 

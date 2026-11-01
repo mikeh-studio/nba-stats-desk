@@ -25,6 +25,7 @@ from app.serving.contract import (
     ServingError,
     canonical_json,
     content_digest,
+    historical_limitations,
     pts_semantics,
 )
 
@@ -366,7 +367,7 @@ class SnapshotHandle:
 
     def _verified(
         self,
-    ) -> tuple[dict[str, Any], tuple[dict[str, Any], ...], FactReadStatus]:
+    ) -> tuple[dict[str, Any], tuple[dict[str, Any], ...], FactReadStatus, datetime]:
         fd: int | None = None
         try:
             fd = _root_fd(self._root)
@@ -405,9 +406,9 @@ class SnapshotHandle:
                     previous = key
                 rows.extend(part)
             _require(len(rows) == manifest["row_count"], "count_mismatch")
-            status, _ = self._authorize(manifest)
+            status, authorized_at = self._authorize(manifest)
             self._pinned = data
-            return manifest, tuple(rows), status
+            return manifest, tuple(rows), status, authorized_at
         except ServingError:
             raise
         except (OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
@@ -416,16 +417,47 @@ class SnapshotHandle:
             if fd is not None:
                 os.close(fd)
 
+    def authorized_snapshot(self) -> dict[str, Any]:
+        """One full verification, with the exact permission decision from that pass."""
+        manifest, _, status, now = self._verified()
+        return {
+            "manifest": copy.deepcopy(manifest),
+            "authority": {
+                "status_id": status.status_id,
+                "status_checked_at": status.checked_at.isoformat(),
+                "freshness_checked_at": now.isoformat(),
+            },
+        }
+
+    def authority_receipt(self) -> dict[str, Any]:
+        return self.authorized_snapshot()["authority"]
+
+    def observed_pts_bundle(self, player_id: int, *, scope: Mapping[str, Any]):
+        """Two PTS aggregates and selected rows from one verified fact image."""
+        manifest, rows, _, _ = self._verified()
+        _require(_integer(player_id, 2147483647) and player_id > 0)
+        _require(dict(scope) == manifest["scope"], "capability_not_evaluated")
+        selected = [r for r in rows if r["player_id"] == player_id]
+        result = {
+            "manifest": copy.deepcopy(manifest),
+            "rows": copy.deepcopy(selected),
+            "aggregates": {
+                mode: _pts_aggregate(selected, mode) for mode in ("total", "average")
+            },
+        }
+        self._authorize(manifest)
+        return result
+
     def describe(self) -> dict[str, Any]:
-        manifest, _, _ = self._verified()
+        manifest, _, _, _ = self._verified()
         return copy.deepcopy(manifest)
 
     def capabilities(self) -> dict[str, Any]:
-        manifest, _, _ = self._verified()
+        manifest, _, _, _ = self._verified()
         return copy.deepcopy({**manifest["capabilities"], "scope": manifest["scope"]})
 
     def read(self) -> tuple[dict[str, Any], ...]:
-        _, rows, _ = self._verified()
+        _, rows, _, _ = self._verified()
         return copy.deepcopy(rows)
 
     def diagnostic(
@@ -436,7 +468,7 @@ class SnapshotHandle:
         scope: Mapping[str, Any] | None = None,
         metric_id: str = "pts",
     ) -> dict[str, Any]:
-        manifest, rows, _ = self._verified()
+        manifest, rows, _, _ = self._verified()
         _require(_integer(player_id, 2147483647) and player_id > 0)
         try:
             _require(
@@ -451,20 +483,8 @@ class SnapshotHandle:
             )
         except Exception:
             raise ServingError("capability_not_evaluated") from None
-        try:
-            metric = load_contract().metric("pts")
-            _require(
-                metric.components == {"pts"}
-                and metric.numerator == "pts"
-                and metric.denominator is None
-                and metric.unit == "count"
-                and metric.aggregations == ("total", "average"),
-                "semantic_mismatch",
-            )
-            selected = [row for row in rows if row["player_id"] == player_id]
-            result = aggregate(selected, metric, aggregation)
-        except Exception:
-            raise ServingError("semantic_mismatch") from None
+        selected = [row for row in rows if row["player_id"] == player_id]
+        result = _pts_aggregate(selected, aggregation)
         status, authorized_at = self._authorize(manifest)
         return {
             **result,
@@ -479,18 +499,21 @@ class SnapshotHandle:
             "cohort_complete": False,
             "freshness_policy_id": FRESHNESS_POLICY_ID,
             "freshness_checked_at": authorized_at.isoformat(),
-            "limitations": ["observed_sample_only", "historical_integrity_only"]
-            + (
-                ["source_capture_clock_unknown"]
-                if manifest["clocks"]["source_captured_at"] is None
-                else []
-            )
-            + (
-                ["discovery_or_revalidation_clock_unknown"]
-                if any(
-                    manifest["clocks"][key] is None
-                    for key in ("discovered_at", "revalidated_at")
-                )
-                else []
-            ),
+            "limitations": historical_limitations(manifest["clocks"]),
         }
+
+
+def _pts_aggregate(rows, aggregation):
+    try:
+        metric = load_contract().metric("pts")
+        _require(
+            metric.components == {"pts"}
+            and metric.numerator == "pts"
+            and metric.denominator is None
+            and metric.unit == "count"
+            and metric.aggregations == ("total", "average"),
+            "semantic_mismatch",
+        )
+        return aggregate(rows, metric, aggregation)
+    except Exception:
+        raise ServingError("semantic_mismatch") from None

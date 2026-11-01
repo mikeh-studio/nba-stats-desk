@@ -159,3 +159,62 @@ atomically. No registry, background watcher, active pointer or new service exist
 Synthetic conformance exercises integrity and refusal behavior. It establishes
 neither retained-source completeness nor real selection/identity/cohort,
 installed application, browser, provider or deployment acceptance.
+
+## Historical PTS shadow adapters (Phase 2)
+
+These explicitly constructed adapters remain offline and unregistered. They are
+not installed application endpoints or a replacement WarehouseRepository. Import
+`ReadContext` and `PTSShadowRequest` from `app.serving.context`,
+`HistoricalPTSAskShadow` from `app.agent.snapshot_source`, and `PlayerPTSShadow`
+from `app.serving.player`. Keeping the narrow Player adapter here avoids importing
+the warehouse repository package and its composition dependencies.
+
+Bind a handle with an independently expected snapshot ID and its exact reviewed
+scope. The frozen context pins projection/metric semantics, all lineage roots,
+full dependency closure, observed-only capabilities and an adapter version in a
+content-derived context ID. Construct an explicit request with
+`PTSShadowRequest.create(canonical_player_id, 'average', scope=scope)`. This is a
+deterministic plan interface; it makes no natural-language planning claim.
+
+`answer()`, `answer_json()` and terminal-only `answer_sse()` emit the Ask PTS
+table; `get_pts()` emits the Player PTS section and game log. Both include total
+and average arithmetic, components, numerator/denominator, observed/valid/missing
+counts and game membership in their bound evidence. Display averages follow
+public rounding. A missing canonical ID refuses with `player_not_observed`; it
+never becomes a zero-game season. Null PTS and valid zero remain distinct.
+Names, full profiles, league context and unsupported metrics/windows are absent.
+The selected historical range describes observed facts, not a complete-through
+assertion. No legacy SQL, warehouse, model, provider or cache is consulted.
+
+Each operation checks current read authority and immutable content; adapters
+check again after claim validation and before JSON/SSE emission. The lazy SSE
+iterator emits one `final` event only, with no unverified intermediate prose.
+This envelope is an offline protocol test, not existing-route/browser acceptance.
+Content may stay pinned while status IDs and check times advance. Revocation,
+expiry or artifact replacement prevents output from an already-bound context.
+Already-returned payloads are inert historical results, not reusable permissions.
+
+The new `observed_pts_shadow` presentation contract extends the existing public
+claim validator through its context registry. It binds exact destinations and
+fixed labels to the observed result, identity and full context. Existing complete
+`Evidence`, `run_query`, source policies, trusted runtime boundaries and claim
+rollout defaults are unchanged. No incomplete observation is relabeled complete.
+Claim validation establishes presentation fidelity; it does not independently
+certify source selection, identity, cohort completeness or current authority.
+The private installed harness supplies the independent arithmetic/membership
+check relative to its explicitly retained trust inputs.
+
+The shadow path obtains both aggregates and selected game rows in one verified
+read (`observed_pts_bundle`). `authorized_snapshot()` returns a manifest and the
+permission receipt from one verification pass; it never caches permission.
+Regression checks cap full verification work per emitted consumer result while
+preserving checks after formatting/serialization and before SSE emission.
+Original evidence clocks travel in the hashed evidence; their exact ordered
+limitations are derived from those clocks, never from build time.
+
+A shadow `authority` receipt records the verification pass immediately before
+formatting, not the final emission instant. Each later permission check must
+retain that same status ID and checked-at lease; an allowed status rotation
+refuses with `authority_changed` so a caller can explicitly retry. A returned
+receipt is inert and does not grant future access. Malformed shadow presentation
+fails with the bounded `claim_binding_mismatch` code.

@@ -103,3 +103,13 @@ class OfflineReadPolicy:
                 raise ServingError("invalid_policy")
         if self.max_status_age <= timedelta(0):
             raise ServingError("invalid_policy")
+
+
+def historical_limitations(clocks: Mapping[str, Any]) -> list[str]:
+    """Exact historical disclosure from original evidence clocks, never build time."""
+    result = ["observed_sample_only", "historical_integrity_only"]
+    if clocks["source_captured_at"] is None:
+        result.append("source_capture_clock_unknown")
+    if any(clocks[k] is None for k in ("discovered_at", "revalidated_at")):
+        result.append("discovery_or_revalidation_clock_unknown")
+    return result
