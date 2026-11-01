@@ -285,3 +285,23 @@ PDF corroboration is optional and explicitly uncertified; recorded applicable
 conflicts remain holds relative to the caller-pinned ledger. A known legacy
 same-batch PDF supersession interpretation remains deferred and does not represent
 independent historical-conflict completeness.
+
+### Two-season offline side-by-side
+
+`TwoSeasonPTS` composes exactly one 2025–26 and one 2026–27 Regular Season PTS
+snapshot. The caller independently supplies the side-by-side composition policy,
+identity compatibility record, exact member identity roots and approved player IDs.
+This trust input is not derived from either snapshot. Both manifests are verified
+and authorized before the combined 100,000-row, 100 MiB and 16-shard budgets are
+checked and before reading any facts. Existing tighter per-snapshot limits apply.
+
+Ask JSON/SSE, Player and two-player comparisons keep the two member results and
+their original scopes, clocks, limitations and claim bindings. Both member
+permissions are rechecked during calculation and before emission; a denied,
+missing, stale or changed member refuses the combined result. Zero, null and
+absent appearances stay distinct. Combined serialized output is bounded to 1 MiB.
+The selection identity binds both contexts, policy, compatibility decision,
+approved-player-set digest and member freshness policies. Pooled totals and
+averages are unsupported pending a separately reviewed composition policy.
+These adapters are offline and unregistered; they grant no runtime, cohort or
+source-certification authority.

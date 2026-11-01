@@ -314,6 +314,31 @@ class SnapshotHandle:
         handle._verified()
         return handle
 
+    @classmethod
+    def preflight(cls, root: Path, policy: OfflineReadPolicy) -> SnapshotHandle:
+        """Pin and authorize a manifest without reading its facts."""
+        handle = cls(root, policy)
+        handle._manifest_only()
+        return handle
+
+    def _manifest_only(self):
+        fd = None
+        try:
+            fd = _root_fd(self._root)
+            data = _read_at(fd, "manifest.json", self._policy.max_manifest_bytes)
+            _require(self._pinned is None or data == self._pinned, "integrity_failure")
+            manifest = self._parse_manifest(_decode(data))
+            self._authorize(manifest)
+            self._pinned = data
+            return copy.deepcopy(manifest)
+        except ServingError:
+            raise
+        except (OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
+            raise ServingError("integrity_or_path_failure") from exc
+        finally:
+            if fd is not None:
+                os.close(fd)
+
     def _parse_manifest(self, raw):
         return _manifest(raw, self._policy)
 
