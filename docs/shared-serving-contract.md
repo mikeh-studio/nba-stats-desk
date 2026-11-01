@@ -218,3 +218,35 @@ retain that same status ID and checked-at lease; an allowed status rotation
 refuses with `authority_changed` so a caller can explicitly retry. A returned
 receipt is inert and does not grant future access. Malformed shadow presentation
 fails with the bounded `claim_binding_mismatch` code.
+
+## Historical PTS comparison shadow (Phase 3 first increment)
+
+`app.serving.comparison.HistoricalPTSComparisonShadow` takes one existing
+`ReadContext` and a `PTSComparisonRequest` for two distinct canonical player IDs,
+`total` or `average`, and the artifact's exact scope. `answer()`, `answer_json()`
+and terminal-only `answer_sse()` emit one closed side-by-side table. The adapter
+is offline and unregistered; existing routes, UI, factories and guards are intact.
+
+The explicit presentation policy is `observed_pts_side_by_side/1`. It reuses the
+public `aggregate()` arithmetic and the existing comparison presentation rule:
+partial averages retain valid/observed/missing counts, while unsupported changes,
+edges, winner statements and league context are withheld. No difference or edge
+is emitted even for complete inputs; existing sample/edge qualification rules
+are not replaced by a new threshold. Each side retains its own canonical game
+membership and game-time team IDs. An all-null observed sample remains a null
+value with its counts; a known zero remains zero. An absent requested player
+refuses the whole comparison with `player_not_observed`, never a one-sided table.
+
+Both sides bind the same snapshot, scope, semantic identity, dependency closure,
+original evidence clocks and current authority receipt. Public claim validation
+binds every table value and label to those sides under a separate closed
+`observed_pts_comparison_shadow` context. It checks presentation fidelity, not
+independent source truth. Permission is rechecked after rendering, serialization
+and before terminal SSE emission. Output is bounded to 1 MiB; overflow refuses
+without dropping rows. An already-returned result grants no later permission.
+
+Only the historical artifact contract is supported. Current-season readiness
+assessment does not activate current-season serving. New metrics, arbitrary
+windows, names, complete profiles, pooled seasons, league rankings and runtime
+integration remain separately reviewed work. Synthetic tests prove this narrow
+protocol, not endpoint/browser or complete-source acceptance.
