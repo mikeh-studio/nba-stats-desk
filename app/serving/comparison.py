@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from app.agent import claims
 from app.serving.context import PTSShadowRequest, ReadContext
 from app.serving.contract import ServingError, canonical_json
-from app.serving.presentation import render, validate_envelope
+from app.serving.presentation import payload_profile, render, validate_envelope
 
 KIND = "observed_pts_comparison_shadow"
 POLICY = "observed_pts_side_by_side/1"
@@ -40,7 +40,7 @@ class PTSComparisonRequest:
 def _side_payload(side):
     mode = side["aggregation"]
     return {
-        "schema": "historical-pts-shadow-payload/1",
+        "schema": payload_profile(side["binding"])[0],
         "consumer": "ask",
         **{
             key: side[key]
@@ -104,7 +104,8 @@ def claim_contracts(payload):
     }:
         raise ValueError("Unexpected comparison evidence")
     if (
-        payload["schema"] != "historical-pts-comparison-payload/1"
+        payload["schema"]
+        != payload_profile(e["binding"])[0].replace("shadow", "comparison")
         or payload["consumer"] != "comparison"
         or e["kind"] != KIND
         or e["policy"] != POLICY
@@ -207,7 +208,7 @@ def _render(sides, authority):
         "limitations": sides[0]["limitations"] + LIMITATIONS,
     }
     payload = {
-        "schema": "historical-pts-comparison-payload/1",
+        "schema": payload_profile(e["binding"])[0].replace("shadow", "comparison"),
         "consumer": "comparison",
         **{
             key: e[key]
@@ -253,6 +254,8 @@ class HistoricalPTSComparisonShadow:
     """Two explicit canonical IDs, one context, all-or-refuse side-by-side output."""
 
     def __init__(self, context: ReadContext):
+        if type(context) is not ReadContext:
+            raise ServingError("unsupported_version")
         self._context = context
 
     def answer(self, request: PTSComparisonRequest):
@@ -302,3 +305,14 @@ class HistoricalPTSComparisonShadow:
         data = self.answer_json(request).decode("utf-8")
         self._context.check_emission(json.loads(data))
         yield "event: final\ndata: " + data + "\n\n"
+
+
+class CurrentPTSComparisonShadow(HistoricalPTSComparisonShadow):
+    """Explicit current-season opt-in; the same governed comparison semantics."""
+
+    def __init__(self, context):
+        from app.serving.current import CurrentReadContext
+
+        if type(context) is not CurrentReadContext:
+            raise ServingError("unsupported_version")
+        self._context = context

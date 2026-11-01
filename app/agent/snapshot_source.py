@@ -1,12 +1,14 @@
 """Explicit offline Ask shadow adapter; never registered in StatsAgent/factories."""
 
 from app.serving.context import PTSShadowRequest, ReadContext
-from app.serving.contract import canonical_json
+from app.serving.contract import ServingError, canonical_json
 from app.serving.presentation import render
 
 
 class HistoricalPTSAskShadow:
     def __init__(self, context: ReadContext):
+        if type(context) is not ReadContext:
+            raise ServingError("unsupported_version")
         self._context = context
 
     def answer(self, request: PTSShadowRequest):
@@ -28,3 +30,14 @@ class HistoricalPTSAskShadow:
 
         self._context.check_emission(json.loads(data))
         yield "event: final\ndata: " + data + "\n\n"
+
+
+class CurrentPTSAskShadow(HistoricalPTSAskShadow):
+    """Explicit offline opt-in, never selected by the application factory."""
+
+    def __init__(self, context):
+        from app.serving.current import CurrentReadContext
+
+        if type(context) is not CurrentReadContext:
+            raise ServingError("unsupported_version")
+        self._context = context
