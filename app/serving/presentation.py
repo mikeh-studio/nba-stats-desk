@@ -16,25 +16,42 @@ KIND = "observed_pts_shadow"
 FIELDS = ("game_date", "game_id", "pts")
 
 
+def payload_profile(binding):
+    version = binding.get("adapter_version")
+    if version == ADAPTER_VERSION:
+        return "historical-pts-shadow-payload/1", historical_limitations, set()
+    from app.serving.current import ADAPTER_VERSION as CURRENT
+    from app.serving.current import current_limitations
+
+    if version == CURRENT:
+        return "current-pts-shadow-payload/1", current_limitations, {"current_evidence"}
+    raise ValueError("Unsupported shadow profile")
+
+
 def validate_envelope(payload):
     """Closed shadow metadata contract; it never grants present read authority."""
     e = payload["semantic_evidence"]
-    if set(e) != {
-        "kind",
-        "binding",
-        "player_id",
-        "aggregation",
-        "metric",
-        "aggregates",
-        "games",
-        "limitations",
-        "identity_mode",
-        "cohort_complete",
-        "runtime_eligible",
-        "labels",
-        "authority",
-        "evidence_clocks",
-    }:
+    schema, limitations, extra = payload_profile(e["binding"])
+    if (
+        set(e)
+        != {
+            "kind",
+            "binding",
+            "player_id",
+            "aggregation",
+            "metric",
+            "aggregates",
+            "games",
+            "limitations",
+            "identity_mode",
+            "cohort_complete",
+            "runtime_eligible",
+            "labels",
+            "authority",
+            "evidence_clocks",
+        }
+        | extra
+    ):
         raise ValueError("Unexpected shadow evidence fields")
     required = {
         "schema",
@@ -55,7 +72,7 @@ def validate_envelope(payload):
         "claim_validation",
     }:
         raise ValueError("Unexpected shadow envelope fields")
-    if payload["schema"] != "historical-pts-shadow-payload/1" or consumer not in (
+    if payload["schema"] != schema or consumer not in (
         "ask",
         "player",
     ):
@@ -79,7 +96,7 @@ def validate_envelope(payload):
         or e["metric"] != {"key": "pts", "unit": "count"}
         or type(e["player_id"]) is not int
         or e["player_id"] <= 0
-        or e["limitations"] != historical_limitations(e["evidence_clocks"])
+        or e["limitations"] != limitations(e["evidence_clocks"])
     ):
         raise ValueError("Unsupported shadow capability")
     if set(e["aggregates"]) != {"total", "average"} or any(
@@ -100,7 +117,6 @@ def validate_envelope(payload):
             "capabilities",
             "context_id",
         }
-        or binding["adapter_version"] != ADAPTER_VERSION
         or binding["projection_version"] != PROJECTION_VERSION
         or canonical_json(binding["capabilities"])
         != canonical_json(
@@ -118,6 +134,27 @@ def validate_envelope(payload):
         {k: v for k, v in binding.items() if k != "context_id"}
     ):
         raise ValueError("Shadow context digest changed")
+    if extra:
+        from app.serving.current import CurrentReadPolicy, validate_current_evidence
+
+        # This is a shape/binding check; trusted policy approval stays in the reader.
+        policy = CurrentReadPolicy(
+            lambda: None,
+            freshness_policy_fingerprint=e["current_evidence"]["policy_fingerprint"],
+            source_identity_authority_id=binding["lineage"][
+                "source_identity_authority_id"
+            ],
+        )
+        validate_current_evidence(
+            {
+                "current_evidence": e["current_evidence"],
+                "lineage": binding["lineage"],
+                "dependency_ids": binding["dependency_ids"],
+                "scope": binding["scope"],
+                "clocks": e["evidence_clocks"],
+            },
+            policy,
+        )
     labels = [
         {"label": label}
         for label in (
@@ -243,7 +280,7 @@ def _render(evidence, consumer, authority):
         )
     ]
     payload = {
-        "schema": "historical-pts-shadow-payload/1",
+        "schema": payload_profile(evidence["binding"])[0],
         "authority": authority,
         "consumer": consumer,
         "binding": evidence["binding"],

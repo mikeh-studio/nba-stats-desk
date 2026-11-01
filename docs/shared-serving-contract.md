@@ -250,3 +250,38 @@ assessment does not activate current-season serving. New metrics, arbitrary
 windows, names, complete profiles, pooled seasons, league rankings and runtime
 integration remain separately reviewed work. Synthetic tests prove this narrow
 protocol, not endpoint/browser or complete-source acceptance.
+
+
+## Explicit current-season offline profile
+
+`CurrentSnapshotHandle` / `CurrentReadPolicy` / `CurrentReadContext` opt into
+`nba_current_pts_snapshot/1` for exactly 2026–27 Regular Season. The historical
+schema, contexts and adapters continue to refuse it. No application factory,
+source guard, route or runtime mode is changed. This profile does not combine
+seasons or grant complete-cohort, ranking or percentile claims.
+
+Trusted composition independently supplies the allowed snapshot/status plus the
+approved freshness-policy fingerprint and source/identity authority ID. Manifest
+hashes do not approve their own authority. Lineage also binds the exact primary
+coverage, mapping, conflict-history and freshness-evidence roots. The policy
+fingerprint identifies the supported producer's frozen evaluator environment;
+the reader does not implement a competing freshness formula.
+
+The artifact carries original capture, discovery and verified-revalidation clocks,
+selection-time evaluation, an inclusive `fresh_through` and the first stale
+microsecond. The producer derives that transition by querying the existing frozen
+evaluator with fixed evidence. At every read, cached access and emission, external
+permission and immutable expiry are checked again. Status renewal cannot extend
+source freshness. Discovery's eight-day warning remains nonblocking; the ten-day
+hard limit and correction deadlines remain effective. Bounds use elapsed UTC time
+across DST, preserving strict greater-than comparisons in the frozen rules.
+
+`CurrentPTSAskShadow`, `CurrentPlayerPTSShadow` and
+`CurrentPTSComparisonShadow` share the same bound scope and public PTS arithmetic,
+null/zero/appearance rules and claim validator. Payloads have explicit current
+schema IDs; none is registered with normal application routes. Comparison remains
+side-by-side observed samples with all-or-refuse membership and no inferred edge.
+PDF corroboration is optional and explicitly uncertified; recorded applicable
+conflicts remain holds relative to the caller-pinned ledger. A known legacy
+same-batch PDF supersession interpretation remains deferred and does not represent
+independent historical-conflict completeness.

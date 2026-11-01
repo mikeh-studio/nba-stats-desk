@@ -159,14 +159,23 @@ def _read_at(root_fd: int, relative: str, limit: int) -> bytes:
         os.close(parent_fd)
 
 
-def _manifest(raw: Any, policy: OfflineReadPolicy) -> dict[str, Any]:
+def _manifest(
+    raw: Any,
+    policy: OfflineReadPolicy,
+    *,
+    schema=SCHEMA,
+    season="2025-26",
+    freshness_policy_id=FRESHNESS_POLICY_ID,
+    dependencies=DEPENDENCIES,
+    extra_keys="",
+) -> dict[str, Any]:
     _keys(
         raw,
         "schema snapshot_id projection_version metric_semantics "
         "metric_semantics_id scope lineage clocks freshness_policy_id "
-        "capabilities shards row_count dependency_ids",
+        "capabilities shards row_count dependency_ids " + extra_keys,
     )
-    _require(raw["schema"] == SCHEMA, "unsupported_version")
+    _require(raw["schema"] == schema, "unsupported_version")
     _require(
         raw["projection_version"] == PROJECTION_VERSION
         and raw["projection_version"] in policy.supported_projection_versions,
@@ -178,22 +187,24 @@ def _manifest(raw: Any, policy: OfflineReadPolicy) -> dict[str, Any]:
         and METRIC_SEMANTICS_ID in policy.supported_metric_semantics_ids,
         "semantic_mismatch",
     )
-    _require(raw["freshness_policy_id"] == FRESHNESS_POLICY_ID, "unsupported_version")
+    _require(raw["freshness_policy_id"] == freshness_policy_id, "unsupported_version")
     _require(_digest(raw["snapshot_id"]))
     content = {key: val for key, val in raw.items() if key != "snapshot_id"}
     _require(content_digest(content) == raw["snapshot_id"], "integrity_failure")
     scope = raw["scope"]
     _keys(scope, "season phase start_date end_date as_of cutoff")
     _require(
-        scope["season"] == "2025-26" and scope["phase"] == "Regular Season",
+        scope["season"] == season and scope["phase"] == "Regular Season",
         "capability_not_evaluated",
     )
     start, end = _day(scope["start_date"]), _day(scope["end_date"])
-    _require(date(2025, 10, 1) <= start <= end <= date(2026, 6, 30))
+    _require(
+        date(int(season[:4]), 10, 1) <= start <= end <= date(int(season[:4]) + 1, 6, 30)
+    )
     as_of, cutoff = _instant(scope["as_of"]), _instant(scope["cutoff"])
     _require(end <= as_of.date() and as_of <= cutoff)
-    _keys(raw["lineage"], " ".join(DEPENDENCIES))
-    _require(all(_digest(raw["lineage"][key]) for key in DEPENDENCIES))
+    _keys(raw["lineage"], " ".join(dependencies))
+    _require(all(_digest(raw["lineage"][key]) for key in dependencies))
     dependencies = raw["dependency_ids"]
     _require(type(dependencies) is list and 1 <= len(dependencies) <= 512)
     _require(all(_digest(value) for value in dependencies))
@@ -303,6 +314,12 @@ class SnapshotHandle:
         handle._verified()
         return handle
 
+    def _parse_manifest(self, raw):
+        return _manifest(raw, self._policy)
+
+    def limitations(self, manifest):
+        return historical_limitations(manifest["clocks"])
+
     def _authorize(
         self, manifest: Mapping[str, Any]
     ) -> tuple[FactReadStatus, datetime]:
@@ -373,7 +390,7 @@ class SnapshotHandle:
             fd = _root_fd(self._root)
             data = _read_at(fd, "manifest.json", self._policy.max_manifest_bytes)
             _require(self._pinned is None or data == self._pinned, "integrity_failure")
-            manifest = _manifest(_decode(data), self._policy)
+            manifest = self._parse_manifest(_decode(data))
             self._authorize(manifest)
             rows: list[dict[str, Any]] = []
             previous: tuple[Any, ...] | None = None
@@ -497,9 +514,9 @@ class SnapshotHandle:
             "status_checked_at": status.checked_at.isoformat(),
             "runtime_eligible": False,
             "cohort_complete": False,
-            "freshness_policy_id": FRESHNESS_POLICY_ID,
+            "freshness_policy_id": manifest["freshness_policy_id"],
             "freshness_checked_at": authorized_at.isoformat(),
-            "limitations": historical_limitations(manifest["clocks"]),
+            "limitations": self.limitations(manifest),
         }
 
 

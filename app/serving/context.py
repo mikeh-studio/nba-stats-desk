@@ -4,13 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any, ClassVar, Mapping
 
 from app.serving.contract import (
     ServingError,
     canonical_json,
     content_digest,
-    historical_limitations,
 )
 from app.serving.snapshot import SnapshotHandle
 
@@ -52,18 +51,23 @@ class PTSShadowRequest:
 class ReadContext:
     """Pins content and scope, never an authority lease. Not a runtime boundary."""
 
+    ADAPTER: ClassVar[str] = ADAPTER_VERSION
+    SNAPSHOT_SCHEMA: ClassVar[str] = "nba_shared_serving_snapshot/1"
+
     _handle: SnapshotHandle = field(repr=False, compare=False)
     _binding_bytes: bytes = field(repr=False)
 
     @classmethod
     def bind(cls, handle, *, expected_snapshot_id, scope):
         manifest = handle.describe()
+        if manifest["schema"] != cls.SNAPSHOT_SCHEMA:
+            raise ServingError("unsupported_version")
         if manifest["snapshot_id"] != expected_snapshot_id:
             raise ServingError("snapshot_binding_mismatch")
         if not isinstance(scope, Mapping) or dict(scope) != manifest["scope"]:
             raise ServingError("capability_not_evaluated")
         binding = {
-            "adapter_version": ADAPTER_VERSION,
+            "adapter_version": cls.ADAPTER,
             "snapshot_id": manifest["snapshot_id"],
             "projection_version": manifest["projection_version"],
             "metric_semantics_id": manifest["metric_semantics_id"],
@@ -131,7 +135,7 @@ class ReadContext:
                 for row in sorted(rows, key=lambda r: (r["game_date"], r["game_id"]))
             ],
             "evidence_clocks": bundle["manifest"]["clocks"],
-            "limitations": historical_limitations(bundle["manifest"]["clocks"]),
+            "limitations": self._handle.limitations(bundle["manifest"]),
             "identity_mode": "canonical_id_only",
             "cohort_complete": False,
             "runtime_eligible": False,
