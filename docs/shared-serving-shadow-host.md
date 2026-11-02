@@ -17,8 +17,8 @@ POST `/api/ask`, `/api/ask/stream`, `/api/player` or `/api/comparison` with prec
 ```
 
 `season` is `2025-26`, `2026-27` or `both`; aggregation is `total` or `average`.
-Comparison requires exactly two distinct IDs; other routes require one. Only
-independently approved player IDs are accepted. Bodies are limited to 2 KiB,
+Comparison requires exactly two distinct IDs; other routes require one. For this
+two-season factory, only independently approved player IDs are accepted. Bodies are limited to 2 KiB,
 responses retain the existing 1 MiB budget, and the existing reader budgets apply.
 Single-season requests authorize that season; two-season requests require both.
 Neither averages nor totals are pooled across seasons.

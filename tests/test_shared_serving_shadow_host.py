@@ -328,7 +328,13 @@ def test_current_factory_requires_exact_type_and_valid_label(current):
     class Derived(CurrentReadContext):
         pass
 
-    for selection in (None, object(), object.__new__(Derived)):
+    for selection in (
+        None,
+        object(),
+        object.__new__(Derived),
+        object.__new__(CurrentReadContext),
+        CurrentReadContext(object(), b"{}"),
+    ):
         with pytest.raises(ValueError, match="explicit_selection_required"):
             create_current_shadow_app(selection, evidence_kind="synthetic")
     for label in (None, "approved", "", 1):
@@ -344,7 +350,12 @@ def test_composite_factory_requires_exact_type_and_valid_label(prepared):
     class Derived(TwoSeasonPTS):
         pass
 
-    for selection in (None, object(), object.__new__(Derived)):
+    for selection in (
+        None,
+        object(),
+        object.__new__(Derived),
+        object.__new__(TwoSeasonPTS),
+    ):
         with pytest.raises(ValueError, match="explicit_selection_required"):
             create_shadow_app(selection, evidence_kind="synthetic")
     for label in (None, "approved", "", 1):
@@ -352,3 +363,106 @@ def test_composite_factory_requires_exact_type_and_valid_label(prepared):
             create_shadow_app(prepared[0](), evidence_kind=label)
     for label in ("synthetic", "retained-unapproved"):
         assert create_shadow_app(prepared[0](), evidence_kind=label)
+
+
+def test_current_factory_refuses_rehashed_wrong_scope(current):
+    from app.serving.contract import canonical_json, content_digest
+
+    context = current[-1]
+    binding = context.binding
+    binding["scope"]["season"] = "2025-26"
+    binding.pop("context_id")
+    binding["context_id"] = content_digest(binding)
+    forged = replace(context, _binding_bytes=canonical_json(binding))
+    with pytest.raises(ValueError, match="explicit_selection_required"):
+        create_current_shadow_app(forged, evidence_kind="synthetic")
+
+
+def test_composite_factory_binds_authority_and_captures_selection(prepared):
+    selection = prepared[0]()
+    authority = selection._authority
+    changed = replace(
+        authority, approved_player_ids=authority.approved_player_ids | {3}
+    )
+    selection._authority = changed
+    with pytest.raises(ValueError, match="explicit_selection_required"):
+        create_shadow_app(selection, evidence_kind="synthetic")
+    selection._authority = authority
+    app = create_shadow_app(selection, evidence_kind="synthetic")
+    selection._authority = changed
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        for season in ("2025-26", "2026-27", "both"):
+            response = client.post(
+                "/api/ask",
+                json={"season": season, "player_ids": [3], "aggregation": "total"},
+            )
+            assert response.status_code == 503
+            assert response.json()["reason"] == "identity_compatibility_denied"
+
+
+def test_composite_factory_refuses_rehashed_forged_season(prepared):
+    from app.serving.context import ReadContext
+    from app.serving.contract import canonical_json, content_digest
+
+    selection = prepared[0]()
+    historical, current = selection._contexts
+    forged_context = ReadContext(current._handle, historical._binding_bytes)
+    selection._contexts = (forged_context, current)
+    binding = selection.binding
+    binding["members"] = [context.binding for context in selection._contexts]
+    binding.pop("selection_id")
+    binding["selection_id"] = content_digest(binding)
+    selection._binding = canonical_json(binding)
+    with pytest.raises(ValueError, match="explicit_selection_required"):
+        create_shadow_app(selection, evidence_kind="synthetic")
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream", "player", "comparison"])
+@pytest.mark.parametrize("target", ["current_only", "historical", "current"])
+@pytest.mark.parametrize("field", ["status_id", "checked_at"])
+def test_single_season_host_refuses_authority_rotation_during_read(
+    current, prepared, monkeypatch, route, target, field
+):
+    from app.serving import snapshot
+    from app.serving.contract import content_digest
+
+    if target == "current_only":
+        app = create_current_shadow_app(current[-1], evidence_kind="synthetic")
+        live, key, season = current[2], "status", "2026-27"
+    else:
+        app = create_shadow_app(prepared[0](), evidence_kind="synthetic")
+        live = prepared[1]
+        key, season = ("h", "2025-26") if target == "historical" else ("c", "2026-27")
+    original = snapshot._read_at
+    reads = []
+
+    def rotate(fd, relative, limit):
+        data = original(fd, relative, limit)
+        if relative.startswith("facts/"):
+            reads.append(relative)
+            # The first fact pass establishes the pre-adapter authority. Rotate
+            # during the following pass, before the adapter records its receipt.
+            if len(reads) == 2:
+                old = live[key]
+                value = (
+                    content_digest("rotated-during-read")
+                    if field == "status_id"
+                    else old.checked_at - timedelta(seconds=1)
+                )
+                live[key] = replace(old, **{field: value})
+        return data
+
+    monkeypatch.setattr(snapshot, "_read_at", rotate)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        response = client.post(
+            "/api/" + route,
+            json={
+                "season": season,
+                "player_ids": [1, 2] if route == "comparison" else [1],
+                "aggregation": "total",
+            },
+        )
+    assert len(reads) >= 2
+    assert response.status_code == 503
+    assert response.json()["reason"] == "authority_changed"
+    assert "event: final" not in response.text
