@@ -1,5 +1,8 @@
 """Synthetic transport acceptance; no production provider or source acceptance."""
 
+# Imported pytest fixtures intentionally share their parameter names.
+# ruff: noqa: F811
+
 import json
 import subprocess
 from dataclasses import replace
@@ -113,7 +116,9 @@ def test_dedicated_page_clearly_labels_evidence_and_no_runtime_routes(client):
     assert client.get("/docs").status_code == 404
 
 
-def test_factory_rejects_implicit_source_or_certification_labels(prepared):  # noqa: F811
+def test_factory_rejects_implicit_source_or_certification_labels(
+    prepared,
+):  # noqa: F811
     with pytest.raises(ValueError, match="explicit_selection_required"):
         create_shadow_app(None, evidence_kind="synthetic")
     with pytest.raises(ValueError, match="evidence_label_required"):
@@ -173,7 +178,9 @@ process.stdout.write(JSON.stringify(rendered));
     assert attack in rendered[0]
 
 
-def test_current_only_host_serves_all_adapters_and_refuses_other_scopes(current):  # noqa: F811
+def test_current_only_host_serves_all_adapters_and_refuses_other_scopes(
+    current,
+):  # noqa: F811
     context = current[-1]
     with TestClient(
         create_current_shadow_app(context, evidence_kind="synthetic"),
@@ -230,3 +237,118 @@ def test_current_only_host_rechecks_revoked_authority(current):  # noqa: F811
             json={"season": "2026-27", "player_ids": [1], "aggregation": "total"},
         )
         assert response.status_code == 503 and "event: final" not in response.text
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream", "player", "comparison"])
+@pytest.mark.parametrize("field", ["status_id", "checked_at"])
+def test_current_host_refuses_authority_rotation_after_serialization(
+    current, monkeypatch, route, field
+):
+    from app.serving import shadow_host
+    from app.serving.contract import content_digest
+
+    _, _, live, _, _, context = current
+    original = shadow_host.bounded_json
+    rotated = []
+
+    def rotate(payload):
+        data = original(payload)
+        if (
+            not rotated
+            and payload.get("runtime_eligible") is False
+            and "binding" in payload
+        ):
+            old = live["status"]
+            changed = (
+                content_digest("rotated")
+                if field == "status_id"
+                else old.checked_at - timedelta(seconds=1)
+            )
+            live["status"] = replace(old, **{field: changed})
+            rotated.append(True)
+        return data
+
+    monkeypatch.setattr(shadow_host, "bounded_json", rotate)
+    with TestClient(
+        create_current_shadow_app(context, evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        response = client.post(
+            "/api/" + route,
+            json={
+                "season": "2026-27",
+                "player_ids": [1, 2] if route == "comparison" else [1],
+                "aggregation": "total",
+            },
+        )
+    assert rotated and response.status_code == 503
+    assert "event: final" not in response.text
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["reason"] == "authority_changed"
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream", "player", "comparison"])
+@pytest.mark.parametrize("season", ["both", "2025-26"])
+def test_current_host_refuses_other_scopes_before_fact_read(
+    current, monkeypatch, route, season
+):
+    from app.serving import snapshot
+
+    reads = []
+    original = snapshot._read_at
+
+    def track(fd, relative, limit):
+        if relative.startswith("facts/"):
+            reads.append(relative)
+        return original(fd, relative, limit)
+
+    monkeypatch.setattr(snapshot, "_read_at", track)
+    with TestClient(
+        create_current_shadow_app(current[-1], evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        response = client.post(
+            "/api/" + route,
+            json={
+                "season": season,
+                "player_ids": [1, 2] if route == "comparison" else [1],
+                "aggregation": "total",
+            },
+        )
+    assert (
+        response.status_code == 503
+        and response.json()["reason"] == "season_not_available"
+    )
+    assert not reads and "event: final" not in response.text
+
+
+def test_current_factory_requires_exact_type_and_valid_label(current):
+    from app.serving.current import CurrentReadContext
+
+    class Derived(CurrentReadContext):
+        pass
+
+    for selection in (None, object(), object.__new__(Derived)):
+        with pytest.raises(ValueError, match="explicit_selection_required"):
+            create_current_shadow_app(selection, evidence_kind="synthetic")
+    for label in (None, "approved", "", 1):
+        with pytest.raises(ValueError, match="evidence_label_required"):
+            create_current_shadow_app(current[-1], evidence_kind=label)
+    for label in ("synthetic", "retained-unapproved"):
+        assert create_current_shadow_app(current[-1], evidence_kind=label)
+
+
+def test_composite_factory_requires_exact_type_and_valid_label(prepared):
+    from app.serving.composite import TwoSeasonPTS
+
+    class Derived(TwoSeasonPTS):
+        pass
+
+    for selection in (None, object(), object.__new__(Derived)):
+        with pytest.raises(ValueError, match="explicit_selection_required"):
+            create_shadow_app(selection, evidence_kind="synthetic")
+    for label in (None, "approved", "", 1):
+        with pytest.raises(ValueError, match="evidence_label_required"):
+            create_shadow_app(prepared[0](), evidence_kind=label)
+    for label in ("synthetic", "retained-unapproved"):
+        assert create_shadow_app(prepared[0](), evidence_kind=label)
