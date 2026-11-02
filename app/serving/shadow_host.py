@@ -21,6 +21,7 @@ from app.serving.comparison import (
 from app.serving.composite import TwoSeasonPTS, bounded_json
 from app.serving.context import PTSShadowRequest
 from app.serving.contract import ServingError
+from app.serving.current import CurrentReadContext
 from app.serving.player import CurrentPlayerPTSShadow, PlayerPTSShadow
 
 MAX_REQUEST_BYTES = 2048
@@ -82,6 +83,21 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
     _require(
         evidence_kind in ("synthetic", "retained-unapproved"), "evidence_label_required"
     )
+    return _create_app(selection, evidence_kind=evidence_kind, current_only=False)
+
+
+def create_current_shadow_app(
+    context: CurrentReadContext, *, evidence_kind: str
+) -> FastAPI:
+    """Expose one explicitly authorized current snapshot in an isolated host."""
+    _require(type(context) is CurrentReadContext, "explicit_selection_required")
+    _require(
+        evidence_kind in ("synthetic", "retained-unapproved"), "evidence_label_required"
+    )
+    return _create_app(context, evidence_kind=evidence_kind, current_only=True)
+
+
+def _create_app(selection, *, evidence_kind, current_only):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"]
@@ -95,6 +111,24 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
         return await call_next(request)
 
     def answer(season, players, mode, consumer):
+        if current_only:
+            _require(season == "2026-27", "season_not_available")
+            context = selection
+            scope = context.binding["scope"]
+            if len(players) == 2:
+                payload = CurrentPTSComparisonShadow(context).answer(
+                    PTSComparisonRequest.create(players, mode, scope=scope)
+                )
+            else:
+                plan = PTSShadowRequest.create(players[0], mode, scope=scope)
+                payload = (
+                    CurrentPlayerPTSShadow(context).get_pts(plan)
+                    if consumer == "player"
+                    else CurrentPTSAskShadow(context).answer(plan)
+                )
+            data = bounded_json(payload)
+            context.check_emission(payload)
+            return data
         _require(
             set(players) <= selection._authority.approved_player_ids,
             "identity_compatibility_denied",
@@ -177,9 +211,13 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
 
     @app.get("/ask", response_class=HTMLResponse)
     async def page():
-        return HTMLResponse(
-            _PAGE.replace("EVIDENCE_KIND", evidence_kind), headers=HEADERS
-        )
+        page = _PAGE.replace("EVIDENCE_KIND", evidence_kind)
+        if current_only:
+            page = page.replace(
+                '<option>2025-26</option><option>2026-27</option><option value="both">Both, side by side</option>',
+                "<option>2026-27</option>",
+            )
+        return HTMLResponse(page, headers=HEADERS)
 
     return app
 

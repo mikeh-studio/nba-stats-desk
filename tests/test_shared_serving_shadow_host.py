@@ -6,10 +6,11 @@ from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from app.serving.shadow_host import _PAGE, create_shadow_app
+from app.serving.shadow_host import _PAGE, create_current_shadow_app, create_shadow_app
 from fastapi.testclient import TestClient
 
 from shared_serving_fixtures import NOW
+from test_current_serving_snapshot import current  # noqa: F401
 from test_two_season_composite import prepared  # noqa: F401
 
 
@@ -170,3 +171,62 @@ process.stdout.write(JSON.stringify(rendered));
                 assert value in texts
         assert "Freshness checked" in texts and "Evidence cutoff" in texts
     assert attack in rendered[0]
+
+
+def test_current_only_host_serves_all_adapters_and_refuses_other_scopes(current):  # noqa: F811
+    context = current[-1]
+    with TestClient(
+        create_current_shadow_app(context, evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        request = {"season": "2026-27", "player_ids": [1], "aggregation": "average"}
+        ask = client.post("/api/ask", json=request)
+        assert ask.status_code == 200
+        assert ask.json()["tables"][0]["rows"] == [[1, 5.0, 3, 2, 1]]
+        stream = client.post("/api/ask/stream", json=request)
+        assert (
+            stream.status_code == 200
+            and json.loads(stream.text.split("data: ")[1]) == ask.json()
+        )
+        assert (
+            client.post("/api/player", json=request).json()["player_profile"][
+                "total_pts"
+            ]
+            == 10
+        )
+        assert (
+            client.post(
+                "/api/comparison", json={**request, "player_ids": [1, 2]}
+            ).status_code
+            == 200
+        )
+        for season in ("2025-26", "both"):
+            response = client.post(
+                "/api/ask/stream", json={**request, "season": season}
+            )
+            assert (
+                response.status_code == 503
+                and response.json()["reason"] == "season_not_available"
+            )
+        assert (
+            client.post("/api/ask", json={**request, "player_ids": [999]}).json()[
+                "reason"
+            ]
+            == "player_not_observed"
+        )
+        page = client.get("/ask").text
+        assert "Runtime not enabled" in page and "<option>2025-26</option>" not in page
+
+
+def test_current_only_host_rechecks_revoked_authority(current):  # noqa: F811
+    _, _, live, _, _, context = current
+    with TestClient(
+        create_current_shadow_app(context, evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        live["status"] = replace(live["status"], allowed_snapshot_ids=frozenset())
+        response = client.post(
+            "/api/ask/stream",
+            json={"season": "2026-27", "player_ids": [1], "aggregation": "total"},
+        )
+        assert response.status_code == 503 and "event: final" not in response.text

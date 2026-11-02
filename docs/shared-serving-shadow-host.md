@@ -43,3 +43,11 @@ loopback/browser checks, real evidence approval and live/provider acceptance are
 separate results. Runtime remains disabled, as do rankings, pooled arithmetic
 and archetype/model outputs. This phase changes no source guards, deployment,
 host lock, helper contract, dependency pin, weekly refresh or legacy behavior.
+
+For a current-only diagnostic, `create_current_shadow_app(context,
+evidence_kind=...)` accepts one explicitly bound `CurrentReadContext`. It does
+not require historical or cross-season identity authority. Only `2026-27`
+requests are available; historical and combined requests are refused. The
+current snapshot's own identity, freshness and read-authority checks still apply
+on every request. This factory remains isolated and unregistered, and its
+structured diagnostic is not the normal application or a runtime approval.
