@@ -6,6 +6,7 @@ not discover data, grant source permission or load a warehouse/provider fallback
 
 from __future__ import annotations
 
+import copy
 import json
 
 from fastapi import FastAPI, Request
@@ -18,10 +19,16 @@ from app.serving.comparison import (
     HistoricalPTSComparisonShadow,
     PTSComparisonRequest,
 )
-from app.serving.composite import TwoSeasonPTS, bounded_json
-from app.serving.context import PTSShadowRequest
-from app.serving.contract import ServingError
+from app.serving.composite import CompositionAuthority, TwoSeasonPTS, bounded_json
+from app.serving.context import PTSShadowRequest, ReadContext
+from app.serving.contract import ServingError, content_digest
+from app.serving.current import (
+    CurrentReadContext,
+    CurrentReadPolicy,
+    CurrentSnapshotHandle,
+)
 from app.serving.player import CurrentPlayerPTSShadow, PlayerPTSShadow
+from app.serving.snapshot import SnapshotHandle
 
 MAX_REQUEST_BYTES = 2048
 SEASONS = ("2025-26", "2026-27", "both")
@@ -79,9 +86,86 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
     not import this module. Both evidence labels deliberately deny certification.
     """
     _require(type(selection) is TwoSeasonPTS, "explicit_selection_required")
+    # Validate a captured copy, so later caller mutations cannot change the host.
+    selection = copy.copy(selection)
+    try:
+        binding = selection.binding
+        unsigned = {k: v for k, v in binding.items() if k != "selection_id"}
+        valid = (
+            type(selection._authority) is CompositionAuthority
+            and type(selection._contexts) is tuple
+            and len(selection._contexts) == 2
+            and type(selection._contexts[0]) is ReadContext
+            and type(selection._contexts[1]) is CurrentReadContext
+            and binding["selection_id"] == content_digest(unsigned)
+            and binding["members"] == [c.binding for c in selection._contexts]
+            and binding["policy_id"] == selection._authority.policy_id
+            and binding["operation"] == selection._authority.allowed_operation
+            and binding["identity_record_id"] == selection._authority.identity_record_id
+            and binding["approved_player_ids_sha256"]
+            == content_digest(sorted(selection._authority.approved_player_ids))
+            and binding["members"][0]["lineage"]["identity_id"]
+            == selection._authority.historical_identity_id
+            and binding["members"][1]["lineage"]["identity_id"]
+            == selection._authority.current_identity_id
+        )
+        if valid:
+            historical, current = selection._contexts
+            valid = (
+                type(historical._handle) is SnapshotHandle
+                and type(current._handle) is CurrentSnapshotHandle
+            )
+        if valid:
+            # Reconstruct through the original guarded constructor so season,
+            # scope, semantics, identity and combined budgets are not merely
+            # self-consistent claims in a caller-supplied binding.
+            selection = TwoSeasonPTS.open(
+                historical._handle._root,
+                historical._handle._policy,
+                current._handle._root,
+                current._handle._policy,
+                historical_snapshot_id=binding["members"][0]["snapshot_id"],
+                current_snapshot_id=binding["members"][1]["snapshot_id"],
+                authority=selection._authority,
+            )
+            valid = selection.binding == binding
+    except (AttributeError, KeyError, TypeError, ValueError):
+        valid = False
+    _require(valid, "explicit_selection_required")
     _require(
         evidence_kind in ("synthetic", "retained-unapproved"), "evidence_label_required"
     )
+    return _create_app(selection, evidence_kind=evidence_kind, current_only=False)
+
+
+def create_current_shadow_app(
+    context: CurrentReadContext, *, evidence_kind: str
+) -> FastAPI:
+    """Expose one explicitly authorized current snapshot in an isolated host."""
+    _require(type(context) is CurrentReadContext, "explicit_selection_required")
+    try:
+        binding = context.binding
+        handle = context._handle
+        valid = (
+            type(handle) is CurrentSnapshotHandle
+            and isinstance(handle._policy, CurrentReadPolicy)
+            and binding["adapter_version"] == CurrentReadContext.ADAPTER
+            and binding["scope"]["season"] == "2026-27"
+            and binding["context_id"]
+            == content_digest({k: v for k, v in binding.items() if k != "context_id"})
+        )
+        if valid:
+            context._match_manifest(handle._manifest_only())
+    except (AttributeError, KeyError, TypeError, ValueError):
+        valid = False
+    _require(valid, "explicit_selection_required")
+    _require(
+        evidence_kind in ("synthetic", "retained-unapproved"), "evidence_label_required"
+    )
+    return _create_app(context, evidence_kind=evidence_kind, current_only=True)
+
+
+def _create_app(selection, *, evidence_kind, current_only):
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(
         TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "[::1]"]
@@ -95,6 +179,26 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
         return await call_next(request)
 
     def answer(season, players, mode, consumer):
+        if current_only:
+            _require(season == "2026-27", "season_not_available")
+            context = selection
+            scope = context.binding["scope"]
+            before = context.authorize()
+            if len(players) == 2:
+                payload = CurrentPTSComparisonShadow(context).answer(
+                    PTSComparisonRequest.create(players, mode, scope=scope)
+                )
+            else:
+                plan = PTSShadowRequest.create(players[0], mode, scope=scope)
+                payload = (
+                    CurrentPlayerPTSShadow(context).get_pts(plan)
+                    if consumer == "player"
+                    else CurrentPTSAskShadow(context).answer(plan)
+                )
+            data = bounded_json(payload)
+            TwoSeasonPTS._same_status([before], [payload["authority"]])
+            context.check_emission(payload)
+            return data
         _require(
             set(players) <= selection._authority.approved_player_ids,
             "identity_compatibility_denied",
@@ -105,6 +209,7 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
         index = SEASONS.index(season)
         context = selection._contexts[index]
         scope = context.binding["scope"]
+        before = context.authorize()
         if len(players) == 2:
             adapter = (HistoricalPTSComparisonShadow, CurrentPTSComparisonShadow)[
                 index
@@ -123,6 +228,7 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
                     context
                 ).answer(request)
         data = bounded_json(payload)
+        TwoSeasonPTS._same_status([before], [payload["authority"]])
         context.check_emission(payload)
         return data
 
@@ -177,9 +283,13 @@ def create_shadow_app(selection: TwoSeasonPTS, *, evidence_kind: str) -> FastAPI
 
     @app.get("/ask", response_class=HTMLResponse)
     async def page():
-        return HTMLResponse(
-            _PAGE.replace("EVIDENCE_KIND", evidence_kind), headers=HEADERS
-        )
+        page = _PAGE.replace("EVIDENCE_KIND", evidence_kind)
+        if current_only:
+            page = page.replace(
+                '<option>2025-26</option><option>2026-27</option><option value="both">Both, side by side</option>',
+                "<option>2026-27</option>",
+            )
+        return HTMLResponse(page, headers=HEADERS)
 
     return app
 

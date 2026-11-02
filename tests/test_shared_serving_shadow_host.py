@@ -1,15 +1,19 @@
 """Synthetic transport acceptance; no production provider or source acceptance."""
 
+# Imported pytest fixtures intentionally share their parameter names.
+# ruff: noqa: F811
+
 import json
 import subprocess
 from dataclasses import replace
 from datetime import timedelta
 
 import pytest
-from app.serving.shadow_host import _PAGE, create_shadow_app
+from app.serving.shadow_host import _PAGE, create_current_shadow_app, create_shadow_app
 from fastapi.testclient import TestClient
 
 from shared_serving_fixtures import NOW
+from test_current_serving_snapshot import current  # noqa: F401
 from test_two_season_composite import prepared  # noqa: F401
 
 
@@ -112,7 +116,9 @@ def test_dedicated_page_clearly_labels_evidence_and_no_runtime_routes(client):
     assert client.get("/docs").status_code == 404
 
 
-def test_factory_rejects_implicit_source_or_certification_labels(prepared):  # noqa: F811
+def test_factory_rejects_implicit_source_or_certification_labels(
+    prepared,
+):  # noqa: F811
     with pytest.raises(ValueError, match="explicit_selection_required"):
         create_shadow_app(None, evidence_kind="synthetic")
     with pytest.raises(ValueError, match="evidence_label_required"):
@@ -170,3 +176,293 @@ process.stdout.write(JSON.stringify(rendered));
                 assert value in texts
         assert "Freshness checked" in texts and "Evidence cutoff" in texts
     assert attack in rendered[0]
+
+
+def test_current_only_host_serves_all_adapters_and_refuses_other_scopes(
+    current,
+):  # noqa: F811
+    context = current[-1]
+    with TestClient(
+        create_current_shadow_app(context, evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        request = {"season": "2026-27", "player_ids": [1], "aggregation": "average"}
+        ask = client.post("/api/ask", json=request)
+        assert ask.status_code == 200
+        assert ask.json()["tables"][0]["rows"] == [[1, 5.0, 3, 2, 1]]
+        stream = client.post("/api/ask/stream", json=request)
+        assert (
+            stream.status_code == 200
+            and json.loads(stream.text.split("data: ")[1]) == ask.json()
+        )
+        assert (
+            client.post("/api/player", json=request).json()["player_profile"][
+                "total_pts"
+            ]
+            == 10
+        )
+        assert (
+            client.post(
+                "/api/comparison", json={**request, "player_ids": [1, 2]}
+            ).status_code
+            == 200
+        )
+        for season in ("2025-26", "both"):
+            response = client.post(
+                "/api/ask/stream", json={**request, "season": season}
+            )
+            assert (
+                response.status_code == 503
+                and response.json()["reason"] == "season_not_available"
+            )
+        assert (
+            client.post("/api/ask", json={**request, "player_ids": [999]}).json()[
+                "reason"
+            ]
+            == "player_not_observed"
+        )
+        page = client.get("/ask").text
+        assert "Runtime not enabled" in page and "<option>2025-26</option>" not in page
+
+
+def test_current_only_host_rechecks_revoked_authority(current):  # noqa: F811
+    _, _, live, _, _, context = current
+    with TestClient(
+        create_current_shadow_app(context, evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        live["status"] = replace(live["status"], allowed_snapshot_ids=frozenset())
+        response = client.post(
+            "/api/ask/stream",
+            json={"season": "2026-27", "player_ids": [1], "aggregation": "total"},
+        )
+        assert response.status_code == 503 and "event: final" not in response.text
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream", "player", "comparison"])
+@pytest.mark.parametrize("field", ["status_id", "checked_at"])
+def test_current_host_refuses_authority_rotation_after_serialization(
+    current, monkeypatch, route, field
+):
+    from app.serving import shadow_host
+    from app.serving.contract import content_digest
+
+    _, _, live, _, _, context = current
+    original = shadow_host.bounded_json
+    rotated = []
+
+    def rotate(payload):
+        data = original(payload)
+        if (
+            not rotated
+            and payload.get("runtime_eligible") is False
+            and "binding" in payload
+        ):
+            old = live["status"]
+            changed = (
+                content_digest("rotated")
+                if field == "status_id"
+                else old.checked_at - timedelta(seconds=1)
+            )
+            live["status"] = replace(old, **{field: changed})
+            rotated.append(True)
+        return data
+
+    monkeypatch.setattr(shadow_host, "bounded_json", rotate)
+    with TestClient(
+        create_current_shadow_app(context, evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        response = client.post(
+            "/api/" + route,
+            json={
+                "season": "2026-27",
+                "player_ids": [1, 2] if route == "comparison" else [1],
+                "aggregation": "total",
+            },
+        )
+    assert rotated and response.status_code == 503
+    assert "event: final" not in response.text
+    assert response.json()["status"] == "unavailable"
+    assert response.json()["reason"] == "authority_changed"
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream", "player", "comparison"])
+@pytest.mark.parametrize("season", ["both", "2025-26"])
+def test_current_host_refuses_other_scopes_before_fact_read(
+    current, monkeypatch, route, season
+):
+    from app.serving import snapshot
+
+    reads = []
+    original = snapshot._read_at
+
+    def track(fd, relative, limit):
+        if relative.startswith("facts/"):
+            reads.append(relative)
+        return original(fd, relative, limit)
+
+    monkeypatch.setattr(snapshot, "_read_at", track)
+    with TestClient(
+        create_current_shadow_app(current[-1], evidence_kind="synthetic"),
+        base_url="http://127.0.0.1",
+    ) as client:
+        response = client.post(
+            "/api/" + route,
+            json={
+                "season": season,
+                "player_ids": [1, 2] if route == "comparison" else [1],
+                "aggregation": "total",
+            },
+        )
+    assert (
+        response.status_code == 503
+        and response.json()["reason"] == "season_not_available"
+    )
+    assert not reads and "event: final" not in response.text
+
+
+def test_current_factory_requires_exact_type_and_valid_label(current):
+    from app.serving.current import CurrentReadContext
+
+    class Derived(CurrentReadContext):
+        pass
+
+    for selection in (
+        None,
+        object(),
+        object.__new__(Derived),
+        object.__new__(CurrentReadContext),
+        CurrentReadContext(object(), b"{}"),
+    ):
+        with pytest.raises(ValueError, match="explicit_selection_required"):
+            create_current_shadow_app(selection, evidence_kind="synthetic")
+    for label in (None, "approved", "", 1):
+        with pytest.raises(ValueError, match="evidence_label_required"):
+            create_current_shadow_app(current[-1], evidence_kind=label)
+    for label in ("synthetic", "retained-unapproved"):
+        assert create_current_shadow_app(current[-1], evidence_kind=label)
+
+
+def test_composite_factory_requires_exact_type_and_valid_label(prepared):
+    from app.serving.composite import TwoSeasonPTS
+
+    class Derived(TwoSeasonPTS):
+        pass
+
+    for selection in (
+        None,
+        object(),
+        object.__new__(Derived),
+        object.__new__(TwoSeasonPTS),
+    ):
+        with pytest.raises(ValueError, match="explicit_selection_required"):
+            create_shadow_app(selection, evidence_kind="synthetic")
+    for label in (None, "approved", "", 1):
+        with pytest.raises(ValueError, match="evidence_label_required"):
+            create_shadow_app(prepared[0](), evidence_kind=label)
+    for label in ("synthetic", "retained-unapproved"):
+        assert create_shadow_app(prepared[0](), evidence_kind=label)
+
+
+def test_current_factory_refuses_rehashed_wrong_scope(current):
+    from app.serving.contract import canonical_json, content_digest
+
+    context = current[-1]
+    binding = context.binding
+    binding["scope"]["season"] = "2025-26"
+    binding.pop("context_id")
+    binding["context_id"] = content_digest(binding)
+    forged = replace(context, _binding_bytes=canonical_json(binding))
+    with pytest.raises(ValueError, match="explicit_selection_required"):
+        create_current_shadow_app(forged, evidence_kind="synthetic")
+
+
+def test_composite_factory_binds_authority_and_captures_selection(prepared):
+    selection = prepared[0]()
+    authority = selection._authority
+    changed = replace(
+        authority, approved_player_ids=authority.approved_player_ids | {3}
+    )
+    selection._authority = changed
+    with pytest.raises(ValueError, match="explicit_selection_required"):
+        create_shadow_app(selection, evidence_kind="synthetic")
+    selection._authority = authority
+    app = create_shadow_app(selection, evidence_kind="synthetic")
+    selection._authority = changed
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        for season in ("2025-26", "2026-27", "both"):
+            response = client.post(
+                "/api/ask",
+                json={"season": season, "player_ids": [3], "aggregation": "total"},
+            )
+            assert response.status_code == 503
+            assert response.json()["reason"] == "identity_compatibility_denied"
+
+
+def test_composite_factory_refuses_rehashed_forged_season(prepared):
+    from app.serving.context import ReadContext
+    from app.serving.contract import canonical_json, content_digest
+
+    selection = prepared[0]()
+    historical, current = selection._contexts
+    forged_context = ReadContext(current._handle, historical._binding_bytes)
+    selection._contexts = (forged_context, current)
+    binding = selection.binding
+    binding["members"] = [context.binding for context in selection._contexts]
+    binding.pop("selection_id")
+    binding["selection_id"] = content_digest(binding)
+    selection._binding = canonical_json(binding)
+    with pytest.raises(ValueError, match="explicit_selection_required"):
+        create_shadow_app(selection, evidence_kind="synthetic")
+
+
+@pytest.mark.parametrize("route", ["ask", "ask/stream", "player", "comparison"])
+@pytest.mark.parametrize("target", ["current_only", "historical", "current"])
+@pytest.mark.parametrize("field", ["status_id", "checked_at"])
+def test_single_season_host_refuses_authority_rotation_during_read(
+    current, prepared, monkeypatch, route, target, field
+):
+    from app.serving import snapshot
+    from app.serving.contract import content_digest
+
+    if target == "current_only":
+        app = create_current_shadow_app(current[-1], evidence_kind="synthetic")
+        live, key, season = current[2], "status", "2026-27"
+    else:
+        app = create_shadow_app(prepared[0](), evidence_kind="synthetic")
+        live = prepared[1]
+        key, season = ("h", "2025-26") if target == "historical" else ("c", "2026-27")
+    original = snapshot._read_at
+    reads = []
+
+    def rotate(fd, relative, limit):
+        data = original(fd, relative, limit)
+        if relative.startswith("facts/"):
+            reads.append(relative)
+            # The first fact pass establishes the pre-adapter authority. Rotate
+            # during the following pass, before the adapter records its receipt.
+            if len(reads) == 2:
+                old = live[key]
+                value = (
+                    content_digest("rotated-during-read")
+                    if field == "status_id"
+                    else old.checked_at - timedelta(seconds=1)
+                )
+                live[key] = replace(old, **{field: value})
+        return data
+
+    monkeypatch.setattr(snapshot, "_read_at", rotate)
+    with TestClient(app, base_url="http://127.0.0.1") as client:
+        response = client.post(
+            "/api/" + route,
+            json={
+                "season": season,
+                "player_ids": [1, 2] if route == "comparison" else [1],
+                "aggregation": "total",
+            },
+        )
+    assert len(reads) >= 2
+    assert response.status_code == 503
+    assert response.json()["reason"] == "authority_changed"
+    assert "event: final" not in response.text

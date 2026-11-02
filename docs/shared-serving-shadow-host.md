@@ -17,8 +17,8 @@ POST `/api/ask`, `/api/ask/stream`, `/api/player` or `/api/comparison` with prec
 ```
 
 `season` is `2025-26`, `2026-27` or `both`; aggregation is `total` or `average`.
-Comparison requires exactly two distinct IDs; other routes require one. Only
-independently approved player IDs are accepted. Bodies are limited to 2 KiB,
+Comparison requires exactly two distinct IDs; other routes require one. For this
+two-season factory, only independently approved player IDs are accepted. Bodies are limited to 2 KiB,
 responses retain the existing 1 MiB budget, and the existing reader budgets apply.
 Single-season requests authorize that season; two-season requests require both.
 Neither averages nor totals are pooled across seasons.
@@ -43,3 +43,11 @@ loopback/browser checks, real evidence approval and live/provider acceptance are
 separate results. Runtime remains disabled, as do rankings, pooled arithmetic
 and archetype/model outputs. This phase changes no source guards, deployment,
 host lock, helper contract, dependency pin, weekly refresh or legacy behavior.
+
+For a current-only diagnostic, `create_current_shadow_app(context,
+evidence_kind=...)` accepts one explicitly bound `CurrentReadContext`. It does
+not require historical or cross-season identity authority. Only `2026-27`
+requests are available; historical and combined requests are refused. The
+current snapshot's own identity, freshness and read-authority checks still apply
+on every request. This factory remains isolated and unregistered, and its
+structured diagnostic is not the normal application or a runtime approval.
