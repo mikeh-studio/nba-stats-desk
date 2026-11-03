@@ -12,7 +12,7 @@ from functools import lru_cache
 from html import escape
 from pathlib import Path
 from threading import Event, Lock, Thread
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import uuid4
 
 from anyio.to_thread import current_default_thread_limiter
@@ -1207,7 +1207,7 @@ def player_shell(
     player_id: int,
     request: Request,
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
-) -> HTMLResponse:
+) -> Response:
     if candidate is not None:
         season = _candidate_season(request)
         if set(request.query_params) != {"season"}:
@@ -1241,7 +1241,7 @@ def player_page(
     request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
-) -> HTMLResponse:
+) -> Response:
     if candidate is not None:
         season = _candidate_season(request)
         if set(request.query_params) != {"season"}:
@@ -1687,7 +1687,7 @@ async def _execute_admitted_agent(
                 if candidate is not None:
                     answer = candidate.ask(question, settings)
                 else:
-                    answer = agent.answer(
+                    answer = cast(StatsAgent, agent).answer(
                         question,
                         conversation_id=conversation_id,
                         trace=trace,
@@ -1978,7 +1978,7 @@ def ask_page(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
-) -> HTMLResponse:
+) -> Response:
     if candidate is not None:
         if request.query_params:
             raise HTTPException(
@@ -2124,7 +2124,7 @@ def compare_page(
     player_b_id: int | None = None,
     window: CompareWindow = Query(default="last_5"),
     focus: CompareFocus = Query(default="balanced"),
-) -> HTMLResponse:
+) -> Response:
     if candidate is not None:
         season = _candidate_season(request)
         if (

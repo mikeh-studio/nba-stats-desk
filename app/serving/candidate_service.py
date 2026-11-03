@@ -136,6 +136,7 @@ class CandidatePTSService:
     ):
         if type(binding) is not CandidateBinding or not callable(check_binding):
             raise ServingError("explicit_selection_required")
+        self._selection: CurrentReadContext | TwoSeasonPTS
         if type(selection) is CurrentReadContext:
             create_current_shadow_app(selection, evidence_kind=evidence_kind)
             self._selection = selection
@@ -144,7 +145,7 @@ class CandidatePTSService:
             # Reopen through the same guarded constructor used by the shadow host.
             create_shadow_app(selection, evidence_kind=evidence_kind)
             historical, current = selection._contexts
-            self._selection = TwoSeasonPTS.open(
+            reopened = TwoSeasonPTS.open(
                 historical._handle._root,
                 historical._handle._policy,
                 current._handle._root,
@@ -153,9 +154,10 @@ class CandidatePTSService:
                 current_snapshot_id=current.binding["snapshot_id"],
                 authority=selection._authority,
             )
-            if self._selection.binding != selection.binding:
+            if reopened.binding != selection.binding:
                 raise ServingError("snapshot_binding_mismatch")
-            self._contexts = self._selection._contexts
+            self._selection = reopened
+            self._contexts = reopened._contexts
         else:
             raise ServingError("explicit_selection_required")
         if (
