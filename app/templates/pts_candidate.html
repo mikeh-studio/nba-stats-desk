@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ask NBA Stats · PTS candidate</title>
+  <style>
+    body { font: 16px system-ui; max-width: 68rem; margin: 2rem auto; padding: 0 1rem; background: #101418; color: #eef2f4; }
+    input, button { font: inherit; padding: .5rem; } input { width: min(70%, 44rem); }
+    table { border-collapse: collapse; margin: 1rem 0; } td, th { padding: .5rem; border-bottom: 1px solid #52606b; text-align: left; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Ask NBA Stats</h1>
+  <p>Offline PTS candidate · observed appearances · no runtime approval or league rankings</p>
+  <p>Use an approved player name, total or per game, season and regular season.</p>
+  <form id="question-form">
+    <label for="question">Ask a question</label>
+    <input id="question" required maxlength="4000" placeholder="Alex Example points per game in the 2026-27 regular season">
+    <button type="submit">Ask</button>
+  </form>
+  <p id="status" role="status"></p>
+  <section id="result" aria-live="polite"></section>
+  <hr>
+  <form id="player-form">
+    <label for="player-id">Player ID</label><input id="player-id" type="number" min="1" required>
+    <label for="player-season">Season</label><select id="player-season"><option>2026-27</option><option>2025-26</option></select>
+    <button type="submit">View player PTS</button>
+  </form>
+  <form id="compare-form">
+    <label for="player-a">Player A ID</label><input id="player-a" type="number" min="1" required>
+    <label for="player-b">Player B ID</label><input id="player-b" type="number" min="1" required>
+    <label for="compare-season">Season</label><select id="compare-season"><option>2026-27</option><option>2025-26</option></select>
+    <button type="submit">Compare PTS</button>
+  </form>
+</main>
+<script>
+const form = document.querySelector('#question-form');
+const result = document.querySelector('#result');
+const status = document.querySelector('#status');
+form.addEventListener('submit', async event => {
+  event.preventDefault();
+  result.replaceChildren(); status.textContent = 'Checking candidate evidence…';
+  try {
+    const response = await fetch('/api/agent/ask', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: document.querySelector('#question').value})
+    });
+    const payload = await response.json();
+    if (!response.ok) { status.textContent = payload.detail || 'Candidate unavailable.'; return; }
+    status.textContent = payload.answer;
+    for (const member of payload.candidate_evidence || []) {
+      const section = document.createElement('section');
+      const scope = member.binding.scope;
+      const heading = document.createElement('h2'); heading.textContent = `${scope.season} · ${scope.phase}`; section.append(heading);
+      const evidence = member.semantic_evidence.sides?.[0] || member.semantic_evidence;
+      const clocks = evidence.evidence_clocks || {};
+      const authority = member.authority || {};
+      const fields = [
+        ['Evidence kind', payload.evidence_kind], ['Source', evidence.current_evidence?.provider],
+        ['Scope', `${scope.start_date} through ${scope.end_date}`],
+        ['Source captured', clocks.source_captured_at], ['Discovered', clocks.discovered_at],
+        ['Revalidated', clocks.revalidated_at], ['Reviewed', clocks.reviewed_at], ['Source expiry', clocks.hard_expiry],
+        ['Status checked', authority.status_checked_at], ['Freshness checked', authority.freshness_checked_at],
+        ['Binding expires', payload.binding_expires_at],
+      ];
+      const details = document.createElement('dl');
+      for (const [label, value] of fields) if (value != null) {
+        const term = document.createElement('dt'); term.textContent = label;
+        const description = document.createElement('dd'); description.textContent = String(value);
+        details.append(term, description);
+      }
+      section.append(details);
+      const limitations = document.createElement('p'); limitations.textContent = `Limitations: ${(member.limitations || []).join(', ')}`; section.append(limitations);
+      for (const data of member.tables || []) {
+        const table = document.createElement('table');
+        const header = document.createElement('tr');
+        const visible = data.columns.map((_, i) => i).filter(i => data.rows.some(row => row[i] != null));
+        for (const i of visible) { const th = document.createElement('th'); th.textContent = data.columns[i].label; header.append(th); }
+        table.append(header);
+        for (const row of data.rows) { const tr = document.createElement('tr');
+          for (const i of visible) { const td = document.createElement('td'); td.textContent = row[i] == null ? '' : String(row[i]); tr.append(td); }
+          table.append(tr);
+        }
+        section.append(table);
+      }
+      result.append(section);
+    }
+  } catch { status.textContent = 'Candidate unavailable.'; }
+});
+document.querySelector('#player-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const id = document.querySelector('#player-id').value;
+  const season = document.querySelector('#player-season').value;
+  if (/^[1-9][0-9]*$/.test(id)) location.assign(`/players/${id}?season=${encodeURIComponent(season)}`);
+});
+document.querySelector('#compare-form').addEventListener('submit', event => {
+  event.preventDefault();
+  const a = document.querySelector('#player-a').value;
+  const b = document.querySelector('#player-b').value;
+  const season = document.querySelector('#compare-season').value;
+  if (/^[1-9][0-9]*$/.test(a) && /^[1-9][0-9]*$/.test(b)) {
+    const query = new URLSearchParams({player_a_id: a, player_b_id: b, season, window: 'regular_season', focus: 'scoring'});
+    location.assign(`/compare?${query}`);
+  }
+});
+</script>
+</body>
+</html>
