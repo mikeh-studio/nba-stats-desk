@@ -9,9 +9,10 @@ from contextvars import copy_context
 from copy import deepcopy
 from datetime import UTC, date, datetime
 from functools import lru_cache
+from html import escape
 from pathlib import Path
 from threading import Event, Lock, Thread
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, cast
 from uuid import uuid4
 
 from anyio.to_thread import current_default_thread_limiter
@@ -78,6 +79,7 @@ from app.seasons import (
     validate_season,
 )
 from app.security import is_direct_local, rate_limit_identity, require_local_history
+from app.serving.contract import ServingError
 from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
@@ -285,6 +287,7 @@ class SeasonMiddleware:
             request.method == "GET"
             and not request.url.path.startswith(("/api/", "/static/"))
             and "season" in request.query_params
+            and not scope.get("offline_pts_candidate", False)
         ):
             url = request.url.remove_query_params("season")
             response = RedirectResponse(
@@ -440,6 +443,186 @@ def get_repository(
 
 def get_agent_client() -> Any | None:
     return None
+
+
+def get_candidate_service() -> Any | None:
+    """Trusted process composition only; never selected from HTTP or env."""
+    return None
+
+
+def _candidate_season(request: Request) -> str:
+    seasons = request.query_params.getlist("season")
+    if (
+        len(seasons) != 1
+        or seasons[0] not in ("2025-26", "2026-27")
+        or any(
+            len(request.query_params.getlist(key)) != 1 for key in request.query_params
+        )
+    ):
+        raise HTTPException(
+            status_code=400, detail="Select an explicit supported season."
+        )
+    return seasons[0]
+
+
+def _candidate_body_send(send, candidate, *, payload=None, seasons=()):
+    """Abort an already-started response if its authority changes before a body."""
+
+    async def checked_send(message):
+        if message["type"] == "http.response.body":
+            try:
+                if payload is None:
+                    await run_in_threadpool(candidate.check, seasons)
+                else:
+                    await run_in_threadpool(candidate.check_payload, payload)
+            except Exception:
+                # Headers have already been handed off; a new 503 response is no
+                # longer legal. Abort instead of completing a stale 200 response.
+                raise RuntimeError("candidate_authority_changed") from None
+        await send(message)
+
+    return checked_send
+
+
+class _CandidateResponse(Response):
+    """Recheck offline pins immediately before sending a candidate response."""
+
+    def __init__(self, content, candidate, seasons, *, payload=None, **kwargs):
+        super().__init__(content, **kwargs)
+        self.candidate = candidate
+        self.seasons = tuple(seasons)
+        self.payload = payload
+        self.headers["Cache-Control"] = "no-store"
+        self.headers["X-Content-Type-Options"] = "nosniff"
+
+    async def __call__(self, scope, receive, send):
+        try:
+            if self.payload is None:
+                await run_in_threadpool(self.candidate.check, self.seasons)
+            else:
+                await run_in_threadpool(self.candidate.check_payload, self.payload)
+        except Exception:
+            await JSONResponse(
+                {
+                    "status": "unavailable",
+                    "reason": "candidate_authority_changed",
+                    "runtime_eligible": False,
+                },
+                status_code=503,
+                headers={
+                    "Cache-Control": "no-store",
+                    "X-Content-Type-Options": "nosniff",
+                },
+            )(scope, receive, send)
+            return
+        await super().__call__(
+            scope,
+            receive,
+            _candidate_body_send(
+                send, self.candidate, payload=self.payload, seasons=self.seasons
+            ),
+        )
+
+
+def _candidate_result(candidate, seasons, operation):
+    from app.serving.contract import ServingError, canonical_json
+
+    try:
+        payload = operation()
+        data = canonical_json(payload)
+    except ServingError as exc:
+        raise HTTPException(status_code=503, detail=exc.code) from None
+    response = _CandidateResponse(
+        data, candidate, seasons, payload=payload, media_type="application/json"
+    )
+    response.headers["X-Offline-Evidence-Kind"] = candidate.evidence_kind
+    return response
+
+
+def _candidate_html(title: str, payload: dict, candidate) -> str:
+    scope = payload["binding"]["scope"]
+    if payload["consumer"] == "player":
+        profile = payload["player_profile"]
+        rows = [
+            [
+                profile["player_id"],
+                profile["total_pts"],
+                profile["average_pts"],
+                profile["observed_games"],
+                profile["valid_games"],
+                profile["missing_component_games"],
+            ]
+        ]
+        labels = [
+            "Player ID",
+            "Points total",
+            "Points per valid appearance",
+            "Observed appearances",
+            "Valid PTS appearances",
+            "Missing PTS appearances",
+        ]
+    else:
+        table = payload["tables"][0]
+        rows = table["rows"]
+        labels = [column["label"] for column in table["columns"]]
+    visible = [i for i in range(len(labels)) if any(row[i] is not None for row in rows)]
+    head = "".join(f"<th>{escape(str(labels[i]))}</th>" for i in visible)
+    body = "".join(
+        "<tr>"
+        + "".join(
+            f"<td>{escape(str(row[i])) if row[i] is not None else ''}</td>"
+            for i in visible
+        )
+        + "</tr>"
+        for row in rows
+    )
+    limitations = ", ".join(payload["limitations"])
+    evidence = payload["semantic_evidence"]
+    if "sides" in evidence:
+        evidence = evidence["sides"][0]
+    clocks = evidence.get("evidence_clocks", {})
+    current_evidence = evidence.get("current_evidence", {})
+    authority = payload["authority"]
+    fields = [
+        ("Evidence kind", candidate.evidence_kind),
+        ("Source", current_evidence.get("provider")),
+        ("Source captured", clocks.get("source_captured_at")),
+        ("Discovered", clocks.get("discovered_at")),
+        ("Revalidated", clocks.get("revalidated_at")),
+        ("Reviewed", clocks.get("reviewed_at")),
+        ("Source expiry", clocks.get("hard_expiry")),
+        ("Status checked", authority.get("status_checked_at")),
+        ("Freshness checked", authority.get("freshness_checked_at")),
+        ("Binding expires", candidate.binding_expires_at),
+    ]
+    qualifiers = "".join(
+        f"<dt>{escape(label)}</dt><dd>{escape(str(value))}</dd>"
+        for label, value in fields
+        if value is not None
+    )
+    return (
+        "<!doctype html><html lang='en'><meta charset='utf-8'><title>"
+        + escape(title)
+        + "</title>"
+        + "<main><h1>"
+        + escape(title)
+        + "</h1><p>Offline PTS candidate; no runtime approval or league ranking.</p>"
+        + "<p>"
+        + escape(
+            f"{scope['season']} · {scope['phase']} · {scope['start_date']} through {scope['end_date']}"
+        )
+        + "</p>"
+        + "<dl>"
+        + qualifiers
+        + "</dl>"
+        + "<p>Limitations: "
+        + escape(limitations)
+        + "</p><table><thead><tr>"
+        + head
+        + "</tr></thead><tbody>"
+        + body
+        + "</tbody></table></main></html>"
+    )
 
 
 def _repo_cache_token(repo: WarehouseRepository) -> int:
@@ -946,8 +1129,18 @@ def api_player_search(
 @app.get("/api/players/{player_id}")
 def api_player_detail(
     player_id: int,
+    request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
 ) -> dict:
+    if candidate is not None:
+        season = _candidate_season(request)
+        if set(request.query_params) != {"season"}:
+            raise HTTPException(status_code=400, detail="Unsupported candidate scope.")
+        return _candidate_result(
+            candidate, (season,), lambda: candidate.player(player_id, season)
+        )
+    assert repo is not None
     detail = _get_cached_player_detail(repo, player_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Player not found")
@@ -958,11 +1151,31 @@ def api_player_detail(
 def api_compare(
     player_a_id: int,
     player_b_id: int,
+    request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
     *,
     window: CompareWindow = Query(default="last_5"),
     focus: CompareFocus = Query(default="balanced"),
 ) -> dict:
+    if candidate is not None:
+        season = _candidate_season(request)
+        if (
+            window != "regular_season"
+            or focus != "scoring"
+            or set(request.query_params)
+            != {"player_a_id", "player_b_id", "window", "focus", "season"}
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Candidate comparisons require the explicit regular-season scoring scope.",
+            )
+        return _candidate_result(
+            candidate,
+            (season,),
+            lambda: candidate.compare((player_a_id, player_b_id), season),
+        )
+    assert repo is not None
     if player_a_id == player_b_id:
         raise HTTPException(
             status_code=400,
@@ -990,7 +1203,25 @@ def home() -> RedirectResponse:
 
 
 @app.get("/players/{player_id}", response_class=HTMLResponse)
-def player_shell(player_id: int, request: Request) -> HTMLResponse:
+def player_shell(
+    player_id: int,
+    request: Request,
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
+) -> Response:
+    if candidate is not None:
+        season = _candidate_season(request)
+        if set(request.query_params) != {"season"}:
+            raise HTTPException(status_code=400, detail="Unsupported candidate scope.")
+        try:
+            value = candidate.player(player_id, season)
+            page = _candidate_html("Player PTS", value, candidate)
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail="Candidate data unavailable."
+            ) from None
+        return _CandidateResponse(
+            page, candidate, (season,), payload=value, media_type="text/html"
+        )
     # No repository dependency: navigation never waits for warehouse queries.
     return templates.TemplateResponse(
         request,
@@ -1009,7 +1240,23 @@ def player_page(
     player_id: int,
     request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
-) -> HTMLResponse:
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
+) -> Response:
+    if candidate is not None:
+        season = _candidate_season(request)
+        if set(request.query_params) != {"season"}:
+            raise HTTPException(status_code=400, detail="Unsupported candidate scope.")
+        try:
+            value = candidate.player(player_id, season)
+            page = _candidate_html("Player PTS", value, candidate)
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail="Candidate data unavailable."
+            ) from None
+        return _CandidateResponse(
+            page, candidate, (season,), payload=value, media_type="text/html"
+        )
+    assert repo is not None
     player_detail = _get_cached_player_detail(repo, player_id)
     if player_detail is None:
         raise HTTPException(status_code=404, detail="Player not found")
@@ -1243,19 +1490,73 @@ class _AgentStreamingResponse(StreamingResponse):
 
 
 class _AgentJSONResponse(Response):
-    def __init__(self, content: bytes, delivery: Delivery, **kwargs):
+    def __init__(
+        self,
+        content: bytes,
+        delivery: Delivery,
+        *,
+        candidate=None,
+        seasons=(),
+        **kwargs,
+    ):
         super().__init__(content, media_type="application/json", **kwargs)
         self.delivery = delivery
+        self.candidate = candidate
+        self.seasons = seasons
 
     async def __call__(self, scope, receive, send):
         try:
+            if self.candidate is not None and self.status_code == 200:
+                try:
+                    payload = json.loads(self.body)
+                    await run_in_threadpool(self.candidate.check_payload, payload)
+                except Exception:
+                    await JSONResponse(
+                        {
+                            "status": "unavailable",
+                            "reason": "candidate_authority_changed",
+                            "runtime_eligible": False,
+                        },
+                        status_code=503,
+                        headers={
+                            "Cache-Control": "no-store",
+                            "X-Content-Type-Options": "nosniff",
+                        },
+                    )(scope, receive, send)
+                    return
+                send = _candidate_body_send(send, self.candidate, payload=payload)
             await super().__call__(scope, receive, send)
         finally:
             self.delivery.detach()
 
 
+def _require_candidate_ask(payload: AgentAskRequest, candidate):
+    if candidate is not None and any(
+        value is not None
+        for value in (
+            payload.previous_context,
+            payload.selected_player_id,
+            payload.selected_player_name,
+            payload.provider,
+            payload.model,
+        )
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Candidate mode does not support follow-ups or model selection.",
+        )
+
+
+def _candidate_answer_seasons(wire: bytes):
+    payload = json.loads(wire)
+    members = payload["candidate_evidence"]
+    if type(members) is not list or len(members) not in (1, 2):
+        raise ValueError("invalid candidate evidence")
+    return tuple(member["binding"]["scope"]["season"] for member in members)
+
+
 async def _start_agent_execution(
-    request, payload, repo, settings, agent_client, *, streaming
+    request, payload, repo, settings, agent_client, *, streaming, candidate=None
 ):
     from app.agent.runtime_policy import (
         CURRENT_ADMISSION,
@@ -1265,7 +1566,13 @@ async def _start_agent_execution(
     runtime = get_runtime_policy()
     if runtime is None:
         return await _execute_admitted_agent(
-            request, payload, repo, settings, agent_client, streaming=streaming
+            request,
+            payload,
+            repo,
+            settings,
+            agent_client,
+            streaming=streaming,
+            candidate=candidate,
         )
     admitted = CURRENT_ADMISSION.get()
     if admitted is None or admitted.policy is not runtime:
@@ -1273,7 +1580,13 @@ async def _start_agent_execution(
     token = CURRENT_ADMISSION.set(admitted)
     try:
         return await _execute_admitted_agent(
-            request, payload, repo, settings, agent_client, streaming=streaming
+            request,
+            payload,
+            repo,
+            settings,
+            agent_client,
+            streaming=streaming,
+            candidate=candidate,
         )
     except BaseException:
         if admitted is not None:
@@ -1292,6 +1605,7 @@ async def _execute_admitted_agent(
     agent_client: Any | None,
     *,
     streaming: bool,
+    candidate=None,
 ) -> tuple[str, str, Delivery]:
     # The configured rate limiter can perform synchronous Redis I/O. Preserve
     # the season context while keeping that I/O off the event loop.
@@ -1350,13 +1664,17 @@ async def _execute_admitted_agent(
                 # Restore only after admission; rejected work cannot alter state.
                 from app.agent.runtime_policy import get_runtime_policy
 
-                if get_runtime_policy() is None:
+                if candidate is None and get_runtime_policy() is None:
                     _restore_agent_context(payload, settings, conversation_id)
                 if trace.private_capture is not None:
                     trace.private_capture.context(
                         _season_conversation_store(current_season()), conversation_id
                     )
-                agent = _build_stats_agent(settings, repo, agent_client)
+                agent = (
+                    _build_stats_agent(settings, repo, agent_client)
+                    if candidate is None
+                    else None
+                )
                 from app.agent.overview_tracking import (
                     overview_events,
                     requested_capabilities,
@@ -1366,40 +1684,45 @@ async def _execute_admitted_agent(
                     trace.overview_tracking.extend(requested_capabilities(question))
                 except Exception:
                     app_logger.warning("overview request tracking failed")
-                answer = agent.answer(
-                    question,
-                    conversation_id=conversation_id,
-                    trace=trace,
-                    progress_callback=progress if streaming else None,
-                    selected_player=_selected_player(payload),
-                    provider=payload.provider,
-                    model=payload.model,
-                )
+                if candidate is not None:
+                    answer = candidate.ask(question, settings)
+                else:
+                    answer = cast(StatsAgent, agent).answer(
+                        question,
+                        conversation_id=conversation_id,
+                        trace=trace,
+                        progress_callback=progress if streaming else None,
+                        selected_player=_selected_player(payload),
+                        provider=payload.provider,
+                        model=payload.model,
+                    )
                 if trace.private_capture is not None:
                     trace.private_capture.answer(answer)
                 answer["request_id"] = request_id
-                answer["season"] = current_season()
+                if candidate is None:
+                    answer["season"] = current_season()
                 try:
                     trace.overview_tracking.extend(overview_events(answer))
                 except Exception:
                     # Best-effort private telemetry cannot break answer delivery.
                     app_logger.warning("overview tracking collection failed")
                 answer_streamed = answer.pop("answer_streamed", False)
-                if streaming and not answer_streamed:
+                if streaming and not answer_streamed and candidate is None:
                     for chunk in _answer_delta_chunks(str(answer.get("answer") or "")):
                         if chunk:
                             progress({"type": "answer_delta", "delta": chunk})
                 terminal = {"type": "final", "payload": answer}
                 wire = _agent_terminal_bytes(terminal, streaming=streaming)
-                _record_agent_history(
-                    settings,
-                    request_id=request_id,
-                    conversation_id=conversation_id,
-                    question=question,
-                    payload=answer,
-                    provider=_selected_agent_provider(payload),
-                    model=trace.model,
-                )
+                if candidate is None:
+                    _record_agent_history(
+                        settings,
+                        request_id=request_id,
+                        conversation_id=conversation_id,
+                        question=question,
+                        payload=answer,
+                        provider=_selected_agent_provider(payload),
+                        model=trace.model,
+                    )
                 status = 200
             except AgentDisabledError as exc:
                 _fail_trace(trace, exc)
@@ -1408,6 +1731,16 @@ async def _execute_admitted_agent(
                 terminal = {
                     "type": "error",
                     "detail": _agent_unavailable_detail(payload, settings),
+                    "request_id": request_id,
+                }
+            except ServingError as exc:
+                trace.outcome = "error"
+                trace.error_type = "candidate_unavailable"
+                status = 503
+                terminal = {
+                    "type": "error",
+                    "detail": "The offline PTS candidate could not answer this request.",
+                    "code": exc.code,
                     "request_id": request_id,
                 }
             except HTTPException as exc:
@@ -1497,17 +1830,42 @@ async def api_agent_ask(
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
     settings: Annotated[Settings, Depends(get_settings)],
     agent_client: Annotated[Any | None, Depends(get_agent_client)],
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
 ) -> Response:
+    if candidate is not None and request.query_params:
+        raise HTTPException(
+            status_code=400, detail="Candidate scope must be stated in the question."
+        )
+    _require_candidate_ask(payload, candidate)
     request_id, _, delivery = await _start_agent_execution(
-        request, payload, repo, settings, agent_client, streaming=False
+        request,
+        payload,
+        repo,
+        settings,
+        agent_client,
+        streaming=False,
+        candidate=candidate,
     )
     response_owns_delivery = False
     try:
         result = await delivery.next()
         assert result is not None
         wire, status = result
+        seasons = (
+            _candidate_answer_seasons(wire)
+            if candidate is not None and status == 200
+            else ()
+        )
         result_response = _AgentJSONResponse(
-            wire, delivery, status_code=status, headers={"X-Request-ID": request_id}
+            wire,
+            delivery,
+            status_code=status,
+            headers={
+                "X-Request-ID": request_id,
+                **({"Cache-Control": "no-store"} if candidate is not None else {}),
+            },
+            candidate=candidate,
+            seasons=seasons,
         )
         response_owns_delivery = True
         return result_response
@@ -1523,9 +1881,21 @@ async def api_agent_ask_stream(
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
     settings: Annotated[Settings, Depends(get_settings)],
     agent_client: Annotated[Any | None, Depends(get_agent_client)],
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
 ) -> StreamingResponse:
+    if candidate is not None and request.query_params:
+        raise HTTPException(
+            status_code=400, detail="Candidate scope must be stated in the question."
+        )
+    _require_candidate_ask(payload, candidate)
     request_id, conversation_id, delivery = await _start_agent_execution(
-        request, payload, repo, settings, agent_client, streaming=True
+        request,
+        payload,
+        repo,
+        settings,
+        agent_client,
+        streaming=True,
+        candidate=candidate,
     )
 
     async def event_stream():
@@ -1534,7 +1904,27 @@ async def api_agent_ask_stream(
                 "meta", {"request_id": request_id, "conversation_id": conversation_id}
             )
             while (result := await delivery.next()) is not None:
-                yield result[0]
+                wire, status = result
+                if candidate is not None and status == 200:
+                    try:
+                        terminal = json.loads(wire.decode().split("data: ", 1)[1])
+                        _candidate_answer_seasons(
+                            json.dumps(terminal["payload"]).encode()
+                        )
+                        await run_in_threadpool(
+                            candidate.check_payload, terminal["payload"]
+                        )
+                    except Exception:
+                        yield _sse(
+                            "error",
+                            {
+                                "type": "error",
+                                "detail": "Candidate authority changed.",
+                                "code": "candidate_authority_changed",
+                            },
+                        ).encode()
+                        break
+                yield wire
         finally:
             delivery.detach()
 
@@ -1542,7 +1932,10 @@ async def api_agent_ask_stream(
         event_stream(),
         delivery,
         media_type="text/event-stream",
-        headers={"X-Request-ID": request_id},
+        headers={
+            "X-Request-ID": request_id,
+            **({"Cache-Control": "no-store"} if candidate is not None else {}),
+        },
     )
 
 
@@ -1584,7 +1977,16 @@ def api_agent_history_clear(
 def ask_page(
     request: Request,
     settings: Annotated[Settings, Depends(get_settings)],
-) -> HTMLResponse:
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
+) -> Response:
+    if candidate is not None:
+        if request.query_params:
+            raise HTTPException(
+                status_code=400,
+                detail="Candidate scope must be stated in the question.",
+            )
+        page = templates.get_template("pts_candidate.html").render(request=request)
+        return _CandidateResponse(page, candidate, (), media_type="text/html")
     context = {
         "request": request,
         "page_title": "Ask NBA Stats",
@@ -1717,11 +2119,37 @@ def similarity_map_page(
 def compare_page(
     request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    candidate: Annotated[Any | None, Depends(get_candidate_service)],
     player_a_id: int | None = None,
     player_b_id: int | None = None,
     window: CompareWindow = Query(default="last_5"),
     focus: CompareFocus = Query(default="balanced"),
-) -> HTMLResponse:
+) -> Response:
+    if candidate is not None:
+        season = _candidate_season(request)
+        if (
+            window != "regular_season"
+            or focus != "scoring"
+            or player_a_id is None
+            or player_b_id is None
+            or set(request.query_params)
+            != {"player_a_id", "player_b_id", "window", "focus", "season"}
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Candidate comparisons require two players and explicit regular-season scoring scope.",
+            )
+        try:
+            value = candidate.compare((player_a_id, player_b_id), season)
+            page = _candidate_html("PTS comparison", value, candidate)
+        except Exception:
+            raise HTTPException(
+                status_code=503, detail="Candidate data unavailable."
+            ) from None
+        return _CandidateResponse(
+            page, candidate, (season,), payload=value, media_type="text/html"
+        )
+    assert repo is not None
     compare_error: str | None = None
     comparison: dict | None = None
     health = repo.get_health()
