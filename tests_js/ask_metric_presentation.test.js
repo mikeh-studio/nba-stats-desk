@@ -1,22 +1,55 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {overviewPresentation, overviewMetricsTable, overviewTakeaways, changeClass, metricAbbreviation} from '../app/static/ask_presentation.js';
+import {claimSchema} from '../app/static/ask_claim_bindings.js';
 const keys=['pts','ts_pct','fg3m','fg3_pct','ast','tov','reb','stl','blk','min','fga'];
 const payload=()=>({semantic_evidence:{scope:{start:'2025-01-01',end:'2025-02-01',previous_start:'2024-01-01',previous_end:'2024-02-01',phases:['Regular Season']},summary_paragraphs:['Canonical evidence.'],metrics:keys.map((key,i)=>({key,label:key,value:i,unit:key.includes('pct')?'percent':'per game',percentile:key==='ast'?99:null,change:1,valid_games:8,observed_games:8,sample:{status:'descriptive',text:'8/8 valid appearances'}})),presentation:{primary_keys:keys.slice(0,10),preferred_metric:'pts',scope_note:'Observed sample',limitation:'Defensive tracking unavailable',takeaways:[{area:'Creation',title:'Creation',text:'Assists and turnovers together',icon:'chart-bar'}]}}});
+test('overview hides empty percentile and change columns without losing zero, distributions or source evidence',()=>{
+ const p=payload();p.semantic_evidence.metrics.forEach(m=>{m.percentile=null;m.display_change=null;});
+ p.semantic_evidence.metrics[0].distribution={across_games:{summary:{n:1},points:[{value:0}]}};
+ const before=JSON.stringify(p),html=overviewMetricsTable(overviewPresentation(p));
+ const primary=html.split('</table>')[0];
+ assert.equal((primary.match(/scope="col"/g)||[]).length,2);
+ assert.doesNotMatch(html,/data-column="percentile"|data-column="change"|Percentiles use complete/);
+ assert.doesNotMatch(html,/Versus |TOV colors/);
+ assert.match(primary,/data-column="value" aria-label="0.0 per game">0.0/);
+ assert.doesNotMatch(primary,/data-metric-distribution|metric-distribution-fallback/);
+ const claims=claimSchema(p,'overview');
+ assert.ok(!claims.some(r=>['change','change-aria','overview-meter','ordinal'].includes(r.format)));
+ assert.ok(claims.some(r=>r.format==='overview-value'&&r.selector.includes('data-column="value"')));
+ assert.equal(JSON.stringify(p),before);
+ p.semantic_evidence.metrics[0].distribution={across_games:{summary:{n:0},points:[]}};
+ assert.doesNotMatch(overviewMetricsTable(overviewPresentation(p)),/data-metric-distribution/);
+});
+test('overview visibility is per table and retains mixed columns with valid zero ranks and changes',()=>{
+ const p=payload();p.semantic_evidence.metrics.forEach(m=>{m.value=null;m.percentile=null;m.display_change=null;});
+ Object.assign(p.semantic_evidence.metrics.at(-1),{value:0,percentile:0,display_change:0});
+ let html=overviewMetricsTable(overviewPresentation(p));
+ assert.doesNotMatch(html.split('</table>')[0],/data-column=/);
+ assert.match(html.split('data-additional-metrics')[1],/data-column="value".*0.0/);
+ assert.equal(claimSchema(p,'overview').filter(r=>r.format==='overview-value').length,1);
+ Object.assign(p.semantic_evidence.metrics[0],{value:0,percentile:0,display_change:0});
+ html=overviewMetricsTable(overviewPresentation(p)).split('</table>')[0];
+ assert.equal((html.match(/scope="col"/g)||[]).length,4);
+ assert.match(html,/0th/);assert.match(html,/Comparison unavailable/);
+ assert.equal((html.match(/data-column="value"/g)||[]).length,10);
+ p.semantic_evidence.metrics[0].sample.status='limited';
+ assert.doesNotMatch(overviewMetricsTable(overviewPresentation(p)).split('</table>')[0],/data-column="percentile"/);
+});
 test('policy renders ten primary rows, collapses details and keeps canonical takeaways',()=>{
  const p=payload(), overview=overviewPresentation(p), html=overviewMetricsTable(overview);
  assert.equal(overview.metrics.length,10);assert.equal(overview.additionalMetrics.length,1);
  assert.equal(overview.preferredMetric,'pts');assert.deepEqual(overview.insights,p.semantic_evidence.presentation.takeaways);
  assert.equal((html.split('<details')[0].match(/data-metric-key=/g)||[]).length,10);
- assert.match(html,/View all metrics/);assert.match(html,/Sample \/ opportunity/);
- assert.match(html,/percent/);assert.match(html,/8\/8 valid appearances/);
+ assert.match(html,/View Other Metrics/);assert.doesNotMatch(html,/Samples &amp; methodology|data-sample-details/);
+ assert.match(html,/percent/);assert.ok(html.indexOf('data-overview-performance') < html.indexOf('data-additional-metrics'));
 });
 test('focused policy follows provided keys and sample warnings survive escaping',()=>{
  const p=payload();p.semantic_evidence.presentation.primary_keys=['pts','ts_pct','fg3m','fg3_pct','fga','min'];
  p.semantic_evidence.metrics[0].sample={status:'limited',text:'2/8 valid appearances; limited sample <script>'};
- p.semantic_evidence.metrics[0].percentile=99;p.semantic_evidence.metrics[0].change=null;
+ p.semantic_evidence.metrics[0].percentile=99;p.semantic_evidence.metrics[0].change=null;p.semantic_evidence.metrics[0].valid_games=2;
  const o=overviewPresentation(p), html=overviewMetricsTable(o);
- assert.equal(o.metrics.length,6);assert.match(html,/limited sample &lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
+ assert.equal(o.metrics.length,6);assert.match(html,/2 of 8 appearances/);assert.doesNotMatch(html,/>Limited</);assert.doesNotMatch(html,/<script>/);
  assert.doesNotMatch(html.split('</tr>')[1],/99th/);
 });
 
@@ -27,7 +60,7 @@ test('compact table has four columns with inline units and closed detail control
  assert.equal((primary.match(/scope="col"/g)||[]).length,4);
  assert.doesNotMatch(primary.replace(/<span[^>]*class="metric-tooltip"[^>]*>.*?<\/span>/g,''),/<br>|per game<|Sample \/ opportunity/);
  assert.match(primary,/-0.6 pp/);assert.doesNotMatch(primary,/-0.0/);
- assert.match(html,/data-sample-details/);assert.doesNotMatch(html,/<details[^>]* open/);
+ assert.doesNotMatch(html,/data-sample-details/);assert.doesNotMatch(html,/<details[^>]* open/);
  const contribution=overviewTakeaways(o);
  assert.match(contribution,/>Key takeaways<\/h2>/);assert.match(contribution,/<h3>Creation<\/h3>/);assert.doesNotMatch(contribution,/<details|<summary/);
 });
@@ -73,7 +106,7 @@ test('qualified ranks and compact reasons are accessible and escaped',()=>{
  assert.match(html,/Low attempts/);assert.match(html,/tabindex="0"/);
  assert.match(html,/Requires 100 FGA &lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
  assert.match(html,/percentile-neutral/);assert.match(html,/75th/);
- assert.match(html,/50 FTA for FT%/);
+ assert.doesNotMatch(html,/data-sample-details/);
 });
 
 
@@ -84,8 +117,8 @@ test('new general policy renders eleven rows with percentages last, saved policy
  const o=overviewPresentation(p), html=overviewMetricsTable(o);
  assert.equal(o.metrics.length,11);
  assert.deepEqual(o.metrics.slice(-3).map(metricAbbreviation),['FG%','FT%','TS%']);
- assert.match(html,/50 FTA for FT%/);
- assert.match(overviewMetricsTable(overviewPresentation(payload())),/Saved ranking policy/);
+ assert.doesNotMatch(html,/data-sample-details/);
+ assert.doesNotMatch(overviewMetricsTable(overviewPresentation(payload())),/Saved ranking policy/);
 });
 
 

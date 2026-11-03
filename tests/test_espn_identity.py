@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 
 import pytest
 from scripts import espn_identity as identity
@@ -69,6 +70,123 @@ def test_crosswalk_never_guesses_ambiguous_or_unknown_names():
     assert not rows and {r["reason"] for r in missing} == {"missing", "ambiguous"}
 
 
+def reviewed_registry():
+    bio = dict(
+        full_name="Avery Able",
+        birth_date="1999-11-22",
+        college="Arizona",
+        height_inches=73,
+        sha256="a" * 64,
+    )
+    return {
+        "schema_version": "espn-reviewed-player-mappings/1",
+        "mappings": [
+            {
+                "source_player_id": "500",
+                "nba_player_id": "11",
+                "full_name": "Avery Able",
+                "reviewed_at": "2026-10-28T22:00:00+00:00",
+                "espn": {
+                    **bio,
+                    "url": "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/500",
+                    "method": "captured_http_json",
+                },
+                "nba": {
+                    **bio,
+                    "url": "https://www.nba.com/player/11/avery-able",
+                    "method": "operator_reviewed_web_tool",
+                },
+            }
+        ],
+    }
+
+
+def test_reviewed_provider_id_resolves_duplicate_name_but_not_another_namesake():
+    players = [
+        {"source_player_id": sid, "name": "Avery Able", "nba_player_id": None}
+        for sid in ("500", "600")
+    ]
+    ref = [{"id": n, "full_name": "Avery Able", "is_active": n == 10} for n in (10, 11)]
+    rows, unresolved = identity.crosswalk(
+        players,
+        ref,
+        {"method": "synthetic", "sha256": "x"},
+        reviewed=reviewed_registry(),
+    )
+    assert len(rows) == 1 and rows[0]["nba_player_id"] == "11"
+    assert rows[0]["method"].startswith("reviewed_espn_nba_profiles_v1:")
+    assert unresolved == [
+        {"source_player_id": "600", "name": "Avery Able", "reason": "ambiguous"}
+    ]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("birth_date", "1975-02-27"),
+        ("college", "Davidson"),
+        ("height_inches", 78),
+        ("full_name", "Other Person"),
+        ("sha256", "missing"),
+        ("url", "https://www.nba.com/player/10/avery-able"),
+        ("method", "guessed"),
+    ],
+)
+def test_reviewed_mapping_rejects_wrong_or_missing_source_evidence(field, value):
+    registry = reviewed_registry()
+    registry["mappings"][0]["nba"][field] = value
+    with pytest.raises(ValueError):
+        identity.reviewed_mappings(registry)
+
+
+@pytest.mark.parametrize("same_source", [True, False])
+def test_reviewed_registry_rejects_duplicate_ids_in_either_direction(same_source):
+    registry = reviewed_registry()
+    second = deepcopy(registry["mappings"][0])
+    if not same_source:
+        second["source_player_id"] = "600"
+    registry["mappings"].append(second)
+    with pytest.raises(ValueError, match="Duplicate reviewed"):
+        identity.reviewed_mappings(registry)
+
+
+@pytest.mark.parametrize("change", ["name", "catalog", "previous_id"])
+def test_reviewed_mapping_never_overrides_identity_conflicts(change):
+    player = {"source_player_id": "500", "name": "Avery Able", "nba_player_id": None}
+    ref = [{"id": n, "full_name": "Avery Able"} for n in (10, 11)]
+    if change == "name":
+        player["name"] = "Other Player"
+    elif change == "catalog":
+        ref = ref[:1]
+    else:
+        player["nba_player_id"] = "10"
+    with pytest.raises(ValueError):
+        identity.crosswalk(
+            [player],
+            ref,
+            {"method": "synthetic", "sha256": "x"},
+            reviewed=reviewed_registry(),
+        )
+
+
+def test_brandon_review_record_is_valid_and_does_not_choose_old_namesake():
+    registry = json.loads(identity.REVIEWED_PATH.read_text())
+    reference = [{"id": n, "full_name": "Brandon Williams"} for n in (1585, 1630314)]
+    rows, unresolved = identity.crosswalk(
+        [
+            {
+                "source_player_id": "4397040",
+                "name": "Brandon Williams",
+                "nba_player_id": None,
+            }
+        ],
+        reference,
+        {"method": "synthetic", "sha256": "x"},
+        reviewed=registry,
+    )
+    assert rows[0]["nba_player_id"] == "1630314" and not unresolved
+
+
 def test_crosswalk_rejects_two_provider_ids_for_one_nba_player():
     players = [
         {"source_player_id": str(i), "name": "Avery Able", "nba_player_id": None}
@@ -132,8 +250,8 @@ def test_worker_retains_resolved_identity_on_pdf_failure_but_not_bad_summary(
 
     from scripts import espn_ingestion as worker
     from scripts import espn_sources as source
+    from tests.support.espn import DAY, REF, SEASON, fixtures
 
-    from test_espn_pilot import DAY, REF, SEASON, fixtures
     from test_gamebook_ingestion import Response, Session
 
     schedule, summary = fixtures()
@@ -173,8 +291,7 @@ def test_refresh_cli_writes_command_report_and_result_once(tmp_path, monkeypatch
     from types import SimpleNamespace
 
     from scripts import espn_ingestion as worker
-
-    from test_espn_pilot import REF, candidate
+    from tests.support.espn import REF, candidate
 
     (tmp_path / "reports").mkdir()
     output = tmp_path / "reports/refresh"

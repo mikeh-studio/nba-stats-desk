@@ -1,8 +1,9 @@
-import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261028-comparison-distributions-v1";
-import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261028-comparison-distributions-v1";
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261028-comparison-distributions-v1";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261028-comparison-distributions-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261028-comparison-distributions-v1";
+import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261030-unified-checkpoint-v1";
+import {overviewBoxplot, overviewTrend} from "./overview_chart.js?v=20261030-unified-checkpoint-v1";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp, hideUnavailableColumns} from "./semantic_presentation.js?v=20261030-unified-checkpoint-v1";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261030-unified-checkpoint-v1";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261030-unified-checkpoint-v1";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261030-unified-checkpoint-v1";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -10,13 +11,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261028-comparison-distributions-v1";
+} from "./ask_comparison.js?v=20261030-unified-checkpoint-v1";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261028-comparison-distributions-v1";
+} from "./ask_sessions.js?v=20261030-unified-checkpoint-v1";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -24,8 +25,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261028-comparison-distributions-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261028-comparison-distributions-v1";
+} from "./ask_presentation.js?v=20261030-unified-checkpoint-v1";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261030-unified-checkpoint-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -377,6 +378,8 @@ function referenceTable(table, payload) {
 }
 
 function renderTable(table) {
+  table = hideUnavailableColumns(table);
+  if (asArray(table.rows).length && !asArray(table.columns).length) return "";
   // Presentation-only compatibility for saved answers; never change evidence.
   const legacyCoverageLabels = {
     "Both valid/observed": "Games with data — both played",
@@ -397,7 +400,7 @@ function renderTable(table) {
       ${table.collapsible ? `<details><summary>${escHtml(table.title || "Table")}</summary>` : `<h3>${escHtml(table.title || "Table")}</h3>`}
       ${table.subtitle ? `<p class="meta result-period">${escHtml(table.subtitle)}</p>` : ""}
       ${table.qualification ? `<p class="meta result-qualification">${escHtml(table.qualification)}</p>` : ""}
-      ${table.help ? `<details class="result-help"><summary>About this stat and ranking</summary><p class="meta">${escHtml(table.help)}</p></details>` : ""}
+      ${table.help ? `<details class="result-help"><summary>${escHtml(table.helpTitle || "About this stat and ranking")}</summary><p class="meta">${escHtml(table.help)}</p></details>` : ""}
       <div class="table-scroll">
         <table class="data-table compact">
           <thead>
@@ -447,8 +450,8 @@ function tooltipMarkup({ x, y, label, meta }, width) {
 
 function renderLineChart(chart) {
   const compact = chart.overview && window.innerWidth <= 600;
-  const width = chart.overview ? (compact ? 480 : 960) : 720;
-  const height = chart.overview ? (compact ? 240 : 300) : 250;
+  const width = chart.overview ? Math.max(280, Math.min(680, chart.overviewWidth || (compact ? 480 : 680))) : 720;
+  const height = chart.overview ? (compact ? 210 : 240) : 250;
   const pad = { top: 26, right: 26, bottom: 46, left: 46 };
   const series = asArray(chart.series).filter(
     (item) => asArray(item.points).length > 0,
@@ -1156,12 +1159,15 @@ function renderAuxiliaryPayload(
           ? `<details><summary>See the stat comparison</summary>${renderTable(referenceTable(table, payload))}</details>`
           : renderTable(semanticTable(referenceTable(table, payload), payload, index)))
         .join("");
+  tableCard.hidden = !tableEl.innerHTML.trim();
 
   const charts = asArray(payload.charts);
-  chartCard.hidden = charts.length === 0;
+  chartCard.hidden = !!overview || charts.length === 0;
   if (overview) { bindRenderedClaims(tableEl, payload, "overview", {}, overview.claimEvidence); bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }
-  if (overview && charts.length)
+  if (overview && charts.length) {
+    chartEl.innerHTML = "";
     renderOverviewCharts(payload, overview.preferredMetric, root);
+  }
   else chartEl.innerHTML = charts.map((chart, index) => renderChart(semanticChart(chart, payload, index))).join("") + renderComparisonExplorer(payload);
   if (payload.comparison_explorer?.detail) {
     chartCard.hidden = false;
@@ -1187,25 +1193,38 @@ function renderOverviewTable(overview) {
   return overviewMetricsTable(overview);
 }
 
-function renderOverviewCharts(payload, key, root = document, open = false) {
+function renderOverviewCharts(payload, key, root = document) {
   const charts = asArray(payload.charts);
-  const chart = charts.find((c) => c.series?.[0]?.key === key) || charts[0];
-  const el = root.querySelector("[data-agent-charts]");
+  let chart = charts.find((c) => c.series?.[0]?.key === key) || charts[0];
+  const el = root.querySelector("[data-overview-performance]") || root.querySelector("[data-agent-charts]");
   if (!chart || !el) return;
   const metric = payload.semantic_evidence.metrics.find(
     (m) => m.key === chart.series[0].key,
   );
+  chart = overviewTrend(chart, metric);
   const daily = chart.grain === "daily";
-  // The metrics table leads; the full time series opens on demand.
-  el.innerHTML = `<details class="chart-disclosure"${open ? " open" : ""}><summary>Performance over time · ${escHtml(metricAbbreviation(metric))}</summary><div class="chart-header"><div><h2 class="sr-only">Performance over time</h2><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div></div><div class="agent-chart overview-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for date and sample size. ${daily ? "Days" : "Months"} without appearances are omitted; lines do not imply games were played between observations.</p></details>`;
+  el.innerHTML = `<section class="overview-performance"><h2>Performance Over Time</h2><div class="chart-header"><div><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c.series[0].key === chart.series[0].key}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div></div><div class="agent-chart overview-chart">${renderLineChart({ ...chart, overview: true, overviewWidth:el.clientWidth, average: metric.value })}</div><p class="meta">Hover or focus a point for date and sample size. ${daily ? "Days" : "Months"} without appearances are omitted; lines do not imply games were played between observations.</p>${overviewBoxplot(metric)}</section>`;
+  const metricsRoot = root.querySelector("[data-agent-tables]");
+  if (metricsRoot) bindRenderedClaims(metricsRoot, payload, "overview", {chartKey:metric.key});
+  el.overviewChartState = {chart, average:metric.value, width:el.clientWidth};
   el.querySelectorAll("[data-chart-key]").forEach((button) =>
     button.addEventListener("click", () => {
-      renderOverviewCharts(payload, button.dataset.chartKey, root, true);
+      renderOverviewCharts(payload, button.dataset.chartKey, root);
       root
         .querySelector(`[data-chart-key="${button.dataset.chartKey}"]`)
         ?.focus();
     }),
   );
+}
+
+function fitOverviewCharts() {
+  document.querySelectorAll('[data-overview-performance]').forEach(el => {
+    const state = el.overviewChartState, width = el.clientWidth;
+    if (!state || !width || width === state.width) return;
+    const plot = el.querySelector('.overview-chart');
+    if (plot) plot.innerHTML = renderLineChart({...state.chart, overview:true, overviewWidth:width, average:state.average});
+    state.width = width;
+  });
 }
 
 function setInterimAnswer(text) {
@@ -2160,7 +2179,7 @@ function setBusy(busy) {
 }
 
 function initAgentPage() {
-  window.addEventListener("resize", resizeQuestionInputs);
+  window.addEventListener("resize", () => { resizeQuestionInputs(); fitOverviewCharts(); });
   bindExampleButtons();
   initProviderSelect();
   initHistory();

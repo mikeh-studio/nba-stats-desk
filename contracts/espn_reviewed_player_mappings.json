@@ -1,0 +1,29 @@
+{
+  "schema_version": "espn-reviewed-player-mappings/1",
+  "mappings": [
+    {
+      "source_player_id": "4397040",
+      "nba_player_id": "1630314",
+      "full_name": "Brandon Williams",
+      "reviewed_at": "2026-10-28T22:33:53.012917+00:00",
+      "espn": {
+        "full_name": "Brandon Williams",
+        "birth_date": "1999-11-22",
+        "college": "Arizona",
+        "height_inches": 73,
+        "url": "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/4397040",
+        "method": "captured_http_json",
+        "sha256": "4f3595fe44a97747b64bc97a2ac9f6b097dd1172585165af2e51e4020f520660"
+      },
+      "nba": {
+        "full_name": "Brandon Williams",
+        "birth_date": "1999-11-22",
+        "college": "Arizona",
+        "height_inches": 73,
+        "url": "https://www.nba.com/player/1630314/brandon-williams",
+        "method": "operator_reviewed_web_tool",
+        "sha256": "549a8b9dee893a3f38479a4798b61f99d1491b19727c7b6be1fb65d9fc557e32"
+      }
+    }
+  ]
+}

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from app.agent.service import AgentExecutionError, StatsAgent
 from app.agent.teammate_ask import wants_study
-from tests.test_agent_service import _settings
+from tests.support.agent import _settings
 
 
 def study():

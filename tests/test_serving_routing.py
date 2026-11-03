@@ -16,7 +16,7 @@ from app.agent.serving_bigquery import encode_publication
 from app.agent.serving_publication import digest
 from app.agent.serving_runtime import PilotPublication
 from app.agent.serving_warehouse import RefreshingServingWarehouse, ServingWarehouse
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 from tests.test_serving_bigquery import TABLE, Client, wire
 from tests.test_serving_expansion import make_prepared
 from tests.test_serving_runtime import NOW

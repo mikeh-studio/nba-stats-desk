@@ -295,8 +295,8 @@ def test_award_composition_and_zero_appearance_control():
     from types import SimpleNamespace
 
     from app.agent.service import StatsAgent
+    from tests.support.semantic import settings
     from tests.test_award_lookup import warehouse
-    from tests.test_semantic_migration import settings
 
     a = StatsAgent(
         settings("2024-25"), SimpleNamespace(), semantic_warehouse=warehouse()

@@ -1,4 +1,4 @@
-import {comparisonDistribution, boxPosition, meanDiamond, distributionNumber} from "./comparison_distribution.js?v=20261028-comparison-distributions-v1";
+import {comparisonDistribution, boxPosition, meanDiamond, distributionNumber} from "./comparison_distribution.js?v=20261030-unified-checkpoint-v1";
 
 const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const ordinal = (v) => {
@@ -10,7 +10,7 @@ export function comparisonPlot(metric, side, name) {
   const m = metric[side], scale = comparisonDistribution(metric), s = scale[side];
   const rank = Number.isFinite(m.percentile)
     ? `<button type="button" class="h2h-pct" data-h2h-tip="rank">${ordinal(m.percentile)} percentile</button><div class="h2h-tooltip h2h-rank-tooltip" popover="manual" role="tooltip">League standing by per-game average among qualified players in the same dates and phases.</div>`
-    : `<span class="h2h-pct">Not ranked</span>`;
+    : "";
   if (!s) return `<div class="h2h-distribution">${rank}<span class="h2h-unavailable">${m.missing_component_games ? "Incomplete data" : "Distribution unavailable"}</span></div>`;
   const x = (v) => boxPosition(v, scale), label = `${name} ${metric.label}: game-by-game distribution over ${s.n} recorded games`;
   return `<div class="h2h-distribution">${rank}<button type="button" class="h2h-plot-trigger" data-h2h-tip="plot" aria-label="${esc(label)}"><svg class="h2h-boxplot" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true"><line class="h2h-whisker" x1="${x(s.min)}" x2="${x(s.max)}" y1="12" y2="12"/><line class="h2h-min" x1="${x(s.min)}" x2="${x(s.min)}" y1="7" y2="17"/><line class="h2h-max" x1="${x(s.max)}" x2="${x(s.max)}" y1="7" y2="17"/><rect class="h2h-box" x="${x(s.q1)}" y="6" width="${Number((x(s.q3)-x(s.q1)).toFixed(3))}" height="12"/><line class="h2h-median" x1="${x(s.median)}" x2="${x(s.median)}" y1="6" y2="18"/><polygon class="h2h-mean" points="${meanDiamond(m.value, scale)}"/></svg><span class="h2h-axis" aria-hidden="true"><span class="h2h-axis-min">${distributionNumber(scale.lo)}</span><span class="h2h-axis-max">${distributionNumber(scale.hi)}</span></span></button><div class="h2h-tooltip h2h-plot-tooltip" popover="manual" role="tooltip"><dl>${[["median","Med"],["min","Min"],["max","Max"],["q1","Q1"],["q3","Q3"]].map(([key,label])=>`<dt>${label}</dt><dd data-summary="${key}">${distributionNumber(s[key])}</dd>`).join("")}</dl></div></div>`;

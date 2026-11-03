@@ -18,7 +18,7 @@ from app.agent.semantic_planner import (
     single_period_rank_plan,
 )
 from scripts.ask_eval.fixtures import load_inputs
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 SOURCE, _ = load_inputs(Path(__file__).resolve().parents[1])
 

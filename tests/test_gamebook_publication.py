@@ -9,8 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts import espn_ingestion, gamebook_ingestion
 from scripts.gamebook_publication import due_through, publication_report
-
-from test_espn_pilot import DAY, SEASON, fixtures
+from tests.support.espn import DAY, SEASON, fixtures
 
 
 @pytest.mark.parametrize(

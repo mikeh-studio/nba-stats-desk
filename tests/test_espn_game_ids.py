@@ -9,8 +9,8 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts import verify_espn_game_ids as verify
 from scripts.fetch_gamebooks import source_url
+from tests.support.espn import fixtures
 
-from test_espn_pilot import fixtures
 from test_gamebook_assists import box_page, fragment, pdf_from_pages
 
 

@@ -1,7 +1,7 @@
 import pytest
 from app.agent.common_planner import common_plan
 from app.agent.semantic_serving import source_players
-from tests.test_semantic_migration import Warehouse
+from tests.support.semantic import Warehouse
 
 
 def players():

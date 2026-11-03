@@ -149,6 +149,22 @@ test("reference row supports text-only emphasis without changing the league rank
   assert.doesNotMatch(html, /reference-player-label/);
 });
 
+test("standard tables hide empty columns while preserving mixed values and legacy coverage labels", async () => {
+  const agent = await loadAgentModule();
+  const table = {
+    columns: [{key:"rank",label:"Rank"},{key:"player",label:"Player"},{key:"percentile",label:"League percentile"},{label:"Both valid/observed"}],
+    rows: [[null,"Player A","Unavailable","0/2"],["—","Player B",0,"1/2"]],
+  };
+  const before = JSON.stringify(table);
+  const html = agent.renderTable(table);
+  assert.doesNotMatch(html, /data-column="rank"/);
+  assert.match(html, />League percentile</);
+  assert.match(html, /<td>Player A<\/td><td>Unavailable<\/td><td>0 of 2<\/td>/);
+  assert.match(html, /<td>Player B<\/td><td>0<\/td><td>1 of 2<\/td>/);
+  assert.equal(JSON.stringify(table), before);
+  assert.equal(agent.renderTable({columns:[{label:"Rank"}],rows:[[null]]}), "");
+});
+
 test("saved sample counts get clear labels without changing evidence or unrelated fractions", async () => {
   const agent = await loadAgentModule();
   const table = {
@@ -489,6 +505,17 @@ test("line charts keep negative and positive observations inside the plot", asyn
   assert.ok(positions.every((y) => y >= 26 && y <= 204));
   assert.ok(positions[0] > positions[1] && positions[1] > positions[2]);
   assert.match(html, /Player: -25/);
+});
+
+test("overview chart viewBox follows its container and caps wide layouts without changing values", async () => {
+  const agent = await loadAgentModule();
+  window.innerWidth = 390;
+  const chart = {overview:true,overviewWidth:350,series:[{key:'pts',label:'Points',points:[{x:'2026-10-21',y:23},{x:'2026-10-23',y:24}]}]};
+  const narrow = agent.renderLineChart(chart);
+  assert.match(narrow,/viewBox="0 0 350 210"/);
+  assert.match(narrow,/>23.0<\/text>/);
+  window.innerWidth = 1280;
+  assert.match(agent.renderLineChart({...chart,overviewWidth:1100}),/viewBox="0 0 680 240"/);
 });
 
 test("bar charts preserve negative values and expose accessible hover details", async () => {

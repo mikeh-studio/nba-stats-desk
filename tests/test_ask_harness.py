@@ -19,7 +19,7 @@ from scripts.ask_eval.fixtures import (
 )
 from scripts.ask_eval.grading import canonical, grade
 from scripts.ask_eval.review import build_review
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE, CASES = load_inputs(ROOT)

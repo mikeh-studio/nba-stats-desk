@@ -709,6 +709,20 @@ body:has(.ask-desk) .publication-health {
 .metric-distribution { display:block; width:100%; padding:0; margin:0; border:0; background:none; color:inherit; font:inherit; text-align:left; cursor:pointer; }
 .metric-distribution:hover, .metric-distribution:focus-visible { text-decoration:underline; text-underline-offset:3px; }
 .metric-distribution:focus-visible { outline:2px solid var(--accent-hot); outline-offset:3px; }
+.metric-distribution-fallback { display:block; margin-top:.25rem; font-size:.75rem; font-weight:400; color:var(--muted); }
+.metric-appearances { display:block; color:var(--muted); font-size:.75rem; }
+.overview-performance { margin:1rem 0; padding:1rem 0; border-top:1px solid var(--line); }
+.overview-performance h2 { margin-bottom:.75rem; }
+.overview-boxplot { margin-top:1.25rem; }
+.overview-boxplot svg { display:block; width:100%; max-width:680px; height:auto; color:var(--muted); }
+.overview-boxplot svg line { stroke:currentColor; stroke-width:2; }
+.overview-boxplot svg rect { fill:var(--surface-3); stroke:currentColor; stroke-width:2; }
+.overview-boxplot [data-box-median] { stroke:var(--accent-hot); stroke-width:3; }
+.overview-boxplot circle { fill:var(--accent-hot); }
+.overview-boxplot circle:focus { outline:2px solid var(--text); }
+.box-values { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:.5rem; margin:.5rem 0; max-width:680px; }
+.box-values dt { color:var(--muted); font-size:.75rem; }
+.box-values dd { margin:0; font-variant-numeric:tabular-nums; }
 .metric-drawer { box-sizing:border-box; position:fixed; inset:0 0 0 auto; margin:0; width:440px; max-width:100vw; height:100dvh; max-height:100dvh; padding:20px; border:1px solid #353941; color:#f1f1f1; background:#191c21; overflow-y:auto; overscroll-behavior:contain; font-family:var(--font-body); }
 .metric-drawer::backdrop { background:rgba(0,0,0,.5); }
 .drawer-header { position:sticky; top:0; z-index:1; background:#191c21; display:flex; justify-content:space-between; gap:12px; align-items:start; }
@@ -758,6 +772,7 @@ html:has(.metric-drawer[open]) { overflow:hidden; scrollbar-gutter:stable; }
   margin-top: 1.25rem;
 }
 .agent-turn .evidence-section > h2,
+.agent-turn .overview-performance > h2,
 .overview-layout .overall-copy > h2 {
   font-size: 1.15rem;
   letter-spacing: 0.04em;
@@ -968,15 +983,29 @@ html:has(.metric-drawer[open]) { overflow:hidden; scrollbar-gutter:stable; }
   font-size: 0.8rem;
 }
 .compact-metrics :where(td, th) {
-  padding: 0.35rem 0.5rem;
+  padding: 0.25rem 0.5rem;
 }
 .compact-metrics thead th {
   font-size: 0.75rem;
 }
 .compact-metrics td,
 .compact-metrics tbody th {
-  font-size: 0.92rem;
+  font-size: 0.875rem;
 }
+.compact-metrics { max-width:680px; }
+.compact-metrics:has(thead th:nth-child(2):last-child) { max-width:420px; }
+.compact-metrics:has(thead th:nth-child(2):last-child) :where(th,td):first-child { width:42%; }
+.overview-performance .overview-chart { max-width:680px; margin-top:.5rem; overflow:visible; }
+.overview-performance .overview-chart svg { min-width:0; }
+.overview-performance .overview-chart :is(.agent-axis,.agent-reference-label,.agent-bar-value,.agent-tooltip-text) { font-family:var(--font-body); font-size:12px; }
+.overview-performance .chart-header { max-width:680px; gap:.5rem; }
+.overview-performance .chart-switcher button { font-family:var(--font-body); font-size:.8125rem; padding:.35rem .65rem; min-height:32px; }
+.overview-performance > .meta,
+.overview-performance .chart-header .meta,
+.overview-boxplot > .meta { font-size:.75rem; line-height:1.4; }
+.overview-performance .overview-boxplot { margin-top:1rem; }
+.overview-performance .overview-boxplot h3 { font-size:1rem; line-height:1.3; margin:0 0 .4rem; }
+.overview-performance .box-values dd { font-size:.875rem; }
 .compact-metrics .percentile-cell meter {
   width: 90px;
 }

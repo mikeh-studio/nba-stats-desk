@@ -11,8 +11,8 @@ from app.agent.overview_positions import comparison_intent, peer_question
 from app.agent.performance_overview import overview_scope, wants_overview
 from app.agent.semantics import Evidence, SemanticError
 from fastapi.testclient import TestClient
+from tests.support.semantic import Model, settings
 from tests.test_overview_positions import fixture
-from tests.test_semantic_migration import Model, settings
 
 
 @pytest.fixture

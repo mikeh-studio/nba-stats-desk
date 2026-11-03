@@ -1,4 +1,6 @@
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261028-comparison-distributions-v1";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261030-unified-checkpoint-v1";
+import {overviewTableColumns, metricAppearances} from "./table_visibility.js?v=20261030-unified-checkpoint-v1";
+import {periodRange} from "./period_labels.js?v=20261030-unified-checkpoint-v1";
 // Governed values, explicit display policy and server-authored balanced takeaways.
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 const escape = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -83,8 +85,8 @@ export function overviewPresentation(payload) {
   return {claimEvidence:prepareClaimEvidence(payload), claimPayload:payload, paragraphs, summaryContext:evidence.summary_context || "", insights, playerName:name, metrics:visible, allMetrics:metrics,
     gameVariation:evidence.insights?.find(f=>f.game_variation)?.game_variation || null,
     additionalMetrics:Array.isArray(keys) ? metrics.filter(m=>!keys.includes(m.key)) : [],
-    range:`${dateLabel(scope.start)} – ${dateLabel(scope.end)}`,
-    comparison:`${(scope.previous_phases || scope.phases).join(' + ')} · ${dateLabel(scope.previous_start)} – ${dateLabel(scope.previous_end)}`,
+    range:periodRange(scope),
+    comparison:`${(scope.previous_phases || scope.phases).join(' + ')} · ${periodRange(scope, true)}`,
     scope, policy, minGames:evidence.min_games || 5,
     preferredMetric:policy?.preferred_metric || 'pts',
     followups:[`Show ${name}'s points from ${scope.start} through ${scope.end} (${scope.phases.join(' + ')}).`, `Show ${name}'s performance from ${scope.start} through ${scope.end}, regular season.`],
@@ -109,7 +111,7 @@ export function overviewMetricsTable(overview) {
     if (m.percentile_status) return `<span class="rank-status"${m.distribution ? '' : ' tabindex="0"'} title="${escape((m.percentile_label || 'Not ranked') + '. ' + (m.percentile_note || ''))}" aria-label="${escape((m.percentile_label || 'Not ranked') + '. ' + (m.percentile_note || ''))}">${escape(m.percentile_label || 'Not ranked')}</span>`;
     return unavailable(finite(m.value) ? 'Not ranked' : 'Unavailable');
   };
-  const row = (m, index, group) => {
+  const row = (m, index, group, columns) => {
     const unit = m.unit || 'per game';
     const value = number(m.value);
     const suffix = unit === 'percent' ? '%' : unit === 'minutes per game' ? ' min' : unit === 'per 36 minutes' ? ' /36' : '';
@@ -121,14 +123,15 @@ export function overviewMetricsTable(overview) {
     const rankMarkup = rank(m);
     const rankName = finite(m.percentile) && !limited ? `${ordinal(m.percentile)} percentile` : m.percentile_label || 'Not ranked';
     const rankControl = m.distribution ? `<button type="button" class="metric-distribution" data-metric-distribution="${escape(m.key)}" aria-label="${escape(metricAbbreviation(m))} distribution: ${escape(rankName)}" aria-description="${escape(m.percentile_note || '')}">${rankMarkup}</button>` : rankMarkup;
-    return `<tr data-metric-key="${escape(m.key)}"><th scope="row">${metricLabel(m, `metric-help-${instance}-${group}-${index}`)}</th><td aria-label="${escape(value === null ? 'Unavailable' : `${value} ${unit}`)}">${value === null ? unavailable() : value + suffix}${limited ? ' <span class="metric-status">Limited</span>' : ''}</td><td>${rankControl}</td><td class="${changeClass(m, change)}" aria-label="${escape(delta === null ? 'Comparison unavailable' : `${delta} ${changeUnit}`)}">${delta === null ? unavailable('Comparison unavailable') : `${change >= 0.05 ? '+' : ''}${delta}${changeSuffix}`}</td></tr>`;
+    return `<tr data-metric-key="${escape(m.key)}"><th scope="row">${metricLabel(m, `metric-help-${instance}-${group}-${index}`)}</th>${columns.includes('value') ? `<td data-column="value" aria-label="${escape(value === null ? 'Unavailable' : `${value} ${unit}`)}">${value === null ? unavailable() : value + suffix}${metricAppearances(m) ? ` <small class="metric-appearances">${escape(metricAppearances(m))}</small>` : ''}</td>` : ''}${columns.includes('percentile') ? `<td data-column="percentile">${rankControl}</td>` : ''}${columns.includes('change') ? `<td data-column="change" class="${changeClass(m, change)}" aria-label="${escape(delta === null ? 'Comparison unavailable' : `${delta} ${changeUnit}`)}">${delta === null ? unavailable('Comparison unavailable') : `${change >= 0.05 ? '+' : ''}${delta}${changeSuffix}`}</td>` : ''}</tr>`;
   };
-  const table = (metrics, label) => `<div class="table-scroll"><table class="overview-table compact-metrics"><caption class="sr-only">${escape(label)}</caption><thead><tr><th scope="col">Stat</th><th scope="col">Average</th><th scope="col" aria-label="League percentile">League %</th><th scope="col">Change</th></tr></thead><tbody>${metrics.map((m,index)=>row(m,index,label.replaceAll(' ','-'))).join('')}</tbody></table></div>`;
-  const rankMethodology = overview.allMetrics.some(m=>m.percentile_policy)
-    ? 'Shooting ranks use provisional minimums: 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, 50 3PA for 3P%. At least five complete appearances and two qualified players are required. TOV ranks favor fewer turnovers; MIN ranks exposure. These are project rules, not NBA official qualification.'
-    : 'Saved ranking policy: ask again for qualified shooting percentiles and current metric selection.';
-  const sampleRows = overview.allMetrics.map(m => `<tr><th scope="row">${escape(metricAbbreviation(m))}</th><td>${escape(m.sample?.text || `${m.valid_games ?? 'Unknown'}/${m.observed_games ?? 'Unknown'} valid appearances`)}</td></tr>`).join('');
-  return `<p class="metric-comparison">Versus ${escape(overview.comparison)}</p>${table(overview.metrics, 'Key metrics')}${peerComparisonDetails(overview)}${gameVariationDetails(overview)}<p class="metric-footnote compact-legend">Per-game averages · pp = percentage points · TOV colors reversed; MIN neutral.</p><div class="metric-details"><details data-sample-details><summary>Samples &amp; methodology</summary>${overview.policy ? `<p class="meta">${escape(overview.policy.scope_note)}</p><p class="meta">${escape(overview.policy.limitation)}</p>` : ''}<div class="table-scroll"><table class="overview-table sample-table"><caption class="sr-only">Sample / opportunity</caption><thead><tr><th scope="col">Stat</th><th scope="col">Sample / opportunity</th></tr></thead><tbody>${sampleRows}</tbody></table></div><p class="meta">Percentiles use complete eligible observations in the same dates and phases. ${rankMethodology}</p></details>${overview.additionalMetrics.length ? `<details data-additional-metrics><summary>View all metrics (${overview.additionalMetrics.length} additional)</summary>${table(overview.additionalMetrics, 'Additional metrics')}</details>` : ''}</div>`;
+  const table = (metrics, label) => {
+    const columns = overviewTableColumns(metrics);
+    const headings = {value:'Average', percentile:'League %', change:'Change'};
+    return `<div class="table-scroll"><table class="overview-table compact-metrics"><caption class="sr-only">${escape(label)}</caption><thead><tr><th scope="col">Stat</th>${columns.map(key => `<th scope="col"${key === 'percentile' ? ' aria-label="League percentile"' : ''}>${headings[key]}</th>`).join('')}</tr></thead><tbody>${metrics.map((m,index)=>row(m,index,label.replaceAll(' ','-'),columns)).join('')}</tbody></table></div>`;
+  };
+  const hasChange = overviewTableColumns(overview.allMetrics).includes('change');
+  return `${hasChange ? `<p class="metric-comparison">Versus ${escape(overview.comparison)}</p>` : ''}${table(overview.metrics, 'Key metrics')}${peerComparisonDetails(overview)}<p class="metric-footnote compact-legend">Per-game averages${hasChange ? ' · pp = percentage points · TOV colors reversed; MIN neutral.' : '.'}</p><section data-overview-performance></section>${overview.additionalMetrics.length ? `<details data-additional-metrics><summary>View Other Metrics (${overview.additionalMetrics.length})</summary>${table(overview.additionalMetrics, 'Additional metrics')}</details>` : ''}`;
 }
 
 export function peerComparisonDetails(overview) {

@@ -7,8 +7,8 @@ from types import SimpleNamespace
 import pytest
 from app.agent.player_suggestions import match_player_name, suggest_players
 from fastapi.testclient import TestClient
+from tests.support.semantic import settings
 from tests.test_comparison_wording import facts
-from tests.test_semantic_migration import settings
 
 
 def test_suggestions_are_ranked_bounded_and_do_not_match_question_words():

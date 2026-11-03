@@ -8,7 +8,7 @@ import pytest
 from app.agent.player_comparison import comparison_sides
 from app.agent.semantics import COMPONENTS, Evidence
 from fastapi.testclient import TestClient
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 
 @pytest.mark.parametrize(

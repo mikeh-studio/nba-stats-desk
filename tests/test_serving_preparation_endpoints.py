@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from tests.test_semantic_migration import Warehouse, settings
+from tests.support.semantic import Warehouse, settings
 
 
 @pytest.mark.parametrize("suffix", ["", "/stream"])

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {metricLabel, semanticTable, semanticText, scopeLabel} from '../app/static/semantic_presentation.js';
+import {hideUnavailableColumns, metricLabel, semanticTable, semanticText, scopeLabel} from '../app/static/semantic_presentation.js';
 const table = {title:'Result: BLK', columns:[{key:'player',label:'Player'},{key:'value',label:'Value'},{key:'observed',label:'Games in scope'},{key:'valid',label:'Games with data'},{key:'rank',label:'Rank'},{key:'percentile',label:'Percentile'}],rows:[['Example Player','1.4','64','64','1','100.0']]};
 const payload = {semantic_evidence:{metric:{key:'blk',label:'BLK',unit:'count'},scope:{operation:'rank',aggregation:'average',season:'2025-26',season_type:'Regular Season',window:'season_to_date',as_of:'2026-04-12',limit:50},cohort:{min_games:5,size:550,direction:'higher'}}};
 test('saved rankings get names and units without mutating values or evidence',()=>{
@@ -11,10 +11,33 @@ test('saved rankings get names and units without mutating values or evidence',()
  assert.match(view.qualification,/1 of 50 requested results available/);
  assert.equal(JSON.stringify({table,payload}),original);
 });
-test('incomplete counts are explicit and null values remain unavailable',()=>{
+test('incomplete counts stay explicit while wholly unavailable columns disappear',()=>{
  const partial={...table,rows:[['Example Player','Unavailable','64','62','—','Unavailable']]};
  const view=semanticTable(partial,payload,0);
- assert.equal(view.columns[3].label,'Games used');assert.equal(view.rows[0][3],'62 of 64');assert.equal(view.rows[0][2],'Unavailable');
+ assert.deepEqual(view.columns.map(c=>c.key),['player','observed']);
+ assert.equal(view.columns[1].label,'Games used');assert.equal(view.rows[0][1],'62 of 64');
+ assert.equal(view.helpTitle,'About this stat');assert.doesNotMatch(view.help,/League percentile/);
+});
+test('captured scoring hides empty ranks and percentiles without rewriting source values',()=>{
+ const source={...table,rows:[['Player A','36.0','4','4','—','Unavailable'],['Player B','33.2','4','4',null,null]]};
+ const p=structuredClone(payload);p.semantic_evidence.metric={key:'pts',unit:'count'};p.semantic_evidence.scope.operation='summary';
+ const before=JSON.stringify({source,p});const view=semanticTable(source,p,0);
+ assert.deepEqual(view.columns.map(c=>c.key),['player','value','observed']);
+ assert.deepEqual(view.rows,[['Player A','36.0','4'],['Player B','33.2','4']]);
+ assert.equal(JSON.stringify({source,p}),before);
+});
+test('zero and partially available columns stay visible, including ranked zero percentiles',()=>{
+ const source={...table,rows:[['Player A',0,'4','4','—','Unavailable'],['Player B','0.0','4','4',1,0]]};
+ const view=semanticTable(source,payload,0);
+ assert.deepEqual(view.columns.map(c=>c.key),['rank','player','value','observed','percentile']);
+ assert.deepEqual(view.rows,[['—','Player A',0,'4','Unavailable'],[1,'Player B','0.0','4',0]]);
+ assert.match(view.help,/League percentile/);assert.equal(view.helpTitle,'About this stat and ranking');
+});
+test('empty display columns recognize missing markers and leave empty tables intact',()=>{
+ const markers=[null,undefined,'','  ','—','–','-','Unavailable',' unavailable ','None','null','N/A','Not available',NaN,Infinity];
+ const source={columns:[{key:'missing'},{key:'value'}],rows:markers.map(m=>[m,0])};
+ assert.deepEqual(hideUnavailableColumns(source),{columns:[{key:'value'}],rows:markers.map(()=>[0])});
+ const empty={columns:table.columns,rows:[]};assert.equal(hideUnavailableColumns(empty),empty);
 });
 test('average, total, shooting and per-36 units are distinct',()=>{
  assert.equal(metricLabel({key:'pts',unit:'count'},{aggregation:'total'}),'Total points');

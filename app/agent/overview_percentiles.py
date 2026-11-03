@@ -21,7 +21,7 @@ LABELS = {
 }
 
 
-def add_percentiles(metrics, grouped, player_id, minimum):
+def add_percentiles(metrics, grouped, player_id, minimum, *, own_rows=None):
     contract = load_contract()
     for record in metrics:
         key = record["key"]
@@ -90,7 +90,10 @@ def add_percentiles(metrics, grouped, player_id, minimum):
             text = "This overview does not rank this context metric. See its raw value and sample."
         if ranked:
             record["distribution"] = distribution(
-                metric, cohort, grouped.get(player_id, []), player_id
+                metric,
+                cohort,
+                own_rows if own_rows is not None else grouped.get(player_id, []),
+                player_id,
             )
         record.update(
             percentile=pct,

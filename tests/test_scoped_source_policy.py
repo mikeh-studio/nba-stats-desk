@@ -723,9 +723,9 @@ def test_plain_hyphenated_name_overview_at_actual_http_routes(suffix, extra):
     import app.main as main
     from app.agent.runtime_policy import configure_runtime_policy
     from fastapi.testclient import TestClient
+    from tests.support.semantic import settings as app_settings
     from tests.test_runtime_policy import policy as runtime_policy
     from tests.test_runtime_policy import sdk
-    from tests.test_semantic_migration import settings as app_settings
 
     restriction = replace(
         policy(),

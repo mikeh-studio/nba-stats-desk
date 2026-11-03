@@ -82,7 +82,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261028-comparison-distributions-v1"
+STATIC_VERSION = "20261030-unified-checkpoint-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -644,6 +644,9 @@ def _agent_terminal_bytes(terminal: dict[str, Any], *, streaming: bool) -> bytes
 
 
 def _emit_agent_trace(trace: AgentTrace, *, private: bool = True) -> None:
+    from app.agent.runtime_policy import observe_request
+
+    observe_request("completed", trace)
     # A logging sink failure must not change the response or strand a lease.
     try:
         trace.emit()
@@ -741,6 +744,9 @@ def _prepare_agent_request(
         model="unvalidated",
         conversation_id=conversation_id,
     )
+    from app.agent.runtime_policy import observe_request
+
+    observe_request("started", trace)
     if settings.agent_trace_enabled and is_direct_local(request):
         try:
             trace.private_capture = PrivateCapture(

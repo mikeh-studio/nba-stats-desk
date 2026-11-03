@@ -11,7 +11,7 @@ from app.agent.semantic_planner import plan_question
 from app.agent.semantics import SemanticError
 from fastapi.testclient import TestClient
 from scripts.ask_eval.fixtures import frozen_repository, load_inputs
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 
 def client_for(plan):

@@ -7,7 +7,7 @@ import pytest
 from app.agent.semantics import Evidence, SemanticError
 from fastapi.testclient import TestClient
 from tests import test_performance_overview as overview_tests
-from tests.test_semantic_migration import Model, settings
+from tests.support.semantic import Model, settings
 
 
 @pytest.fixture

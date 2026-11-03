@@ -8,7 +8,7 @@ from app.agent.performance_overview import overview_scope
 from app.agent.question_intent import round_scope_message
 from app.agent.semantic_answer import SemanticAsk
 from app.agent.semantics import SemanticError
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 
 @pytest.mark.parametrize(

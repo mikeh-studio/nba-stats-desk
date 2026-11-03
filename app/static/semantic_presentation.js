@@ -1,4 +1,5 @@
 // Display-only vocabulary for governed metric results. Never mutate source evidence.
+import {hasAvailableValue} from './table_visibility.js?v=20261030-unified-checkpoint-v1';
 const METRICS = {
   gp: ['Games played', 'Games recorded for the player in the selected period.'],
   pts: ['Points', 'Points scored.'], reb: ['Rebounds', 'Offensive and defensive rebounds combined.'],
@@ -64,6 +65,14 @@ export function semanticText(text, payload) {
   }
   return result;
 }
+// Drop empty display columns, not source fields. Keep zero and partially available data.
+export function hideUnavailableColumns(table) {
+  const rows = table.rows || [];
+  if (!rows.length) return table;
+  const indices = (table.columns || []).map((_, i) => i)
+    .filter(i => rows.some(row => hasAvailableValue(row?.[i])));
+  return {...table, columns:indices.map(i => table.columns[i]), rows:rows.map(row => indices.map(i => row[i]))};
+}
 export function semanticTable(table, payload, index) {
   const section = sections(payload)[index];
   if (!section?.metric || !section.scope || !METRICS[section.metric.key]) return table;
@@ -102,11 +111,14 @@ export function semanticTable(table, payload, index) {
     if (cohort.size != null) qualifications.push(`${cohort.size} qualifying players`);
     if (ranking && count < scope.limit) qualifications.push(`${count} of ${scope.limit} requested results available`);
   }
+  const visible = hideUnavailableColumns({columns, rows:displayRows});
+  const hasPercentile = visible.columns.some(c => c.key === 'percentile');
+  const hasRanking = hasPercentile || visible.columns.some(c => c.key === 'rank');
   const help = [metricHelp(metric)];
   if (['ratio', 'per36'].includes(metric.unit)) help.push('A rate can be unavailable when its attempts or minutes are zero, even when all game records are present.');
-  if (cohort) help.push(`League percentile compares this stat among the ${cohort.size} qualifying players for the selected period and filters. ${lower ? 'Lower' : 'Higher'} values rank first; a higher percentile means a better position in this ranking, not overall player quality.`);
+  if (cohort && hasPercentile) help.push(`League percentile compares this stat among the ${cohort.size} qualifying players for the selected period and filters. ${lower ? 'Lower' : 'Higher'} values rank first; a higher percentile means a better position in this ranking, not overall player quality.`);
   if (mergeGames) help.push(incomplete ? 'Games used shows games with all required data out of games played in the selected period. Missing data is not zero.' : 'Games played counts recorded games in the selected period. All displayed games have the data needed for this stat.');
-  return {...table, title:side + title, subtitle:scopeLabel(scope), qualification:qualifications.join(' · '), columns, rows:displayRows, description:'', help:help.filter(Boolean).join(' '), presentation:'semantic'};
+  return {...table, title:side + title, subtitle:scopeLabel(scope), qualification:qualifications.join(' · '), ...visible, description:'', help:help.filter(Boolean).join(' '), helpTitle:hasRanking ? 'About this stat and ranking' : 'About this stat', presentation:'semantic'};
 }
 export function semanticChart(chart, payload, index) {
   const section = sections(payload)[index];

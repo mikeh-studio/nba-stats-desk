@@ -358,7 +358,7 @@ for (const fault of ['busy', 'conversation-busy', 'partial-error', 'network-befo
   });
 }
 
-test('overview shows eleven metrics, sample evidence, balanced takeaways and expandable details', async ({page}) => {
+test('overview retains eleven metrics, appearance counts and other metrics', async ({page}) => {
   await prepare(page,'baseline_points');
   await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
   const table = page.locator('[data-agent-tables] > .table-scroll table');
@@ -366,11 +366,9 @@ test('overview shows eleven metrics, sample evidence, balanced takeaways and exp
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
   await expect(table).toContainText('3PM');
-  const samples=page.locator('[data-sample-details]');
-  await samples.locator('summary').click();
-  await expect(samples).toContainText('attempts');
-  await expect(samples).toContainText('valid appearances');
-  await samples.locator('summary').click();
+  await expect(page.locator('[data-sample-details]')).toHaveCount(0);
+  await expect(page.locator('.overview-scope')).toContainText('6 regular-season appearances');
+  await expect(page.locator('.overview-performance')).toBeVisible();
   const details=page.locator('[data-additional-metrics]');
   await expect(details).not.toHaveAttribute('open','');
   await details.locator('summary').click();
@@ -389,10 +387,8 @@ test('focused scoring retains 3PM and nine metrics at a narrow viewport', async 
   const table=page.locator('[data-agent-tables] > .table-scroll table');
   await expect(table.locator('tbody tr')).toHaveCount(9);
   await expect(table).toContainText('3PM');
-  const samples=page.locator('[data-sample-details]');
-  await samples.locator('summary').click();
-  await expect(samples).toContainText('Shooting ranks use provisional minimums');
-  await samples.locator('summary').click();
+  await expect(page.locator('[data-sample-details]')).toHaveCount(0);
+  await expect(page.locator('.overview-scope')).toContainText('6 regular-season appearances');
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
 
@@ -404,7 +400,7 @@ test('compact overview has visible Key Takeaways and a short eleven-row table', 
   await expect(table.locator('tbody tr')).toHaveCount(11);
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   expect((await table.boundingBox()).height).toBeLessThan(500);
-  await expect(table.locator('thead th')).toHaveCount(4);
+  await expect(table.locator('thead th')).toHaveText(['Stat','Average','League %']);
   await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
   const items=page.locator('.result-takeaways .takeaway-card');
   expect(await items.count()).toBeGreaterThan(0);expect(await items.count()).toBeLessThanOrEqual(3);
@@ -423,11 +419,11 @@ for (const width of [1280,390]) {
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
     expect((await table.boundingBox()).height).toBeLessThan(500);
     await expect(table.locator('tbody th abbr').first()).toHaveText('PTS');
-    // The time series is collapsed under the metrics table until opened.
-    const chart=page.locator('.chart-disclosure');
-    await expect(chart).not.toHaveAttribute('open','');
-    await chart.locator('summary').click();
-    await expect(chart.locator('summary')).toContainText('Performance over time');
+    // The time series is always visible above other metrics.
+    const chart=page.locator('.overview-performance');
+    await expect(chart).toBeVisible();
+    await expect(chart.locator('summary')).toHaveCount(0);
+    await expect(chart.getByRole('heading',{name:'Performance Over Time',exact:true})).toBeVisible();
     await expect(page.locator('.chart-header')).toContainText('Game-by-game');
     await expect(page.locator('[data-chart-key]')).toHaveCount(5);
     await page.locator('[data-chart-key="reb"]').click();
@@ -435,7 +431,7 @@ for (const width of [1280,390]) {
     const svg=page.locator('.overview-chart svg');
     expect((await svg.boundingBox()).width).toBeLessThanOrEqual((await page.locator('.overview-chart').boundingBox()).width + 1);
     expect(await svg.locator('.agent-date-label').evaluateAll(nodes => nodes.every((node,index) => index === 0 || node.getBoundingClientRect().left >= nodes[index-1].getBoundingClientRect().right + 2))).toBe(true);
-    const points=page.locator('[data-agent-charts] .agent-point');
+    const points=page.locator('.overview-performance .agent-point');
     await expect(points.first()).toHaveAttribute('aria-label',/^2025-04-/);
     const help=table.getByRole('button',{name:'TS%: True shooting percentage calculation'});
     await help.focus();
@@ -456,15 +452,15 @@ for (const width of [1280,390]) {
   });
 }
 
-test('dated week remains daily while a season remains monthly',async ({page})=>{
+test('dated weeks and short observed seasons retain game-level points',async ({page})=>{
   await prepare(page,'baseline_points');
   await submit(page,'How did Avery Example perform week of 2025-04-14?');
   await expect(page.locator('.chart-header')).toContainText('Game-by-game');
-  await expect(page.locator('[data-agent-charts] .agent-point').first()).toHaveAttribute('aria-label',/^2025-04-14/);
+  await expect(page.locator('.overview-performance .agent-point').first()).toHaveAttribute('aria-label',/^2025-04-14/);
   await page.reload();
   await page.getByRole('button',{name:'New chat',exact:true}).click();
   await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
-  await expect(page.locator('.chart-header')).toContainText('Monthly average');
+  await expect(page.locator('.chart-header')).toContainText('Game-by-game');
 });
 
 
@@ -528,7 +524,6 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example perform in April 2025?');
     let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
-    await page.locator('.chart-disclosure > summary').first().click();
     await page.locator('[data-chart-key="ast"]').first().click();
     const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
     const trigger=page.getByRole('button',{name:/^PTS distribution:/}).first();

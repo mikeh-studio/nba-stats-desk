@@ -49,6 +49,7 @@ def validate_season(season: str) -> str:
 
 
 def season_bounds(season: str) -> tuple[date, date]:
+    """Warehouse routing bounds, not opening night or the phase's game dates."""
     year = int(validate_season(season)[:4])
     return date(year, 7, 1), date(year + 1, 6, 30)
 

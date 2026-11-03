@@ -300,7 +300,7 @@ def test_actual_research_endpoints_disclose_fallback_and_preserve_explicit_scope
     monkeypatch,
 ):
     from app import main
-    from tests.test_api import _test_settings, build_client
+    from tests.support.api import _test_settings, build_client
     from tests.test_research import evidence
 
     calls = []

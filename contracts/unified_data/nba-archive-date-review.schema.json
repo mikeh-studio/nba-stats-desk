@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nba-stats-desk:nba-archive-date-review:1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "nba_archive_date_review/1"
+    },
+    "provider": {
+      "const": "nba_api"
+    },
+    "season": {
+      "const": "2025-26"
+    },
+    "phase": {
+      "const": "Regular Season"
+    },
+    "game": {
+      "type": "object"
+    },
+    "original_body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512000
+    },
+    "original_receipt": {
+      "type": "object",
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "captured_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "kind": {
+          "enum": [
+            "archive_snapshot",
+            "provider_capture",
+            "reviewed_identity",
+            "synthetic_fixture"
+          ]
+        }
+      },
+      "required": [
+        "sha256",
+        "reference",
+        "captured_at",
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "review": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "reviewed_nba_played_date/1"
+        },
+        "game_id": {
+          "type": "string",
+          "pattern": "^00225[0-9]{5}$"
+        },
+        "original_input_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "old_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "played_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "league": {
+              "const": "nba"
+            },
+            "season": {
+              "enum": [
+                "2025-26",
+                "2026-27"
+              ]
+            },
+            "phase": {
+              "const": "Regular Season"
+            },
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "home": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            },
+            "away": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            }
+          },
+          "required": [
+            "league",
+            "season",
+            "phase",
+            "date",
+            "home",
+            "away"
+          ],
+          "additionalProperties": false
+        },
+        "authority": {
+          "type": "object",
+          "properties": {
+            "method": {
+              "const": "operator_reviewed_nba_game_page_web_tool_v1"
+            },
+            "url": {
+              "type": "string",
+              "pattern": "^https://www\\.nba\\.com/game/[a-z]{3}-vs-[a-z]{3}-00225[0-9]{5}$"
+            },
+            "body": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128000
+            },
+            "receipt": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "reference": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 512
+                },
+                "captured_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "kind": {
+                  "enum": [
+                    "archive_snapshot",
+                    "provider_capture",
+                    "reviewed_identity",
+                    "synthetic_fixture"
+                  ]
+                }
+              },
+              "required": [
+                "sha256",
+                "reference",
+                "captured_at",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "method",
+            "url",
+            "body",
+            "receipt"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schema_version",
+        "game_id",
+        "original_input_sha256",
+        "old_date",
+        "played_date",
+        "scope",
+        "authority"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "provider",
+    "season",
+    "phase",
+    "game",
+    "original_body",
+    "original_receipt",
+    "review"
+  ],
+  "additionalProperties": false
+}

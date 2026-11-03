@@ -39,10 +39,15 @@ FIELDS = dict(
     fta="FTA",
     fg3a="FG3A",
     plus_minus="PLUS_MINUS",
+    pf="PF",
+    oreb="OREB",
+    dreb="DREB",
 )
 
 
 def minutes(value):
+    if value == "--":
+        return None  # Explicit provider missing-value marker, never zero minutes.
     try:
         parts = str(value).split(":")
         if len(parts) == 1:
@@ -82,6 +87,7 @@ def _snapshot(bundle, season, source, query_id=None):
     if len(set(identities.values())) != len(identities):
         raise SemanticError("invalid_evidence", "Conflicting NBA identity mapping")
     rows, excluded, accepted, pbp_pending, seen = [], 0, 0, 0, set()
+    missing_minutes = 0
     revisions = []
     for item in games:
         gid = item["source_game_id"]
@@ -125,6 +131,8 @@ def _snapshot(bundle, season, source, query_id=None):
             if player["team"] != game[side]:
                 raise SemanticError("invalid_evidence", "Player team differs")
             stats = player["stats"]
+            played_minutes = minutes(stats["MIN"])
+            missing_minutes += played_minutes is None
             rows.append(
                 dict(
                     season=season,
@@ -137,7 +145,7 @@ def _snapshot(bundle, season, source, query_id=None):
                     team_abbr=player["team"],
                     opponent_abbr=game["away" if side == "home" else "home"],
                     home_away=side.upper(),
-                    min=minutes(stats["MIN"]),
+                    min=played_minutes,
                     **{k: stats[v] for k, v in FIELDS.items()},
                 )
             )
@@ -153,6 +161,8 @@ def _snapshot(bundle, season, source, query_id=None):
         f"{excluded} player-game rows excluded because NBA identity is unresolved. Coverage is an observed sample, not certified league-wide coverage. "
         f"PBP remains unreconciled for {pbp_pending} accepted-box games; box assists do not certify assist-pair relationships. League and position rankings are disabled."
     )
+    if missing_minutes:
+        note += f" Minutes are unreported for {missing_minutes} mapped appearances and remain unknown, not zero."
     counts = Counter((r["season"], r["season_type"]) for r in rows)
     result = dict(
         version=1,
@@ -172,6 +182,7 @@ def _snapshot(bundle, season, source, query_id=None):
             accepted_boxes=accepted,
             excluded_identity_rows=excluded,
             pbp_pending=pbp_pending,
+            missing_minutes=missing_minutes,
             revisions=revisions,
         ),
         capture=dict(query_id=query_id, query_count=1),

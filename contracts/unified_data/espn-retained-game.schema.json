@@ -1,0 +1,72 @@
+{
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "espn_retained_game/1"
+    },
+    "provider": {
+      "const": "espn"
+    },
+    "season": {
+      "const": "2026-27"
+    },
+    "phase": {
+      "const": "Regular Season"
+    },
+    "game": {
+      "type": "object"
+    },
+    "source_body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 750000
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "reference": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "captured_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "kind": {
+          "enum": [
+            "archive_snapshot",
+            "provider_capture",
+            "synthetic_fixture"
+          ]
+        }
+      },
+      "required": [
+        "sha256",
+        "reference",
+        "captured_at",
+        "kind"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema_version",
+    "provider",
+    "season",
+    "phase",
+    "game",
+    "source_body",
+    "source"
+  ],
+  "additionalProperties": false,
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nba-stats-desk:espn-retained-game:1"
+}

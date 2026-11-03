@@ -9,7 +9,7 @@ from app.agent.semantics import SemanticError
 from app.availability import load_availability
 from app.seasons import DEFAULT_SEASON
 from scripts.archive_season_copy import archive_mapping, ordered_views, rebind_view
-from tests.test_api import _test_settings, build_client
+from tests.support.api import _test_settings, build_client
 from tests.test_availability import bundle as bundle
 from tests.test_research import evidence
 from tests.test_teammate_ask import Client

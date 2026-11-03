@@ -151,7 +151,7 @@ def test_shadow_through_real_ask_handler(bundle, suffix):
     from app.main import app, get_agent_client, get_repository, get_settings
     from app.repository import BigQueryWarehouseRepository
     from fastapi.testclient import TestClient
-    from tests.test_semantic_migration import Model, settings
+    from tests.support.semantic import Model, settings
 
     evidence, pub = bundle
     shadow = ServingShadow(pub, lambda: NOW)

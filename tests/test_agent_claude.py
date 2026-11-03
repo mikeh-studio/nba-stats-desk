@@ -15,7 +15,7 @@ from app.agent.claude_client import (
     _convert_tools,
 )
 from app.agent.service import AgentDisabledError, StatsAgent
-from tests.test_agent_service import AgentServiceFakeRepository, _settings
+from tests.support.agent import AgentServiceFakeRepository, _settings
 
 ANSWER_JSON = json.dumps(
     {

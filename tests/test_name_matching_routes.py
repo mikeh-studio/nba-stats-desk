@@ -9,11 +9,11 @@ from app.agent.conversation import InMemoryConversationStore
 from app.agent.name_matching import PlayerNameError, prepare_names
 from app.agent.player_suggestions import resolve_player_name
 from fastapi.testclient import TestClient
+from tests.support.semantic import settings
 from tests.test_availability import (
     bundle,  # noqa: F401 - shared synthetic snapshot fixture
 )
 from tests.test_comparison_wording import facts
-from tests.test_semantic_migration import settings
 
 
 @pytest.fixture
@@ -211,7 +211,7 @@ def test_no_player_queries_and_team_metric_words_are_untouched():
 @pytest.mark.parametrize("operation", ["summary", "game_log", "rank", "percentile"])
 def test_planned_metrics_receive_canonical_identity(preview, transport, operation):
     from app import main
-    from tests.test_semantic_migration import Model
+    from tests.support.semantic import Model
 
     client, _, _, _ = preview
     model = Model(

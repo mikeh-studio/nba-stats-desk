@@ -10,6 +10,7 @@ import {
   claimTargetCounts,
 } from "../app/static/ask_claim_bindings.js";
 test("null, zero, percentage units and denominator counts have explicit distinct formats", () => {
+  assert.equal(formatClaim(0, "overview-value", {metric:{unit:"per game",valid_games:2,observed_games:3,sample:{status:"limited"}}}), "0.0 2 of 3 appearances");
   assert.equal(
     formatClaim(0, "overview-value", { metric: { unit: "per game" } }),
     "0.0",

@@ -6,6 +6,7 @@ import ast
 import json
 import re
 import time
+from datetime import date, datetime
 from importlib.metadata import version
 from pathlib import Path
 
@@ -18,6 +19,77 @@ from scripts.gamebook_store import require
 from scripts.parse_gamebooks import key, sha
 
 PIN_PATH = Path(__file__).resolve().parents[1] / "contracts/espn_player_catalog.json"
+REVIEWED_PATH = PIN_PATH.with_name("espn_reviewed_player_mappings.json")
+
+
+def reviewed_mappings(registry=None):
+    """Reviewed source IDs disambiguate names; activity/team never selects an ID.
+
+    Public registry records are reviewed observations with capture hashes, not
+    automatically authenticated provider crosswalks. Raw captures stay private.
+    Any malformed/conflicting record fails closed, including unused entries.
+    """
+    registry = json.loads(REVIEWED_PATH.read_text()) if registry is None else registry
+    require(
+        registry["schema_version"] == "espn-reviewed-player-mappings/1"
+        and isinstance(registry["mappings"], list),
+        "Invalid reviewed player registry",
+    )
+    rows, nba_ids = {}, set()
+    for row in registry["mappings"]:
+        sid, nid = identifier(row["source_player_id"]), identifier(row["nba_player_id"])
+        require(sid not in rows and nid not in nba_ids, "Duplicate reviewed player ID")
+        name = key(row["full_name"])
+        require(bool(name), "Empty reviewed player name")
+        reviewed = datetime.fromisoformat(row["reviewed_at"])
+        require(reviewed.tzinfo is not None, "Missing player review timezone")
+        for provider, url, method in (
+            (
+                "espn",
+                "https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba/athletes/"
+                + sid,
+                "captured_http_json",
+            ),
+            (
+                "nba",
+                "https://www.nba.com/player/" + nid + "/",
+                "operator_reviewed_web_tool",
+            ),
+        ):
+            evidence = row[provider]
+            require(
+                (
+                    evidence["url"] == url
+                    if provider == "espn"
+                    else bool(
+                        re.fullmatch(re.escape(url) + r"[a-z0-9-]+", evidence["url"])
+                    )
+                )
+                and evidence["method"] == method
+                and re.fullmatch(r"[0-9a-f]{64}", evidence["sha256"])
+                and key(evidence["full_name"]) == name,
+                "Invalid reviewed player source evidence",
+            )
+            born = date.fromisoformat(evidence["birth_date"])
+            require(
+                born.isoformat() == evidence["birth_date"]
+                and date(1900, 1, 1) <= born <= reviewed.date()
+                and evidence["college"].strip()
+                and type(evidence["height_inches"]) is int
+                and 48 <= evidence["height_inches"] <= 100,
+                "Invalid reviewed player biography",
+            )
+        require(
+            all(
+                row["espn"][field] == row["nba"][field]
+                for field in ("birth_date", "college", "height_inches")
+            ),
+            "Reviewed player biographies disagree",
+        )
+        rows[sid] = row
+        nba_ids.add(nid)
+    digest = sha(json.dumps(registry, sort_keys=True, separators=(",", ":")).encode())
+    return rows, digest
 
 
 def with_installed_aliases(reference, installed):
@@ -92,6 +164,9 @@ def fetch_catalog(directory, session):
                 raise SourceUnavailable(f"Catalog HTTP {r.status_code}")
         players = parse_catalog(bytes(body), pin)
         players, aliases = with_installed_aliases(players, get_players())
+        reviewed = json.loads(REVIEWED_PATH.read_text())
+        reviewed_mappings(reviewed)
+        write_json(directory / "reviewed_player_mappings.json", reviewed)
         write_json(
             directory / "installed_aliases.json",
             {
@@ -111,14 +186,24 @@ def fetch_catalog(directory, session):
         write_json(directory / "attempt.json", record)
 
 
-def crosswalk(players, reference, pin):
+def crosswalk(players, reference, pin, *, reviewed=None):
     """Resolve exact unique names; reject conflicts with previously accepted IDs."""
     index = player_index(reference)
+    verified, verified_hash = reviewed_mappings(reviewed)
     mappings, unresolved = {}, {}
     for player in players:
         pid = identifier(player["source_player_id"])
         name = key(player["name"])
         ids = index.get(name, set())
+        method = pin["method"]
+        if pid in verified:
+            row = verified[pid]
+            require(
+                name == key(row["full_name"]) and row["nba_player_id"] in ids,
+                "Reviewed player mapping conflicts with catalog/name",
+            )
+            ids = {row["nba_player_id"]}
+            method = "reviewed_espn_nba_profiles_v1:" + verified_hash
         old = player["nba_player_id"]
         require(
             not old or ids == {old},
@@ -135,7 +220,7 @@ def crosswalk(players, reference, pin):
             "source_player_id": pid,
             "nba_player_id": next(iter(ids)),
             "normalized_name": name,
-            "method": pin["method"],
+            "method": method,
             "catalog_sha256": pin["sha256"],
         }
         require(pid not in mappings or mappings[pid] == row, "ESPN identity conflict")

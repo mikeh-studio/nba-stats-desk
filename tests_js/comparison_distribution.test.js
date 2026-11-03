@@ -23,7 +23,7 @@ test("box plots use full canonical game summaries, including zeros and unranked 
   const html=comparisonTables(comparisonPresentation(data));
   assert.match(html,/class="h2h-box" x="5" y="6" width="22.5"/);
   assert.match(html,/data-summary="median">0.5/);
-  assert.match(html,/Not ranked/);
+  assert.doesNotMatch(html,/Not ranked/);
   assert.doesNotMatch(html,/h2h-edge|<meter|\bmed<\/|class="median"/);
   const claims=claimSchema(data,"comparison");
   const med=claims.find(r=>r.format==="comparison-summary"&&r.source.at(-1)==="median");

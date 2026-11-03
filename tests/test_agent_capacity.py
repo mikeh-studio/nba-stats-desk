@@ -177,14 +177,14 @@ def test_delivery_consumer_resumes_after_draining_previous_notification():
     ],
 )
 def test_invalid_capacity_configuration_fails_at_startup(field, value):
-    from tests.test_agent_service import _settings
+    from tests.support.agent import _settings
 
     with pytest.raises(ValueError, match=f"{field} must be a positive integer"):
         replace(_settings(), **{field: value})
 
 
 def test_default_capacity_inherits_runtime_and_explicit_override_remains_available():
-    from tests.test_agent_service import _settings
+    from tests.support.agent import _settings
 
     assert _settings().agent_max_concurrent_requests is None
     assert (

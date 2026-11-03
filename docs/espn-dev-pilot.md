@@ -130,6 +130,33 @@ stripping. Ambiguous names stay unresolved; conflicts with existing IDs fail.
 PDF comparison still requires every active player to map and the participant/team
 sets to agree. This is name-based resolution, not a provider-certified crosswalk.
 
+Duplicate names can use the reviewed provider-ID registry in
+[`espn_reviewed_player_mappings.json`](../contracts/espn_reviewed_player_mappings.json).
+Each entry binds one exact ESPN ID to one NBA ID, with matching normalized names,
+birth dates, college and height from both primary profiles. Retain the ESPN JSON
+capture and operator-reviewed official NBA page extraction privately; the registry
+records their SHA-256 hashes, allowlisted ID-specific URLs, acquisition methods and
+timezone-aware review timestamp. This is reviewed source evidence, not an automatic
+provider-certified crosswalk. The initial entry verifies Brandon Williams, ESPN
+4397040 to NBA 1630314, rather than the older namesake NBA 1585.
+
+To add another duplicate-name player, review both ID-specific primary profiles and
+their biographical agreement, preserve the captures, add a reviewed registry entry
+and run the identity tests. Activity, team, jersey, first-match order and fuzzy name
+similarity are never sufficient to resolve a duplicate. Missing evidence stays
+unresolved. Mismatched names/biographies, absent catalog membership, malformed
+provenance, duplicate IDs in either direction or a conflicting existing mapping
+fail closed. A reviewed entry only applies to its exact ESPN ID; other players
+with the same name stay ambiguous. The registry supports the shared ESPN workers,
+including the weekly result/box collector, without profile network requests on
+every refresh.
+
+The catalog evidence bundle includes the reviewed registry. Verified mapping
+methods include its canonical SHA-256, while retaining the pinned catalog hash.
+The existing insert-only transaction publishes the crosswalk independently of
+box revisions. A repair can resolve retained appearances without rewriting stats,
+clearing failed health, changing PBP acceptance or touching historical NBA data.
+
 The insert-only `espn_player_mappings` table stores provider ID, NBA ID, normalized
 name, method, catalog hash and evidence URI. A conflict in either ID direction
 rejects the whole batch. `espn_identity_attempts` records publication, no-op and

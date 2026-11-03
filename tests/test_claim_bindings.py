@@ -10,7 +10,7 @@ import pytest
 from app.agent.claims import expand_path, finalize, transform, validate
 from app.agent.service import StatsAgent
 from app.research import answer_payload
-from tests.test_semantic_migration import Model, Warehouse, settings
+from tests.support.semantic import Model, Warehouse, settings
 
 
 @pytest.fixture

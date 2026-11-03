@@ -437,6 +437,9 @@ imply zero points. Pooled zero attempts produce unavailable shooting efficiency.
 The opt-in [local ESPN review adapter](ask-espn-local-review.md) supplies mapped,
 accepted dev box-score evidence with explicit partial coverage. It disables
 league cohort claims and preserves provider-specific game keys.
+Two-player scorecards remain available over captured appearances in matching dates
+and phases, with each sample disclosed and incomplete components withholding
+differences. They do not authorize league/position ranks, percentiles or baselines.
 
 ## Agent serving preparation
 
@@ -445,3 +448,35 @@ publications, the metric inventory, opt-in Phase 2 routing, request telemetry,
 and parity checks. Routing and deterministic planning remain off by default.
 Activation requires the contract's fresh measurements and explicit rollout gates;
 local and fixture validation do not establish production readiness.
+
+## Scoring leaders within captured ESPN games
+
+In the explicit ESPN local-review path, a small whole-question grammar recognizes
+current-season scoring-leader requests, including “Who are the top scorer this
+season”. It offers two self-contained follow-up choices: points per game or total
+points **in captured ESPN games**. Selecting a choice confirms the narrower source
+scope. Explicit dates, other seasons, playoffs, team/rookie/per-minute filters and
+player exclusions are not silently removed; unsupported shapes retain the normal
+planner and scope guards.
+
+This view reuses governed individual `summary` calculations for every player in
+the validated capture, then sorts eligible values at full precision before taking
+the requested display count (default ten, maximum one hundred). Stable player IDs
+break display ties. Missing components remain excluded from eligibility. Averages
+require appearances in at least 70% of the busiest captured team's game count
+(rounded up, at least one); totals require one captured appearance. This is an
+explicit captured-sample qualification, not certified NBA qualification or a
+silent relaxation of the ordinary five-game ranking policy.
+
+Returned statistics retain components, game IDs, capture/snapshot provenance,
+null rank/percentile and `captured_scoring.coverage=captured_games_only`. The answer
+states that it does not establish the NBA league leader. Every capture identity
+must be available in the source-policy roster; a narrower identity allowlist
+fails instead of presenting its subset as all captured players. Ordinary `rank`
+and `percentile` requests still require complete cohort coverage. No source is
+marked complete and no provider, SQL or historical fallback is introduced.
+
+`tests/test_captured_scoring.py` checks parsing, qualification, full-capture sorting,
+missing values, identity restrictions, ordinary ranking refusal, clickable choice
+questions and JSON/SSE parity with claim enforcement. These deterministic source
+choices require no model send.

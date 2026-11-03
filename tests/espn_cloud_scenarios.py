@@ -16,8 +16,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 from dotenv import load_dotenv  # noqa: E402
 from scripts.espn_ingestion import make_store  # noqa: E402
 from scripts.espn_store import validate  # noqa: E402
-
-from test_espn_pilot import candidate  # noqa: E402
+from tests.support.espn import candidate  # noqa: E402
 
 
 def main():

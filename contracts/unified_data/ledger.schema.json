@@ -1,0 +1,3746 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:nba-stats-desk:offline-ledger:1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "offline_unified_ledger/1"
+    },
+    "kind": {
+      "enum": [
+        "policy",
+        "inventory",
+        "selection",
+        "pending_check",
+        "metric_catalog",
+        "expected_inventory",
+        "evaluation_inputs",
+        "reconciliation",
+        "coverage",
+        "mapping_catalog",
+        "pdf_inputs",
+        "pdf_checks",
+        "pdf_capability"
+      ]
+    },
+    "depends_on": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "maxItems": 3
+    },
+    "payload": {},
+    "record_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "depends_on",
+    "payload",
+    "record_id"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "policy": {
+      "const": {
+        "version": "unified_source_selection/1",
+        "phase_zero_policy": "unified_policy/1.0.0",
+        "mode": "single_provider_per_season_phase",
+        "allow_fallback": false,
+        "allow_mixed_games": false,
+        "scopes": [
+          {
+            "season": "2025-26",
+            "phase": "Regular Season",
+            "provider": "nba_api"
+          },
+          {
+            "season": "2026-27",
+            "phase": "Regular Season",
+            "provider": "espn"
+          }
+        ]
+      }
+    },
+    "inventory": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "observed_source_inventory/1"
+        },
+        "source_snapshot": {
+          "type": "object",
+          "properties": {
+            "sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            "reference": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "captured_at": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date-time"
+            },
+            "kind": {
+              "enum": [
+                "archive_snapshot",
+                "provider_capture",
+                "synthetic_fixture"
+              ]
+            }
+          },
+          "required": [
+            "sha256",
+            "reference",
+            "captured_at",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        "identity_catalog_version": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "game_uid": {
+                "type": "string",
+                "pattern": "^g_[a-f0-9]{32}$"
+              },
+              "source_game_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20
+              },
+              "provider": {
+                "enum": [
+                  "nba_api",
+                  "espn"
+                ]
+              },
+              "scope": {
+                "type": "object",
+                "properties": {
+                  "league": {
+                    "const": "nba"
+                  },
+                  "season": {
+                    "type": "string",
+                    "pattern": "^20[0-9]{2}-[0-9]{2}$"
+                  },
+                  "phase": {
+                    "const": "Regular Season"
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "home": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "away": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
+                },
+                "required": [
+                  "league",
+                  "season",
+                  "phase",
+                  "date",
+                  "home",
+                  "away"
+                ],
+                "additionalProperties": false
+              },
+              "fact_revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "membership": {
+                "enum": [
+                  "observed_sample",
+                  "provider_declared_complete"
+                ]
+              },
+              "appearances": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "capture_times": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "maxItems": 20
+              }
+            },
+            "required": [
+              "game_uid",
+              "source_game_id",
+              "provider",
+              "scope",
+              "fact_revision",
+              "observation_id",
+              "membership",
+              "appearances",
+              "capture_times"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 3000
+        },
+        "unresolved_inputs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "input_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "provider": {
+                "enum": [
+                  "nba_api",
+                  "espn"
+                ]
+              },
+              "source_game_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "season": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phase": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "date": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              }
+            },
+            "required": [
+              "input_id",
+              "provider",
+              "source_game_id",
+              "season",
+              "phase",
+              "date",
+              "reason"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 3000
+        },
+        "expected_universe": {
+          "const": "not_established"
+        },
+        "runtime_eligible": {
+          "const": false
+        }
+      },
+      "required": [
+        "version",
+        "source_snapshot",
+        "identity_catalog_version",
+        "observations",
+        "unresolved_inputs",
+        "expected_universe",
+        "runtime_eligible"
+      ],
+      "additionalProperties": false
+    },
+    "selection": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "offline_source_selection/1"
+        },
+        "policy_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "inventory_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "selection_as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "enum": [
+            "selected_observed",
+            "held",
+            "refused"
+          ]
+        },
+        "scopes": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "properties": {
+              "scope": {
+                "type": "object",
+                "properties": {
+                  "season": {
+                    "enum": [
+                      "2025-26",
+                      "2026-27"
+                    ]
+                  },
+                  "phase": {
+                    "const": "Regular Season"
+                  },
+                  "first": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "last": {
+                    "type": "string",
+                    "format": "date"
+                  }
+                },
+                "required": [
+                  "season",
+                  "phase",
+                  "first",
+                  "last"
+                ],
+                "additionalProperties": false
+              },
+              "provider": {
+                "enum": [
+                  "nba_api",
+                  "espn"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "selected_observed",
+                  "held",
+                  "refused"
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "coverage_not_evaluated",
+                    "unresolved_input",
+                    "unlinked_provider_overlap",
+                    "missing_primary_source",
+                    "capture_after_selection_as_of"
+                  ]
+                },
+                "maxItems": 5
+              },
+              "selected": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "maxItems": 3000
+              },
+              "excluded_other_provider": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "maxItems": 3000
+              },
+              "relevant_holds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "maxItems": 3000
+              },
+              "observed_games": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "observed_appearances": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "observed_first": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "observed_last": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date"
+              },
+              "validated_cutoff": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "scope",
+              "provider",
+              "status",
+              "reasons",
+              "selected",
+              "excluded_other_provider",
+              "relevant_holds",
+              "observed_games",
+              "observed_appearances",
+              "observed_first",
+              "observed_last",
+              "validated_cutoff"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "coverage_evaluation": {
+          "const": "not_evaluated"
+        },
+        "historical_as_known_at_supported": {
+          "const": false
+        },
+        "capabilities": {
+          "type": "object",
+          "properties": {
+            "runtime_eligible": {
+              "const": false
+            },
+            "league_ranks": {
+              "const": false
+            },
+            "percentiles": {
+              "const": false
+            },
+            "pdf_corroborated": {
+              "const": false
+            }
+          },
+          "required": [
+            "runtime_eligible",
+            "league_ranks",
+            "percentiles",
+            "pdf_corroborated"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "policy_id",
+        "inventory_id",
+        "selection_as_of",
+        "status",
+        "scopes",
+        "coverage_evaluation",
+        "historical_as_known_at_supported",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "pending_check": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "pending_evidence_check/1"
+        },
+        "family": {
+          "enum": [
+            "reconciliation",
+            "coverage",
+            "pdf"
+          ]
+        },
+        "selection_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "season": {
+              "enum": [
+                "2025-26",
+                "2026-27"
+              ]
+            },
+            "phase": {
+              "const": "Regular Season"
+            },
+            "first": {
+              "type": "string",
+              "format": "date"
+            },
+            "last": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "season",
+            "phase",
+            "first",
+            "last"
+          ],
+          "additionalProperties": false
+        },
+        "observation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "maxItems": 3000
+        },
+        "state": {
+          "const": "not_attempted"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "capability_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "version",
+        "family",
+        "selection_id",
+        "scope",
+        "observation_ids",
+        "state",
+        "reason",
+        "capability_granted"
+      ],
+      "additionalProperties": false
+    },
+    "metric_catalog": {
+      "const": {
+        "version": "offline_metric_catalog/1",
+        "semantic_contract": "nba_semantics/0.1",
+        "semantic_sha256": "c3e147c5addf44167ab4f234806d4ad3b6f9f658572ae47445adb586a1ac023e",
+        "metrics": {
+          "gp": {
+            "key": "gp",
+            "label": "Games played",
+            "numerator": "1",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "games",
+            "direction": "higher",
+            "components": [],
+            "aggregations": [
+              "total"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "pts": {
+            "key": "pts",
+            "label": "PTS",
+            "numerator": "pts",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "pts"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "reb": {
+            "key": "reb",
+            "label": "REB",
+            "numerator": "reb",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "reb"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "ast": {
+            "key": "ast",
+            "label": "AST",
+            "numerator": "ast",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "ast"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "stl": {
+            "key": "stl",
+            "label": "STL",
+            "numerator": "stl",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "stl"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "blk": {
+            "key": "blk",
+            "label": "BLK",
+            "numerator": "blk",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "blk"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "tov": {
+            "key": "tov",
+            "label": "TOV",
+            "numerator": "tov",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "lower",
+            "components": [
+              "tov"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fg3m": {
+            "key": "fg3m",
+            "label": "3PM",
+            "numerator": "fg3m",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "fg3m"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "min": {
+            "key": "min",
+            "label": "MIN",
+            "numerator": "min",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "minutes",
+            "direction": "higher",
+            "components": [
+              "min"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fga": {
+            "key": "fga",
+            "label": "FGA",
+            "numerator": "fga",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "fga"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fg3a": {
+            "key": "fg3a",
+            "label": "3PA",
+            "numerator": "fg3a",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "fg3a"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fta": {
+            "key": "fta",
+            "label": "FTA",
+            "numerator": "fta",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "fta"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fg_pct": {
+            "key": "fg_pct",
+            "label": "FG%",
+            "numerator": "fgm",
+            "denominator": "fga",
+            "attempt_field": "fga",
+            "unit": "ratio",
+            "direction": "higher",
+            "components": [
+              "fga",
+              "fgm"
+            ],
+            "aggregations": [
+              "ratio"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fg3_pct": {
+            "key": "fg3_pct",
+            "label": "3P%",
+            "numerator": "fg3m",
+            "denominator": "fg3a",
+            "attempt_field": "fg3a",
+            "unit": "ratio",
+            "direction": "higher",
+            "components": [
+              "fg3a",
+              "fg3m"
+            ],
+            "aggregations": [
+              "ratio"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "ft_pct": {
+            "key": "ft_pct",
+            "label": "FT%",
+            "numerator": "ftm",
+            "denominator": "fta",
+            "attempt_field": "fta",
+            "unit": "ratio",
+            "direction": "higher",
+            "components": [
+              "fta",
+              "ftm"
+            ],
+            "aggregations": [
+              "ratio"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "ts_pct": {
+            "key": "ts_pct",
+            "label": "TS%",
+            "numerator": "pts",
+            "denominator": "2 * (fga + 0.44 * fta)",
+            "attempt_field": "fga",
+            "unit": "ratio",
+            "direction": "higher",
+            "components": [
+              "fga",
+              "fta",
+              "pts"
+            ],
+            "aggregations": [
+              "ratio"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "efg_pct": {
+            "key": "efg_pct",
+            "label": "eFG%",
+            "numerator": "fgm + 0.5 * fg3m",
+            "denominator": "fga",
+            "attempt_field": "fga",
+            "unit": "ratio",
+            "direction": "higher",
+            "components": [
+              "fg3m",
+              "fga",
+              "fgm"
+            ],
+            "aggregations": [
+              "ratio"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "pts_per36": {
+            "key": "pts_per36",
+            "label": "Points per 36 minutes",
+            "numerator": "36 * pts",
+            "denominator": "min",
+            "attempt_field": "min",
+            "unit": "per36",
+            "direction": "higher",
+            "components": [
+              "min",
+              "pts"
+            ],
+            "aggregations": [
+              "ratio"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "ast_per36": {
+            "key": "ast_per36",
+            "label": "Assists per 36 minutes",
+            "numerator": "36 * ast",
+            "denominator": "min",
+            "attempt_field": "min",
+            "unit": "per36",
+            "direction": "higher",
+            "components": [
+              "ast",
+              "min"
+            ],
+            "aggregations": [
+              "ratio"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "plus_minus": {
+            "key": "plus_minus",
+            "label": "+/-",
+            "numerator": "plus_minus",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "plus_minus"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fantasy_points_simple": {
+            "key": "fantasy_points_simple",
+            "label": "Simple box-score index",
+            "numerator": "pts + reb + ast + stl + blk - tov",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "index",
+            "direction": "higher",
+            "components": [
+              "ast",
+              "blk",
+              "pts",
+              "reb",
+              "stl",
+              "tov"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "fantasy_proxy_weighted": {
+            "key": "fantasy_proxy_weighted",
+            "label": "Weighted fantasy proxy",
+            "numerator": "pts + 1.2 * reb + 1.5 * ast + 3 * stl + 3 * blk + fg3m - tov",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "index",
+            "direction": "higher",
+            "components": [
+              "ast",
+              "blk",
+              "fg3m",
+              "pts",
+              "reb",
+              "stl",
+              "tov"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "points_created": {
+            "key": "points_created",
+            "label": "Attributed points proxy",
+            "numerator": "pts + 2 * ast",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "index",
+            "direction": "higher",
+            "components": [
+              "ast",
+              "pts"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          },
+          "dreb": {
+            "key": "dreb",
+            "label": "DREB",
+            "numerator": "dreb",
+            "denominator": null,
+            "attempt_field": null,
+            "unit": "count",
+            "direction": "higher",
+            "components": [
+              "dreb"
+            ],
+            "aggregations": [
+              "total",
+              "average"
+            ],
+            "operations": [
+              "summary",
+              "rank",
+              "percentile",
+              "game_log"
+            ]
+          }
+        }
+      }
+    },
+    "expected_inventory": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "expected_scope_inventory/1"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "season": {
+              "enum": [
+                "2025-26",
+                "2026-27"
+              ]
+            },
+            "phase": {
+              "const": "Regular Season"
+            },
+            "first": {
+              "type": "string",
+              "format": "date"
+            },
+            "last": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "season",
+            "phase",
+            "first",
+            "last"
+          ],
+          "additionalProperties": false
+        },
+        "authority": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "method": {
+                  "const": "reviewed_scope_inventory_v1"
+                },
+                "receipt": {
+                  "type": "object",
+                  "properties": {
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "reference": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 512
+                    },
+                    "captured_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "format": "date-time"
+                    },
+                    "kind": {
+                      "enum": [
+                        "archive_snapshot",
+                        "provider_capture",
+                        "reviewed_identity",
+                        "synthetic_fixture"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "sha256",
+                    "reference",
+                    "captured_at",
+                    "kind"
+                  ],
+                  "additionalProperties": false
+                },
+                "body": {
+                  "type": "string",
+                  "maxLength": 1000000
+                },
+                "attested_inventory_sha256": {
+                  "type": "string",
+                  "pattern": "^[a-f0-9]{64}$"
+                },
+                "discovery": {
+                  "anyOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "body": {
+                          "type": "string",
+                          "maxLength": 1000000
+                        },
+                        "receipt": {
+                          "type": "object",
+                          "properties": {
+                            "sha256": {
+                              "type": "string",
+                              "pattern": "^[a-f0-9]{64}$"
+                            },
+                            "reference": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 512
+                            },
+                            "captured_at": {
+                              "type": [
+                                "string",
+                                "null"
+                              ],
+                              "format": "date-time"
+                            },
+                            "kind": {
+                              "enum": [
+                                "archive_snapshot",
+                                "provider_capture",
+                                "reviewed_identity",
+                                "synthetic_fixture"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "sha256",
+                            "reference",
+                            "captured_at",
+                            "kind"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "inventory_sha256": {
+                          "type": "string",
+                          "pattern": "^[a-f0-9]{64}$"
+                        }
+                      },
+                      "required": [
+                        "body",
+                        "receipt",
+                        "inventory_sha256"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "method",
+                "receipt",
+                "body",
+                "attested_inventory_sha256"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "days": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "state": {
+                "enum": [
+                  "finalized",
+                  "unsettled"
+                ]
+              },
+              "game_uids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^g_[a-f0-9]{32}$"
+                },
+                "maxItems": 30
+              }
+            },
+            "required": [
+              "date",
+              "state",
+              "game_uids"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 366
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "game_uid": {
+                "type": "string",
+                "pattern": "^g_[a-f0-9]{32}$"
+              },
+              "scope": {
+                "type": "object",
+                "properties": {
+                  "league": {
+                    "const": "nba"
+                  },
+                  "season": {
+                    "type": "string",
+                    "pattern": "^20[0-9]{2}-[0-9]{2}$"
+                  },
+                  "phase": {
+                    "const": "Regular Season"
+                  },
+                  "date": {
+                    "type": "string",
+                    "format": "date"
+                  },
+                  "home": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  },
+                  "away": {
+                    "type": "string",
+                    "pattern": "^[A-Z]{3}$"
+                  }
+                },
+                "required": [
+                  "league",
+                  "season",
+                  "phase",
+                  "date",
+                  "home",
+                  "away"
+                ],
+                "additionalProperties": false
+              },
+              "home_score": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "away_score": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "game_uid",
+              "scope",
+              "home_score",
+              "away_score"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1500
+        }
+      },
+      "required": [
+        "version",
+        "scope",
+        "authority",
+        "days",
+        "games"
+      ],
+      "additionalProperties": false
+    },
+    "evaluation_inputs": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "scope_observation_inputs/1"
+        },
+        "inventory_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "season": {
+              "enum": [
+                "2025-26",
+                "2026-27"
+              ]
+            },
+            "phase": {
+              "const": "Regular Season"
+            },
+            "first": {
+              "type": "string",
+              "format": "date"
+            },
+            "last": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "season",
+            "phase",
+            "first",
+            "last"
+          ],
+          "additionalProperties": false
+        },
+        "observations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "semantic": {
+                "type": "object",
+                "properties": {
+                  "schema_version": {
+                    "const": "unified_game_observation/1"
+                  },
+                  "adapter_version": {
+                    "enum": [
+                      "nba_archive_observation/1",
+                      "espn_retained_observation/1"
+                    ]
+                  },
+                  "provider": {
+                    "enum": [
+                      "nba_api",
+                      "espn"
+                    ]
+                  },
+                  "game_uid": {
+                    "type": "string",
+                    "pattern": "^g_[a-f0-9]{32}$"
+                  },
+                  "scope": {
+                    "type": "object",
+                    "properties": {
+                      "league": {
+                        "const": "nba"
+                      },
+                      "season": {
+                        "enum": [
+                          "2025-26",
+                          "2026-27"
+                        ]
+                      },
+                      "phase": {
+                        "const": "Regular Season"
+                      },
+                      "date": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "home": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
+                      },
+                      "away": {
+                        "type": "string",
+                        "pattern": "^[A-Z]{3}$"
+                      }
+                    },
+                    "required": [
+                      "league",
+                      "season",
+                      "phase",
+                      "date",
+                      "home",
+                      "away"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "scope_version": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "result": {
+                    "type": "object",
+                    "properties": {
+                      "home_score": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "away_score": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "is_overtime": {
+                        "type": [
+                          "boolean",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "home_score",
+                      "away_score",
+                      "is_overtime"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "appearances": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "player_id": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "team_at_game": {
+                          "type": "string"
+                        },
+                        "opponent": {
+                          "type": "string"
+                        },
+                        "home_away": {
+                          "enum": [
+                            "HOME",
+                            "AWAY"
+                          ]
+                        },
+                        "played": {
+                          "const": true
+                        },
+                        "stats": {
+                          "type": "object",
+                          "properties": {
+                            "pts": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "fgm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "fga": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "fg3m": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "fg3a": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "ftm": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "fta": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "oreb": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "dreb": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "reb": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "ast": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "stl": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "blk": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "tov": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "pf": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ],
+                              "minimum": 0
+                            },
+                            "plus_minus": {
+                              "type": [
+                                "integer",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "pts",
+                            "fgm",
+                            "fga",
+                            "fg3m",
+                            "fg3a",
+                            "ftm",
+                            "fta",
+                            "oreb",
+                            "dreb",
+                            "reb",
+                            "ast",
+                            "stl",
+                            "blk",
+                            "tov",
+                            "pf",
+                            "plus_minus"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "minutes": {
+                          "type": "object",
+                          "properties": {
+                            "value": {
+                              "type": [
+                                "number",
+                                "null"
+                              ],
+                              "minimum": 0,
+                              "maximum": 75
+                            },
+                            "precision": {
+                              "enum": [
+                                "whole_minute_reported",
+                                "unknown"
+                              ]
+                            },
+                            "zero_origin": {
+                              "enum": [
+                                "unverified_legacy_zero",
+                                "reported_zero",
+                                null
+                              ]
+                            }
+                          },
+                          "required": [
+                            "value",
+                            "precision",
+                            "zero_origin"
+                          ],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": [
+                        "player_id",
+                        "team_at_game",
+                        "opponent",
+                        "home_away",
+                        "played",
+                        "stats",
+                        "minutes"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "membership_level": {
+                    "enum": [
+                      "observed_sample",
+                      "provider_declared_complete"
+                    ]
+                  },
+                  "capabilities": {
+                    "type": "object",
+                    "properties": {
+                      "runtime_eligible": {
+                        "const": false
+                      },
+                      "league_ranks": {
+                        "const": false
+                      },
+                      "exact_seconds": {
+                        "const": false
+                      },
+                      "pdf_corroborated": {
+                        "const": false
+                      }
+                    },
+                    "required": [
+                      "runtime_eligible",
+                      "league_ranks",
+                      "exact_seconds",
+                      "pdf_corroborated"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "semantics_version": {
+                    "const": "unified_semantics/1.0.0"
+                  },
+                  "source_definition": {
+                    "enum": [
+                      "nba_game_logs_reported_v1",
+                      "espn_summary_reported_v1"
+                    ]
+                  },
+                  "identity_bindings": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 100,
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "source_player_id": {
+                          "type": "string",
+                          "pattern": "^[1-9][0-9]{0,15}$"
+                        },
+                        "player_id": {
+                          "type": "integer",
+                          "minimum": 1
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 1
+                        }
+                      },
+                      "required": [
+                        "source_player_id",
+                        "player_id",
+                        "version"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "date_basis": {
+                    "const": "reviewed_nba_played_date/1"
+                  }
+                },
+                "required": [
+                  "schema_version",
+                  "adapter_version",
+                  "provider",
+                  "game_uid",
+                  "scope",
+                  "scope_version",
+                  "result",
+                  "appearances",
+                  "membership_level",
+                  "capabilities",
+                  "semantics_version",
+                  "source_definition"
+                ],
+                "additionalProperties": false
+              },
+              "fact_revision": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "source_game_id": {
+                "type": "string"
+              },
+              "provenance": {
+                "type": "object",
+                "properties": {
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "captured_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "kind": {
+                    "enum": [
+                      "archive_snapshot",
+                      "provider_capture",
+                      "synthetic_fixture"
+                    ]
+                  }
+                },
+                "required": [
+                  "sha256",
+                  "reference",
+                  "captured_at",
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              "membership": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "enum": [
+                      "observed_sample",
+                      "provider_declared_complete"
+                    ]
+                  },
+                  "participant_manifest": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "sha256": {
+                            "type": "string",
+                            "pattern": "^[a-f0-9]{64}$"
+                          },
+                          "evidence": {
+                            "type": "object",
+                            "properties": {
+                              "sha256": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              },
+                              "reference": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 512
+                              },
+                              "captured_at": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "date-time"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "archive_snapshot",
+                                  "provider_capture",
+                                  "reviewed_identity",
+                                  "synthetic_fixture"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "sha256",
+                              "reference",
+                              "captured_at",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "participants": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": 100,
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "player_id": {
+                                  "type": "integer",
+                                  "minimum": 1
+                                },
+                                "team": {
+                                  "type": "string"
+                                },
+                                "played": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "player_id",
+                                "team",
+                                "played"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "sha256",
+                          "evidence",
+                          "participants"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "level",
+                  "participant_manifest"
+                ],
+                "additionalProperties": false
+              },
+              "source_chain": {
+                "type": "object",
+                "properties": {
+                  "source": {
+                    "type": "object",
+                    "properties": {
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "reference": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "captured_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "kind": {
+                        "enum": [
+                          "archive_snapshot",
+                          "provider_capture",
+                          "synthetic_fixture"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "sha256",
+                      "reference",
+                      "captured_at",
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "result_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "box_revision": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "definition": {
+                    "const": "espn-layers/1"
+                  }
+                },
+                "required": [
+                  "source",
+                  "result_revision",
+                  "box_revision",
+                  "definition"
+                ],
+                "additionalProperties": false
+              },
+              "date_review": {
+                "type": "object",
+                "properties": {
+                  "original_receipt": {
+                    "type": "object",
+                    "properties": {
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "reference": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "captured_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "kind": {
+                        "enum": [
+                          "archive_snapshot",
+                          "provider_capture",
+                          "reviewed_identity",
+                          "synthetic_fixture"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "sha256",
+                      "reference",
+                      "captured_at",
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "review": {
+                    "type": "object",
+                    "properties": {
+                      "schema_version": {
+                        "const": "reviewed_nba_played_date/1"
+                      },
+                      "game_id": {
+                        "type": "string",
+                        "pattern": "^00225[0-9]{5}$"
+                      },
+                      "original_input_sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "old_date": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "played_date": {
+                        "type": "string",
+                        "format": "date"
+                      },
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "league": {
+                            "const": "nba"
+                          },
+                          "season": {
+                            "enum": [
+                              "2025-26",
+                              "2026-27"
+                            ]
+                          },
+                          "phase": {
+                            "const": "Regular Season"
+                          },
+                          "date": {
+                            "type": "string",
+                            "format": "date"
+                          },
+                          "home": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "away": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          }
+                        },
+                        "required": [
+                          "league",
+                          "season",
+                          "phase",
+                          "date",
+                          "home",
+                          "away"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "authority": {
+                        "type": "object",
+                        "properties": {
+                          "method": {
+                            "const": "operator_reviewed_nba_game_page_web_tool_v1"
+                          },
+                          "url": {
+                            "type": "string",
+                            "pattern": "^https://www\\.nba\\.com/game/[a-z]{3}-vs-[a-z]{3}-00225[0-9]{5}$"
+                          },
+                          "body": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128000
+                          },
+                          "receipt": {
+                            "type": "object",
+                            "properties": {
+                              "sha256": {
+                                "type": "string",
+                                "pattern": "^[a-f0-9]{64}$"
+                              },
+                              "reference": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 512
+                              },
+                              "captured_at": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "format": "date-time"
+                              },
+                              "kind": {
+                                "enum": [
+                                  "archive_snapshot",
+                                  "provider_capture",
+                                  "reviewed_identity",
+                                  "synthetic_fixture"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "sha256",
+                              "reference",
+                              "captured_at",
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "method",
+                          "url",
+                          "body",
+                          "receipt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": [
+                      "schema_version",
+                      "game_id",
+                      "original_input_sha256",
+                      "old_date",
+                      "played_date",
+                      "scope",
+                      "authority"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "review_sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  }
+                },
+                "required": [
+                  "original_receipt",
+                  "review",
+                  "review_sha256"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "semantic",
+              "fact_revision",
+              "observation_id",
+              "source_game_id",
+              "provenance",
+              "membership"
+            ],
+            "additionalProperties": false,
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "title": "Offline provider-separated normalized game observation",
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "semantic": {
+                      "properties": {
+                        "provider": {
+                          "const": "nba_api"
+                        }
+                      }
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "source_game_id": {
+                      "pattern": "^00225[0-9]{5}$"
+                    },
+                    "source_chain": false,
+                    "semantic": {
+                      "properties": {
+                        "adapter_version": {
+                          "const": "nba_archive_observation/1"
+                        },
+                        "source_definition": {
+                          "const": "nba_game_logs_reported_v1"
+                        },
+                        "scope": {
+                          "properties": {
+                            "season": {
+                              "const": "2025-26"
+                            }
+                          }
+                        },
+                        "identity_bindings": false
+                      }
+                    }
+                  }
+                },
+                "else": {
+                  "required": [
+                    "source_chain"
+                  ],
+                  "properties": {
+                    "source_game_id": {
+                      "pattern": "^[1-9][0-9]{0,15}$"
+                    },
+                    "semantic": {
+                      "required": [
+                        "identity_bindings"
+                      ],
+                      "properties": {
+                        "adapter_version": {
+                          "const": "espn_retained_observation/1"
+                        },
+                        "source_definition": {
+                          "const": "espn_summary_reported_v1"
+                        },
+                        "scope": {
+                          "properties": {
+                            "season": {
+                              "const": "2026-27"
+                            }
+                          }
+                        },
+                        "membership_level": {
+                          "const": "provider_declared_complete"
+                        },
+                        "date_basis": false
+                      }
+                    },
+                    "date_review": false
+                  }
+                }
+              },
+              {
+                "if": {
+                  "required": [
+                    "date_review"
+                  ]
+                },
+                "then": {
+                  "properties": {
+                    "semantic": {
+                      "required": [
+                        "date_basis"
+                      ]
+                    }
+                  }
+                },
+                "else": {
+                  "properties": {
+                    "semantic": {
+                      "properties": {
+                        "date_basis": false
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          },
+          "maxItems": 3000
+        },
+        "disputes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "kind": {
+                "enum": [
+                  "identity",
+                  "membership",
+                  "result",
+                  "component",
+                  "precision"
+                ]
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "pts",
+                    "fgm",
+                    "fga",
+                    "fg3m",
+                    "fg3a",
+                    "ftm",
+                    "fta",
+                    "oreb",
+                    "dreb",
+                    "reb",
+                    "ast",
+                    "stl",
+                    "blk",
+                    "tov",
+                    "pf",
+                    "plus_minus",
+                    "min"
+                  ]
+                },
+                "maxItems": 17
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512
+              },
+              "evidence": {
+                "type": "object",
+                "properties": {
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "captured_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "kind": {
+                    "enum": [
+                      "archive_snapshot",
+                      "provider_capture",
+                      "reviewed_identity",
+                      "synthetic_fixture"
+                    ]
+                  }
+                },
+                "required": [
+                  "sha256",
+                  "reference",
+                  "captured_at",
+                  "kind"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "observation_id",
+              "kind",
+              "components",
+              "detail",
+              "evidence"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 3000
+        },
+        "revalidations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "source_body": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 750000
+              },
+              "receipt": {
+                "type": "object",
+                "properties": {
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "captured_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "kind": {
+                    "enum": [
+                      "archive_snapshot",
+                      "provider_capture",
+                      "reviewed_identity",
+                      "synthetic_fixture"
+                    ]
+                  }
+                },
+                "required": [
+                  "sha256",
+                  "reference",
+                  "captured_at",
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              "source_path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 1024
+              }
+            },
+            "required": [
+              "observation_id",
+              "source_body",
+              "receipt"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1500
+        }
+      },
+      "required": [
+        "version",
+        "inventory_id",
+        "scope",
+        "observations",
+        "disputes"
+      ],
+      "additionalProperties": false
+    },
+    "reconciliation": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "scope_reconciliation/1"
+        },
+        "selection_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "inputs_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "authority_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "season": {
+              "enum": [
+                "2025-26",
+                "2026-27"
+              ]
+            },
+            "phase": {
+              "const": "Regular Season"
+            },
+            "first": {
+              "type": "string",
+              "format": "date"
+            },
+            "last": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "season",
+            "phase",
+            "first",
+            "last"
+          ],
+          "additionalProperties": false
+        },
+        "provider": {
+          "enum": [
+            "nba_api",
+            "espn"
+          ]
+        },
+        "status": {
+          "enum": [
+            "consistent",
+            "incomplete",
+            "discrepant",
+            "unavailable"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20
+        },
+        "selected_observations": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "maxItems": 1500
+        },
+        "expected_games": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "missing_games": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^g_[a-f0-9]{32}$"
+          },
+          "maxItems": 1500
+        },
+        "unexpected_games": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^g_[a-f0-9]{32}$"
+          },
+          "maxItems": 1500
+        },
+        "participant_incomplete_games": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^g_[a-f0-9]{32}$"
+          },
+          "maxItems": 1500
+        },
+        "result_mismatches": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^g_[a-f0-9]{32}$"
+          },
+          "maxItems": 1500
+        },
+        "validated_cutoff": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "max_team_games": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "groups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "player_id": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 17
+              },
+              "game_uids": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^g_[a-f0-9]{32}$"
+                },
+                "maxItems": 1500
+              },
+              "sums": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                }
+              },
+              "minute_precision": {
+                "enum": [
+                  "whole_minute_reported",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "player_id",
+              "components",
+              "game_uids",
+              "sums",
+              "minute_precision"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 100000
+        },
+        "component_holds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 17
+        },
+        "membership_complete": {
+          "type": "boolean"
+        },
+        "current_freshness": {
+          "enum": [
+            "not_required",
+            "not_established",
+            "fresh",
+            "stale"
+          ]
+        },
+        "runtime_eligible": {
+          "const": false
+        },
+        "freshness_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 10
+        },
+        "correction_reviews": {
+          "type": "array",
+          "maxItems": 1500,
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "membership_hold": {
+                "type": "boolean"
+              },
+              "components": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 20
+              },
+              "state": {
+                "enum": [
+                  "open",
+                  "overdue",
+                  "needs_review"
+                ]
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 4
+              }
+            },
+            "required": [
+              "observation_id",
+              "membership_hold",
+              "components",
+              "state",
+              "reasons"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "selection_id",
+        "inputs_id",
+        "authority_id",
+        "scope",
+        "provider",
+        "status",
+        "reasons",
+        "selected_observations",
+        "expected_games",
+        "missing_games",
+        "unexpected_games",
+        "participant_incomplete_games",
+        "result_mismatches",
+        "validated_cutoff",
+        "max_team_games",
+        "groups",
+        "component_holds",
+        "membership_complete",
+        "current_freshness",
+        "runtime_eligible",
+        "freshness_reasons",
+        "correction_reviews"
+      ],
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "metric_coverage/1"
+        },
+        "reconciliation_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "maxItems": 2
+        },
+        "metric_catalog_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "requests": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "metric": {
+                "type": "string"
+              },
+              "aggregation": {
+                "enum": [
+                  "total",
+                  "average",
+                  "ratio"
+                ]
+              },
+              "min_games": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 1
+              },
+              "min_attempts": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "exclusiveMinimum": 0
+              },
+              "min_minutes": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "exclusiveMinimum": 0
+              }
+            },
+            "required": [
+              "metric",
+              "aggregation",
+              "min_games",
+              "min_attempts",
+              "min_minutes"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 24
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "request": {
+                "type": "object",
+                "properties": {
+                  "metric": {
+                    "type": "string"
+                  },
+                  "aggregation": {
+                    "enum": [
+                      "total",
+                      "average",
+                      "ratio"
+                    ]
+                  },
+                  "min_games": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 1
+                  },
+                  "min_attempts": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0
+                  },
+                  "min_minutes": {
+                    "type": [
+                      "number",
+                      "null"
+                    ],
+                    "exclusiveMinimum": 0
+                  }
+                },
+                "required": [
+                  "metric",
+                  "aggregation",
+                  "min_games",
+                  "min_attempts",
+                  "min_minutes"
+                ],
+                "additionalProperties": false
+              },
+              "level": {
+                "enum": [
+                  "unavailable",
+                  "observed_sample",
+                  "player_complete",
+                  "cohort_complete"
+                ]
+              },
+              "qualified_population": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "league_rank_eligible": {
+                "type": "boolean"
+              },
+              "percentile_eligible": {
+                "type": "boolean"
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 30
+              },
+              "players": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "player_id": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "games": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "valid_appearances": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "value": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "level": {
+                      "enum": [
+                        "unavailable",
+                        "observed_sample",
+                        "player_complete"
+                      ]
+                    },
+                    "qualified": {
+                      "type": "boolean"
+                    },
+                    "reasons": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "maxItems": 20
+                    }
+                  },
+                  "required": [
+                    "player_id",
+                    "games",
+                    "valid_appearances",
+                    "value",
+                    "level",
+                    "qualified",
+                    "reasons"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 2000
+              }
+            },
+            "required": [
+              "request",
+              "level",
+              "qualified_population",
+              "league_rank_eligible",
+              "percentile_eligible",
+              "reasons",
+              "players"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 24
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "season": {
+                "enum": [
+                  "2025-26",
+                  "2026-27"
+                ]
+              },
+              "phase": {
+                "const": "Regular Season"
+              },
+              "first": {
+                "type": "string",
+                "format": "date"
+              },
+              "last": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            "required": [
+              "season",
+              "phase",
+              "first",
+              "last"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 2
+        },
+        "publication_status": {
+          "const": "offline_only"
+        },
+        "runtime_eligible": {
+          "const": false
+        },
+        "pdf_corroborated": {
+          "const": false
+        },
+        "selection_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        }
+      },
+      "required": [
+        "version",
+        "reconciliation_ids",
+        "metric_catalog_id",
+        "requests",
+        "metrics",
+        "scopes",
+        "publication_status",
+        "runtime_eligible",
+        "pdf_corroborated",
+        "selection_id"
+      ],
+      "additionalProperties": false
+    },
+    "mapping_catalog": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "pdf_identity_catalog/1"
+        },
+        "inventory_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "catalog": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "version",
+        "inventory_id",
+        "catalog"
+      ],
+      "additionalProperties": false
+    },
+    "pdf_inputs": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "scoped_pdf_inputs/1"
+        },
+        "selection_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "evaluation_inputs_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "mapping_catalog_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "acquisition": {
+                "enum": [
+                  "not_attempted",
+                  "not_yet_due",
+                  "captured",
+                  "unavailable",
+                  "unsupported",
+                  "legacy_audit"
+                ]
+              },
+              "checked_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "url": {
+                "type": "string"
+              },
+              "pdf_base64": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 14000000
+              },
+              "receipt": {
+                "anyOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "sha256": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                      },
+                      "reference": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 512
+                      },
+                      "captured_at": {
+                        "type": [
+                          "string",
+                          "null"
+                        ],
+                        "format": "date-time"
+                      },
+                      "kind": {
+                        "enum": [
+                          "archive_snapshot",
+                          "provider_capture",
+                          "reviewed_identity",
+                          "synthetic_fixture"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "sha256",
+                      "reference",
+                      "captured_at",
+                      "kind"
+                    ],
+                    "additionalProperties": false
+                  }
+                ]
+              },
+              "error": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 512
+              },
+              "pdf_path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 1024
+              }
+            },
+            "required": [
+              "observation_id",
+              "acquisition",
+              "checked_at",
+              "url",
+              "pdf_base64",
+              "receipt",
+              "error"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 3000
+        },
+        "pbp_sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "source_body": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 750000
+              },
+              "receipt": {
+                "type": "object",
+                "properties": {
+                  "sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 512
+                  },
+                  "captured_at": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "format": "date-time"
+                  },
+                  "kind": {
+                    "enum": [
+                      "archive_snapshot",
+                      "provider_capture",
+                      "reviewed_identity",
+                      "synthetic_fixture"
+                    ]
+                  }
+                },
+                "required": [
+                  "sha256",
+                  "reference",
+                  "captured_at",
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              "source_path": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "maxLength": 1024
+              }
+            },
+            "required": [
+              "observation_id",
+              "source_body",
+              "receipt"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1500
+        }
+      },
+      "required": [
+        "version",
+        "selection_id",
+        "evaluation_inputs_id",
+        "mapping_catalog_id",
+        "attempts",
+        "pbp_sources"
+      ],
+      "additionalProperties": false
+    },
+    "pdf_checks": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "scoped_pdf_checks/1"
+        },
+        "inputs_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "selection_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "scope": {
+          "type": "object",
+          "properties": {
+            "season": {
+              "enum": [
+                "2025-26",
+                "2026-27"
+              ]
+            },
+            "phase": {
+              "const": "Regular Season"
+            },
+            "first": {
+              "type": "string",
+              "format": "date"
+            },
+            "last": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "season",
+            "phase",
+            "first",
+            "last"
+          ],
+          "additionalProperties": false
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "attempt_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "acquisition": {
+                "type": "string"
+              },
+              "checked_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              },
+              "outcome": {
+                "enum": [
+                  "not_attempted",
+                  "not_yet_due",
+                  "matched",
+                  "mismatch",
+                  "unavailable",
+                  "unsupported",
+                  "stale"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "bindings": {
+                "type": "object",
+                "properties": {
+                  "game_uid": {
+                    "type": "string",
+                    "pattern": "^g_[a-f0-9]{32}$"
+                  },
+                  "observation_id": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "nba_game_id": {
+                    "type": [
+                      "string",
+                      "null"
+                    ],
+                    "pattern": "^002[0-9]{7}$"
+                  },
+                  "provider_result_revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_box_revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "provider_pbp_revision": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "pdf_sha256": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "mapping_version": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "parser_version": {
+                    "type": "string"
+                  },
+                  "parser_sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "rule_version": {
+                    "const": "atomic_espn_pdf/1"
+                  },
+                  "rule_sha256": {
+                    "type": "string",
+                    "pattern": "^[a-f0-9]{64}$"
+                  },
+                  "compared_fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 7
+                  }
+                },
+                "required": [
+                  "game_uid",
+                  "observation_id",
+                  "nba_game_id",
+                  "provider_result_revision",
+                  "provider_box_revision",
+                  "provider_pbp_revision",
+                  "pdf_sha256",
+                  "mapping_version",
+                  "parser_version",
+                  "parser_sha256",
+                  "rule_version",
+                  "rule_sha256",
+                  "compared_fields"
+                ],
+                "additionalProperties": false
+              },
+              "event_matches": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source_event_id": {
+                      "type": "string"
+                    },
+                    "pdf_event_id": {
+                      "type": "string"
+                    },
+                    "page": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "source_event_id",
+                    "pdf_event_id",
+                    "page",
+                    "url"
+                  ],
+                  "additionalProperties": false
+                },
+                "maxItems": 3000
+              },
+              "membership_hold": {
+                "type": "boolean"
+              },
+              "component_holds": {
+                "type": "array",
+                "items": {
+                  "enum": [
+                    "pts",
+                    "fgm",
+                    "fg3m",
+                    "ftm",
+                    "ast",
+                    "assist_events"
+                  ]
+                },
+                "uniqueItems": true,
+                "maxItems": 6
+              }
+            },
+            "required": [
+              "attempt_id",
+              "observation_id",
+              "acquisition",
+              "checked_at",
+              "outcome",
+              "reason",
+              "bindings",
+              "event_matches",
+              "membership_hold",
+              "component_holds"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 4500
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "observation_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "latest_attempt_id": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "latest_outcome": {
+                "type": "string"
+              },
+              "valid_match_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "supported_fields_matched": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "observation_id",
+              "latest_attempt_id",
+              "latest_outcome",
+              "valid_match_id",
+              "supported_fields_matched"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 1500
+        },
+        "runtime_eligible": {
+          "const": false
+        }
+      },
+      "required": [
+        "version",
+        "inputs_id",
+        "selection_id",
+        "scope",
+        "checks",
+        "games",
+        "runtime_eligible"
+      ],
+      "additionalProperties": false
+    },
+    "pdf_capability": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "pdf_scope_capability/1"
+        },
+        "coverage_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "check_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "maxItems": 2
+        },
+        "metrics": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "metric": {
+                "type": "string"
+              },
+              "observed_membership_supported": {
+                "type": "boolean"
+              },
+              "full_scope_supported": {
+                "type": "boolean"
+              },
+              "reasons": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 10
+              },
+              "league_rank_eligible": {
+                "type": "boolean"
+              },
+              "percentile_eligible": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "metric",
+              "observed_membership_supported",
+              "full_scope_supported",
+              "reasons",
+              "league_rank_eligible",
+              "percentile_eligible"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 24
+        },
+        "runtime_eligible": {
+          "const": false
+        }
+      },
+      "required": [
+        "version",
+        "coverage_id",
+        "check_ids",
+        "metrics",
+        "runtime_eligible"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "kind": {
+          "const": "policy"
+        },
+        "payload": {
+          "$ref": "#/$defs/policy"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "inventory"
+        },
+        "payload": {
+          "$ref": "#/$defs/inventory"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "selection"
+        },
+        "payload": {
+          "$ref": "#/$defs/selection"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "pending_check"
+        },
+        "payload": {
+          "$ref": "#/$defs/pending_check"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "metric_catalog"
+        },
+        "payload": {
+          "$ref": "#/$defs/metric_catalog"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "expected_inventory"
+        },
+        "payload": {
+          "$ref": "#/$defs/expected_inventory"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "evaluation_inputs"
+        },
+        "payload": {
+          "$ref": "#/$defs/evaluation_inputs"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "reconciliation"
+        },
+        "payload": {
+          "$ref": "#/$defs/reconciliation"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "coverage"
+        },
+        "payload": {
+          "$ref": "#/$defs/coverage"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "mapping_catalog"
+        },
+        "payload": {
+          "$ref": "#/$defs/mapping_catalog"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "pdf_inputs"
+        },
+        "payload": {
+          "$ref": "#/$defs/pdf_inputs"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "pdf_checks"
+        },
+        "payload": {
+          "$ref": "#/$defs/pdf_checks"
+        }
+      }
+    },
+    {
+      "properties": {
+        "kind": {
+          "const": "pdf_capability"
+        },
+        "payload": {
+          "$ref": "#/$defs/pdf_capability"
+        }
+      }
+    }
+  ]
+}

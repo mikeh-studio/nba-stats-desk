@@ -55,6 +55,34 @@ function fixture() {
   };
 }
 
+test('unranked comparisons hide both empty percentile columns and their explanations',()=>{
+ const p=fixture();p.semantic_evidence.metrics.forEach(m=>{m.left.percentile=null;m.right.percentile=null;});
+ p.semantic_evidence.metrics[0].left.value=0;
+ const before=JSON.stringify(p),view=comparisonPresentation(p),html=comparisonTables(view);
+ assert.doesNotMatch(html,/h2h-bar-|Not ranked|Bar length|Percentiles describe/);
+ assert.doesNotMatch(html,/qualified players|minimum 5 complete games/);
+ assert.match(html,/Captured appearances only/);
+ assert.equal((html.split('</table>')[0].match(/scope="col"/g)||[]).length,3);
+ assert.match(html,/<span class="h2h-num">0.0<\/span>/);
+ assert.ok(!claimSchema(view.claimEvidence,'comparison').some(r=>r.format==='meter'||r.format==='ordinal'));
+ assert.equal(JSON.stringify(p),before);
+});
+test('comparison hides empty player and gap columns per table, preserving original side bindings',()=>{
+ const p=fixture();
+ p.semantic_evidence.metrics.forEach(m=>{m.left.value=null;m.left.percentile=null;m.delta=null;});
+ p.semantic_evidence.comparison_sections.forEach(s=>s.metrics.forEach(m=>{m.left.value=null;m.comparison='Unavailable';}));
+ const view=comparisonPresentation(p),html=comparisonTables(view),claims=claimSchema(view.claimEvidence,'comparison');
+ assert.doesNotMatch(html,/h2h-name-a|h2h-value-a|h2h-bar-a|precision-gap|data-side="left"/);
+ assert.match(html,/h2h-name-b|data-side="right"/);
+ assert.ok(!claims.some(r=>['comparison-value','comparison-precision','detail-value'].includes(r.format)&&r.context.side==='left'));
+ assert.ok(!claims.some(r=>r.format==='comparison-precision-gap'));
+ assert.ok(claims.filter(r=>r.format==='detail-value').every(r=>r.selector.endsWith('td[data-side="right"]')));
+ p.semantic_evidence.metrics[0].left.value=0;p.semantic_evidence.metrics[0].left.percentile=0;p.semantic_evidence.metrics[0].delta=0;
+ const mixed=comparisonTables(comparisonPresentation(p));
+ assert.match(mixed,/h2h-player-a/);assert.doesNotMatch(mixed,/Not ranked/);assert.match(mixed,/>0th percentile</);
+ assert.match(mixed,/precision-gap">Unavailable/);
+});
+
 test("comparison keeps names and scope while hiding unavailable winning metrics", () => {
   const view = comparisonPresentation(fixture());
   const table = comparisonTables(view);
@@ -151,7 +179,8 @@ test("missing components withhold edges, meters and leans instead of becoming ze
   const table = comparisonTables(view);
   assert.match(table, /<span class="h2h-num">26\.0<small>Partial: 5\/6 games<\/small><\/span>/);
   assert.doesNotMatch(table, /h2h-edge|is-leader/);
-  assert.match(table, /Not ranked/);
+  assert.doesNotMatch(table, /h2h-bar-a|Not ranked/);
+  assert.match(table, /class="h2h-pct"[^>]*>95th percentile/);
 });
 
 test("head-to-head markup carries the exact text each claim expects", () => {

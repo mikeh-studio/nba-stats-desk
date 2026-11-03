@@ -155,13 +155,9 @@ test("zero, null, partial denominator and drawer repaint remain usable", async (
 }) => {
   await setup(page);
   await page.evaluate(() => paintClaim());
-  await expect(page.locator('[data-metric-key="fga"] td').first()).toHaveText(
-    "0.0",
-  );
+  await expect(page.locator('[data-metric-key="fga"] td[data-column="value"]')).toHaveText(/^0\.0(?:\s|$)/);
   await page.locator("[data-additional-metrics] summary").click();
-  await expect(
-    page.locator('[data-metric-key="ft_pct"] td').first(),
-  ).toHaveText("—");
+  await expect(page.locator('[data-metric-key="ft_pct"] td[data-column="value"]')).toHaveCount(0);
   await page.evaluate(() => {
     const t = claimTest;
     t.d.bindMetricDrawer(t.root, t.p.overviewPresentation(t.overview));
@@ -380,33 +376,30 @@ test("drawer axes, point glyphs, opportunities and selection text reject indepen
   });
   expect(invalid).toBe("invalid");
 });
-test("game-variation point positions, labels and peak emphasis are evidence-bound", async ({
-  page,
-}) => {
+test("boxplot values, game labels and geometry remain evidence-bound", async ({page}) => {
   await setup(page);
-  const outcomes = await page.evaluate(() => {
-    const t = claimTest,
-      bad = [];
-    for (const attr of ["cx", "cy", "r", "fill"]) {
+  const outcomes = await page.evaluate(async () => {
+    const plot = await import('/static/overview_chart.js'), t = claimTest;
+    const paint = () => {
       paintClaim();
-      t.root
-        .querySelector("[data-game-variation] circle")
-        .setAttribute(attr, attr === "fill" ? "red" : "999");
-      bad.push(
-        t.a.validateRenderedClaims(t.root, t.payload, t.root.uiClaimSession)
-          .status,
-      );
-    }
-    paintClaim();
-    t.root.querySelector("[data-game-variation] circle title").textContent =
-      "Wrong date and points";
-    bad.push(
-      t.a.validateRenderedClaims(t.root, t.payload, t.root.uiClaimSession)
-        .status,
-    );
-    return bad;
+      t.root.querySelector('[data-overview-performance]').innerHTML = plot.overviewBoxplot(t.payload.semantic_evidence.metrics[0]);
+      t.a.bindRenderedClaims(t.root,t.payload,'overview',{chartKey:'pts'});
+    };
+    const mutations = [
+      ['[data-box-point]','cx','999'],
+      ['[data-box-point]','aria-label','Wrong game'],
+      ['[data-box-middle]','width','999'],
+      ['[data-box-stat="median"]',null,'999'],
+      ['[data-box-point] title',null,'Wrong game'],
+    ];
+    return mutations.map(([selector,attr,value])=>{
+      paint();
+      const node=t.root.querySelector(selector);
+      if(attr) node.setAttribute(attr,value); else node.textContent=value;
+      return t.a.validateRenderedClaims(t.root,t.payload,t.root.uiClaimSession).status;
+    });
   });
-  expect(outcomes).toEqual(Array(5).fill("invalid"));
+  expect(outcomes).toEqual(Array(5).fill('invalid'));
 });
 test("qualification opportunities preserve canonical attempt threshold and zero count", async ({
   page,

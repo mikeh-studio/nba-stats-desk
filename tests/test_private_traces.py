@@ -11,7 +11,7 @@ import pytest
 from app.agent.private_traces import Projection, write_record
 from app.main import app
 from fastapi.testclient import TestClient
-from tests.test_api import _test_settings, build_client
+from tests.support.api import _test_settings, build_client
 
 
 @pytest.fixture(autouse=True)

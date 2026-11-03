@@ -20,9 +20,17 @@ Evidence completeness means retrieval of the accepted mapped dev sample, not a
 certified full league season. It carries `cohort_complete=false`. Rankings and
 percentiles are blocked, summary ranks stay null, and player overviews omit
 league/position peer distributions. Explicit peer/baseline and similarity requests are refused
-in this preview. Current-season overviews without an explicit phase use regular
+in this preview. Two named players can be compared using their captured appearances
+in the same requested dates and phases. Their individual samples remain visible;
+missing components withhold differences, and no league ranks, percentiles or
+among-player distributions are produced. Small samples are descriptive and are
+not certified full-season results. Current-season overviews and two-player
+scorecards without an explicit phase use regular
 season only and state that choice; explicit playoff requests are not narrowed.
 Mentioning the NBA or league in a plain player overview does not request a ranking.
+The bounded real-provider runtime still rejects browser-supplied player selections
+and prior context. In that profile, enter both full names in a fresh question if
+short names trigger identity confirmation; this change does not relax that guard.
 
 Accepted player box-score assists remain usable independently of PBP. Pending
 PBP counts are displayed; player assist totals do not certify assist-pair edges.

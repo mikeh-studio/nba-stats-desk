@@ -11,7 +11,7 @@ from app.agent import intelligence_contract as api
 from app.agent.execution import ExecutionFailure
 from app.agent.reference_planner import ReferenceProvider
 from app.agent.semantics import SemanticError
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 PLAYERS = [
     dict(player_id=1, player_name="Alex Example"),
@@ -799,7 +799,7 @@ def test_shared_alias_choice_resumes_one_model_plan(
     from app.agent import semantic_answer
     from app.agent.conversation import InMemoryConversationStore
     from app.agent.service import StatsAgent
-    from tests.test_semantic_migration import Model, Warehouse
+    from tests.support.semantic import Model, Warehouse
 
     original_players = semantic_answer.source_players
 

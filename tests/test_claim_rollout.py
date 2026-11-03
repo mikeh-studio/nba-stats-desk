@@ -11,8 +11,8 @@ from app.agent import claim_rollout as rollout
 from app.agent.claims import finalize
 from fastapi import HTTPException
 from starlette.requests import Request
+from tests.support.semantic import settings
 from tests.test_claim_bindings import literal_breakdown
-from tests.test_semantic_migration import settings
 
 
 def event():

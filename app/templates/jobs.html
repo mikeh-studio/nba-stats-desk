@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jobs · NBA Stats Desk</title>
+    <link rel="stylesheet" href="/fonts/barlow.css" />
+    <link rel="stylesheet" href="/assets/jobs.css?v=20261030-mapping-v1" />
+    <script type="module" src="/assets/jobs.js?v=20261030-mapping-v1"></script>
+  </head>
+  <body>
+    <main>
+      <header class="topbar">
+        <a class="brand" href="/jobs">NBA STATS DESK</a
+        ><span class="local-label"
+          ><span class="dot"></span> Local operations</span
+        >
+      </header>
+      <div class="page-heading">
+        <div>
+          <p class="eyebrow">DATA OPERATIONS</p>
+          <h1>Jobs</h1>
+          <p class="lede">
+            Your refresh schedule, recent runs and data freshness.
+          </p>
+        </div>
+        <div class="refresh-control">
+          <button id="refresh" type="button">
+            Refresh status <span aria-hidden="true">↻</span>
+          </button>
+          <p id="read-time" class="muted" aria-live="polite">
+            Reading local records…
+          </p>
+        </div>
+      </div>
+      <div id="read-error" class="notice error" role="alert" hidden></div>
+      <section class="notice" id="job-notice" aria-live="polite" hidden>
+        <div class="notice-mark" aria-hidden="true">!</div>
+        <div>
+          <h2 id="notice-title"></h2>
+          <p id="notice-copy"></p>
+        </div>
+        <span id="notice-badge"></span>
+      </section>
+      <label class="job-picker" id="job-picker" hidden
+        >Job
+        <select id="job-select"></select
+      ></label>
+      <section class="metrics" aria-label="Job summary">
+        <div class="metric">
+          <p>LAST RESULT</p>
+          <strong id="result">—</strong
+          ><span id="result-note">Waiting for records</span>
+        </div>
+        <div class="metric">
+          <p>LAST SUCCESSFUL REFRESH</p>
+          <strong id="success">—</strong
+          ><span id="success-note">No successful run recorded</span>
+        </div>
+        <div class="metric">
+          <p id="duration-label">LAST RECORDED DURATION</p>
+          <strong id="duration">—</strong
+          ><span id="duration-note">Duration starts with new records</span>
+        </div>
+        <div class="metric">
+          <p>DATA THROUGH <span id="fresh-season"></span></p>
+          <strong id="freshness">—</strong
+          ><span id="freshness-note">No observation yet</span>
+        </div>
+      </section>
+      <div class="workspace">
+        <div class="content">
+          <section class="panel job-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">CONFIGURED JOB</p>
+                <h2 id="job-name">Weekly NBA refresh</h2>
+              </div>
+              <span id="enabled" class="badge">Checking schedule</span>
+            </div>
+            <p class="muted" id="job-description">
+              Core box scores and defensive rebounds, with the pipeline’s
+              existing validation and publication checks.
+            </p>
+            <div class="job-meta">
+              <div><span>SEASON</span><strong id="job-season">—</strong></div>
+              <div>
+                <span>CADENCE</span
+                ><strong id="cadence">Sunday · 8:00 a.m.</strong>
+              </div>
+              <div>
+                <span>ATTEMPTS THIS PERIOD</span
+                ><strong id="attempts">—</strong>
+              </div>
+            </div>
+          </section>
+          <section class="panel" id="game-mapping" aria-label="Game identity mappings" hidden></section>
+          <section class="panel history-panel">
+            <div class="section-heading">
+              <div>
+                <h2>
+                  Run history <span id="history-count" class="count">0</span>
+                </h2>
+                <p class="muted">
+                  Refresh attempts and preflight checks are recorded separately.
+                </p>
+              </div>
+              <label class="filter-label"
+                >Show
+                <select id="history-filter">
+                  <option value="all">All records</option>
+                  <option value="attention">Needs attention</option>
+                  <option value="refresh">Refreshes</option>
+                  <option value="preflight">Preflight checks</option>
+                </select></label
+              >
+            </div>
+            <div id="history-empty" class="empty">
+              <span aria-hidden="true">↳</span>
+              <h3>No run records yet</h3>
+              <p>
+                New checks and refreshes will appear here. Existing status is
+                shown above; earlier durations are not reconstructed.
+              </p>
+            </div>
+            <p id="table-hint" class="table-hint" hidden>
+              Scroll the table for duration and run details →
+            </p>
+            <div
+              id="table-wrap"
+              class="table-wrap"
+              role="region"
+              aria-label="Run history table"
+              tabindex="0"
+              hidden
+            >
+              <table>
+                <caption class="sr-only">
+                  Recorded job executions
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Started</th>
+                    <th>Type</th>
+                    <th>Result</th>
+                    <th>Duration</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody id="history-rows"></tbody>
+              </table>
+            </div>
+          </section>
+          <section
+            id="record-issues"
+            class="notice error"
+            aria-label="Record issues"
+            hidden
+          ></section>
+        </div>
+        <aside>
+          <section class="panel schedule">
+            <p class="eyebrow">SCHEDULE</p>
+            <h2 id="next-heading">Next planned slot</h2>
+            <strong class="next-date" id="next-date">—</strong>
+            <p id="next-time" class="next-time">8:00 a.m. Pacific</p>
+            <p id="schedule-note" class="schedule-note">
+              Checking activation state…
+            </p>
+            <dl>
+              <div>
+                <dt>Timezone</dt>
+                <dd id="timezone">America/Los_Angeles</dd>
+              </div>
+              <div>
+                <dt>Missed runs</dt>
+                <dd>Catch up after wake / login</dd>
+              </div>
+              <div>
+                <dt>Recovery</dt>
+                <dd>Up to 3 attempts · 24h apart</dd>
+              </div>
+            </dl>
+            <p id="retry-note" class="retry-note" hidden></p>
+          </section>
+          <section class="panel coverage">
+            <p class="eyebrow">FRESHNESS</p>
+            <h2>Observed coverage</h2>
+            <p class="muted">
+              Last recorded warehouse observation. Opening this page does not
+              query the warehouse.
+            </p>
+            <div id="observed-coverage" class="observed"></div>
+            <p id="observed-at" class="muted"></p>
+          </section>
+        </aside>
+      </div>
+      <footer>
+        <span>Read-only local monitor</span
+        ><span>Checks local records every 15 seconds while visible</span>
+      </footer>
+    </main>
+    <dialog id="run-dialog" aria-labelledby="run-title">
+      <div class="dialog-head">
+        <div>
+          <p class="eyebrow">RUN DETAILS</p>
+          <h2 id="run-title">Run</h2>
+        </div>
+        <button
+          id="close-dialog"
+          class="icon-button"
+          aria-label="Close run details"
+        >
+          ×
+        </button>
+      </div>
+      <div id="run-details"></div>
+      <div class="log-actions">
+        <button id="load-log" hidden>View redacted log</button
+        ><span class="muted" id="log-note"></span>
+      </div>
+      <pre id="log-output" tabindex="0" hidden></pre>
+    </dialog>
+  </body>
+</html>

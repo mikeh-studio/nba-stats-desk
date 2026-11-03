@@ -143,18 +143,37 @@ def rows(client, sql):
 def fingerprint(client, table):
     if "@" in table:
         table, millis = table.rsplit("@", 1)
-        relation = f"`{table}` FOR SYSTEM_TIME AS OF TIMESTAMP_MILLIS({int(millis)})"
+        relation = (
+            f"`{table}` AS t FOR SYSTEM_TIME AS OF TIMESTAMP_MILLIS({int(millis)})"
+        )
     else:
-        relation = f"`{table}`"
+        relation = f"`{table}` AS t"
     return rows(
         client,
-        f"SELECT COUNT(*) AS n, BIT_XOR(FARM_FINGERPRINT(TO_JSON_STRING(t))) AS h FROM {relation} t",
+        f"SELECT COUNT(*) AS n, BIT_XOR(FARM_FINGERPRINT(TO_JSON_STRING(t))) AS h FROM {relation}",
     )[0]
 
 
-def copy_archive(client, project, season, *, publish=False, writers_stopped=False):
+def copy_archive(
+    client,
+    project,
+    season,
+    *,
+    publish=False,
+    writers_stopped=False,
+    resume_snapshot_ms=None,
+):
+    if resume_snapshot_ms is not None:
+        if not publish or not writers_stopped or type(resume_snapshot_ms) is not int:
+            raise ValueError(
+                "Explicit recovery requires publication, stopped writers and an integer snapshot"
+            )
+        age = int(datetime.now(UTC).timestamp() * 1000) - resume_snapshot_ms
+        if not 0 < age < 7 * 24 * 60 * 60 * 1000:
+            raise ValueError("Recovery snapshot must be in the previous seven days")
     mapping = archive_mapping(project, season)
     inventory = []
+    existing = {}
     for source, target in mapping.items():
         dataset = client.get_dataset(source)
         try:
@@ -162,9 +181,17 @@ def copy_archive(client, project, season, *, publish=False, writers_stopped=Fals
         except NotFound:
             pass
         else:
-            raise ValueError(
-                f"Destination already exists: {target}; inspect partial runs manually"
-            )
+            if resume_snapshot_ms is None:
+                raise ValueError(
+                    f"Destination already exists: {target}; inspect partial runs manually"
+                )
+            existing[target] = {
+                t.table_id: t.table_type for t in client.list_tables(target)
+            }
+            if "historical_backfill_manifest" in existing[target]:
+                raise ValueError(
+                    "An archive manifest already exists; recovery cannot modify a published archive"
+                )
         for item in client.list_tables(source):
             table = client.get_table(item.reference)
             if table.table_type not in {"TABLE", "VIEW"}:
@@ -172,6 +199,14 @@ def copy_archive(client, project, season, *, publish=False, writers_stopped=Fals
             if table.table_id == "historical_backfill_manifest":
                 raise ValueError("Source already contains an archive manifest")
             inventory.append((table, dataset.location, source, target))
+    for target, objects in existing.items():
+        expected = {
+            table.table_id: table.table_type
+            for table, _, _, dest in inventory
+            if dest == target
+        }
+        if any(expected.get(name) != kind for name, kind in objects.items()):
+            raise ValueError("Unexpected object in partial archive; inspect manually")
     views = ordered_views(inventory, mapping)
     if not inventory:
         raise ValueError("Empty warehouse")
@@ -188,8 +223,10 @@ def copy_archive(client, project, season, *, publish=False, writers_stopped=Fals
             "Stop all writers and pass --writers-stopped before publication"
         )
     # A single instant preserves cross-table consistency; time travel must be available.
-    snapshot_ms = int(datetime.now(UTC).timestamp() * 1000)
+    snapshot_ms = resume_snapshot_ms or int(datetime.now(UTC).timestamp() * 1000)
     for source, target in mapping.items():
+        if target in existing:
+            continue
         ds = bigquery.Dataset(target)
         ds.location = client.get_dataset(source).location
         client.create_dataset(ds)
@@ -199,16 +236,31 @@ def copy_archive(client, project, season, *, publish=False, writers_stopped=Fals
             continue
         src = f"{source}.{table.table_id}@{snapshot_ms}"
         dest = f"{target}.{table.table_id}"
-        client.copy_table(
-            src,
-            dest,
-            job_config=bigquery.CopyJobConfig(write_disposition="WRITE_EMPTY"),
-        ).result(timeout=300)
-        before, after = fingerprint(client, src), fingerprint(client, dest)
+        before = fingerprint(client, src)
+        if resume_snapshot_ms is not None and before != fingerprint(
+            client, f"{source}.{table.table_id}"
+        ):
+            raise ValueError(
+                "Source changed since recovery snapshot; no manifest published"
+            )
+        if table.table_id not in existing.get(target, {}):
+            client.copy_table(
+                src,
+                dest,
+                job_config=bigquery.CopyJobConfig(write_disposition="WRITE_EMPTY"),
+            ).result(timeout=300)
+        after = fingerprint(client, dest)
         if before != after:
             raise ValueError(f"Copy parity failed: {dest}")
         checks[dest] = after
     for name, sql in views:
+        target, table_id = name.rsplit(".", 1)
+        if table_id in existing.get(target, {}):
+            if client.get_table(name).view_query != sql:
+                raise ValueError(
+                    "Existing archive view differs; no overwrite permitted"
+                )
+            continue
         view = bigquery.Table(name)
         view.view_query = sql
         view.view_use_legacy_sql = False
@@ -310,6 +362,11 @@ def main():
     parser.add_argument("--season", choices=ARCHIVE_SEASONS, default="2025-26")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--writers-stopped", action="store_true")
+    parser.add_argument(
+        "--resume-snapshot-ms",
+        type=int,
+        help="Explicit operator recovery only: original audited copy-job snapshot; never overwrites existing objects",
+    )
     args = parser.parse_args()
     print(
         json.dumps(
@@ -319,6 +376,7 @@ def main():
                 args.season,
                 publish=args.publish,
                 writers_stopped=args.writers_stopped,
+                resume_snapshot_ms=args.resume_snapshot_ms,
             ),
             default=str,
             indent=2,

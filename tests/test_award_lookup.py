@@ -10,7 +10,7 @@ from app.agent.award_lookup import (
 from app.agent.conversation import InMemoryConversationStore
 from app.agent.semantic_answer import SemanticAsk
 from app.agent.semantics import COMPONENTS, Evidence, SemanticError
-from tests.test_semantic_migration import settings
+from tests.support.semantic import settings
 
 
 def warehouse():

@@ -103,8 +103,17 @@ class SourcePolicy:
             raise SemanticError(
                 "source_policy_denied", "Invalid snapshot timestamp"
             ) from exc
-        if self.source_mode not in {"warehouse", "retained_local_review"}:
+        if self.source_mode not in {
+            "warehouse",
+            "retained_local_review",
+            "espn_pinned_review",
+        }:
             denied("Unknown source mode")
+        if self.source_mode == "espn_pinned_review":
+            from app.agent.espn_review_policy import ESPNReviewPolicy
+
+            if type(self) is not ESPNReviewPolicy:
+                denied("ESPN review requires its validated pinned policy")
         for value, ceiling in (
             (self.max_rows, 100_000),
             (self.identity_max_rows, 1000),
@@ -148,6 +157,8 @@ class SourcePolicy:
 
     def authorize(self, *, sql, config, seasons, phases, identity_ids=None):
         """Compare the complete generated statement and typed parameter payload."""
+        if self.source_mode == "espn_pinned_review":
+            denied("Pinned ESPN review permits no runtime warehouse SQL")
         self.check_scope(seasons, phases)
         from google.cloud import bigquery
 

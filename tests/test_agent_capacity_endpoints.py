@@ -15,8 +15,8 @@ from app.agent.conversation import InMemoryConversationStore
 from app.agent.execution import ExecutionFailure, governed_request
 from app.main import app
 from app.seasons import current_season
-from tests.test_agent_service import _settings
-from tests.test_api import build_client
+from tests.support.agent import _settings
+from tests.support.api import build_client
 
 
 class ASGIRequest:

@@ -8,7 +8,7 @@ from app import main
 from app.agent import research_ask
 from app.agent.conversation import InMemoryConversationStore
 from app.research import ResearchQuery
-from tests.test_api import _test_settings, build_client
+from tests.support.api import _test_settings, build_client
 from tests.test_research import evidence
 from tests.test_teammate_ask import Client
 
