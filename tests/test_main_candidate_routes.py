@@ -1,5 +1,7 @@
 """Synthetic main-route composition; never live authorization or provider proof."""
 
+import asyncio
+import json
 import socket
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -326,6 +328,68 @@ def test_source_status_change_after_ask_serialization_refuses_result(
     else:
         assert result.status_code == 503
     assert "5.0" not in result.text
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "query"),
+    [
+        ("GET", "/api/players/1", "season=2026-27"),
+        ("GET", "/players/1", "season=2026-27"),
+        ("POST", "/api/agent/ask", ""),
+        (
+            "GET",
+            "/api/compare",
+            "player_a_id=1&player_b_id=2&season=2026-27&window=regular_season&focus=scoring",
+        ),
+        (
+            "GET",
+            "/compare",
+            "player_a_id=1&player_b_id=2&season=2026-27&window=regular_season&focus=scoring",
+        ),
+    ],
+)
+def test_authority_rotation_after_response_start_aborts_body(
+    candidate_client, method, path, query
+):
+    client, _, active = candidate_client
+    messages = []
+    body = json.dumps({"question": QUESTION}).encode() if method == "POST" else b""
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": query.encode(),
+        "root_path": "",
+        "headers": [(b"host", b"127.0.0.1"), (b"content-type", b"application/json")],
+        "client": ("127.0.0.1", 43210),
+        "server": ("127.0.0.1", 80),
+    }
+    sent = False
+
+    async def receive():
+        nonlocal sent
+        if not sent:
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        await asyncio.Event().wait()
+
+    async def send(message):
+        messages.append(message)
+        if message["type"] == "http.response.start":
+            active["binding"] = replace(active["binding"], generation=2)
+            await asyncio.sleep(0)
+
+    async def invoke():
+        with pytest.raises(Exception, match="candidate_authority_changed"):
+            await client.app(scope, receive, send)
+
+    asyncio.run(invoke())
+    assert [message["type"] for message in messages] == ["http.response.start"]
+    assert messages[0]["status"] == 200
 
 
 def test_candidate_post_body_is_bounded_and_closed(candidate_client):

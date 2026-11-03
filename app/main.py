@@ -465,6 +465,25 @@ def _candidate_season(request: Request) -> str:
     return seasons[0]
 
 
+def _candidate_body_send(send, candidate, *, payload=None, seasons=()):
+    """Abort an already-started response if its authority changes before a body."""
+
+    async def checked_send(message):
+        if message["type"] == "http.response.body":
+            try:
+                if payload is None:
+                    await run_in_threadpool(candidate.check, seasons)
+                else:
+                    await run_in_threadpool(candidate.check_payload, payload)
+            except Exception:
+                # Headers have already been handed off; a new 503 response is no
+                # longer legal. Abort instead of completing a stale 200 response.
+                raise RuntimeError("candidate_authority_changed") from None
+        await send(message)
+
+    return checked_send
+
+
 class _CandidateResponse(Response):
     """Recheck offline pins immediately before sending a candidate response."""
 
@@ -496,7 +515,13 @@ class _CandidateResponse(Response):
                 },
             )(scope, receive, send)
             return
-        await super().__call__(scope, receive, send)
+        await super().__call__(
+            scope,
+            receive,
+            _candidate_body_send(
+                send, self.candidate, payload=self.payload, seasons=self.seasons
+            ),
+        )
 
 
 def _candidate_result(candidate, seasons, operation):
@@ -1483,9 +1508,8 @@ class _AgentJSONResponse(Response):
         try:
             if self.candidate is not None and self.status_code == 200:
                 try:
-                    await run_in_threadpool(
-                        self.candidate.check_payload, json.loads(self.body)
-                    )
+                    payload = json.loads(self.body)
+                    await run_in_threadpool(self.candidate.check_payload, payload)
                 except Exception:
                     await JSONResponse(
                         {
@@ -1500,6 +1524,7 @@ class _AgentJSONResponse(Response):
                         },
                     )(scope, receive, send)
                     return
+                send = _candidate_body_send(send, self.candidate, payload=payload)
             await super().__call__(scope, receive, send)
         finally:
             self.delivery.detach()
