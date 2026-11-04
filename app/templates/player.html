@@ -78,6 +78,14 @@
 
   <section class="workspace">
     <div class="main-stack">
+      {% if weekly_pts %}
+      <article class="card">
+        <div class="card-header"><h2>Weekly PTS snapshot</h2></div>
+        <p>{% if weekly_pts.player_profile.total_pts is not none %}{{ weekly_pts.player_profile.total_pts }} observed points{% else %}Points unavailable{% endif %} · {% if weekly_pts.player_profile.average_pts is not none %}{{ weekly_pts.player_profile.average_pts }} per valid appearance{% else %}Average unavailable{% endif %}</p>
+        <p class="meta">{{ weekly_pts.player_profile.observed_games }} appearances · {{ weekly_pts.player_profile.valid_games }} with PTS · {{ weekly_pts.player_profile.missing_component_games }} missing PTS</p>
+        <p class="meta">{{ weekly_pts.binding.scope.season }} {{ weekly_pts.binding.scope.phase }}, {{ weekly_pts.binding.scope.start_date }} through {{ weekly_pts.binding.scope.end_date }}. Observed appearances; snapshot {{ weekly_pts.binding.snapshot_id }}.</p>
+      </article>
+      {% endif %}
       <article class="card">
         <div class="card-header">
           <h2>Why This Player Matters</h2>

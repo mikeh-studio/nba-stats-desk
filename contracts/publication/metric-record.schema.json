@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "metric": {
+      "enum": [
+        "gp",
+        "pts",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "fg3m",
+        "min",
+        "fga",
+        "fg3a",
+        "fta",
+        "plus_minus",
+        "fg_pct",
+        "fg3_pct",
+        "ft_pct",
+        "ts_pct",
+        "efg_pct",
+        "pts_per36",
+        "ast_per36"
+      ]
+    },
+    "aggregation": {
+      "enum": [
+        "total",
+        "per_game",
+        "ratio",
+        "per36"
+      ]
+    },
+    "value": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "unit": {
+      "enum": [
+        "games",
+        "count",
+        "count_per_game",
+        "minutes",
+        "minutes_per_game",
+        "ratio",
+        "per36"
+      ]
+    },
+    "observed_games": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "valid_games": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "missing_games": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "numerator": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "denominator": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "precision": {
+      "enum": [
+        "exact_count",
+        "whole_minute_reported",
+        "second_reported",
+        "ratio_derived",
+        "minute_derived",
+        "unknown"
+      ]
+    },
+    "unavailable_reason": {
+      "enum": [
+        null,
+        "no_appearances",
+        "missing_components",
+        "zero_denominator"
+      ]
+    }
+  },
+  "required": [
+    "metric",
+    "aggregation",
+    "value",
+    "unit",
+    "observed_games",
+    "valid_games",
+    "missing_games",
+    "numerator",
+    "denominator",
+    "precision",
+    "unavailable_reason"
+  ]
+}

@@ -1,7 +1,7 @@
-import {comparisonPlot} from "./comparison_plot_ui.js?v=20261028-comparison-distributions-v1";
-import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261028-comparison-distributions-v1";
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261028-comparison-distributions-v1";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261028-comparison-distributions-v1";
+import {comparisonPlot} from "./comparison_plot_ui.js?v=20261104-production-publication-v1";
+import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261104-production-publication-v1";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261104-production-publication-v1";
+import { dateLabel, ordinal } from "./ask_presentation.js?v=20261104-production-publication-v1";
 
 const esc = (v) =>
   String(v ?? "")

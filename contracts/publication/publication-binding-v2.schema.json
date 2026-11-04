@@ -1,0 +1,171 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "publication-binding/2"
+    },
+    "binding_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,199}$"
+    },
+    "generation": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "publication_id": {
+      "type": "string",
+      "pattern": "^pub_[0-9a-f]{16}$"
+    },
+    "manifest_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "profile": {
+      "const": "core_stats_weekly_v1"
+    },
+    "routes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "season": {
+            "type": "string",
+            "pattern": "^20[0-9]{2}-[0-9]{2}$"
+          },
+          "phase": {
+            "enum": [
+              "Regular Season",
+              "Playoffs"
+            ]
+          },
+          "mode": {
+            "enum": [
+              "release",
+              "legacy",
+              "unsupported"
+            ]
+          },
+          "target": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:/-]{0,199}$"
+          }
+        },
+        "required": [
+          "season",
+          "phase",
+          "mode",
+          "target"
+        ]
+      }
+    },
+    "relations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accepted_game_results",
+        "accepted_player_appearances",
+        "participant_manifest",
+        "fct_player_game_stats",
+        "fct_team_game_results",
+        "dim_game",
+        "dim_player",
+        "dim_team",
+        "core_player_summary",
+        "core_player_windows",
+        "core_player_trends",
+        "core_performance",
+        "core_player_search"
+      ],
+      "properties": {
+        "accepted_game_results": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "accepted_player_appearances": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "participant_manifest": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "fct_player_game_stats": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "fct_team_game_results": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "dim_game": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "dim_player": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "dim_team": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "core_player_summary": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "core_player_windows": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "core_player_trends": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "core_performance": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        },
+        "core_player_search": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{4,62}\\.[A-Za-z_][A-Za-z0-9_]{0,100}\\.[A-Za-z_][A-Za-z0-9_]{0,100}$"
+        }
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "player_core",
+          "compare_core",
+          "performance_core",
+          "ask_player_stats",
+          "player_search",
+          "team_results_sql"
+        ]
+      },
+      "minItems": 6
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "Z$"
+    }
+  },
+  "required": [
+    "version",
+    "binding_id",
+    "generation",
+    "publication_id",
+    "manifest_digest",
+    "profile",
+    "routes",
+    "relations",
+    "capabilities",
+    "expires_at"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

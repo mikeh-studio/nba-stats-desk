@@ -15,8 +15,9 @@ from starlette.responses import JSONResponse
 
 
 class _CandidateBoundary:
-    def __init__(self, app):
+    def __init__(self, app, *, jobs_enabled=False):
         self.app = app
+        self.jobs_enabled = jobs_enabled
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
@@ -28,6 +29,12 @@ class _CandidateBoundary:
                 method == "GET"
                 and (
                     path in {"/ask", "/compare", "/api/compare"}
+                    or (
+                        self.jobs_enabled
+                        and (
+                            path == "/jobs-monitor" or path.startswith("/jobs-monitor/")
+                        )
+                    )
                     or re.fullmatch(r"/players/[1-9][0-9]*(?:/content)?", path)
                     or re.fullmatch(r"/api/players/[1-9][0-9]*", path)
                 )
@@ -110,7 +117,9 @@ class _CandidateBoundary:
         await self.app(scope, receive, send)
 
 
-def create_candidate_application(service, *, settings):
+def create_candidate_application(
+    service, *, settings, jobs_app=None, service_provider=None
+):
     """Compose one trusted candidate into the real app in a dedicated process."""
     if os.environ.get("PYTHON_DOTENV_DISABLED") != "1":
         raise ValueError("dotenv must be disabled before importing the application")
@@ -121,6 +130,7 @@ def create_candidate_application(service, *, settings):
 
     if (
         type(service) is not CandidatePTSService
+        or (service_provider is not None and not callable(service_provider))
         or type(settings) is not Settings
         or settings.ask_intelligence_provider != "reference"
         or settings.ask_local_espn_dev
@@ -140,10 +150,15 @@ def create_candidate_application(service, *, settings):
     service.check()
     original_get_settings = main.get_settings
     main.app.dependency_overrides[original_get_settings] = lambda: settings
-    main.app.dependency_overrides[main.get_candidate_service] = lambda: service
+    main.app.dependency_overrides[main.get_candidate_service] = (
+        service_provider if service_provider is not None else lambda: service
+    )
     main.app.dependency_overrides[main.get_repository] = lambda: None
     # Middleware uses this module-global getter directly; keep that lookup on
     # the explicitly supplied nonsecret settings in this dedicated process.
     main.get_settings = lambda: settings
     main.app.state.offline_candidate_claimed = True
-    return _CandidateBoundary(main.app)
+    if jobs_app is not None:
+        main.app.mount("/jobs-monitor", jobs_app)
+        main.app.state.jobs_monitor_enabled = True
+    return _CandidateBoundary(main.app, jobs_enabled=jobs_app is not None)

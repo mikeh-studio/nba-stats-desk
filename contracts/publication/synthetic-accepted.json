@@ -1,0 +1,220 @@
+{
+  "status": "accepted",
+  "scope": {
+    "season": "2026-27",
+    "phase": "Regular Season",
+    "first": "2026-10-20",
+    "last": "2026-10-31",
+    "provider": "espn"
+  },
+  "games": [
+    {
+      "game_id": "0022600001",
+      "game_uid": "synthetic_0",
+      "season": "2026-27",
+      "season_type": "Regular Season",
+      "game_date": "2026-10-20",
+      "home_team_id": 1610612747,
+      "home_team_abbr": "LAL",
+      "away_team_id": 1610612738,
+      "away_team_abbr": "BOS",
+      "home_score": 10,
+      "away_score": 12,
+      "result_revision": "0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "game_id": "0022600002",
+      "game_uid": "synthetic_1",
+      "season": "2026-27",
+      "season_type": "Regular Season",
+      "game_date": "2026-10-21",
+      "home_team_id": 1610612738,
+      "home_team_abbr": "BOS",
+      "away_team_id": 1610612747,
+      "away_team_abbr": "LAL",
+      "home_score": 0,
+      "away_score": 20,
+      "result_revision": "0000000000000000000000000000000000000000000000000000000000000002"
+    }
+  ],
+  "appearances": [
+    {
+      "game_id": "0022600001",
+      "player_id": 101,
+      "team_abbr": "LAL",
+      "opponent_abbr": "BOS",
+      "home_away": "HOME",
+      "min": 30,
+      "pts": 10,
+      "fgm": 4,
+      "fga": 5,
+      "fg3m": 1,
+      "fg3a": 2,
+      "ftm": 1,
+      "fta": 2,
+      "oreb": 1,
+      "dreb": 2,
+      "reb": 3,
+      "ast": 2,
+      "stl": 1,
+      "blk": 0,
+      "tov": 1,
+      "pf": 2,
+      "plus_minus": -2,
+      "minutes_precision": "whole_minute_reported",
+      "minutes_zero_origin": null,
+      "observation_id": "0000000000000000000000000000000000000000000000000000000000000014",
+      "fact_revision": "000000000000000000000000000000000000000000000000000000000000001e",
+      "source_captured_at": "2026-11-01T12:00:00Z",
+      "source_verified_at": "2026-11-01T12:00:00Z"
+    },
+    {
+      "game_id": "0022600001",
+      "player_id": 202,
+      "team_abbr": "BOS",
+      "opponent_abbr": "LAL",
+      "home_away": "AWAY",
+      "min": 30,
+      "pts": 12,
+      "fgm": 5,
+      "fga": 10,
+      "fg3m": 1,
+      "fg3a": 2,
+      "ftm": 1,
+      "fta": 2,
+      "oreb": 1,
+      "dreb": 2,
+      "reb": 3,
+      "ast": 2,
+      "stl": 1,
+      "blk": 0,
+      "tov": 1,
+      "pf": 2,
+      "plus_minus": 2,
+      "minutes_precision": "whole_minute_reported",
+      "minutes_zero_origin": null,
+      "observation_id": "0000000000000000000000000000000000000000000000000000000000000014",
+      "fact_revision": "000000000000000000000000000000000000000000000000000000000000001e",
+      "source_captured_at": "2026-11-01T12:00:00Z",
+      "source_verified_at": "2026-11-01T12:00:00Z"
+    },
+    {
+      "game_id": "0022600002",
+      "player_id": 101,
+      "team_abbr": "BOS",
+      "opponent_abbr": "LAL",
+      "home_away": "HOME",
+      "min": null,
+      "pts": 0,
+      "fgm": 0,
+      "fga": 15,
+      "fg3m": 0,
+      "fg3a": 5,
+      "ftm": 0,
+      "fta": 0,
+      "oreb": 1,
+      "dreb": 2,
+      "reb": 3,
+      "ast": 2,
+      "stl": 1,
+      "blk": 0,
+      "tov": 1,
+      "pf": 2,
+      "plus_minus": -2,
+      "minutes_precision": "unknown",
+      "minutes_zero_origin": null,
+      "observation_id": "0000000000000000000000000000000000000000000000000000000000000015",
+      "fact_revision": "000000000000000000000000000000000000000000000000000000000000001f",
+      "source_captured_at": "2026-11-01T12:00:00Z",
+      "source_verified_at": "2026-11-01T12:00:00Z"
+    },
+    {
+      "game_id": "0022600002",
+      "player_id": 202,
+      "team_abbr": "LAL",
+      "opponent_abbr": "BOS",
+      "home_away": "AWAY",
+      "min": 30,
+      "pts": 20,
+      "fgm": 8,
+      "fga": 10,
+      "fg3m": 2,
+      "fg3a": 3,
+      "ftm": 2,
+      "fta": 2,
+      "oreb": 1,
+      "dreb": 2,
+      "reb": 3,
+      "ast": 2,
+      "stl": 1,
+      "blk": 0,
+      "tov": 1,
+      "pf": 2,
+      "plus_minus": 2,
+      "minutes_precision": "whole_minute_reported",
+      "minutes_zero_origin": null,
+      "observation_id": "0000000000000000000000000000000000000000000000000000000000000015",
+      "fact_revision": "000000000000000000000000000000000000000000000000000000000000001f",
+      "source_captured_at": "2026-11-01T12:00:00Z",
+      "source_verified_at": "2026-11-01T12:00:00Z"
+    }
+  ],
+  "participants": [
+    {
+      "game_id": "0022600001",
+      "player_id": 101,
+      "team_abbr": "LAL",
+      "played": true
+    },
+    {
+      "game_id": "0022600001",
+      "player_id": 202,
+      "team_abbr": "BOS",
+      "played": true
+    },
+    {
+      "game_id": "0022600001",
+      "player_id": 303,
+      "team_abbr": "LAL",
+      "played": false
+    },
+    {
+      "game_id": "0022600002",
+      "player_id": 101,
+      "team_abbr": "BOS",
+      "played": true
+    },
+    {
+      "game_id": "0022600002",
+      "player_id": 202,
+      "team_abbr": "LAL",
+      "played": true
+    },
+    {
+      "game_id": "0022600002",
+      "player_id": 303,
+      "team_abbr": "BOS",
+      "played": false
+    }
+  ],
+  "players": [
+    {
+      "player_id": 101,
+      "player_name": "Test Player A"
+    },
+    {
+      "player_id": 202,
+      "player_name": "Test Player B"
+    }
+  ],
+  "teams": [
+    {
+      "team_id": 1610612747,
+      "team_abbr": "LAL"
+    },
+    {
+      "team_id": 1610612738,
+      "team_abbr": "BOS"
+    }
+  ]
+}

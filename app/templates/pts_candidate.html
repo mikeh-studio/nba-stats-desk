@@ -13,6 +13,7 @@
 <body>
 <main>
   <h1>Ask NBA Stats</h1>
+  {% if jobs_monitor %}<p><a href="/jobs-monitor/">Jobs</a></p>{% endif %}
   <p>Offline PTS candidate · observed appearances · no runtime approval or league rankings</p>
   <p>Use an approved player name, total or per game, season and regular season.</p>
   <form id="question-form">
@@ -58,6 +59,7 @@ form.addEventListener('submit', async event => {
       const clocks = evidence.evidence_clocks || {};
       const authority = member.authority || {};
       const fields = [
+        ['Snapshot', member.binding.snapshot_id],
         ['Evidence kind', payload.evidence_kind], ['Source', evidence.current_evidence?.provider],
         ['Scope', `${scope.start_date} through ${scope.end_date}`],
         ['Source captured', clocks.source_captured_at], ['Discovered', clocks.discovered_at],

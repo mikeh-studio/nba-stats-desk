@@ -1,0 +1,96 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "publication-status/1"
+    },
+    "publication_id": {
+      "type": "string",
+      "pattern": "^pub_[0-9a-f]{16}$"
+    },
+    "profile": {
+      "const": "core_stats_v1"
+    },
+    "data_through": {
+      "type": "string",
+      "format": "date"
+    },
+    "freshness": {
+      "enum": [
+        "fresh",
+        "stale_usable",
+        "expired",
+        "unavailable"
+      ]
+    },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "player_core",
+          "compare_core",
+          "performance_core",
+          "ask_player_stats",
+          "player_search",
+          "team_results_sql"
+        ]
+      },
+      "minItems": 6
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "season": {
+          "const": "2026-27"
+        },
+        "phase": {
+          "const": "Regular Season"
+        },
+        "first": {
+          "const": "2026-10-20"
+        },
+        "last": {
+          "const": "2026-10-31"
+        },
+        "provider": {
+          "const": "espn"
+        }
+      },
+      "required": [
+        "season",
+        "phase",
+        "first",
+        "last",
+        "provider"
+      ]
+    },
+    "evidence_kind": {
+      "enum": [
+        "synthetic",
+        "retained"
+      ]
+    },
+    "purpose": {
+      "enum": [
+        "offline_replay",
+        "staging",
+        "production"
+      ]
+    }
+  },
+  "required": [
+    "version",
+    "publication_id",
+    "profile",
+    "data_through",
+    "freshness",
+    "capabilities",
+    "scope",
+    "evidence_kind",
+    "purpose"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

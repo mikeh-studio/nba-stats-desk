@@ -5,7 +5,7 @@
 <section class="ask-desk" aria-label="Ask NBA Stats">
   {% if ask_local_espn_dev %}<div class="notice" role="status">Local 2026–27 review · ESPN box scores with partial coverage. Only players with mapped NBA identities are included. Current-season league rankings are unavailable. Historical answers identify their warehouse source.</div>{% endif %}
   <section class="ask-query">
-    <form data-agent-form class="ask-form">
+    <form data-agent-form {% if production_publication_enabled %}data-publication-routing{% endif %} class="ask-form">
       <label class="eyebrow" for="agent-question">Ask a new question</label>
       <div class="query-row question-composer"><textarea id="agent-question" class="input" rows="1" maxlength="500" placeholder="Ask a question…" data-agent-question></textarea><button class="button" type="submit" aria-label="Ask" title="Ask" data-agent-submit><svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div>
     </form>
@@ -33,6 +33,22 @@
     <p class="meta">History stays in this browser and the local app’s history file; it is not cloud-synced. Browser storage is a recent-chat cache.</p>
   </section>
   <div id="chat-analysis" data-chat-analysis role="tabpanel" aria-label="Current chat">
+    {% if production_publication_enabled %}<p class="meta">Supported core statistics questions use the current publication; other questions use the existing Ask service.</p>{% endif %}
+    {% if weekly_pts_enabled %}
+    <section class="analysis-section" aria-label="Weekly PTS snapshot">
+      <h2>Weekly PTS snapshot</h2>
+      <form id="weekly-pts-form">
+        <label>Find player <input class="input" id="weekly-player-search" type="search" maxlength="64"></label>
+        <button class="button secondary" type="button" id="weekly-player-find">Find</button>
+        <label>Matches <select class="input" id="weekly-player-results"><option value="">Choose a player</option></select></label>
+        <label>Player ID <input class="input" name="player_id" type="number" min="1" required></label>
+        <label>Points <select class="input" name="aggregation"><option value="average">Per game</option><option value="total">Total</option></select></label>
+        <button class="button secondary" type="submit">Look up PTS</button>
+      </form>
+      <p class="meta" id="weekly-pts-result" role="status"></p>
+    </section>
+    <script type="module" src="/static/weekly_pts.js?v={{ static_version }}"></script>
+    {% endif %}
     <p class="meta agent-status" role="status" aria-live="polite" data-agent-status>Ready</p>
     <section data-agent-answer-card class="analysis-section">
       <div class="empty-state" data-agent-empty><h1>Ask NBA Stats</h1><p>Ask about a player. We’ll show the period used and let you change it.</p><button type="button" class="button secondary" data-agent-example="Tell me how Jalen Johnson has been performing the past 12 months">Jalen Johnson · past 12 months</button></div>

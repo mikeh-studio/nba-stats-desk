@@ -1,0 +1,24 @@
+{
+  "publication_id": "pub_0000000000000001",
+  "profile": "core_stats_v1",
+  "data_through": "2026-10-31",
+  "capabilities": [
+    "player_core",
+    "compare_core",
+    "performance_core",
+    "ask_player_stats",
+    "player_search",
+    "team_results_sql"
+  ],
+  "scope": {
+    "season": "2026-27",
+    "phase": "Regular Season",
+    "first": "2026-10-20",
+    "last": "2026-10-31",
+    "provider": "espn"
+  },
+  "evidence_kind": "synthetic",
+  "purpose": "offline_replay",
+  "version": "publication-status/1",
+  "freshness": "fresh"
+}

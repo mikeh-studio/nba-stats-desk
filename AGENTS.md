@@ -14,8 +14,10 @@ continue; shared requirements must work in a fresh clone.
   Production acquisition/unified enhancements at compatibility-only paths develop
   privately. Public source guards retain public authority and remain fixable.
   The disclosed draft #112 is an extraction checkpoint, not the public-main
-  compatibility baseline or a blanket publication exception. Retain current app,
-  source guards and scheduler behavior. Changes to compatibility-only paths require an
+  compatibility baseline or a blanket publication exception. Preserve source guards
+  and keep the existing app recoverable until its requested replacement is verified.
+  The explicitly requested weekly snapshot work may change scheduler and app
+  behavior. Changes to compatibility-only paths require an
   exact maintenance disposition and human review. Shared guard changes use ordinary
   public review/tests and are reported without private maintenance records. Passing
   CI grants no publication.

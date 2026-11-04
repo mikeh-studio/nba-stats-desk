@@ -1,5 +1,13 @@
 # Offline observed PTS snapshots
 
+The opt-in main-route PTS candidate displays the full selected snapshot ID beside
+the scope on Ask, Player and comparison results. Each season retains its own
+snapshot ID in a two-season selection. Player and comparison pages link back to
+Ask so users can continue checking the same selection. These identifiers describe
+the offline evidence; they do not establish live freshness or runtime acceptance.
+The reference parser accepts both “total points” and “points total” with an
+explicit player, season and phase; unsupported modifiers remain unavailable.
+
 `app.serving` is an explicit local artifact reader. Importing it does not select a
 source or change application factories, warehouse policy, caches, routing or UI.
 A validated artifact is **not runtime eligible** and grants **no cohort claim**.
