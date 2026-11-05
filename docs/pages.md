@@ -105,10 +105,12 @@ performance payload is prewarmed on app startup when
 
 ### Provider-Selectable LLM Stats Agent
 
-`/ask` is an LLM-backed stats agent over curated warehouse outputs. Set
-`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or `OPENROUTER_API_KEY` for the corresponding
-provider. OpenRouter setup and its current validation limits are documented in
-[Ask workspace](ask-workspace.md#openrouter). Use `/api/agent/ask` for blocking JSON responses and
+`/ask` answers questions over curated warehouse outputs. The default reference
+planner needs no model credentials. For model-backed planning, install a compatible
+provider, select it with `ASK_INTELLIGENCE_PROVIDER`, and configure its model and
+credentials. An API key alone does not select a provider. See the
+[provider setup guide](intelligence-runtime.md) and the
+[OpenRouter notes](ask-workspace.md#openrouter). Use `/api/agent/ask` for blocking JSON responses and
 `/api/agent/ask/stream` for SSE streaming.
 
 The request path is intentionally bounded:
