@@ -16,6 +16,19 @@ Reader config contains `project`, `namespace` (`nba_core_...`), `policy_path`,
 `policy_digest`, `registry_path`, and `mode_path`. The mode path accepts a local
 file for local operation or a GCS URI for durable cloud operation; each GCS read is
 generation-pinned and bounded. Set its JSON `mode` to `legacy` to disable the reader.
+Production GCS documents (mode, policy and registry) have a 30-second process-local
+cache; release/pointer rows and snapshot metadata have a 5-second cache. Consequently
+remote revocations and mode changes take at most 30 seconds to be observed, and
+pointer/metadata changes at most 5 seconds. A failed refresh never reuses an expired
+cache entry. Local authority files remain uncached. Authority validity times and
+publication freshness are checked against the current clock on every request and
+again before emission, including during a cache lease. Content is still read and
+digest-checked before a new application is admitted. Only two release applications
+are retained, and each control cache holds at most eight entries. Cache hits do not
+extend leases.
+Missing or expired authority affects publication requests (503), while legacy
+startup and routes remain available. Ask retries the legacy service on publication
+503, using the existing legacy source contract and displaying no publication ID.
 The authority files and configuration must be independently administered and mounted
 read-only. No source approval is supplied with this code. Importing `app.main`
 does not activate the production reader. Public tests use synthetic controls only.
@@ -33,3 +46,10 @@ For source/data incidents, revoke the affected release as well as changing mode.
 
 Focused tests cover rolling status, bounds, reader content, revocation, pointer
 pinning, historical/session availability and rollback. No deployment is implied.
+
+V1 schemas remain supported for the isolated fixed-window offline rehearsal; they
+are not deprecated and cannot authorize production. V2 is required for rolling
+production publications. Neither version upgrades the other's authority.
+
+The local weekly snapshot bridge requires an explicit `NBA_WEEKLY_SNAPSHOT_ROOT`;
+the public app does not infer an operator's macOS home-directory state.

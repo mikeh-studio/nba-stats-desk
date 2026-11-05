@@ -7,12 +7,14 @@ Rehearsal receipts and caller-authored relation maps are never accepted.
 import json
 import re
 import threading
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
 from scripts.validate_publication_contract import digest, timestamp
 from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
+from app.serving.control_cache import ControlCache
 from app.serving.core_application import create_core_application
 from app.serving.cutover import publication_token
 from app.serving.publication import Resolver, ordered
@@ -21,29 +23,37 @@ from app.serving.publication import Resolver, ordered
 class ProductionApplication:
     production_reader = True
 
-    def __init__(self, *, client, project, namespace, authority):
+    def __init__(self, *, client, project, namespace, authority, cache_ttl=5):
         if not re.fullmatch(
             r"[a-z][a-z0-9-]{4,61}[a-z0-9]", project
         ) or not re.fullmatch(r"nba_core_[a-z0-9_]{3,64}", namespace):
             raise ValueError("untrusted production target")
         self.client, self.project, self.namespace = client, project, namespace
-        self.authority, self.apps, self.lock = authority, {}, threading.Lock()
-        authority.policy(
-            "serving"
-        )  # Missing real authority fails before any warehouse read.
+        self.authority, self.apps, self.lock = (
+            authority,
+            OrderedDict(),
+            threading.Lock(),
+        )
+        self.controls = ControlCache(cache_ttl)
 
     query = Resolver.query
 
     def release(self, token):
+        if token is None:
+            token = self.controls.get("pointer", self.active_id)
+        return self.controls.get(("release", token), lambda: self._release(token))
+
+    def active_id(self):
+        rows = self.query(
+            f"SELECT active_id FROM `{self.project}.{self.namespace}_control.pointer` WHERE slot='main'"
+        )
+        if len(rows) != 1:
+            raise ValueError("production pointer unavailable")
+        return rows[0]["active_id"]
+
+    def _release(self, token):
         from google.cloud import bigquery
 
-        if token is None:
-            rows = self.query(
-                f"SELECT active_id FROM `{self.project}.{self.namespace}_control.pointer` WHERE slot='main'"
-            )
-            if len(rows) != 1:
-                raise ValueError("production pointer unavailable")
-            token = rows[0]["active_id"]
         if not re.fullmatch(r"pub_[0-9a-f]{16}", token or ""):
             raise ValueError("invalid publication")
         rows = self.query(
@@ -55,10 +65,9 @@ class ProductionApplication:
         envelope = json.loads(rows[0]["manifest"])
         if digest(envelope) != rows[0]["manifest_digest"]:
             raise ValueError("production registry digest differs")
-        manifest, binding = envelope["manifest"], envelope["binding"]
+        manifest = envelope["manifest"]
         if manifest["publication_id"] != token:
             raise ValueError("production registry identity differs")
-        self.authority.check(manifest, binding)
         for asset in manifest["assets"]:
             if (
                 asset["relation"]
@@ -68,6 +77,11 @@ class ProductionApplication:
         return envelope
 
     def tables(self, manifest):
+        return self.controls.get(
+            ("tables", digest(manifest)), lambda: self._tables(manifest)
+        )
+
+    def _tables(self, manifest):
         def read(asset):
             table = self.client.get_table(asset["relation"], timeout=30)
             if (
@@ -88,6 +102,8 @@ class ProductionApplication:
             return dict(pool.map(read, assets))
 
     def application(self, token):
+        # Fail closed before warehouse reads, but never prevent legacy startup.
+        self.authority.policy("serving")
         envelope = self.release(token)
         manifest, binding = envelope["manifest"], envelope["binding"]
         key = (
@@ -98,6 +114,9 @@ class ProductionApplication:
         )
         with self.lock:
             if key not in self.apps:
+                # Validate the exact manifest and binding before any asset read;
+                # cached apps repeat this validation in their request gate.
+                self.authority.check(manifest, binding)
                 tables = self.tables(manifest)
                 metadata = {name: table.etag for name, table in tables.items()}
 
@@ -152,6 +171,9 @@ class ProductionApplication:
                     authorize=authorize,
                     production_authority=self.authority,
                 )
+                while len(self.apps) > 2:
+                    self.apps.popitem(last=False)
+            self.apps.move_to_end(key)
             return self.apps[key]
 
     async def __call__(self, scope, receive, send):

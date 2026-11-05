@@ -12,6 +12,8 @@ from scripts.validate_publication_contract import (
 )
 from scripts.weekly_profile import weekly_scope
 
+from app.serving.control_cache import ControlCache
+
 
 class ProviderAuthorities:
     """Route each published release to its own independently pinned policy."""
@@ -53,7 +55,14 @@ class ProviderAuthorities:
 
 class SourceAuthority:
     def __init__(
-        self, *, policy_path, policy_digest, registry_path, clock, storage_client=None
+        self,
+        *,
+        policy_path,
+        policy_digest,
+        registry_path,
+        clock,
+        storage_client=None,
+        cache_ttl=0,
     ):
         self.policy_path = (
             str(policy_path)
@@ -67,10 +76,14 @@ class SourceAuthority:
         )
         self.policy_digest, self.clock = policy_digest, clock
         self.storage_client = storage_client
+        self.documents = ControlCache(cache_ttl)
 
     def read_document(self, location):
         if isinstance(location, Path):
             return json.loads(location.read_text())
+        return self.documents.get(location, lambda: self._read_cloud_document(location))
+
+    def _read_cloud_document(self, location):
         match = re.fullmatch(r"gs://([a-z0-9][a-z0-9._-]{1,220})/([^?#]+)", location)
         if not match or any(part in {"", ".", ".."} for part in match[2].split("/")):
             raise ValueError("invalid production registry URI")

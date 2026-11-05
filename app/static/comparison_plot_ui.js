@@ -1,4 +1,4 @@
-import {comparisonDistribution, boxPosition, meanDiamond, distributionNumber} from "./comparison_distribution.js?v=20261104-production-publication-v1";
+import {comparisonDistribution, boxPosition, meanDiamond, distributionNumber} from "./comparison_distribution.js?v=20261104-production-publication-v2";
 
 const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const ordinal = (v) => {

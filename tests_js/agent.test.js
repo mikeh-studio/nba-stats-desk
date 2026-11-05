@@ -642,7 +642,7 @@ test("late stream results stay in their originating tab and mismatched IDs are r
   assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b),undefined);
 });
 
-test("main Ask routes supported publication answers and falls back only for unsupported questions", async () => {
+test("main Ask routes publication answers and falls back for unsupported or unavailable publication", async () => {
   const elements = {"[data-agent-form][data-publication-routing]": new FakeElement("form")};
   const agent = await loadAgentModule({elements});
   agent.startNewChat();
@@ -678,6 +678,20 @@ test("main Ask routes supported publication answers and falls back only for unsu
   };
   await agent.askQuestionStream({...request, finished:false});
   assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
+  globalThis.fetch = async (url, options) => {
+    urls.push(url);
+    if (url.startsWith('/publication-core')) return {ok:false, status:503};
+    assert.deepEqual(JSON.parse(options.body), request.body);
+    return {ok:true, body:new ReadableStream({start(controller) {
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', conversation_id:owner}})}\n\n`));
+      controller.close();
+    }})};
+  };
+  await agent.askQuestionStream({...request, finished:false});
+  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
+  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.at(-1);
+  assert.equal(fallback.payload.answer, 'Legacy source answer');
+  assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
 });
 
 test("two tab requests finish out of order without changing each other's state", async () => {

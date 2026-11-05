@@ -1,8 +1,8 @@
-import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261104-production-publication-v1";
-import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261104-production-publication-v1";
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261104-production-publication-v1";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261104-production-publication-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261104-production-publication-v1";
+import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261104-production-publication-v2";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261104-production-publication-v2";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261104-production-publication-v2";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261104-production-publication-v2";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261104-production-publication-v2";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -10,13 +10,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261104-production-publication-v1";
+} from "./ask_comparison.js?v=20261104-production-publication-v2";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261104-production-publication-v1";
+} from "./ask_sessions.js?v=20261104-production-publication-v2";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -24,8 +24,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261104-production-publication-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261104-production-publication-v1";
+} from "./ask_presentation.js?v=20261104-production-publication-v2";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261104-production-publication-v2";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -2036,7 +2036,7 @@ async function askQuestionStream(request) {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({question: request.question}),
     });
-    if (published.status !== 422 && published.status !== 409) {
+    if (![422, 409, 503].includes(published.status)) {
       if (!published.ok) {
         renderAskFailure('The publication is unavailable. Try again when it is restored.', 'Unavailable', request);
         request.finished = true;

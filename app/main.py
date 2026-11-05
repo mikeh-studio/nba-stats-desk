@@ -85,7 +85,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261104-production-publication-v1"
+STATIC_VERSION = "20261104-production-publication-v2"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -258,12 +258,7 @@ def _configure_weekly_snapshot(application: FastAPI) -> None:
     """Attach the locally installed weekly build when present at startup."""
     if getattr(application.state, "weekly_pts", None) is not None:
         return
-    default = (
-        Path.home()
-        / "Library/Application Support/NBA Stats Desk"
-        / f"weekly-snapshot-{DEFAULT_SEASON}"
-    )
-    configured = os.environ.get("NBA_WEEKLY_SNAPSHOT_ROOT", str(default))
+    configured = os.environ.get("NBA_WEEKLY_SNAPSHOT_ROOT")
     if (
         configured
         and (Path(configured) / "reports/weekly-snapshots/app-selection.json").is_file()

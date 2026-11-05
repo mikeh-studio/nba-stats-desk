@@ -235,7 +235,7 @@ def production(tmp_path):
 
     client = Client()
     app = ProductionApplication(
-        client=client, project=PROJECT, namespace=NS, authority=authority
+        client=client, project=PROJECT, namespace=NS, authority=authority, cache_ttl=0
     )
     return SimpleNamespace(
         app=app,
@@ -572,6 +572,9 @@ def test_production_snapshot_metadata_reads_are_bounded_parallel_and_fail_closed
 
     reader = object.__new__(ProductionApplication)
     reader.client = Client()
+    from app.serving.control_cache import ControlCache
+
+    reader.controls = ControlCache(0)
     with pytest.raises(ValueError, match="snapshot unavailable"):
         reader.tables(manifest)
 
@@ -719,14 +722,190 @@ def test_binding_versions_must_match(production):
         validate_binding(binding, p.envelope["manifest"])
 
 
-def test_missing_authority_does_not_read_warehouse(production):
+def test_missing_authority_is_lazy_and_does_not_read_warehouse(production):
     p = production
     p.policy_path.unlink()
-    with pytest.raises(ValueError):
-        ProductionApplication(
-            client=p.client, project=PROJECT, namespace=NS, authority=p.authority
-        )
+    reader = ProductionApplication(
+        client=p.client, project=PROJECT, namespace=NS, authority=p.authority
+    )
+    with TestClient(reader) as c:
+        assert c.get("/players/101").status_code == 503
     assert p.client.reads == 0
+
+
+def test_expired_authority_does_not_prevent_launcher_or_legacy_startup(
+    production, monkeypatch, tmp_path
+):
+    from app import main
+    from google.cloud import bigquery
+    from scripts.serve_production_candidate import create_config
+
+    legacy = FastAPI()
+
+    @legacy.get("/ping")
+    def ping():
+        return {"legacy": True}
+
+    monkeypatch.setattr(main, "app", legacy)
+    monkeypatch.setattr(bigquery, "Client", lambda **_: production.client)
+    mode_path = tmp_path / "mode.json"
+    mode_path.write_text('{"mode":"production"}')
+    production.registry["valid_until"] = "2026-01-01T00:00:00Z"
+    production.registry_path.write_text(json.dumps(production.registry))
+    app = create_config(
+        dict(
+            project=PROJECT,
+            namespace=NS,
+            policy_path=str(production.policy_path),
+            policy_digest=digest(production.policy),
+            registry_path=str(production.registry_path),
+            mode_path=str(mode_path),
+        )
+    )
+    with TestClient(app) as client:
+        assert client.get("/ping").json() == {"legacy": True}
+        assert client.get("/publication-core/api/players/101").status_code == 503
+    assert production.client.reads == 0
+
+
+def test_cloud_serving_caches_bound_remote_work_and_never_extend_authority(production):
+    from app.serving.control_cache import ControlCache
+
+    p = production
+    ticks = [0]
+    calls = dict(queries=0, tables=0, downloads=0)
+    originals = p.client.query, p.client.get_table
+
+    def query(*args, **kwargs):
+        calls["queries"] += 1
+        return originals[0](*args, **kwargs)
+
+    def table(*args, **kwargs):
+        calls["tables"] += 1
+        return originals[1](*args, **kwargs)
+
+    class Blob:
+        generation = 1
+
+        def __init__(self, document):
+            self.raw = json.dumps(document).encode()
+
+        @property
+        def size(self):
+            return len(self.raw)
+
+        def reload(self, **_):
+            pass
+
+        def download_as_bytes(self, **kwargs):
+            assert kwargs["if_generation_match"] == self.generation
+            calls["downloads"] += 1
+            return self.raw
+
+    blobs = {"policy": Blob(p.policy), "registry": Blob(p.registry)}
+    storage = SimpleNamespace(bucket=lambda _: SimpleNamespace(blob=blobs.__getitem__))
+    authority = SourceAuthority(
+        policy_path="gs://control-bucket/policy",
+        policy_digest=digest(p.policy),
+        registry_path="gs://control-bucket/registry",
+        clock=lambda: p.clock[0],
+        storage_client=storage,
+        cache_ttl=30,
+    )
+    authority.documents.timer = lambda: ticks[0]
+    p.client.query, p.client.get_table = query, table
+    reader = ProductionApplication(
+        client=p.client, project=PROJECT, namespace=NS, authority=authority
+    )
+    reader.controls = ControlCache(5, timer=lambda: ticks[0])
+    with TestClient(reader) as client:
+        assert client.get("/api/players/101").status_code == 200
+        cold = dict(calls)
+        assert cold == dict(queries=2, tables=len(p.tables), downloads=2)
+        for _ in range(3):
+            assert client.get("/api/players/101").status_code == 200
+        assert calls == cold
+        ticks[0] = 6
+        assert client.get("/api/players/101").status_code == 200
+        assert calls == dict(queries=4, tables=2 * len(p.tables), downloads=2)
+        # An authority clock deadline is enforced even inside the cache lease.
+        p.clock[0] = p.registry["valid_until"]
+        assert client.get("/api/players/101").status_code == 503
+        p.clock[0] = NOW
+        p.registry["policy_revoked"] = True
+        blobs["registry"].generation += 1
+        blobs["registry"].raw = json.dumps(p.registry).encode()
+        ticks[0] = 31
+        assert client.get("/api/players/101").status_code == 503
+
+
+def test_failed_control_refresh_never_serves_expired_cached_value():
+    from app.serving.control_cache import ControlCache
+
+    ticks = [0]
+    cache = ControlCache(5, limit=2, timer=lambda: ticks[0])
+    assert cache.get("control", lambda: {"ok": True}) == {"ok": True}
+    ticks[0] = 6
+
+    def unavailable():
+        raise ValueError("remote unavailable")
+
+    with pytest.raises(ValueError, match="remote unavailable"):
+        cache.get("control", unavailable)
+    assert "control" not in cache.entries
+    for key in range(3):
+        cache.get(key, lambda: {"ok": True})
+    assert list(cache.entries) == [1, 2]
+
+
+def test_pointer_cache_is_bounded_and_pinned_flows_do_not_follow_new_pointer(
+    production,
+):
+    from app.serving.control_cache import ControlCache
+
+    p = production
+    ticks, pointer = [0], [p.envelope["manifest"]["publication_id"]]
+    original = p.client.query
+
+    def query(sql, **kwargs):
+        if ".pointer`" in sql:
+            return SimpleNamespace(result=lambda **_: [dict(active_id=pointer[0])])
+        if (
+            kwargs["job_config"].query_parameters[0].value
+            != p.envelope["manifest"]["publication_id"]
+        ):
+            return SimpleNamespace(result=lambda **_: [])
+        return original(sql, **kwargs)
+
+    p.client.query = query
+    p.app.controls = ControlCache(5, timer=lambda: ticks[0])
+    with TestClient(p.app) as client:
+        first = client.get("/api/players/101")
+        assert first.status_code == 200
+        pid = first.headers["X-Publication-ID"]
+        pointer[0] = "pub_ffffffffffffffff"
+        # The brief pointer lease deliberately retains one complete valid release.
+        assert client.get("/api/players/101").headers["X-Publication-ID"] == pid
+        ticks[0] = 6
+        assert client.get("/api/players/101").status_code == 503
+        pinned = client.get("/api/players/101", headers={"X-Publication-ID": pid})
+        assert pinned.status_code == 200
+        assert pinned.headers["X-Publication-ID"] == pid
+
+
+def test_unsupported_query_is_rejected_before_handler_runs(production):
+    p = production
+    core = p.app.application(None)
+    calls = []
+
+    @core.get("/expensive")
+    def expensive():
+        calls.append(True)
+        return {"ok": True}
+
+    with TestClient(core) as client:
+        assert client.get("/expensive?unknown=1").status_code == 422
+    assert not calls
 
 
 def test_legacy_history_and_routes_survive_core_authority_loss(production):

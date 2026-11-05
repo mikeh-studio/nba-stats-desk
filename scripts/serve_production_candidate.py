@@ -85,6 +85,7 @@ def create_config(config):
                 policy_digest=entry["policy_digest"],
                 registry_path=entry["registry_path"],
                 clock=clock,
+                cache_ttl=30,
             )
             for provider, entry in config["source_authorities"].items()
         }
@@ -95,8 +96,8 @@ def create_config(config):
             policy_digest=config["policy_digest"],
             registry_path=config["registry_path"],
             clock=clock,
+            cache_ttl=30,
         )
-    authority.policy("serving")
     core = ProductionApplication(
         client=bigquery.Client(project=config["project"]),
         project=config["project"],
@@ -110,6 +111,7 @@ def create_config(config):
         policy_digest="",
         registry_path=config["mode_path"],
         clock=clock,
+        cache_ttl=30,
     )
     attach_publication(
         legacy, core, lambda: mode_reader.read_document(mode_reader.policy_path)["mode"]

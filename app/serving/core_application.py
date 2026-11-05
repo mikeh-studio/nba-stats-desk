@@ -20,6 +20,7 @@ from scripts.validate_publication_contract import (
     validate_binding,
 )
 from starlette.concurrency import run_in_threadpool
+from starlette.routing import Match
 
 from app.agent.semantics import Evidence, Query, SemanticError, run_query
 from app.serving.core_models import build_models, metrics
@@ -93,8 +94,6 @@ def create_core_application(
     rolling = manifest.get("version") == "publication-manifest/2"
 
     def authorized():
-        if production_authority is not None:
-            production_authority.check(manifest, binding)
         return authorize(binding["binding_id"], expected_digest)
 
     def status():
@@ -235,8 +234,16 @@ def create_core_application(
                 return JSONResponse(
                     {"detail": "scope unavailable in core replay"}, status_code=422
                 )
-            response = await call_next(request)
-            route = request.scope.get("route")
+            # Middleware runs before routing; match the declared route without
+            # invoking its handler so unsupported filters cannot trigger work.
+            route = next(
+                (
+                    r
+                    for r in app.router.routes
+                    if r.matches(request.scope)[0] == Match.FULL
+                ),
+                None,
+            )
             query_fields = {
                 p.name
                 for p in getattr(getattr(route, "dependant", None), "query_params", [])
@@ -252,7 +259,10 @@ def create_core_application(
                     },
                     status_code=422,
                 )
+            response = await call_next(request)
             # Recheck immediately before emission, including request-time revocation.
+            if production_authority is not None:
+                await run_in_threadpool(production_authority.check, manifest, binding)
             if (
                 await run_in_threadpool(authorized) is not True
                 or status()["freshness"] == "expired"

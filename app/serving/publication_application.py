@@ -1,6 +1,7 @@
 """Opt-in loopback ASGI composition for the isolated warehouse protocol."""
 
 import threading
+from collections import OrderedDict
 
 from fastapi.responses import JSONResponse
 from scripts.validate_publication_contract import digest
@@ -13,7 +14,7 @@ from app.serving.cutover import publication_token
 class PublicationApplication:
     def __init__(self, resolver):
         self.resolver = resolver
-        self.apps = {}
+        self.apps = OrderedDict()
         self.lock = threading.Lock()
 
     def application(self, token):
@@ -52,6 +53,9 @@ class PublicationApplication:
                         project=self.resolver.project, namespace=self.resolver.namespace
                     ),
                 )
+                while len(self.apps) > 2:
+                    self.apps.popitem(last=False)
+            self.apps.move_to_end(release.cache_key)
             return self.apps[release.cache_key]
 
     async def __call__(self, scope, receive, send):
