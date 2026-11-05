@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.serving.core_application import create_core_application
+from app.serving.publication_contract import digest
 from scripts.build_synthetic_core_replay import synthetic_bundle
-from scripts.validate_publication_contract import digest
 
 
 def application():

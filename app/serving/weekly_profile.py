@@ -7,7 +7,7 @@ from pathlib import Path
 
 BASE = json.loads(
     (
-        Path(__file__).resolve().parents[1] / "contracts/publication/core-stats-v1.json"
+        Path(__file__).resolve().parents[2] / "contracts/publication/core-stats-v1.json"
     ).read_text()
 )
 

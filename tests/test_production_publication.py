@@ -8,19 +8,19 @@ import pytest
 from app.serving.cutover import CutoverApplication
 from app.serving.production_application import ProductionApplication
 from app.serving.publication import ordered
-from app.serving.source_authority import ProviderAuthorities, SourceAuthority
-from app.serving.weekly_manifest import proposal
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from scripts.build_synthetic_core_replay import synthetic_bundle
-from scripts.validate_publication_contract import (
+from app.serving.publication_contract import (
     PROFILE,
     digest,
     schema_check,
     timestamp,
     validate_binding,
 )
-from scripts.weekly_profile import weekly_scope
+from app.serving.source_authority import ProviderAuthorities, SourceAuthority
+from app.serving.weekly_manifest import proposal
+from app.serving.weekly_profile import weekly_scope
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from scripts.build_synthetic_core_replay import synthetic_bundle
 
 NOW = "2026-11-01T16:00:00Z"
 PROJECT, NS = "synthetic-project", "nba_core_synthetic"

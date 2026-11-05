@@ -2,60 +2,109 @@
   "schema": "acquisition-maintenance/1",
   "changes": [
     {
-      "path": "docs/espn-corrections-dev.md",
+      "path": "scripts/airflow_live_validate.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "1a60be03b1cb5003dc464643eb68b0032160adfffa936cddb902f0fe4da4f033",
+      "reason": "Extract unchanged log redaction into app.log_redaction; retain the live validation command and behavior.",
+      "before_sha256": "011b22be4e82dc027bc3d3dcfdf9049fd63c39da96dc56fd3df054fa6f05040b",
+      "after_sha256": "b86551d41e54e08094d30190a98da9ed375165082f202e543a9e10277f9d008f"
+    },
+    {
+      "path": "tests/espn_cloud_scenarios.py",
+      "kind": "correctness",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": "56765b71637289bfaa2f973a6e3bdcf1b24c62e0d5cbe56bd95032f9fdea3495",
       "after_sha256": null
     },
     {
-      "path": "docs/espn-dev-pilot.md",
+      "path": "tests/espn_identity_cloud_scenarios.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "39361ca88ee1690a88835944c8eb0110692376a77fe65d4ace09631cd5fec82c",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": "17a827f76be6ff78aee9506bba608e7b8e9aebee7d18afc75ceebd021ae00e33",
       "after_sha256": null
     },
     {
-      "path": "docs/espn-only-dev.md",
+      "path": "tests/espn_layer_cloud_scenarios.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "a4543c858231dcd53b9f049e71c557c6ffb0d462c4a1fbdc09a97ef644402a94",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": "8ead10021f2442f81634a3135b6d1496b1dad87cab399ce41396dc6cdfe6924a",
       "after_sha256": null
     },
     {
-      "path": "docs/gamebook-cloud.md",
+      "path": "tests/espn_only_cloud_scenarios.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "5d032e9a21bf916dd68bdfffc3bc9b0ddac31338d10a0998d12bf72d5f61303c",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": "831d7907cdd208ec40dc4eda5a6e128559c9e5346c57cfc056413d3b64d30145",
       "after_sha256": null
     },
     {
-      "path": "docs/gamebook-ingestion.md",
+      "path": "tests/gamebook_airflow_scenarios.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "b1a7a07ccaa4158c5d5925fca0a6fbd683a8260c303b56d26b6ebd3b8f5d210f",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": "e04072d6d7c2f2d44533816d34c054986fe3de883f23daaa791830f0093b0de6",
       "after_sha256": null
     },
     {
-      "path": "docs/gamebook-retrieval.md",
+      "path": "tests/gamebook_automation_cloud_scenarios.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "bf8cf4e15ca3be2e5621eec4f89a3ecc73e612a2ad6a0eadbef44abbdf877d9f",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": "95f77e473e8fbbcdb498503064ddfe69ba800c57410115b20094efe38f34822e",
       "after_sha256": null
     },
     {
-      "path": "docs/gamebook-storage.md",
+      "path": "tests/gamebook_cloud_scenarios.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "75a4f3448189bd707f95001ffbd2357adfc993b8bf5564ff797415d9cb4196c8",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": "04b55bfefd33ed477554b56d7ea2f396504f8ca954d73c635f100793a54a5231",
       "after_sha256": null
     },
     {
-      "path": "docs/play-by-play-alternatives.md",
+      "path": "tests/manual/espn_cloud_scenarios.py",
       "kind": "correctness",
-      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
-      "before_sha256": "7586af38f5b606370a90be9b819f7384df844edb69c070f0953008e5bc8856b1",
-      "after_sha256": null
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": null,
+      "after_sha256": "7132a01a673646ef16cef847c396722267960adfac98a3f3bfb75aca1fa670eb"
+    },
+    {
+      "path": "tests/manual/espn_identity_cloud_scenarios.py",
+      "kind": "correctness",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": null,
+      "after_sha256": "a383492427438db535eefc71fed61e09a7ba3ed7c578bfc2f3eecac6193b45e8"
+    },
+    {
+      "path": "tests/manual/espn_layer_cloud_scenarios.py",
+      "kind": "correctness",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": null,
+      "after_sha256": "e84b4437a1c26716f14e7dbe7fd7e9c7752649307b8a8afdf78d78c7a881b6f1"
+    },
+    {
+      "path": "tests/manual/espn_only_cloud_scenarios.py",
+      "kind": "correctness",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": null,
+      "after_sha256": "d05634d502ceff722913f8a899194cd3b29f6f788790b7afa8bc09578d2cc2c0"
+    },
+    {
+      "path": "tests/manual/gamebook_airflow_scenarios.py",
+      "kind": "correctness",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": null,
+      "after_sha256": "19636d2239dc075abda9345a8d3dd5c87af17d195c413375448248bc6cd987e8"
+    },
+    {
+      "path": "tests/manual/gamebook_automation_cloud_scenarios.py",
+      "kind": "correctness",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": null,
+      "after_sha256": "1a6747a26d495a2ca94900ad13d5f26726b38b25ab8f9d7aa8daaed984b60db0"
+    },
+    {
+      "path": "tests/manual/gamebook_cloud_scenarios.py",
+      "kind": "correctness",
+      "reason": "Relocate manual runner to tests/manual, correct import roots, preserve scenario checks, and remove the old entry point.",
+      "before_sha256": null,
+      "after_sha256": "b6f7c9bfe4a1b4718139d50ff2094d275a71aac60c90d0ca1257bdbbf7429eb9"
     }
   ]
 }

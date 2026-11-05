@@ -31,7 +31,7 @@ The v1 shared contracts define a bounded October 20–31, 2026 Regular Season re
 Run offline consistency checks from the repository root:
 
 ```sh
-python scripts/validate_publication_contract.py contracts/publication/synthetic-manifest.json --binding contracts/publication/synthetic-binding.json
+python -m app.serving.publication_contract contracts/publication/synthetic-manifest.json --binding contracts/publication/synthetic-binding.json
 python -m pytest -q tests/test_publication_contract.py
 ```
 

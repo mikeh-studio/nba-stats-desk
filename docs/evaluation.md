@@ -5,6 +5,36 @@ for generating and reviewing ten evidence-backed answers. Model calls run throug
 Codex CLI outside the public Ask request handler. Generated results, source
 snapshots, curated cases, and human notes belong in ignored `reports/` directories.
 
+## Evaluation principles
+
+- Author expected values independently of the observed answer. Check raw-row
+  arithmetic and deliberately mutate identity, metric, units, date/phase scope,
+  zero/null/incomplete samples, unsupported requests and conversational recovery
+  to verify that incorrect answers fail.
+- Bind displayed numeric claims to their evidence paths and scope. Test prose,
+  tables and charts independently; matching values alone do not prove that the
+  correct source was used.
+- Replay immutable provider recordings with fresh context for JSON and SSE.
+  Missing, mismatched or unused calls must fail, and offline replay must not read
+  external sources. Synthetic controls and historical recordings do not establish
+  current provider accuracy, upstream completeness or production readiness.
+- Keep failure capture opt-in, access-controlled, bounded and redacted. Regression
+  drafts need independently authored expectations and human approval before
+  acceptance; a browser review decision does not automatically approve a fixture.
+- Retain case IDs, assertion paths, expected values, input hashes and review
+  provenance. Report automated results, execution mode and human review status
+  separately. Preserve failed runs and unresolved limitations in private artifacts.
+- Validate relevant endpoints and populated browser output, review the final
+  source diff, and check CI for the exact published commit. Local or historical
+  passes do not establish current CI or deployment health.
+
+## Manual integration runners
+
+Explicit Airflow/cloud scenarios live in [`tests/manual/`](../tests/manual/README.md).
+They retain their original opt-in execution and isolated-resource requirements;
+pytest does not collect them. Invoke their new paths directly; old forwarding
+entry points have been removed.
+
 ## Offline checks
 
 ```bash
@@ -380,51 +410,21 @@ service defects. Use `--notes PRIVATE_NOTES.json` when generating the review to
 attach a `summary` string and a `cases` mapping from case ID to interpretation.
 These notes do not change the immutable raw scores or mark cases human-approved.
 
-The local 2026-10-09 review used 61 synthetic scenarios (48 baseline / 61 updated
-passes), followed by 18 production-snapshot scenarios for two players with
-`gpt-5.4-mini` (9 baseline / 18 updated passes; 48 / 16 model calls). The production
-run included one baseline request blocked by an uncaptured rankings read. These
-are small contract-conformance runs, not broad accuracy estimates, latency
-benchmarks, or tests of the deployed service. Per-case human decisions remain
-pending. Detailed cases, captures, model responses and HTML remain private under
-`reports/`; do not attach them to the public PR. Later code review fixes use
-focused offline regressions rather than silently rerunning paid experiments.
-
-
-
-PR review regressions additionally cover pending-reference replacement, participation
-routing ahead of incidental similarity/baseline wording, appearance windows ending
-on the focal player's last game, bounded membership payloads and stable hashes,
-reference error wrapping, and zero SDK retries in both Claude/OpenRouter adapters.
-The production snapshot run above used the earlier `league_baseline/1` contract;
-its saved artifacts are immutable and are not relabeled as a live test of version 2.
-No new paid run is implied by these offline fixes.
-
-
-The next revision incorporates human feedback with seven additional synthetic
-scenarios and a revised recent-period expectation. New numerical expectations
-remain pending review. Prior production captures, scored runs and exported human
-decisions are retained unchanged; a new offline replay can apply revised
-expectations to the same frozen facts without paid calls or warehouse access.
-
-### OpenAI default model comparison
-
-On 2026-10-23 the 27 live-eligible synthetic planner cases (every case except the
-controlled invalid-plan injection) ran over both transports with `gpt-5.4-mini`
-and `gpt-5.6-luna`, 52 model calls each. Luna passed 24 cases and mini 23; the
-only difference was a mixed scoring-and-rebounding question that Luna correctly
-clarified. Input tokens were identical; Luna produced about 1.8 times the output
-tokens (about half of them reasoning) and had a median call latency of 3.1 s
-versus 1.4 s. At list prices its run cost about a quarter of mini's. Luna became
-the default `OPENAI_AGENT_MODEL`. This is a small contract-conformance run, not a
-broad accuracy estimate; per-call evidence remains private under `reports/`.
+Keep detailed cases, captures, model responses and review HTML private under
+`reports/`. Preserve original captures and scores when changing expectations;
+new expectations remain pending until reviewed. Offline replay of new expectations
+against frozen facts is not a fresh provider or deployment measurement.
 
 ### Expanded offline Ask coverage
 
 Generate current corpus counts and assertion coverage with
 `python -m scripts.ask_eval.coverage`. The result separates source rows, cases,
-distinct scenarios, paraphrases and frozen expectation review states. See the
-[frozen quality rubric](ask-harness-quality.md).
+distinct scenarios, paraphrases and frozen expectation review states. Apply the
+[evaluation principles](#evaluation-principles) when interpreting coverage.
+Risk tags and asserted route labels are review aids, not evidence that a route
+succeeded. Assertions retain their case IDs, paths and expected values; missing
+risk selections in a custom corpus must be reported rather than silently counted.
+The critical-risk map does not replace the full suite's denominator.
 Reports show both denominators separately, plus per-family scores. Paraphrases
 inherit the parent oracle and do not increase the distinct-scenario count.
 The expanded cases include conversation transitions/recovery, successful
@@ -781,16 +781,10 @@ repeat a paid capture automatically after a failure.
 
 The reviewed public recording in
 [`openai-mini-20261018`](../tests/fixtures/ask/recordings/openai-mini-20261018/README.md)
-contains 14 calls across six cases. Its immutable capture and historical replay
-passed 4/6; the prior bounded correction produced a historical 5/6 checkpoint.
-Those are historical contract results. `research_intent/2` and
-`semantic_intent/2` change the prompts and schemas. Current replay rejects the migrated case binding before request-hash
-comparison; this is not evidence of executing the new contract against old calls. The
-recording, matching rules, expectations and historical outcomes remain unchanged.
-No paid recapture was performed for that historical rework. Controlled planner fixtures migrate input shape
-only; unchanged expected checks do not transfer human approval of old whole-case
-hashes to new ones. New contract endpoint tests are synthetic evidence, not a new
-model accuracy score.
+is retained for integrity and incompatible-contract rejection tests. Current
+planner contracts reject its case binding before request matching. Historical
+scores and capture provenance are documented beside the fixture; they do not
+measure current provider accuracy or transfer human approval to migrated cases.
 
 Settings binding changes require explicit compatibility review. New diagnostic or
 storage-only settings should be excluded with tests when introduced; existing
@@ -877,33 +871,13 @@ D's allowlisted diagnostic settings. A differing current application fingerprint
 is recorded as a reproduction limitation, never silently treated as replay proof.
 
 
-The historical 5/6 recorded result is an in-sample regression repair against the same
-capture that exposed the defect. It is not held-out generalization or live model
-accuracy. Alternate fictional endpoint cases establish only the bounded scope
-and refusal behavior they exercise.
-
-The `research_intent/3` correction makes phase provenance server-authoritative;
-model provenance labels remain advisory. Synthetic JSON/SSE controls exercise
-correct values with misleading labels, contradictory values and intent changes.
-An earlier live v2 measurement exposed provenance-label refusals summarized in the
-[PR86 findings](https://github.com/mikeh-studio/nba-stats-desk/pull/86).
-
-The dated-points default regression uses independent JSON/SSE endpoint holdouts,
-including zero and missing values, explicit-total contradictions and unmatched
-conditions.
-
-`semantic_intent/3` makes provenance server-owned and reuses canonical interval
-validation, so advisory model labels no longer govern execution. Endpoint controls
-use independently authored synthetic questions with inaccurate or missing labels,
-covering canonical and alternate ISO intervals, inherited value contradictions,
-zero/null samples and invalid scopes. Direct planner/executor checks verify that
-inputs 2/4/6 produce mean 4 and sum 12. The 147-case source, expected checks and
-historical recordings are unchanged; unchanged checks do not make new whole-case
-hashes human-approved.
-
-These controlled tests establish endpoint and calculation behavior, not live
-provider accuracy or historical cassette compatibility. A fresh versioned
-live-provider measurement for v3 is pending.
+Intent-contract endpoint tests use independently authored synthetic inputs to
+check server-owned phase/aggregation provenance, misleading model labels, date
+intervals, inherited contradictions, zero/null samples and unsupported scope.
+The dated-points holdouts also check explicit-total contradictions. Direct
+planner/executor controls independently verify that 2/4/6 produce mean 4 and sum 12.
+These checks establish bounded calculation and endpoint behavior; they do not
+establish live provider accuracy or approve migrated fixture bindings.
 
 ## Exact binding regressions
 

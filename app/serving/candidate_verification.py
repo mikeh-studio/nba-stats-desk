@@ -6,10 +6,9 @@ be checked separately; this function never changes eligibility or the pointer.
 
 import re
 
-from scripts.validate_publication_contract import digest, timestamp, validate_binding
-
 from app.serving.core_models import build_models
 from app.serving.publication import equal_values, ordered
+from app.serving.publication_contract import digest, timestamp, validate_binding
 
 
 def verify_candidate(client, envelope, accepted, *, project, namespace, now):

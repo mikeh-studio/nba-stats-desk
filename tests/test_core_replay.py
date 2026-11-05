@@ -5,9 +5,9 @@ import socket
 import pytest
 from app.serving.core_application import Ask, create_core_application
 from app.serving.core_models import build_models
+from app.serving.publication_contract import digest
 from fastapi.testclient import TestClient
 from scripts.build_synthetic_core_replay import synthetic_bundle
-from scripts.validate_publication_contract import digest
 
 
 @pytest.fixture(autouse=True)
@@ -388,7 +388,7 @@ def test_dnp_identity_required(bundle, bad_id):
     ],
 )
 def test_rehashed_manifest_cannot_misdescribe_model_rows(bundle, field):
-    from scripts.validate_publication_contract import allocation_key, fingerprint
+    from app.serving.publication_contract import allocation_key, fingerprint
 
     bad = copy.deepcopy(bundle)
     manifest = bad["manifest"]

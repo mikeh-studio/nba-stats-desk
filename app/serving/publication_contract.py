@@ -1,12 +1,11 @@
 """Offline contract checks, not a publisher or an authority verifier.
 
 Receipts, relation contents and signatures must be verified by trusted producer/
-reader composition before use. No cloud clients or application imports here.
+reader composition before use. No cloud clients or runtime source selection here.
 """
 
 from __future__ import annotations
 
-import argparse
 import hashlib
 import json
 import math
@@ -18,9 +17,10 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from jsonschema import Draft202012Validator, FormatChecker
-from scripts.weekly_profile import profile_for, weekly_scope
 
-CONTRACTS = Path(__file__).resolve().parents[1] / "contracts" / "publication"
+from app.serving.weekly_profile import profile_for, weekly_scope
+
+CONTRACTS = Path(__file__).resolve().parents[2] / "contracts" / "publication"
 PROFILE = json.loads((CONTRACTS / "core-stats-v1.json").read_text())
 _METRIC_SCHEMA_CACHE = ContextVar("metric_schema_validation_cache", default=None)
 
@@ -499,7 +499,9 @@ def public_status(manifest, now):
     return result
 
 
-if __name__ == "__main__":
+def main():
+    import argparse
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
     parser.add_argument("--binding", type=Path)
@@ -509,5 +511,9 @@ if __name__ == "__main__":
     if args.binding:
         validate_binding(json.loads(args.binding.read_text()), document)
     print(
-        "Publication contract consistent; authority/content verification and runtime acceptance not performed."
+        "Publication contract consistent; authority/content verification not performed."
     )
+
+
+if __name__ == "__main__":
+    main()

@@ -15,13 +15,6 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, ConfigDict, Field
-from scripts.validate_publication_contract import (
-    PROFILE,
-    digest,
-    public_status,
-    timestamp,
-    validate_binding,
-)
 from starlette.concurrency import run_in_threadpool
 from starlette.routing import Match
 
@@ -29,6 +22,13 @@ from app.agent.semantics import Evidence, Query, SemanticError, run_query
 from app.serving.core_models import build_models, metrics
 from app.serving.cutover import publication_token
 from app.serving.publication import equal_values, ordered, validate_receipt
+from app.serving.publication_contract import (
+    PROFILE,
+    digest,
+    public_status,
+    timestamp,
+    validate_binding,
+)
 
 
 class Ask(BaseModel):

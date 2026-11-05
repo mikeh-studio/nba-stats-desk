@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from uuid import uuid4
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT / "tests")]
 from dotenv import load_dotenv  # noqa: E402
 from scripts.espn_corrections import normalize, revision  # noqa: E402

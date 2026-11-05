@@ -1047,6 +1047,48 @@
       "maintenance": "compatibility_only",
       "forward_development": "private",
       "presence_at_snapshot": "absent_from_main_snapshot"
+    },
+    {
+      "path": "tests/manual/espn_cloud_scenarios.py",
+      "maintenance": "compatibility_only",
+      "forward_development": "private",
+      "presence_at_snapshot": "absent_from_main_snapshot"
+    },
+    {
+      "path": "tests/manual/espn_identity_cloud_scenarios.py",
+      "maintenance": "compatibility_only",
+      "forward_development": "private",
+      "presence_at_snapshot": "absent_from_main_snapshot"
+    },
+    {
+      "path": "tests/manual/espn_layer_cloud_scenarios.py",
+      "maintenance": "compatibility_only",
+      "forward_development": "private",
+      "presence_at_snapshot": "absent_from_main_snapshot"
+    },
+    {
+      "path": "tests/manual/espn_only_cloud_scenarios.py",
+      "maintenance": "compatibility_only",
+      "forward_development": "private",
+      "presence_at_snapshot": "absent_from_main_snapshot"
+    },
+    {
+      "path": "tests/manual/gamebook_airflow_scenarios.py",
+      "maintenance": "compatibility_only",
+      "forward_development": "private",
+      "presence_at_snapshot": "absent_from_main_snapshot"
+    },
+    {
+      "path": "tests/manual/gamebook_automation_cloud_scenarios.py",
+      "maintenance": "compatibility_only",
+      "forward_development": "private",
+      "presence_at_snapshot": "absent_from_main_snapshot"
+    },
+    {
+      "path": "tests/manual/gamebook_cloud_scenarios.py",
+      "maintenance": "compatibility_only",
+      "forward_development": "private",
+      "presence_at_snapshot": "absent_from_main_snapshot"
     }
   ]
 }
