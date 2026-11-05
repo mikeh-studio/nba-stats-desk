@@ -91,7 +91,7 @@ code does not grant permission to use a data source. When enabled, supported cor
 Ask questions and selected Player, Compare and regular-season Performance views
 use a pinned release. Other questions and existing page features retain their
 existing sources. An unavailable publication is held; Ask can retry through its
-existing service on a publication 503. See [publication reader scope and setup](docs/core-production-preparation.md).
+existing service on a publication 503. See [publication reader scope and requirements](docs/core-production-preparation.md).
 
 Ask's governed path validates plans and computes statistics in application code.
 An optional model-backed planner can propose plans; it cannot supply SQL or
@@ -130,40 +130,10 @@ Every pull request runs in CI:
 | `app/` | FastAPI app, Ask agent and tools, BigQuery repository, templates, and static assets |
 | `dags/` | Airflow pipeline: extraction, staging, data-quality checks, merges, and publication |
 | `dbt/` | Bronze, silver, gold, and Ask-specific models with tests |
-| `contracts/` | Source contracts for the six ingested domains |
+| `contracts/` | Source and publication contracts, schemas, and synthetic examples |
 | `infra/terraform/` | GCP infrastructure |
-| `scripts/` | Backfills, study builders, evaluators, and repository checks |
+| `scripts/` | App launchers, backfills, study builders, evaluators, and repository checks |
 | `tests/`, `tests_js/` | Python and JavaScript test suites and frozen fixtures |
-
-## How the project evolved
-
-The project grew through overlapping stages.
-
-1. **Notebook to ELT pipeline (Feb–Mar 2026):** a notebook that loaded game logs
-   into BigQuery and had Claude write a recap became an Airflow, GCS, BigQuery,
-   dbt, and Terraform pipeline. See the [2025–26 production stack](https://github.com/mikeh-studio/nba-stats-desk/pull/1).
-2. **Data contracts and quality (Apr–May 2026):** source contracts, quarantine,
-   freshness tracking, and atomic publication. Analysis stayed in deterministic SQL
-   until this foundation was solid. See [source contracts](https://github.com/mikeh-studio/nba-stats-desk/pull/19)
-   and [atomic optional assets](https://github.com/mikeh-studio/nba-stats-desk/pull/45).
-3. **Semantic layer (Sep 2026):** Ask and game logs moved onto one governed semantic
-   contract, two more seasons were backfilled, and the old snapshot pipeline was
-   retired. See [semantic contract](https://github.com/mikeh-studio/nba-stats-desk/pull/49)
-   and [historical seasons](https://github.com/mikeh-studio/nba-stats-desk/pull/48).
-4. **Agentic layer (Jun–Sep 2026):** Ask brought the LLM back as a tool-calling
-   planner on top of the semantic layer, with clarification for ambiguous names
-   and refusals for unsupported scope. See the [first Ask agent](https://github.com/mikeh-studio/nba-stats-desk/pull/23),
-   [streaming and clarification](https://github.com/mikeh-studio/nba-stats-desk/pull/31),
-   and [Ask scope and comparisons](https://github.com/mikeh-studio/nba-stats-desk/pull/61).
-5. **Evals and guardrails (Sep–Oct 2026):** an endpoint evaluation harness, human
-   review, request telemetry, and bounded execution. The optional Redshift sync was
-   removed so BigQuery is the only warehouse. See the [evaluation harness](https://github.com/mikeh-studio/nba-stats-desk/pull/65),
-   [human review](https://github.com/mikeh-studio/nba-stats-desk/pull/68),
-   [bounded execution](https://github.com/mikeh-studio/nba-stats-desk/pull/69), and
-   [Redshift removal](https://github.com/mikeh-studio/nba-stats-desk/pull/74).
-6. **Publication reader (2026):** added an opt-in reader for validated, versioned
-   releases alongside existing page sources. Its scope and deployment remain
-   configuration-dependent; see [publication preparation](docs/core-production-preparation.md).
 
 ## Public and private responsibilities
 

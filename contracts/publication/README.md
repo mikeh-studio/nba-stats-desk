@@ -1,4 +1,17 @@
-# Core statistics publication contract
+# Core statistics publication contracts
+
+## Rolling v2
+
+`publication-manifest-v2.schema.json`, `publication-binding-v2.schema.json`, and
+`publication-status-v2.schema.json` introduce `core_stats_weekly_v1`. The shared
+validator also checks exact 2026–27 Regular Season bounds and cutoff consistency.
+V1 remains unchanged. Matching manifest/binding versions are mandatory. Profiles
+have identical fields/metrics/dependencies but different explicitly bound scopes.
+A structurally valid document is not source authority or release approval; see
+the [publication reader guide](../../docs/core-production-preparation.md) for the
+separate production admission path.
+
+## Fixed-window v1 rehearsal
 
 The isolated BigQuery protocol has a separate `core-warehouse-rehearsal/1`
 receipt, described in [the warehouse rehearsal guide](../../docs/core-warehouse-rehearsal.md).
@@ -6,7 +19,7 @@ It carries `runtime_eligible=false` and cannot substitute for production source
 authority. It supports actual warehouse consistency tests without relabeling
 retained model validation as production source approval.
 
-These proposed shared contracts define a bounded October 20–31, 2026 Regular Season release profile. They do not activate a publisher, modify current app routing or establish source authority.
+The v1 shared contracts define a bounded October 20–31, 2026 Regular Season rehearsal profile. They do not activate a publisher, modify current app routing or establish source authority.
 
 - `core-stats-v1.json`: fixed scope, required asset fields/dependencies, enabled/disabled capabilities and offline freshness policy.
 - `publication-manifest.schema.json`: sealed operator manifest structure. Real instances can contain private evidence references and must stay outside Git and browser responses.
@@ -33,14 +46,3 @@ The manifest is immutable once sealed. Mutable building/validating/held/failed/e
 Offline replay uses an explicit evaluation clock pinned to each run through its allocation key. The profile's example clock is for the synthetic fixture only; retained input reviews must precede the run clock. Original capture and source verification times remain unchanged. The 8-day warning and 10-day maximum are additionally capped by cutoff age and the trusted producer's earlier authority/milestone deadline. A production reader supplies trusted wall time and checks current authority; replay acceptance cannot make an expired release fresh. These contracts are not a replacement for the existing scoped source guards or full runtime acceptance tests.
 
 Candidate allocation binds canonical source inputs to one persisted publication ID and materialization clock. The input fingerprint includes that clock; all row ingestion timestamps reuse it across retries. Actual load attempt times remain separate audit. The producer registry must serialize allocation and reject conflicting reuse; this validator only checks a single declaration.
-
-
-## Rolling v2
-
-`publication-manifest-v2.schema.json`, `publication-binding-v2.schema.json`, and
-`publication-status-v2.schema.json` introduce `core_stats_weekly_v1`. The shared
-validator also checks exact 2026–27 Regular Season bounds and cutoff consistency.
-V1 remains unchanged. Matching manifest/binding versions are mandatory. Profiles
-have identical fields/metrics/dependencies but different explicitly bound scopes.
-A structurally valid document is not source authority or release approval; see
-`docs/core-production-preparation.md` for the separate production admission path.

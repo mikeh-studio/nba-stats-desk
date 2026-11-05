@@ -1,66 +1,47 @@
-# Opt-in rolling publication reader
+# Publication reader
 
-The existing app remains the primary interface. `scripts.serve_production_candidate` composes
-it with a separate ProductionApplication only when explicit operator configuration
-and independently pinned source authority are present. V1 remains the fixed October
-rehearsal contract. V2 manifest/binding/status use `core_stats_weekly_v1` with explicit
-2026–27 Regular Season dates and unchanged deterministic metric semantics.
+The optional publication reader lets supported parts of the app use a validated,
+versioned BigQuery release. Starting the normal app does not enable it; an operator
+must explicitly configure the reader and supply appropriate warehouse access and
+source authority. This repository does not provide a source license, credentials,
+private producer or production state.
 
-Production requires an operator-controlled source-use policy, fresh revocation
-registry and independent release validation binding the complete manifest/binding,
-inputs, code and checks. The reader checks immutable snapshot content and recomputes
-all models. It rejects rehearsal receipts, missing/expired/revoked controls and
-changed tables. The caller cannot provide arbitrary warehouse relations or SQL.
+## What it serves
 
-Reader config contains `project`, `namespace` (`nba_core_...`), `policy_path`,
-`policy_digest`, `registry_path`, and `mode_path`. The mode path accepts a local
-file for local operation or a GCS URI for durable cloud operation; each GCS read is
-generation-pinned and bounded. Set its JSON `mode` to `legacy` to disable the reader.
-Production GCS documents (mode, policy and registry) have a 30-second process-local
-cache; release/pointer rows and snapshot metadata have a 5-second cache. Consequently
-remote revocations and mode changes take at most 30 seconds to be observed, and
-pointer/metadata changes at most 5 seconds. A failed refresh never reuses an expired
-cache entry. Local authority files remain uncached. Authority validity times and
-publication freshness are checked against the current clock on every request and
-again before emission, including during a cache lease. Content is still read and
-digest-checked before a new application is admitted. Only two release applications
-are retained, and each control cache holds at most eight entries. Cache hits do not
-extend leases.
-Publication requests have an eight-request asynchronous admission limit, covering
-mode reads, cold materialization, request-time checks and sync route handlers.
-Control reads, materialization and sync endpoints use a separate eight-token
-worker budget rather than Starlette's shared legacy worker tokens; queued
-requests wait without a worker. The outer mode gate and inner reader have distinct limits, so direct
-reader calls are also bounded without recursively acquiring the same limiter.
-The limit covers response emission. Native task and AnyIO cancellation wait for
-active sync workers to complete before releasing capacity. Async request-body,
-stream and response-send waits remain cancellable. Each deployed process has its
-own limits; this is isolation from legacy worker starvation, not
-a distributed queue or a bound on total incoming connections.
-Missing or expired authority affects publication requests (503), while legacy
-startup and routes remain available. Ask retries the legacy service on publication
-503, using the existing legacy source contract and displaying no publication ID.
-The authority files and configuration must be independently administered and mounted
-read-only. No source approval is supplied with this code. Importing `app.main`
-does not activate the production reader. Public tests use synthetic controls only.
+Supported, self-contained Ask questions and selected Player, Compare and
+regular-season Performance views can use a pinned publication. Other questions and
+page features continue to use their existing data sources. The reader is not a
+full-app cutover. The current rolling contract covers the 2026–27 regular
+season. The [synthetic demo](core-offline-replay.md) demonstrates the
+core flow without a warehouse or credentials.
 
-The launcher mounts the reader at `/publication-core` only in `production` mode.
-Ask routes supported, self-contained core questions to the publication, and Player has a separate publication
-card, even when the legacy player is missing. Both identify their publication and
-scope, and leave the existing experience available when the publication is held.
-Compare displays publication results for its selected pair and supported windows;
-Performance offers a separate regular-season date/game selector pinned to one release.
-Unsupported Ask questions and follow-ups and the legacy comparison and playoff
-performance fields still read their existing sources; this is not a full-app publication cutover. The separate
-`CutoverApplication` remains a limited-core rehearsal and is not used by this launcher.
-For source/data incidents, revoke the affected release as well as changing mode.
+## Configuration and failure behavior
 
-Focused tests cover rolling status, bounds, reader content, revocation, pointer
-pinning, historical/session availability and rollback. No deployment is implied.
+`scripts/serve_production_candidate.py` composes the reader with the existing app.
+Its JSON configuration identifies `project`, `namespace`, and `mode_path`, plus
+`policy_path`, `policy_digest`, and `registry_path` for source authority. The
+authority fields can instead be supplied per provider in `source_authorities`.
+The digest pins the policy used for validation. Authority documents and reader
+configuration must be independently administered and mounted read-only. The
+mode document selects `production` or `legacy`; the latter disables publication
+requests. The launcher mounts the reader at `/publication-core`, with access
+controlled by the selected mode. The version 2
+[publication contracts](../contracts/publication/README.md) describe the release
+interface. Version 1 is limited to the fixed-window offline rehearsal and cannot
+authorize a production release.
 
-V1 schemas remain supported for the isolated fixed-window offline rehearsal; they
-are not deprecated and cannot authorize production. V2 is required for rolling
-production publications. Neither version upgrades the other's authority.
+A release must pass its scope, freshness, authority and integrity checks before
+it can serve. A failed candidate does not replace the current release, which
+remains usable only while its own validity and source authority hold. If a
+publication is unavailable, Ask can use its existing service after a publication
+503; affected publication sections show an unavailable state while existing page
+data remains available. Revoked, missing or expired authority prevents serving;
+changing mode alone does not revoke a release. Authority changes can
+take up to 30 seconds to reach an individual process because of short-lived
+caches; expiry is checked against the current time, and a failed refresh does not
+reuse an expired cache entry. The reader rejects rehearsal receipts for production
+and does not accept caller-supplied warehouse relations or SQL.
 
-The local weekly snapshot bridge requires an explicit `NBA_WEEKLY_SNAPSHOT_ROOT`;
-the public app does not infer an operator's macOS home-directory state.
+A fork needs its own permitted data, warehouse and authority configuration. The
+private operator runbook and environment-specific deployment details are not part
+of this public repository. See the [public/private boundary](public-private-boundary.md).
