@@ -436,7 +436,7 @@ Two played games with 0 and 10 points average 5; a null and 10 points average 10
 over one valid game out of two observed games. Zero field-goal attempts do not
 imply zero points. Pooled zero attempts produce unavailable shooting efficiency.
 
-The opt-in [local ESPN review adapter](data-sources.md#how-data-becomes-usable) supplies mapped,
+The opt-in [local ESPN review adapter](data-sources.md#local-espn-ask-review) supplies mapped,
 accepted dev box-score evidence with explicit partial coverage. It disables
 league cohort claims and preserves provider-specific game keys.
 
