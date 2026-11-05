@@ -26,6 +26,17 @@ again before emission, including during a cache lease. Content is still read and
 digest-checked before a new application is admitted. Only two release applications
 are retained, and each control cache holds at most eight entries. Cache hits do not
 extend leases.
+Publication requests have an eight-request asynchronous admission limit, covering
+mode reads, cold materialization, request-time checks and sync route handlers.
+Control reads, materialization and sync endpoints use a separate eight-token
+worker budget rather than Starlette's shared legacy worker tokens; queued
+requests wait without a worker. The outer mode gate and inner reader have distinct limits, so direct
+reader calls are also bounded without recursively acquiring the same limiter.
+The limit covers response emission. Native task and AnyIO cancellation wait for
+active sync workers to complete before releasing capacity. Async request-body,
+stream and response-send waits remain cancellable. Each deployed process has its
+own limits; this is isolation from legacy worker starvation, not
+a distributed queue or a bound on total incoming connections.
 Missing or expired authority affects publication requests (503), while legacy
 startup and routes remain available. Ask retries the legacy service on publication
 503, using the existing legacy source contract and displaying no publication ID.

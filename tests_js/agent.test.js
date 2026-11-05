@@ -694,6 +694,35 @@ test("main Ask routes publication answers and falls back for unsupported or unav
   assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
 });
 
+test("publication Ask labels scaled shooting values as percentages and raw fallbacks as ratios", async () => {
+  const agent = await loadAgentModule({elements:{
+    '[data-agent-form][data-publication-routing]':new FakeElement(),
+  }});
+  agent.startNewChat();
+  const owner = agent.getNavigation().activeConversationId;
+  agent.startNewChat();
+  const rows = [
+    {value:0.5, display_value:50, valid_games:2, observed_games:2},
+    {value:0, display_value:0, valid_games:2, observed_games:2},
+    {value:0.5, valid_games:2, observed_games:2},
+    {value:null, display_value:null, valid_games:0, observed_games:2},
+  ];
+  const data = {metric:{label:'FG%',unit:'ratio'},scope:{aggregation:'ratio'},rows};
+  globalThis.fetch = async () => ({ok:true,json:async()=>({
+    publication_id:'pub_0123456789abcdef',
+    scope:{season:'2026-27',phase:'Regular Season',first:'2026-10-20',last:'2026-10-30'},data,
+  })});
+  const before = JSON.stringify(data);
+  await agent.askQuestionStream({conversationId:owner,question:'Test Player A ratio FG%',body:{},finished:false});
+  const answer = agent.loadHistoryState().conversations.find(c=>c.id===owner).turns[0].payload.answer;
+  assert.match(answer, /FG% \(ratio\): 50%\./);
+  assert.match(answer, /FG% \(ratio\): 0%\./);
+  assert.match(answer, /FG% \(ratio\): 0\.5 \(ratio\)\./);
+  assert.match(answer, /FG% \(ratio\): unavailable\./);
+  assert.doesNotMatch(answer, /50 \(ratio\)|unavailable%/);
+  assert.equal(JSON.stringify(data), before);
+});
+
 test("two tab requests finish out of order without changing each other's state", async () => {
   const elements = {"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement(),"[data-agent-status]":new FakeElement()};
   const agent = await loadAgentModule({elements});

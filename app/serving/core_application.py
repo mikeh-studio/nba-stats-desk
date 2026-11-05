@@ -6,10 +6,13 @@ import copy
 import json
 import re
 from datetime import date
+from functools import partial, wraps
+from inspect import iscoroutinefunction
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.routing import APIRoute
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from pydantic import BaseModel, ConfigDict, Field
 from scripts.validate_publication_contract import (
@@ -51,6 +54,7 @@ def create_core_application(
     authorize,
     warehouse_context=None,
     production_authority=None,
+    run_blocking=run_in_threadpool,
 ):
     """Caller supplies pinned offline bundle, trusted replay clock and authority.
 
@@ -179,6 +183,22 @@ def create_core_application(
         if production_authority is not None
         else "Core stats offline replay"
     )
+    if production_authority is not None:
+
+        class ProductionRoute(APIRoute):
+            def __init__(self, path, endpoint, **kwargs):
+                if not iscoroutinefunction(endpoint):
+                    original = endpoint
+
+                    @wraps(original)
+                    async def endpoint(*args, **kwargs):
+                        return await run_blocking(partial(original, *args, **kwargs))
+
+                super().__init__(path, endpoint, **kwargs)
+
+        # Register endpoints as async wrappers so framework sync offloads cannot
+        # bypass the production worker budget or abandon a thread on cancellation.
+        app.router.route_class = ProductionRoute
     facts = models["fct_player_game_stats"]
     identities = {p["player_id"]: p for p in models["core_player_search"]}
     evidence = Evidence(
@@ -210,8 +230,8 @@ def create_core_application(
             )
         try:
             if production_authority is not None:
-                await run_in_threadpool(production_authority.check, manifest, binding)
-            if await run_in_threadpool(authorized) is not True:
+                await run_blocking(production_authority.check, manifest, binding)
+            if await run_blocking(authorized) is not True:
                 raise ValueError("offline authority unavailable")
             current_status = status()
             if current_status["freshness"] in {"expired", "unavailable"}:
@@ -262,9 +282,9 @@ def create_core_application(
             response = await call_next(request)
             # Recheck immediately before emission, including request-time revocation.
             if production_authority is not None:
-                await run_in_threadpool(production_authority.check, manifest, binding)
+                await run_blocking(production_authority.check, manifest, binding)
             if (
-                await run_in_threadpool(authorized) is not True
+                await run_blocking(authorized) is not True
                 or status()["freshness"] == "expired"
             ):
                 raise ValueError("authority expired before emission")
@@ -645,9 +665,12 @@ def create_core_application(
     def ask_stream(body: Ask):
         result = ask(body.question)
 
-        def stream():
+        async def stream():
             try:
-                available = authorized() is True and status()["freshness"] != "expired"
+                available = (
+                    await run_blocking(authorized) is True
+                    and status()["freshness"] != "expired"
+                )
             except ValueError:
                 available = False
             if not available:

@@ -11,12 +11,12 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
 from scripts.validate_publication_contract import digest, timestamp
-from starlette.concurrency import run_in_threadpool
 from starlette.responses import JSONResponse
 
 from app.serving.control_cache import ControlCache
 from app.serving.core_application import create_core_application
 from app.serving.cutover import publication_token
+from app.serving.production_workers import PublicationWorkers
 from app.serving.publication import Resolver, ordered
 
 
@@ -35,6 +35,7 @@ class ProductionApplication:
             threading.Lock(),
         )
         self.controls = ControlCache(cache_ttl)
+        self.workers = PublicationWorkers()
 
     query = Resolver.query
 
@@ -170,6 +171,7 @@ class ProductionApplication:
                     clock=self.authority.clock,
                     authorize=authorize,
                     production_authority=self.authority,
+                    run_blocking=self.workers.run,
                 )
                 while len(self.apps) > 2:
                     self.apps.popitem(last=False)
@@ -187,8 +189,11 @@ class ProductionApplication:
                     return
         if scope["type"] != "http":
             return
+        await self.workers.serve(self.serve_http, scope, receive, send)
+
+    async def serve_http(self, scope, receive, send):
         try:
-            app = await run_in_threadpool(self.application, publication_token(scope))
+            app = await self.workers.run(self.application, publication_token(scope))
         except Exception:
             return await JSONResponse(
                 {"detail": "publication unavailable; refresh the flow"}, status_code=503

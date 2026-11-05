@@ -1,8 +1,8 @@
-import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261104-production-publication-v2";
-import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261104-production-publication-v2";
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261104-production-publication-v2";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261104-production-publication-v2";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261104-production-publication-v2";
+import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261104-production-publication-v3";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261104-production-publication-v3";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261104-production-publication-v3";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261104-production-publication-v3";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261104-production-publication-v3";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -10,13 +10,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261104-production-publication-v2";
+} from "./ask_comparison.js?v=20261104-production-publication-v3";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261104-production-publication-v2";
+} from "./ask_sessions.js?v=20261104-production-publication-v3";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -24,8 +24,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261104-production-publication-v2";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261104-production-publication-v2";
+} from "./ask_presentation.js?v=20261104-production-publication-v3";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261104-production-publication-v3";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -2012,7 +2012,9 @@ function publicationAnswer(result) {
   if (Array.isArray(data.rows)) {
     for (const row of data.rows) {
       const value = row.display_value ?? row.value;
-      lines.push(`${data.metric?.label || 'Value'} (${data.scope?.aggregation || 'result'}): ${value == null ? 'unavailable' : value}${data.metric?.unit === 'ratio' ? ' (ratio)' : ''}.`);
+      const unit = data.metric?.unit === 'ratio' && value != null
+        ? (row.display_value != null ? '%' : ' (ratio)') : '';
+      lines.push(`${data.metric?.label || 'Value'} (${data.scope?.aggregation || 'result'}): ${value == null ? 'unavailable' : value}${unit}.`);
       if (row.observed_games != null) lines.push(`${row.valid_games} of ${row.observed_games} observed games have the required data${row.missing_component_games ? `; ${row.missing_component_games} missing` : ''}.`);
       if (row.game_id) lines.push(`Game ${row.game_id}.`);
     }

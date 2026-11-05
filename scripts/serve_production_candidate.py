@@ -43,12 +43,17 @@ def compose_legacy(app, config):
 
 def attach_publication(app, core, mode):
     """Expose verified publication data alongside the existing app's own data."""
-    from starlette.concurrency import run_in_threadpool
+    from app.serving.production_workers import PublicationWorkers
     from starlette.responses import JSONResponse
 
+    workers = PublicationWorkers()
+
     async def publication(scope, receive, send):
+        return await workers.serve(serve, scope, receive, send)
+
+    async def serve(scope, receive, send):
         try:
-            current_mode = await run_in_threadpool(mode)
+            current_mode = await workers.run(mode)
         except (OSError, ValueError, KeyError, TypeError):
             current_mode = None
         if current_mode == "legacy":

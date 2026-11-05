@@ -110,6 +110,379 @@ def test_publication_authority_does_not_block_other_requests(production):
     asyncio.run(exercise())
 
 
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "mode",
+        "pointer",
+        "assets",
+        "core_authority",
+        "core_controls",
+        "core_authority_post",
+        "core_controls_post",
+        "handler",
+    ],
+)
+def test_cold_publication_burst_preserves_legacy_worker_capacity(
+    production, monkeypatch, stage
+):
+    """A burst beyond AnyIO's 40 defaults cannot strand sync legacy routes."""
+    import asyncio
+    import threading
+    from contextvars import ContextVar
+
+    import httpx
+    from anyio import to_thread
+    from app import main
+    from app.config import Settings
+    from scripts.serve_production_candidate import attach_publication
+
+    entered, release = threading.Event(), threading.Event()
+    blocked_count = 0
+    blocked_lock = threading.Lock()
+
+    def block(function):
+        def blocked(*args, **kwargs):
+            nonlocal blocked_count
+            with blocked_lock:
+                blocked_count += 1
+                if blocked_count >= (6 if stage == "assets" else 8):
+                    entered.set()
+            if not release.wait(10):
+                raise AssertionError("test did not release publication worker")
+            return function(*args, **kwargs)
+
+        return blocked
+
+    def mode():
+        return "production"
+
+    if stage == "mode":
+        mode = block(mode)
+    elif stage == "pointer":
+        monkeypatch.setattr(
+            production.app, "active_id", block(production.app.active_id)
+        )
+    elif stage == "assets":
+        monkeypatch.setattr(
+            production.client, "list_rows", block(production.client.list_rows)
+        )
+    else:
+        # Warm materialization first so the barrier exercises request gates,
+        # including their independently refreshed authority/control reads.
+        original_run = production.app.workers.run
+        calls = ContextVar("gate_calls", default=0)
+        target = {
+            "core_authority": 1,
+            "core_controls": 2,
+            "core_authority_post": 3,
+            "core_controls_post": 4,
+        }.get(stage)
+
+        async def gate_run(function, *args):
+            name = getattr(function, "func", function).__name__
+            if function == production.authority.check or name == "authorized":
+                calls.set(calls.get() + 1)
+                if calls.get() == target:
+                    function = block(function)
+            if stage == "handler" and name == "detail":
+                function = block(function)
+            return await original_run(function, *args)
+
+        monkeypatch.setattr(production.app.workers, "run", gate_run)
+        production.app.application(production.envelope["manifest"]["publication_id"])
+
+    settings = Settings(
+        project_id="synthetic",
+        gold_dataset="synthetic",
+        metadata_dataset="synthetic",
+        freshness_threshold_hours=1,
+        max_search_results=5,
+        performance_cache_prewarm_enabled=False,
+        agent_history_enabled=False,
+    )
+    original_routes = list(main.app.router.routes)
+    main.app.dependency_overrides[main.get_settings] = lambda: settings
+    attach_publication(main.app, production.app, mode)
+
+    async def exercise():
+        started = 0
+        dispatched = asyncio.Event()
+
+        def record():
+            nonlocal started
+            started += 1
+            if started == 48:
+                dispatched.set()
+
+        async def observed(scope, receive, send):
+            if scope["path"].startswith("/publication-core/"):
+                record()
+            await main.app(scope, receive, send)
+
+        async def direct(scope, receive, send):
+            record()
+            await production.app(scope, receive, send)
+
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=observed),
+                base_url="http://127.0.0.1",
+            ) as client,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=direct), base_url="http://127.0.0.1"
+            ) as direct_client,
+        ):
+            pending = [
+                asyncio.create_task(
+                    direct_client.get("/api/players/101")
+                    if stage != "mode" and index % 3 == 0
+                    else client.get("/publication-core/api/players/101")
+                )
+                for index in range(48)
+            ]
+            try:
+                await asyncio.wait_for(dispatched.wait(), 2)
+                assert await asyncio.to_thread(entered.wait, 2)
+                # /ask has sync dependency resolution; an async ping alone
+                # would miss exhaustion of Starlette's shared worker limiter.
+                legacy = await asyncio.wait_for(client.get("/ask"), 2)
+                assert legacy.status_code == 200
+                assert "Ask NBA Stats" in legacy.text
+                borrowed = to_thread.current_default_thread_limiter().borrowed_tokens
+                assert borrowed == 0
+                assert all(not task.done() for task in pending)
+            finally:
+                release.set()
+                results = await asyncio.gather(*pending, return_exceptions=True)
+            assert all(
+                isinstance(result, httpx.Response) and result.status_code == 200
+                for result in results
+            ), results
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        main.app.router.routes[:] = original_routes
+        del main.app.state.production_publication_enabled
+        main.app.dependency_overrides.clear()
+
+
+def test_publication_capacity_survives_worker_and_queued_request_cancellation():
+    import asyncio
+    import threading
+
+    import anyio
+    from app.serving.production_workers import PublicationWorkers
+
+    workers = PublicationWorkers()
+    release = threading.Event()
+    entered = threading.Event()
+
+    def blocked():
+        entered.set()
+        assert release.wait(5)
+
+    async def exercise():
+        active_scope = anyio.CancelScope()
+        queued_scope = anyio.CancelScope()
+        queued = anyio.Event()
+
+        async def active():
+            with active_scope:
+                async with workers.requests:
+                    await workers.run(blocked)
+
+        async def waiting():
+            with queued_scope:
+                queued.set()
+                async with workers.requests:
+                    raise AssertionError("cancelled request acquired admission")
+
+        # One active request fills admission; the second waits asynchronously.
+        workers.requests.total_tokens = 1
+        try:
+            async with anyio.create_task_group() as tasks:
+                tasks.start_soon(active)
+                assert await asyncio.to_thread(entered.wait, 2)
+                tasks.start_soon(waiting)
+                await queued.wait()
+                queued_scope.cancel()
+                active_scope.cancel()
+                await anyio.sleep(0)
+                assert workers.requests.borrowed_tokens == 1
+                assert workers.workers.borrowed_tokens == 1
+                assert (
+                    anyio.to_thread.current_default_thread_limiter().borrowed_tokens
+                    == 0
+                )
+                release.set()
+        finally:
+            release.set()
+        assert workers.requests.borrowed_tokens == 0
+        assert workers.requests.statistics().tasks_waiting == 0
+        assert workers.workers.borrowed_tokens == 0
+        async with workers.requests:
+            assert await workers.run(lambda: "warm request") == "warm request"
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("cancellation", ["task_cancel", "wait_for"])
+@pytest.mark.parametrize("request_kind", ["blocking_worker", "sync_handler"])
+def test_native_cancellation_does_not_abandon_publication_workers(
+    cancellation, request_kind
+):
+    import asyncio
+    import threading
+
+    from anyio import to_thread
+    from app.serving.production_workers import PublicationWorkers
+
+    workers = PublicationWorkers()
+    release, entered = threading.Event(), threading.Event()
+    count, lock = [0], threading.Lock()
+
+    def blocked():
+        with lock:
+            count[0] += 1
+            if count[0] == 8:
+                entered.set()
+        assert release.wait(5)
+
+    async def request():
+        if request_kind == "sync_handler":
+
+            async def handler():
+                await workers.run(blocked)
+
+            return await workers.serve(handler)
+        async with workers.requests:
+            await workers.run(blocked)
+
+    async def exercise():
+        tasks = [asyncio.create_task(request()) for _ in range(8)]
+        timeouts = []
+        try:
+            assert await asyncio.to_thread(entered.wait, 2)
+            if cancellation == "wait_for":
+                timeouts = [
+                    asyncio.create_task(asyncio.wait_for(task, 0.001)) for task in tasks
+                ]
+                await asyncio.sleep(0.01)
+            else:
+                for task in tasks:
+                    task.cancel()
+                await asyncio.sleep(0)
+            # Repeat native cancellation after the cleanup wait has started.
+            for task in tasks:
+                task.cancel()
+            await asyncio.sleep(0)
+            assert all(not task.done() for task in tasks)
+            assert workers.workers.borrowed_tokens == 8
+            assert to_thread.current_default_thread_limiter().borrowed_tokens == 0
+            assert workers.requests.borrowed_tokens == 8
+
+            async def extra():
+                async with workers.requests:
+                    raise AssertionError("cancelled workers freed admission early")
+
+            queued = asyncio.create_task(extra())
+            await asyncio.sleep(0)
+            assert workers.requests.statistics().tasks_waiting == 1
+            queued.cancel()
+            await asyncio.gather(queued, return_exceptions=True)
+        finally:
+            release.set()
+            outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+            if timeouts:
+                results = await asyncio.gather(*timeouts, return_exceptions=True)
+                assert all(isinstance(result, TimeoutError) for result in results)
+        assert all(isinstance(outcome, asyncio.CancelledError) for outcome in outcomes)
+        assert workers.requests.borrowed_tokens == workers.workers.borrowed_tokens == 0
+        async with workers.requests:
+            assert await workers.run(lambda: "recovered") == "recovered"
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize("stage", ["receive", "stream", "send"])
+def test_cancelled_async_publication_waits_release_admission(
+    production, monkeypatch, stage
+):
+    import asyncio
+
+    # Real core body parsing exercises middleware task cancellation; synthetic
+    # endless stream/send exercise the reader ASGI boundary without a producer.
+    production.app.application(production.envelope["manifest"]["publication_id"])
+
+    async def exercise():
+        entered, never = asyncio.Event(), asyncio.Event()
+        waiting = 0
+
+        async def wait():
+            nonlocal waiting
+            waiting += 1
+            if waiting == 8:
+                entered.set()
+            await never.wait()
+
+        async def receive():
+            await wait()
+
+        async def send(message):
+            if stage == "send" and message["type"] == "http.response.body":
+                await wait()
+
+        async def streaming(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send(
+                {"type": "http.response.body", "body": b"first", "more_body": True}
+            )
+            if stage == "stream":
+                await wait()
+
+        if stage != "receive":
+            monkeypatch.setattr(production.app, "application", lambda _: streaming)
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/api/agent/ask",
+            "raw_path": b"/api/agent/ask",
+            "root_path": "",
+            "query_string": b"",
+            "headers": [
+                (b"content-type", b"application/json"),
+                (b"content-length", b"100"),
+            ],
+            "client": ("127.0.0.1", 42),
+            "server": ("127.0.0.1", 80),
+        }
+        tasks = [
+            asyncio.create_task(production.app(dict(scope), receive, send))
+            for _ in range(8)
+        ]
+        try:
+            await asyncio.wait_for(entered.wait(), 3)
+            assert production.app.workers.requests.borrowed_tokens == 8
+            for task in tasks:
+                task.cancel()
+            results = await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True), 2
+            )
+            assert all(isinstance(result, asyncio.CancelledError) for result in results)
+            assert production.app.workers.requests.borrowed_tokens == 0
+            assert production.app.workers.workers.borrowed_tokens == 0
+        finally:
+            never.set()
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    asyncio.run(exercise())
+
+
 @pytest.fixture
 def production(tmp_path):
     original = synthetic_bundle()
