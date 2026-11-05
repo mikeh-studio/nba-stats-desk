@@ -250,12 +250,8 @@ make airflow-live-validate
 
 ## Source Contracts
 
-The independent gamebook dev workflow has its own
-[source, retry, correction and publication contract](gamebook-ingestion.md).
-It starts paused and must be enabled by its exact DAG ID, `nba_gamebook_dev`;
-the production `airflow-unpause` target does not control it.
-The [ESPN dev pilot](espn-dev-pilot.md) has its own provider-specific landing,
-ID mapping, validation and correction checks under `nba_espn_dev`.
+See [data sources and validation](data-sources.md) for source roles,
+identity and publication boundaries.
 
 Source contracts live under `contracts/` and run inside Airflow extract tasks
 before non-empty dataframes are uploaded to GCS.
