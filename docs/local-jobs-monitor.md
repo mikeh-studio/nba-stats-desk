@@ -16,10 +16,9 @@ records in Git. The optional snapshot root reads existing offline PTS build
 records separately from the warehouse refresh. Snapshot scheduler state and live
 freshness are not inferred from an offline success.
 
-The normal app also discovers the current-season local weekly snapshot at
-`~/Library/Application Support/NBA Stats Desk/weekly-snapshot-<season>` at
-startup. Set `NBA_WEEKLY_SNAPSHOT_ROOT` to an absolute alternative, or to an
-empty string to disable discovery. `--snapshot-root` explicitly selects a root
+The normal app can read a local weekly snapshot when
+`NBA_WEEKLY_SNAPSHOT_ROOT` is explicitly set to an absolute path. With the setting
+unset or empty, it does not discover a local snapshot. `--snapshot-root` explicitly selects a root
 for the combined launcher. The Ask page's weekly PTS lookup and scoped Player
 and scoring comparison sections read the selected successful local build; other
 app features retain their existing data source. The local result is labeled
