@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
@@ -84,7 +85,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261028-comparison-distributions-v1"
+STATIC_VERSION = "20261104-production-publication-v3"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -190,6 +191,11 @@ class AgentAskRequest(BaseModel):
     model: str | None = Field(default=None, max_length=80)
 
 
+class WeeklyPTSRequest(BaseModel):
+    player_id: int = Field(ge=1)
+    aggregation: Literal["total", "average"] = "average"
+
+
 def _selected_player(payload: AgentAskRequest) -> dict[str, Any] | None:
     name = (payload.selected_player_name or "").strip()
     if not name:
@@ -248,8 +254,22 @@ def _time_ago(value: str | None) -> str:
 templates.env.filters["time_ago"] = _time_ago
 
 
+def _configure_weekly_snapshot(application: FastAPI) -> None:
+    """Attach the locally installed weekly build when present at startup."""
+    if getattr(application.state, "weekly_pts", None) is not None:
+        return
+    configured = os.environ.get("NBA_WEEKLY_SNAPSHOT_ROOT")
+    if (
+        configured
+        and (Path(configured) / "reports/weekly-snapshots/app-selection.json").is_file()
+    ):
+        from app.serving.local_weekly import LocalWeeklyPTS
+
+        application.state.weekly_pts = LocalWeeklyPTS(configured)
+
+
 @asynccontextmanager
-async def _lifespan(_: FastAPI):
+async def _lifespan(application: FastAPI):
     from app.agent.intelligence import get_provider
     from app.agent.runtime_policy import get_runtime_policy
 
@@ -258,6 +278,7 @@ async def _lifespan(_: FastAPI):
     if runtime is not None:
         runtime.validate_settings(settings)
     get_provider(settings)
+    _configure_weekly_snapshot(application)
     _start_cache_prewarm()
     yield
 
@@ -450,6 +471,35 @@ def get_candidate_service() -> Any | None:
     return None
 
 
+def _weekly_pts(request, operation, *args):
+    """Use the configured local build separately from warehouse-backed fields."""
+    service = getattr(request.app.state, "weekly_pts", None)
+    if service is None:
+        return None
+    try:
+        result = getattr(service, operation)(*args)
+        if result["binding"]["scope"]["season"] != current_season():
+            return None
+        return result
+    except (ServingError, OSError, ValueError, KeyError, TypeError):
+        app_logger.warning("Weekly PTS snapshot unavailable")
+        return None
+
+
+@app.post("/api/weekly-pts/ask")
+def api_weekly_pts_ask(request: Request, payload: WeeklyPTSRequest) -> Response:
+    result = _weekly_pts(request, "ask", payload.player_id, payload.aggregation)
+    if result is None:
+        raise HTTPException(status_code=503, detail="Weekly PTS snapshot unavailable.")
+    return _CandidateResponse(
+        JSONResponse(result).body,
+        request.app.state.weekly_pts,
+        (),
+        payload=result,
+        media_type="application/json",
+    )
+
+
 def _candidate_season(request: Request) -> str:
     seasons = request.query_params.getlist("season")
     if (
@@ -584,6 +634,7 @@ def _candidate_html(title: str, payload: dict, candidate) -> str:
     current_evidence = evidence.get("current_evidence", {})
     authority = payload["authority"]
     fields = [
+        ("Snapshot", payload["binding"]["snapshot_id"]),
         ("Evidence kind", candidate.evidence_kind),
         ("Source", current_evidence.get("provider")),
         ("Source captured", clocks.get("source_captured_at")),
@@ -607,6 +658,7 @@ def _candidate_html(title: str, payload: dict, candidate) -> str:
         + "<main><h1>"
         + escape(title)
         + "</h1><p>Offline PTS candidate; no runtime approval or league ranking.</p>"
+        + '<p><a href="/ask">Ask or select another player or comparison</a></p>'
         + "<p>"
         + escape(
             f"{scope['season']} · {scope['phase']} · {scope['start_date']} through {scope['end_date']}"
@@ -1132,7 +1184,7 @@ def api_player_detail(
     request: Request,
     repo: Annotated[WarehouseRepository, Depends(get_repository)],
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
-) -> dict:
+) -> Any:
     if candidate is not None:
         season = _candidate_season(request)
         if set(request.query_params) != {"season"}:
@@ -1144,7 +1196,20 @@ def api_player_detail(
     detail = _get_cached_player_detail(repo, player_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Player not found")
-    return {"season": current_season(), "item": detail}
+    result = {"season": current_season(), "item": detail}
+    snapshot = _weekly_pts(request, "player", player_id)
+    if snapshot is not None:
+        result["weekly_pts"] = snapshot
+        from fastapi.encoders import jsonable_encoder
+
+        return _CandidateResponse(
+            JSONResponse(jsonable_encoder(result)).body,
+            request.app.state.weekly_pts,
+            (),
+            payload=snapshot,
+            media_type="application/json",
+        )
+    return result
 
 
 @app.get("/api/compare")
@@ -1157,7 +1222,7 @@ def api_compare(
     *,
     window: CompareWindow = Query(default="last_5"),
     focus: CompareFocus = Query(default="balanced"),
-) -> dict:
+) -> Any:
     if candidate is not None:
         season = _candidate_season(request)
         if (
@@ -1181,7 +1246,21 @@ def api_compare(
             status_code=400,
             detail="Compare players must be different",
         )
-    return repo.get_compare(player_a_id, player_b_id, window=window, focus=focus)
+    result = repo.get_compare(player_a_id, player_b_id, window=window, focus=focus)
+    if window == "regular_season" and focus == "scoring":
+        snapshot = _weekly_pts(request, "compare", (player_a_id, player_b_id))
+        if snapshot is not None:
+            result = {**result, "weekly_pts": snapshot}
+            from fastapi.encoders import jsonable_encoder
+
+            return _CandidateResponse(
+                JSONResponse(jsonable_encoder(result)).body,
+                request.app.state.weekly_pts,
+                (),
+                payload=snapshot,
+                media_type="application/json",
+            )
+    return result
 
 
 @app.get("/api/health")
@@ -1231,6 +1310,9 @@ def player_shell(
             "page_title": "Player profile",
             "season": current_season(),
             "player_id": player_id,
+            "production_publication_enabled": getattr(
+                request.app.state, "production_publication_enabled", False
+            ),
         },
     )
 
@@ -1272,8 +1354,18 @@ def player_page(
         "player_detail": player_detail,
         "fragment": True,
         "tracking_cap": TRACKING_CAP,
+        "weekly_pts": _weekly_pts(request, "player", player_id),
     }
-    return templates.TemplateResponse(request, "player.html", context)
+    response = templates.TemplateResponse(request, "player.html", context)
+    if context["weekly_pts"] is not None:
+        return _CandidateResponse(
+            response.body,
+            request.app.state.weekly_pts,
+            (),
+            payload=context["weekly_pts"],
+            media_type="text/html",
+        )
+    return response
 
 
 @app.get("/api/players/{player_id}/game-log")
@@ -1985,12 +2077,20 @@ def ask_page(
                 status_code=400,
                 detail="Candidate scope must be stated in the question.",
             )
-        page = templates.get_template("pts_candidate.html").render(request=request)
+        page = templates.get_template("pts_candidate.html").render(
+            request=request,
+            jobs_monitor=getattr(request.app.state, "jobs_monitor_enabled", False),
+        )
         return _CandidateResponse(page, candidate, (), media_type="text/html")
     context = {
         "request": request,
         "page_title": "Ask NBA Stats",
         "season": current_season(),
+        "weekly_pts_enabled": getattr(request.app.state, "weekly_pts", None)
+        is not None,
+        "production_publication_enabled": getattr(
+            request.app.state, "production_publication_enabled", False
+        ),
         "tracking_cap": TRACKING_CAP,
         "ask_claim_enforcement": settings.ask_claim_enforcement,
         "ask_local_espn_dev": settings.ask_local_espn_dev,
@@ -2028,6 +2128,9 @@ def performance_page(
         "page_title": "Performance",
         "season": current_season(),
         "tracking_cap": TRACKING_CAP,
+        "production_publication_enabled": getattr(
+            request.app.state, "production_publication_enabled", False
+        ),
     }
     return templates.TemplateResponse(request, "performance.html", context)
 
@@ -2199,8 +2302,29 @@ def compare_page(
         "compare_window_options": get_compare_window_options(),
         "compare_focus_options": get_compare_focus_options(),
         "tracking_cap": TRACKING_CAP,
+        "production_publication_enabled": getattr(
+            request.app.state, "production_publication_enabled", False
+        ),
+        "weekly_pts": (
+            _weekly_pts(request, "compare", (player_a_id, player_b_id))
+            if player_a_id is not None
+            and player_b_id is not None
+            and player_a_id != player_b_id
+            and window == "regular_season"
+            and focus == "scoring"
+            else None
+        ),
     }
-    return templates.TemplateResponse(request, "compare.html", context)
+    response = templates.TemplateResponse(request, "compare.html", context)
+    if context["weekly_pts"] is not None:
+        return _CandidateResponse(
+            response.body,
+            request.app.state.weekly_pts,
+            (),
+            payload=context["weekly_pts"],
+            media_type="text/html",
+        )
+    return response
 
 
 @app.get("/players", response_class=HTMLResponse)

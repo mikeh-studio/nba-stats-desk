@@ -7,7 +7,15 @@
   <button id="player-load-retry" class="button" type="button" hidden>Try again</button>
   <a href="/players" class="button-link secondary">Back to players</a>
 </section>
+{% if production_publication_enabled %}
+<article class="card" data-publication-player="{{ player_id }}">
+  <div class="card-header"><h2>Published core statistics</h2></div>
+  <p class="meta">Publication data is separate from the other player fields on this page.</p>
+  <pre data-publication-answer role="status" aria-live="polite">Loading publication…</pre>
+</article>
+{% endif %}
 <div id="player-content" data-player-id="{{ player_id }}" aria-busy="true"></div>
 <noscript><p>This profile requires JavaScript to load its statistics.</p></noscript>
 <script type="module" src="/static/player-loading.js?v={{ static_version }}"></script>
+{% if production_publication_enabled %}<script type="module" src="/static/production_publication.js?v={{ static_version }}"></script>{% endif %}
 {% endblock %}

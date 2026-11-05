@@ -105,6 +105,19 @@ def test_actual_ask_json_and_sse_use_shared_pts(candidate_client):
     assert page.status_code == 200 and "Offline PTS candidate" in page.text
 
 
+@pytest.mark.parametrize("wording", ["total points", "points total"])
+def test_candidate_total_points_uses_sum_and_preserves_scope(candidate_client, wording):
+    client, _, _ = candidate_client
+    question = f"Alex Example {wording} in the 2026-27 regular season"
+    response = client.post("/api/agent/ask", json={"question": question})
+    assert response.status_code == 200
+    assert response.json()["tables"][0]["rows"] == [[1, 10, 3, 2, 1]]
+    unsupported = client.post(
+        "/api/agent/ask", json={"question": question + " only fourth quarters"}
+    )
+    assert unsupported.status_code != 200
+
+
 def test_actual_player_and_compare_routes_are_scoped_and_truthful(candidate_client):
     client, _, _ = candidate_client
     player = client.get("/api/players/1?season=2026-27")
@@ -116,6 +129,8 @@ def test_actual_player_and_compare_routes_are_scoped_and_truthful(candidate_clie
     assert client.get("/players/1?season=2026-27&metric=reb").status_code == 400
     page = client.get("/players/1?season=2026-27")
     assert page.status_code == 200 and "Observed appearances" in page.text
+    snapshot_id = player.json()["binding"]["snapshot_id"]
+    assert snapshot_id in page.text and 'href="/ask"' in page.text
     for item in (
         "synthetic",
         "espn",
@@ -134,6 +149,8 @@ def test_actual_player_and_compare_routes_are_scoped_and_truthful(candidate_clie
     assert comparison.json()["tables"][0]["rows"][0][1] == 5.0
     compare_page = client.get("/compare?" + query)
     assert compare_page.status_code == 200
+    assert comparison.json()["binding"]["snapshot_id"] == snapshot_id
+    assert snapshot_id in compare_page.text and 'href="/ask"' in compare_page.text
     assert "synthetic" in compare_page.text and "espn" in compare_page.text
     assert (
         client.get(
@@ -456,3 +473,29 @@ def test_two_season_binding_refuses_other_identity_or_expanded_players(
     service._selection = swapped
     with pytest.raises(ServingError, match="candidate_authority_changed"):
         service.check()
+
+
+def test_candidate_exposes_jobs_only_when_explicitly_mounted():
+    from app.serving.candidate_application import _CandidateBoundary
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    inner = FastAPI()
+
+    @inner.get("/jobs-monitor/api/jobs")
+    def jobs():
+        return {"status": "ok"}
+
+    for enabled, expected in [(False, 403), (True, 200)]:
+        app = _CandidateBoundary(inner, jobs_enabled=enabled)
+        with TestClient(
+            app, base_url="http://127.0.0.1", client=("127.0.0.1", 1234)
+        ) as client:
+            assert client.get("/jobs-monitor/api/jobs").status_code == expected
+            assert client.post("/jobs-monitor/api/jobs").status_code == 403
+            assert (
+                client.get(
+                    "/jobs-monitor/api/jobs", headers={"X-Forwarded-For": "127.0.0.1"}
+                ).status_code
+                == 403
+            )

@@ -1,8 +1,8 @@
-import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261028-comparison-distributions-v1";
-import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261028-comparison-distributions-v1";
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261028-comparison-distributions-v1";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261028-comparison-distributions-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261028-comparison-distributions-v1";
+import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261104-production-publication-v3";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261104-production-publication-v3";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261104-production-publication-v3";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261104-production-publication-v3";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261104-production-publication-v3";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -10,13 +10,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261028-comparison-distributions-v1";
+} from "./ask_comparison.js?v=20261104-production-publication-v3";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261028-comparison-distributions-v1";
+} from "./ask_sessions.js?v=20261104-production-publication-v3";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -24,8 +24,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261028-comparison-distributions-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261028-comparison-distributions-v1";
+} from "./ask_presentation.js?v=20261104-production-publication-v3";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261104-production-publication-v3";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -2005,7 +2005,53 @@ function renderAskFailure(message, statusText, request) {
   if (statusEl) statusEl.textContent = statusText;
 }
 
+function publicationAnswer(result) {
+  const scope = result.scope;
+  const data = result.data;
+  const lines = [`Publication ${result.publication_id} · ${scope.season} ${scope.phase}, ${scope.first} through ${scope.last}.`];
+  if (Array.isArray(data.rows)) {
+    for (const row of data.rows) {
+      const value = row.display_value ?? row.value;
+      const unit = data.metric?.unit === 'ratio' && value != null
+        ? (row.display_value != null ? '%' : ' (ratio)') : '';
+      lines.push(`${data.metric?.label || 'Value'} (${data.scope?.aggregation || 'result'}): ${value == null ? 'unavailable' : value}${unit}.`);
+      if (row.observed_games != null) lines.push(`${row.valid_games} of ${row.observed_games} observed games have the required data${row.missing_component_games ? `; ${row.missing_component_games} missing` : ''}.`);
+      if (row.game_id) lines.push(`Game ${row.game_id}.`);
+    }
+    if (!data.rows.length) lines.push('No matching observations.');
+  } else if (Array.isArray(data.differences)) {
+    for (const item of data.differences) lines.push(`${item.metric} (${item.aggregation}): ${item.difference == null ? 'unavailable' : item.difference} ${item.unit}; player A minus player B.`);
+  } else {
+    lines.push('The publication returned an unsupported result shape.');
+  }
+  return lines.join('\n\n');
+}
+
 async function askQuestionStream(request) {
+  // Only the publication's exact, self-contained grammar is eligible. Follow-ups
+  // retain their existing conversation semantics in the legacy Ask service.
+  const publicationGrammar = /^(?:(?:compare .+? vs .+? )?.+? (?:total|per game|ratio|per 36|game log) .+?(?: from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2})?|how many points did .+? score\??|.+? average (?:points|rebounds|assists)\??)$/i;
+  if (document.querySelector('[data-agent-form][data-publication-routing]') &&
+      !request.body.previous_context && !request.body.selected_player_id &&
+      publicationGrammar.test(request.question.trim())) {
+    const published = await fetch('/publication-core/api/agent/ask', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({question: request.question}),
+    });
+    if (![422, 409, 503].includes(published.status)) {
+      if (!published.ok) {
+        renderAskFailure('The publication is unavailable. Try again when it is restored.', 'Unavailable', request);
+        request.finished = true;
+        return;
+      }
+      const result = await published.json();
+      if (result.scope?.season === selectedSeason()) {
+        const answer = publicationAnswer(result);
+        handleStreamEvent('final', {payload: {status: 'ok', answer, assumptions: [], tables: [], charts: [], metric_definitions: [], followups: [], conversation_id: request.conversationId}}, request);
+        return;
+      }
+    }
+  }
   const response = await seasonFetch("/api/agent/ask/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -2240,6 +2286,7 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     turnEvidenceMarkup,
     buildAskBody,
     askQuestion,
+    askQuestionStream,
     askNewQuestion,
     handleStreamEvent,
     runtimeFor,

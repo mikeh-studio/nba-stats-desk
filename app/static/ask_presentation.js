@@ -1,4 +1,4 @@
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261028-comparison-distributions-v1";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261104-production-publication-v3";
 // Governed values, explicit display policy and server-authored balanced takeaways.
 const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 const escape = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');

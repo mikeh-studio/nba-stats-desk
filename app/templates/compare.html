@@ -24,6 +24,15 @@
 
   <section class="workspace">
     <div class="main-stack">
+      {% if production_publication_enabled %}
+      <article class="card" data-publication-compare data-player-a="{{ player_a_id or '' }}" data-player-b="{{ player_b_id or '' }}" data-window="{{ window }}">
+        <h2>Published core comparison</h2>
+        <p class="meta">The same selected players and window, using the publication's regular-season statistics. Focus and similarity fields below use the existing app data.</p>
+        <p data-publication-status role="status">Loading publication…</p>
+        <div data-publication-results></div>
+      </article>
+      <script type="module" src="/static/production_compare_performance.js?v={{ static_version }}"></script>
+      {% endif %}
       <article class="card compare-builder">
         <div class="card-header">
           <h2>Build Comparison</h2>
@@ -106,6 +115,13 @@
         </details>
       </article>
 
+      {% if weekly_pts %}
+        <article class="card">
+          <h2>Weekly PTS snapshot</h2>
+          <p class="meta">{{ weekly_pts.binding.scope.season }} {{ weekly_pts.binding.scope.phase }}, {{ weekly_pts.binding.scope.start_date }} through {{ weekly_pts.binding.scope.end_date }}. Observed appearances; snapshot {{ weekly_pts.binding.snapshot_id }}.</p>
+          {% for row in weekly_pts.tables[0].rows %}<p>Player {{ row[0] }}: {% if row[1] is not none %}{{ row[1] }} points per valid appearance{% else %}average unavailable{% endif %}; {{ row[2] }} appearances, {{ row[3] }} with PTS, {{ row[4] }} missing PTS.</p>{% endfor %}
+        </article>
+      {% endif %}
       {% if comparison %}
         <article class="card">
           <div class="card-header">

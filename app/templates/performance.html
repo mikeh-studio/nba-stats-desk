@@ -12,6 +12,18 @@
     </p>
   </section>
 
+  {% if production_publication_enabled %}
+  <section class="card" data-publication-performance>
+    <h2>Published regular-season performance</h2>
+    <p class="meta">This publication contains regular-season box scores; the playoff controls below use the existing app data. Publication data does not include P-Rating.</p>
+    <label>Date <select class="select" data-publication-date disabled><option value="">Loading dates…</option></select></label>
+    <label>Game <select class="select" data-publication-game disabled><option value="">Select a date</option></select></label>
+    <p data-publication-status role="status">Loading publication…</p>
+    <div data-publication-results></div>
+  </section>
+  <script type="module" src="/static/production_compare_performance.js?v={{ static_version }}"></script>
+  {% endif %}
+
   <section class="card performance-controls">
     <div class="card-header">
       <h2>Controls</h2>

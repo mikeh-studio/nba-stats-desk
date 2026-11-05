@@ -47,8 +47,10 @@ valid games, missing-component counts, and ratio components where applicable.
 | Points/assists per 36 | `36 * SUM(stat) / SUM(minutes)` |
 | Fantasy and attributed-points proxies | Explicit versioned formulas in the executable contract; not official league-provider scores |
 
-The engine retains shooting ratios internally. Overview context displays them
-on a 0–100 scale, with changes in percentage points. Per-36 rates remain distinct
+The engine retains shooting ratios internally. Publication Ask uses the engine's
+percentage-scaled `display_value` with a `%` suffix; a raw `value` fallback retains
+the ratio label. Unavailable ratios remain unavailable. Overview context displays
+them on a 0–100 scale, with changes in percentage points. Per-36 rates remain distinct
 from per-game averages. A zero denominator is unavailable, not zero percent.
 For example, games shooting 1/1 and 0/9 combine to 10%, not 50%.
 

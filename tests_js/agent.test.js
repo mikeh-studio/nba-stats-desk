@@ -642,6 +642,87 @@ test("late stream results stay in their originating tab and mismatched IDs are r
   assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b),undefined);
 });
 
+test("main Ask routes publication answers and falls back for unsupported or unavailable publication", async () => {
+  const elements = {"[data-agent-form][data-publication-routing]": new FakeElement("form")};
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  const owner = agent.getNavigation().activeConversationId;
+  agent.startNewChat(); // Keep the answer offscreen while checking persisted output.
+  const urls = [];
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    return {ok: true, status: 200, json: async () => ({publication_id:"pub_0123456789abcdef", scope:{season:"2026-27", phase:"Regular Season", first:"2026-10-20", last:"2026-10-30"}, data:{metric:{label:'PTS'},scope:{aggregation:'total'},rows:[{value:10,valid_games:2,observed_games:2}]}})};
+  };
+  const request = {conversationId:owner, question:"Test Player A total points", body:{provider:"openai", model:"fixture"}, finished:false};
+  await agent.askQuestionStream(request);
+  assert.deepEqual(urls, ["/publication-core/api/agent/ask"]);
+  const saved = agent.loadHistoryState().conversations.find(c => c.id === owner);
+  assert.match(saved.turns[0].payload.answer, /pub_0123456789abcdef/);
+  assert.match(saved.turns[0].payload.answer, /10/);
+  await agent.askQuestionStream({...request, question:'How many points did Test Player A score?', finished:false});
+  assert.equal(urls.at(-1), '/publication-core/api/agent/ask');
+  await agent.askQuestionStream({...request, question:'Test Player A average points', finished:false});
+  assert.equal(urls.at(-1), '/publication-core/api/agent/ask');
+
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    if (url.startsWith('/publication-core')) return {ok:false, status:422};
+    return {ok:false, status:503, json:async () => ({detail:'legacy unavailable'})};
+  };
+  await agent.askQuestionStream({...request, finished:false});
+  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
+  globalThis.fetch = async (url) => {
+    urls.push(url);
+    if (url.startsWith('/publication-core')) return {ok:false, status:409};
+    return {ok:false, status:503, json:async () => ({detail:'legacy unavailable'})};
+  };
+  await agent.askQuestionStream({...request, finished:false});
+  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
+  globalThis.fetch = async (url, options) => {
+    urls.push(url);
+    if (url.startsWith('/publication-core')) return {ok:false, status:503};
+    assert.deepEqual(JSON.parse(options.body), request.body);
+    return {ok:true, body:new ReadableStream({start(controller) {
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', conversation_id:owner}})}\n\n`));
+      controller.close();
+    }})};
+  };
+  await agent.askQuestionStream({...request, finished:false});
+  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
+  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.at(-1);
+  assert.equal(fallback.payload.answer, 'Legacy source answer');
+  assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
+});
+
+test("publication Ask labels scaled shooting values as percentages and raw fallbacks as ratios", async () => {
+  const agent = await loadAgentModule({elements:{
+    '[data-agent-form][data-publication-routing]':new FakeElement(),
+  }});
+  agent.startNewChat();
+  const owner = agent.getNavigation().activeConversationId;
+  agent.startNewChat();
+  const rows = [
+    {value:0.5, display_value:50, valid_games:2, observed_games:2},
+    {value:0, display_value:0, valid_games:2, observed_games:2},
+    {value:0.5, valid_games:2, observed_games:2},
+    {value:null, display_value:null, valid_games:0, observed_games:2},
+  ];
+  const data = {metric:{label:'FG%',unit:'ratio'},scope:{aggregation:'ratio'},rows};
+  globalThis.fetch = async () => ({ok:true,json:async()=>({
+    publication_id:'pub_0123456789abcdef',
+    scope:{season:'2026-27',phase:'Regular Season',first:'2026-10-20',last:'2026-10-30'},data,
+  })});
+  const before = JSON.stringify(data);
+  await agent.askQuestionStream({conversationId:owner,question:'Test Player A ratio FG%',body:{},finished:false});
+  const answer = agent.loadHistoryState().conversations.find(c=>c.id===owner).turns[0].payload.answer;
+  assert.match(answer, /FG% \(ratio\): 50%\./);
+  assert.match(answer, /FG% \(ratio\): 0%\./);
+  assert.match(answer, /FG% \(ratio\): 0\.5 \(ratio\)\./);
+  assert.match(answer, /FG% \(ratio\): unavailable\./);
+  assert.doesNotMatch(answer, /50 \(ratio\)|unavailable%/);
+  assert.equal(JSON.stringify(data), before);
+});
+
 test("two tab requests finish out of order without changing each other's state", async () => {
   const elements = {"[data-agent-empty]":new FakeElement(),"[data-agent-answer]":new FakeElement(),"[data-agent-status]":new FakeElement()};
   const agent = await loadAgentModule({elements});

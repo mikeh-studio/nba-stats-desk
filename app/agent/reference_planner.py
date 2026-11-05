@@ -153,6 +153,7 @@ class ReferenceProvider:
             return api.QueryPlan("metrics", "compare", (query, baseline))
         patterns = (
             rf"(?:show |what (?:is|was) )?(?P<name>.+?)(?:'s)? (?P<metric>{_METRIC}) {_MODE} {_PERIOD}",
+            rf"(?:show |what (?:is|was) )?(?P<name>.+?)(?:'s)? (?P<mode>total) (?P<metric>{_METRIC}) {_PERIOD}",
         )
         match = next(
             (m for pattern in patterns if (m := re.fullmatch(pattern, text))), None

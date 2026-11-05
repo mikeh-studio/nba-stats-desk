@@ -1,0 +1,82 @@
+{
+  "version": "publication-binding/1",
+  "binding_id": "synthetic_binding_1",
+  "generation": 1,
+  "publication_id": "pub_0000000000000001",
+  "manifest_digest": "c0e85a7860daead486a65f64a6239d9ffe568116e32a9dcce08a04b2ce92f4cf",
+  "profile": "core_stats_v1",
+  "routes": [
+    {
+      "season": "2023-24",
+      "phase": "Regular Season",
+      "mode": "legacy",
+      "target": "legacy_2023_regular"
+    },
+    {
+      "season": "2023-24",
+      "phase": "Playoffs",
+      "mode": "legacy",
+      "target": "legacy_2023_playoffs"
+    },
+    {
+      "season": "2024-25",
+      "phase": "Regular Season",
+      "mode": "legacy",
+      "target": "legacy_2024_regular"
+    },
+    {
+      "season": "2024-25",
+      "phase": "Playoffs",
+      "mode": "legacy",
+      "target": "legacy_2024_playoffs"
+    },
+    {
+      "season": "2025-26",
+      "phase": "Regular Season",
+      "mode": "legacy",
+      "target": "legacy_2025_regular"
+    },
+    {
+      "season": "2025-26",
+      "phase": "Playoffs",
+      "mode": "legacy",
+      "target": "legacy_2025_playoffs"
+    },
+    {
+      "season": "2026-27",
+      "phase": "Regular Season",
+      "mode": "release",
+      "target": "pub_0000000000000001"
+    },
+    {
+      "season": "2026-27",
+      "phase": "Playoffs",
+      "mode": "legacy",
+      "target": "legacy_2026_playoffs"
+    }
+  ],
+  "relations": {
+    "accepted_game_results": "synthetic-project.release_0000000000000001.accepted_game_results",
+    "accepted_player_appearances": "synthetic-project.release_0000000000000001.accepted_player_appearances",
+    "participant_manifest": "synthetic-project.release_0000000000000001.participant_manifest",
+    "fct_player_game_stats": "synthetic-project.release_0000000000000001.fct_player_game_stats",
+    "fct_team_game_results": "synthetic-project.release_0000000000000001.fct_team_game_results",
+    "dim_game": "synthetic-project.release_0000000000000001.dim_game",
+    "dim_player": "synthetic-project.release_0000000000000001.dim_player",
+    "dim_team": "synthetic-project.release_0000000000000001.dim_team",
+    "core_player_summary": "synthetic-project.release_0000000000000001.core_player_summary",
+    "core_player_windows": "synthetic-project.release_0000000000000001.core_player_windows",
+    "core_player_trends": "synthetic-project.release_0000000000000001.core_player_trends",
+    "core_performance": "synthetic-project.release_0000000000000001.core_performance",
+    "core_player_search": "synthetic-project.release_0000000000000001.core_player_search"
+  },
+  "capabilities": [
+    "player_core",
+    "compare_core",
+    "performance_core",
+    "ask_player_stats",
+    "player_search",
+    "team_results_sql"
+  ],
+  "expires_at": "2026-11-09T12:00:00Z"
+}

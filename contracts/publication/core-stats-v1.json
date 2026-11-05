@@ -1,0 +1,481 @@
+{
+  "version": "core_stats_v1",
+  "scope": {
+    "season": "2026-27",
+    "phase": "Regular Season",
+    "first": "2026-10-20",
+    "last": "2026-10-31",
+    "provider": "espn"
+  },
+  "semantics_version": "nba_semantics/0.1",
+  "assets": {
+    "accepted_game_results": {
+      "layer": "silver",
+      "dependencies": [],
+      "required_fields": [
+        "game_id",
+        "game_uid",
+        "season",
+        "season_type",
+        "game_date",
+        "home_team_id",
+        "home_team_abbr",
+        "away_team_id",
+        "away_team_abbr",
+        "home_score",
+        "away_score",
+        "result_revision"
+      ]
+    },
+    "accepted_player_appearances": {
+      "layer": "silver",
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "required_fields": [
+        "game_id",
+        "player_id",
+        "team_abbr",
+        "opponent_abbr",
+        "home_away",
+        "min",
+        "pts",
+        "fgm",
+        "fga",
+        "fg3m",
+        "fg3a",
+        "ftm",
+        "fta",
+        "oreb",
+        "dreb",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "pf",
+        "plus_minus",
+        "minutes_precision",
+        "minutes_zero_origin",
+        "observation_id",
+        "fact_revision",
+        "source_captured_at",
+        "source_verified_at"
+      ]
+    },
+    "participant_manifest": {
+      "layer": "silver",
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "required_fields": [
+        "game_id",
+        "player_id",
+        "team_abbr",
+        "played"
+      ]
+    },
+    "fct_player_game_stats": {
+      "layer": "gold",
+      "dependencies": [
+        "accepted_player_appearances",
+        "accepted_game_results",
+        "dim_player"
+      ],
+      "required_fields": [
+        "game_id",
+        "player_id",
+        "player_name",
+        "team_abbr",
+        "opponent_abbr",
+        "home_away",
+        "game_date",
+        "matchup",
+        "season",
+        "season_type",
+        "wl",
+        "min",
+        "fgm",
+        "fga",
+        "fg_pct",
+        "ftm",
+        "fta",
+        "ft_pct",
+        "fg3m",
+        "fg3a",
+        "plus_minus",
+        "pf",
+        "oreb",
+        "dreb",
+        "pts",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "fantasy_points_simple",
+        "ingested_at_utc"
+      ]
+    },
+    "fct_team_game_results": {
+      "layer": "gold",
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "required_fields": [
+        "game_id",
+        "season",
+        "season_type",
+        "game_date",
+        "team_id",
+        "team_abbr",
+        "opponent_team_id",
+        "opponent_team_abbr",
+        "home_away",
+        "team_pts",
+        "opponent_team_pts",
+        "scoring_margin",
+        "game_result"
+      ]
+    },
+    "dim_game": {
+      "layer": "gold",
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "required_fields": [
+        "game_id",
+        "game_uid",
+        "game_date",
+        "season",
+        "season_type",
+        "home_team_id",
+        "home_team_abbr",
+        "away_team_id",
+        "away_team_abbr"
+      ]
+    },
+    "dim_player": {
+      "layer": "gold",
+      "dependencies": [],
+      "required_fields": [
+        "player_id",
+        "player_name"
+      ]
+    },
+    "dim_team": {
+      "layer": "gold",
+      "dependencies": [],
+      "required_fields": [
+        "team_id",
+        "team_abbr"
+      ]
+    },
+    "core_player_summary": {
+      "layer": "gold",
+      "dependencies": [
+        "fct_player_game_stats"
+      ],
+      "required_fields": [
+        "player_id",
+        "player_name",
+        "observed_games",
+        "first_game_date",
+        "last_game_date",
+        "metrics"
+      ]
+    },
+    "core_player_windows": {
+      "layer": "gold",
+      "dependencies": [
+        "fct_player_game_stats"
+      ],
+      "required_fields": [
+        "player_id",
+        "window_key",
+        "first_game_date",
+        "last_game_date",
+        "observed_games",
+        "metrics"
+      ]
+    },
+    "core_player_trends": {
+      "layer": "gold",
+      "dependencies": [
+        "core_player_windows"
+      ],
+      "required_fields": [
+        "player_id",
+        "metric",
+        "aggregation",
+        "recent_valid_games",
+        "prior_valid_games",
+        "recent_value",
+        "prior_value",
+        "change",
+        "change_unit",
+        "unavailable_reason"
+      ]
+    },
+    "core_performance": {
+      "layer": "gold",
+      "dependencies": [
+        "fct_player_game_stats",
+        "dim_game"
+      ],
+      "required_fields": [
+        "game_id",
+        "game_date",
+        "player_id",
+        "player_name",
+        "team_abbr",
+        "opponent_abbr",
+        "metrics"
+      ]
+    },
+    "core_player_search": {
+      "layer": "agent",
+      "dependencies": [
+        "dim_player",
+        "fct_player_game_stats"
+      ],
+      "required_fields": [
+        "player_id",
+        "player_name",
+        "team_abbrs",
+        "observed_games"
+      ]
+    }
+  },
+  "capabilities": {
+    "player_core": [
+      "core_player_summary",
+      "core_player_windows",
+      "core_player_trends",
+      "fct_player_game_stats",
+      "core_player_search"
+    ],
+    "compare_core": [
+      "core_player_summary",
+      "core_player_windows",
+      "fct_player_game_stats",
+      "core_player_search"
+    ],
+    "performance_core": [
+      "core_performance",
+      "core_player_search"
+    ],
+    "ask_player_stats": [
+      "fct_player_game_stats",
+      "core_player_search"
+    ],
+    "player_search": [
+      "core_player_search"
+    ],
+    "team_results_sql": [
+      "fct_team_game_results",
+      "dim_game",
+      "dim_team"
+    ]
+  },
+  "disabled_capabilities": [
+    "team_ask",
+    "team_full_box",
+    "injury_recommendations",
+    "similarity",
+    "league_rankings",
+    "percentiles",
+    "research_context",
+    "historical_comparison"
+  ],
+  "required_checks": [
+    "identity",
+    "source_authority",
+    "source_selection",
+    "coverage",
+    "participation",
+    "correction_holds",
+    "freshness",
+    "field_semantics",
+    "dependency_closure",
+    "content_digests"
+  ],
+  "required_inputs": [
+    "selection",
+    "discovery",
+    "identity",
+    "ledger",
+    "reference",
+    "source_authority",
+    "correction_authority"
+  ],
+  "freshness": {
+    "version": "weekly_8d_10d_v1",
+    "warning_seconds": 691200,
+    "expiry_seconds": 864000,
+    "example_replay_as_of": "2026-11-01T16:00:00Z",
+    "replay_clock_policy": "explicit_pinned_run_clock_v1"
+  },
+  "source_policy_version": "unified_source_selection/1",
+  "metrics": {
+    "gp": {
+      "aggregations": [
+        "total"
+      ],
+      "unit": "games"
+    },
+    "pts": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "reb": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "ast": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "stl": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "blk": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "tov": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "fg3m": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "min": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "minutes"
+    },
+    "fga": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "fg3a": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "fta": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "plus_minus": {
+      "aggregations": [
+        "total",
+        "per_game"
+      ],
+      "unit": "count"
+    },
+    "fg_pct": {
+      "aggregations": [
+        "ratio"
+      ],
+      "unit": "ratio"
+    },
+    "fg3_pct": {
+      "aggregations": [
+        "ratio"
+      ],
+      "unit": "ratio"
+    },
+    "ft_pct": {
+      "aggregations": [
+        "ratio"
+      ],
+      "unit": "ratio"
+    },
+    "ts_pct": {
+      "aggregations": [
+        "ratio"
+      ],
+      "unit": "ratio"
+    },
+    "efg_pct": {
+      "aggregations": [
+        "ratio"
+      ],
+      "unit": "ratio"
+    },
+    "pts_per36": {
+      "aggregations": [
+        "per36"
+      ],
+      "unit": "per36"
+    },
+    "ast_per36": {
+      "aggregations": [
+        "per36"
+      ],
+      "unit": "per36"
+    }
+  },
+  "trend_metrics": {
+    "pts": "per_game",
+    "reb": "per_game",
+    "ast": "per_game",
+    "stl": "per_game",
+    "blk": "per_game",
+    "tov": "per_game",
+    "fg3m": "per_game",
+    "min": "per_game",
+    "fga": "per_game",
+    "fg3a": "per_game",
+    "fta": "per_game",
+    "plus_minus": "per_game",
+    "fg_pct": "ratio",
+    "fg3_pct": "ratio",
+    "ft_pct": "ratio",
+    "ts_pct": "ratio",
+    "efg_pct": "ratio",
+    "pts_per36": "per36",
+    "ast_per36": "per36"
+  },
+  "windows": [
+    "scope",
+    "last_5",
+    "prior_5",
+    "last_10"
+  ]
+}

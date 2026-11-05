@@ -1,0 +1,690 @@
+{
+  "version": "publication-manifest/1",
+  "publication_id": "pub_0000000000000001",
+  "profile": "core_stats_v1",
+  "purpose": "offline_replay",
+  "evidence_kind": "synthetic",
+  "run_id": "synthetic_run_1",
+  "build_id": "synthetic_build_1",
+  "input_fingerprint": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8",
+  "versions": {
+    "public_code": "synthetic-v1",
+    "producer_code": "synthetic-v1",
+    "data_package": "synthetic-v1",
+    "dbt": "synthetic-v1",
+    "semantics": "nba_semantics/0.1",
+    "identity": "synthetic-identity/1",
+    "source_policy": "unified_source_selection/1"
+  },
+  "scope": {
+    "season": "2026-27",
+    "phase": "Regular Season",
+    "first": "2026-10-20",
+    "last": "2026-10-31",
+    "provider": "espn"
+  },
+  "built_at": "2026-11-01T16:00:00Z",
+  "validation_as_of": "2026-11-01T16:00:00Z",
+  "data_through": "2026-10-31",
+  "inputs": [
+    {
+      "role": "selection",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000002",
+      "version": "synthetic/1",
+      "storage_ref": "synthetic://fixture/selection",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "evidence_kind": "synthetic"
+    },
+    {
+      "role": "discovery",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000003",
+      "version": "synthetic/1",
+      "storage_ref": "synthetic://fixture/discovery",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "evidence_kind": "synthetic"
+    },
+    {
+      "role": "identity",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000004",
+      "version": "synthetic/1",
+      "storage_ref": "synthetic://fixture/identity",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "evidence_kind": "synthetic"
+    },
+    {
+      "role": "ledger",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000005",
+      "version": "synthetic/1",
+      "storage_ref": "synthetic://fixture/ledger",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "evidence_kind": "synthetic"
+    },
+    {
+      "role": "reference",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000006",
+      "version": "synthetic/1",
+      "storage_ref": "synthetic://fixture/reference",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "evidence_kind": "synthetic"
+    },
+    {
+      "role": "source_authority",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000007",
+      "version": "synthetic/1",
+      "storage_ref": "synthetic://fixture/source_authority",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "evidence_kind": "synthetic"
+    },
+    {
+      "role": "correction_authority",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000008",
+      "version": "synthetic/1",
+      "storage_ref": "synthetic://fixture/correction_authority",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "evidence_kind": "synthetic"
+    }
+  ],
+  "selected_games": [
+    {
+      "game_uid": "synthetic_game_1",
+      "game_id": "0022600001",
+      "observation_id": "0000000000000000000000000000000000000000000000000000000000000014",
+      "fact_revision": "0000000000000000000000000000000000000000000000000000000000000015",
+      "result_revision": "0000000000000000000000000000000000000000000000000000000000000016",
+      "box_revision": "0000000000000000000000000000000000000000000000000000000000000017",
+      "decision_id": "synthetic_decision_1",
+      "mapping_version": "synthetic-identity/1",
+      "captured_at": "2026-11-01T12:00:00Z",
+      "last_verified_at": "2026-11-01T12:00:00Z",
+      "participants": 4,
+      "played": 2
+    }
+  ],
+  "coverage": {
+    "expected_games": 1,
+    "observed_games": 1,
+    "expected_participants": 4,
+    "observed_participants": 4,
+    "played_rows": 2,
+    "unresolved_identities": 0,
+    "open_required_holds": 0,
+    "observed_players": 2,
+    "observed_teams": 2
+  },
+  "fields": [
+    {
+      "name": "game_id",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "player_id",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "player_name",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "team_abbr",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "opponent_abbr",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "home_away",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "game_date",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "matchup",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "season",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "season_type",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "wl",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "min",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "fgm",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "fga",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "fg_pct",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "ftm",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "fta",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "ft_pct",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "fg3m",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "fg3a",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "plus_minus",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "pf",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "oreb",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "dreb",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "pts",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "reb",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "ast",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "stl",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "blk",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "tov",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "fantasy_points_simple",
+      "status": "complete",
+      "missing_count": 0
+    },
+    {
+      "name": "ingested_at_utc",
+      "status": "complete",
+      "missing_count": 0
+    }
+  ],
+  "assets": [
+    {
+      "name": "accepted_game_results",
+      "relation": "synthetic-project.release_0000000000000001.accepted_game_results",
+      "schema_version": "core_stats_v1",
+      "digest": "000000000000000000000000000000000000000000000000000000000000001e",
+      "rows": 1,
+      "dependencies": [],
+      "fields": [
+        "game_id",
+        "game_uid",
+        "season",
+        "season_type",
+        "game_date",
+        "home_team_id",
+        "home_team_abbr",
+        "away_team_id",
+        "away_team_abbr",
+        "home_score",
+        "away_score",
+        "result_revision"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "accepted_player_appearances",
+      "relation": "synthetic-project.release_0000000000000001.accepted_player_appearances",
+      "schema_version": "core_stats_v1",
+      "digest": "000000000000000000000000000000000000000000000000000000000000001f",
+      "rows": 2,
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "fields": [
+        "game_id",
+        "player_id",
+        "team_abbr",
+        "opponent_abbr",
+        "home_away",
+        "min",
+        "pts",
+        "fgm",
+        "fga",
+        "fg3m",
+        "fg3a",
+        "ftm",
+        "fta",
+        "oreb",
+        "dreb",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "pf",
+        "plus_minus",
+        "minutes_precision",
+        "minutes_zero_origin",
+        "observation_id",
+        "fact_revision",
+        "source_captured_at",
+        "source_verified_at"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "participant_manifest",
+      "relation": "synthetic-project.release_0000000000000001.participant_manifest",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000020",
+      "rows": 4,
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "fields": [
+        "game_id",
+        "player_id",
+        "team_abbr",
+        "played"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "fct_player_game_stats",
+      "relation": "synthetic-project.release_0000000000000001.fct_player_game_stats",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000021",
+      "rows": 2,
+      "dependencies": [
+        "accepted_player_appearances",
+        "accepted_game_results",
+        "dim_player"
+      ],
+      "fields": [
+        "game_id",
+        "player_id",
+        "player_name",
+        "team_abbr",
+        "opponent_abbr",
+        "home_away",
+        "game_date",
+        "matchup",
+        "season",
+        "season_type",
+        "wl",
+        "min",
+        "fgm",
+        "fga",
+        "fg_pct",
+        "ftm",
+        "fta",
+        "ft_pct",
+        "fg3m",
+        "fg3a",
+        "plus_minus",
+        "pf",
+        "oreb",
+        "dreb",
+        "pts",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "fantasy_points_simple",
+        "ingested_at_utc"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "fct_team_game_results",
+      "relation": "synthetic-project.release_0000000000000001.fct_team_game_results",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000022",
+      "rows": 2,
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "fields": [
+        "game_id",
+        "season",
+        "season_type",
+        "game_date",
+        "team_id",
+        "team_abbr",
+        "opponent_team_id",
+        "opponent_team_abbr",
+        "home_away",
+        "team_pts",
+        "opponent_team_pts",
+        "scoring_margin",
+        "game_result"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "dim_game",
+      "relation": "synthetic-project.release_0000000000000001.dim_game",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000023",
+      "rows": 1,
+      "dependencies": [
+        "accepted_game_results"
+      ],
+      "fields": [
+        "game_id",
+        "game_uid",
+        "game_date",
+        "season",
+        "season_type",
+        "home_team_id",
+        "home_team_abbr",
+        "away_team_id",
+        "away_team_abbr"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "dim_player",
+      "relation": "synthetic-project.release_0000000000000001.dim_player",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000024",
+      "rows": 2,
+      "dependencies": [],
+      "fields": [
+        "player_id",
+        "player_name"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "dim_team",
+      "relation": "synthetic-project.release_0000000000000001.dim_team",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000025",
+      "rows": 2,
+      "dependencies": [],
+      "fields": [
+        "team_id",
+        "team_abbr"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "core_player_summary",
+      "relation": "synthetic-project.release_0000000000000001.core_player_summary",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000026",
+      "rows": 2,
+      "dependencies": [
+        "fct_player_game_stats"
+      ],
+      "fields": [
+        "player_id",
+        "player_name",
+        "observed_games",
+        "first_game_date",
+        "last_game_date",
+        "metrics"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "core_player_windows",
+      "relation": "synthetic-project.release_0000000000000001.core_player_windows",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000027",
+      "rows": 8,
+      "dependencies": [
+        "fct_player_game_stats"
+      ],
+      "fields": [
+        "player_id",
+        "window_key",
+        "first_game_date",
+        "last_game_date",
+        "observed_games",
+        "metrics"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "core_player_trends",
+      "relation": "synthetic-project.release_0000000000000001.core_player_trends",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000028",
+      "rows": 38,
+      "dependencies": [
+        "core_player_windows"
+      ],
+      "fields": [
+        "player_id",
+        "metric",
+        "aggregation",
+        "recent_valid_games",
+        "prior_valid_games",
+        "recent_value",
+        "prior_value",
+        "change",
+        "change_unit",
+        "unavailable_reason"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "core_performance",
+      "relation": "synthetic-project.release_0000000000000001.core_performance",
+      "schema_version": "core_stats_v1",
+      "digest": "0000000000000000000000000000000000000000000000000000000000000029",
+      "rows": 2,
+      "dependencies": [
+        "fct_player_game_stats",
+        "dim_game"
+      ],
+      "fields": [
+        "game_id",
+        "game_date",
+        "player_id",
+        "player_name",
+        "team_abbr",
+        "opponent_abbr",
+        "metrics"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    },
+    {
+      "name": "core_player_search",
+      "relation": "synthetic-project.release_0000000000000001.core_player_search",
+      "schema_version": "core_stats_v1",
+      "digest": "000000000000000000000000000000000000000000000000000000000000002a",
+      "rows": 2,
+      "dependencies": [
+        "dim_player",
+        "fct_player_game_stats"
+      ],
+      "fields": [
+        "player_id",
+        "player_name",
+        "team_abbrs",
+        "observed_games"
+      ],
+      "built_from": "db856e8e578e8afadfdddf7d76eb991c43699af9dbe9dc0acc991f1ed9b725d8"
+    }
+  ],
+  "capabilities": [
+    "player_core",
+    "compare_core",
+    "performance_core",
+    "ask_player_stats",
+    "player_search",
+    "team_results_sql"
+  ],
+  "checks": [
+    {
+      "name": "identity",
+      "status": "passed",
+      "receipt_digest": "0000000000000000000000000000000000000000000000000000000000000046"
+    },
+    {
+      "name": "source_authority",
+      "status": "passed",
+      "receipt_digest": "0000000000000000000000000000000000000000000000000000000000000047"
+    },
+    {
+      "name": "source_selection",
+      "status": "passed",
+      "receipt_digest": "0000000000000000000000000000000000000000000000000000000000000048"
+    },
+    {
+      "name": "coverage",
+      "status": "passed",
+      "receipt_digest": "0000000000000000000000000000000000000000000000000000000000000049"
+    },
+    {
+      "name": "participation",
+      "status": "passed",
+      "receipt_digest": "000000000000000000000000000000000000000000000000000000000000004a"
+    },
+    {
+      "name": "correction_holds",
+      "status": "passed",
+      "receipt_digest": "000000000000000000000000000000000000000000000000000000000000004b"
+    },
+    {
+      "name": "freshness",
+      "status": "passed",
+      "receipt_digest": "000000000000000000000000000000000000000000000000000000000000004c"
+    },
+    {
+      "name": "field_semantics",
+      "status": "passed",
+      "receipt_digest": "000000000000000000000000000000000000000000000000000000000000004d"
+    },
+    {
+      "name": "dependency_closure",
+      "status": "passed",
+      "receipt_digest": "000000000000000000000000000000000000000000000000000000000000004e"
+    },
+    {
+      "name": "content_digests",
+      "status": "passed",
+      "receipt_digest": "000000000000000000000000000000000000000000000000000000000000004f"
+    }
+  ],
+  "freshness": {
+    "policy": "weekly_8d_10d_v1",
+    "discovery_verified_at": "2026-11-01T12:00:00Z",
+    "source_valid_until": "2026-11-09T12:00:00Z",
+    "expires_at": "2026-11-09T12:00:00Z"
+  },
+  "auxiliary": [
+    {
+      "domain": "schedule",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    },
+    {
+      "domain": "injury",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    },
+    {
+      "domain": "positions",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    },
+    {
+      "domain": "shots",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    },
+    {
+      "domain": "similarity",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    },
+    {
+      "domain": "gamebook_pdf",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    },
+    {
+      "domain": "pbp",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    },
+    {
+      "domain": "research_context",
+      "status": "disabled",
+      "reason": "Excluded from core stats v1; no refreshed-domain claim"
+    }
+  ],
+  "materialized_at": "2026-11-01T16:00:00Z",
+  "allocation_key": "d5ec478d62cbc5d520099313cf31d3b92c68ddf438f93a5a53a5be8a73e8033c"
+}

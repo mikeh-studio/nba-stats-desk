@@ -964,6 +964,7 @@
               <a href="/performance"{% if nav_path.startswith('/performance') %} class="is-active" aria-current="page"{% endif %}>PERFORMANCE</a>
               <a href="/what-changed"{% if nav_path.startswith('/what-changed') %} class="is-active" aria-current="page"{% endif %}>TRENDING</a>
               <a href="/similarity-map" title="Statistical Profile Similarity" aria-label="Statistical Profile Similarity"{% if nav_path.startswith('/similarity-') %} class="is-active" aria-current="page"{% endif %}>PROFILES</a>
+              {% if request.app.state.jobs_monitor_enabled|default(false) %}<a href="/jobs-monitor/">JOBS</a>{% endif %}
             </div>
           </div>
         </nav>
