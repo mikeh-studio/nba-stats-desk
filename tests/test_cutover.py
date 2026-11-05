@@ -3,10 +3,10 @@ import json
 import pytest
 from app.serving.core_application import create_core_application
 from app.serving.cutover import CutoverApplication, public_job
+from app.serving.publication_contract import digest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from scripts.build_synthetic_core_replay import synthetic_bundle
-from scripts.validate_publication_contract import digest
 
 
 def test_switch_rollback_keeps_pinned_core_flow_and_old_app():

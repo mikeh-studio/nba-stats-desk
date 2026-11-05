@@ -11,15 +11,14 @@ import re
 from collections import defaultdict
 from datetime import datetime
 
-from scripts.validate_publication_contract import (
+from app.agent.formulas import formula_metadata_cache
+from app.agent.semantics import aggregate, load_contract
+from app.serving.publication_contract import (
     PROFILE,
     digest,
     metric_schema_validation_cache,
     validate_metric_records,
 )
-
-from app.agent.formulas import formula_metadata_cache
-from app.agent.semantics import aggregate, load_contract
 
 COUNTS = (
     "pts fgm fga fg3m fg3a ftm fta oreb dreb reb ast stl blk tov pf plus_minus".split()
@@ -94,7 +93,7 @@ def build_models(accepted, *, materialized_at, release_scope=None):
     require(
         accepted["status"] == "accepted", "held export cannot build publication models"
     )
-    from scripts.weekly_profile import weekly_scope
+    from app.serving.weekly_profile import weekly_scope
 
     scope = PROFILE["scope"] if release_scope is None else weekly_scope(release_scope)
     minute_precision = (

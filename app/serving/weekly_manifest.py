@@ -6,16 +6,15 @@ production promoter or reader accepts them.
 
 import copy
 
-from scripts.validate_publication_contract import (
+from app.serving.publication import ordered
+from app.serving.publication_contract import (
     PROFILE,
     allocation_key,
     digest,
     fingerprint,
     validate_binding,
 )
-from scripts.weekly_profile import weekly_scope
-
-from app.serving.publication import ordered
+from app.serving.weekly_profile import weekly_scope
 
 
 def proposal(

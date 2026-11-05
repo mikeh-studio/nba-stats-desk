@@ -14,9 +14,9 @@ from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
-from scripts.airflow_live_validate import redact_text
 
 from app.jobs_schedule import due, slot
+from app.log_redaction import redact_text
 from app.security import is_direct_local
 
 UTC = timezone.utc

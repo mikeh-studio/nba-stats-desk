@@ -6,9 +6,9 @@ import pytest
 from app.serving.core_dbt import generate, isolated_dataset, staging_schema
 from app.serving.publication import Resolver, ordered, validate_receipt
 from app.serving.publication_application import PublicationApplication
+from app.serving.publication_contract import PROFILE, digest, timestamp
 from fastapi.testclient import TestClient
 from scripts.build_synthetic_core_replay import synthetic_bundle
-from scripts.validate_publication_contract import PROFILE, digest, timestamp
 
 PROJECT, NS = "synthetic-project", "nba_phase4_synthetic_test"
 NOW = "2026-11-01T16:00:00Z"

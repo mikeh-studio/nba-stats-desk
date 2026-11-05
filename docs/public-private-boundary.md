@@ -18,8 +18,9 @@ Necessary correctness/security maintenance remains reviewable here.
 Public main and the [disclosed draft checkpoint #112](https://github.com/mikeh-studio/nba-stats-desk/pull/112)
 are separate trees. The map’s `presence_at_snapshot` describes membership only at its exact
 `main_snapshot`; `absent_from_main_snapshot` makes no claim about moving main.
-All entries were disclosed in that checkpoint, which receives no blanket merge
-exception. The private extraction's
+The original paths were disclosed in that checkpoint, which receives no blanket
+merge exception. Paths introduced by later module or runner moves retain the
+original implementation's ownership classification in the map. The private extraction's
 historical source is distinct from its supported public dependency. This policy
 changes no source guard, app behavior, source access, scheduler, warehouse, host
 lock or dependency pin, and removes no public code.

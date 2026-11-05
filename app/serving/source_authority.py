@@ -4,15 +4,14 @@ import json
 import re
 from pathlib import Path
 
-from scripts.validate_publication_contract import (
+from app.serving.control_cache import ControlCache
+from app.serving.publication_contract import (
     PROFILE,
     digest,
     timestamp,
     validate_binding,
 )
-from scripts.weekly_profile import weekly_scope
-
-from app.serving.control_cache import ControlCache
+from app.serving.weekly_profile import weekly_scope
 
 
 class ProviderAuthorities:

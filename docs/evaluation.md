@@ -5,6 +5,35 @@ for generating and reviewing ten evidence-backed answers. Model calls run throug
 Codex CLI outside the public Ask request handler. Generated results, source
 snapshots, curated cases, and human notes belong in ignored `reports/` directories.
 
+## Evaluation principles
+
+- Author expected values independently of the observed answer. Check raw-row
+  arithmetic and deliberately mutate identity, metric, units, date/phase scope,
+  zero/null/incomplete samples, unsupported requests and conversational recovery
+  to verify that incorrect answers fail.
+- Bind displayed numeric claims to their evidence paths and scope. Test prose,
+  tables and charts independently; matching values alone do not prove that the
+  correct source was used.
+- Replay immutable provider recordings with fresh context for JSON and SSE.
+  Missing, mismatched or unused calls must fail, and offline replay must not read
+  external sources. Synthetic controls and historical recordings do not establish
+  current provider accuracy, upstream completeness or production readiness.
+- Keep failure capture opt-in, access-controlled, bounded and redacted. Regression
+  drafts need independently authored expectations and human approval before
+  acceptance; a browser review decision does not automatically approve a fixture.
+- Retain case IDs, assertion paths, expected values, input hashes and review
+  provenance. Report automated results, execution mode and human review status
+  separately. Preserve failed runs and unresolved limitations in private artifacts.
+- Validate relevant endpoints and populated browser output, review the final
+  source diff, and check CI for the exact published commit. Local or historical
+  passes do not establish current CI or deployment health.
+
+## Manual integration runners
+
+Explicit Airflow/cloud scenarios live in [`tests/manual/`](../tests/manual/README.md).
+They retain their original opt-in execution and isolated-resource requirements;
+pytest does not collect them. The old command paths forward to these runners.
+
 ## Offline checks
 
 ```bash
@@ -423,8 +452,12 @@ broad accuracy estimate; per-call evidence remains private under `reports/`.
 
 Generate current corpus counts and assertion coverage with
 `python -m scripts.ask_eval.coverage`. The result separates source rows, cases,
-distinct scenarios, paraphrases and frozen expectation review states. See the
-[frozen quality rubric](ask-harness-quality.md).
+distinct scenarios, paraphrases and frozen expectation review states. Apply the
+[evaluation principles](#evaluation-principles) when interpreting coverage.
+Risk tags and asserted route labels are review aids, not evidence that a route
+succeeded. Assertions retain their case IDs, paths and expected values; missing
+risk selections in a custom corpus must be reported rather than silently counted.
+The critical-risk map does not replace the full suite's denominator.
 Reports show both denominators separately, plus per-family scores. Paraphrases
 inherit the parent oracle and do not increase the distinct-scenario count.
 The expanded cases include conversation transitions/recovery, successful

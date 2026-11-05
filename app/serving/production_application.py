@@ -10,7 +10,6 @@ import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
-from scripts.validate_publication_contract import digest, timestamp
 from starlette.responses import JSONResponse
 
 from app.serving.control_cache import ControlCache
@@ -18,6 +17,7 @@ from app.serving.core_application import create_core_application
 from app.serving.cutover import publication_token
 from app.serving.production_workers import PublicationWorkers
 from app.serving.publication import Resolver, ordered
+from app.serving.publication_contract import digest, timestamp
 
 
 class ProductionApplication:

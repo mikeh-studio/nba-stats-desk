@@ -6,8 +6,7 @@ import json
 import math
 from collections import Counter
 
-from scripts.espn_corrections import validate as validate_box
-
+from app.agent.espn_corrections import validate as validate_box
 from app.agent.execution import (
     bounded_timeout,
     record_data_read,

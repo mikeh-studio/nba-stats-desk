@@ -22,15 +22,20 @@ about average versus total, so its result is an unreviewed expectation mismatch,
 not a confirmed application defect.
 The original research result is a retained routing failure. Neither is an approved answer. The original independent case expectations were not changed.
 `observed-outcomes.json` records which assertions failed, separately from those
-expectations. Current-code replay passes **5/6**: bounded descriptive kind correction also applies
-the existing breakdown Regular Season default instead of the inherited study Both
-default. The original independent research checks now pass (6 points, 3 home
-appearances). CI requires exit 1, the unchanged date-range failures, research
-passing, every other outcome unchanged, all 14 calls consumed, and zero provider
-calls. Historical capture files and `observed-outcomes.json` are unchanged. This
-is not 6/6 accuracy or human expectation approval.
+expectations. Historical repairs against this same capture were in-sample
+regression evidence, not held-out accuracy. The capture files and
+`observed-outcomes.json` remain unchanged.
 
-Replay the reviewed capture:
+Current `research_intent/3` and `semantic_intent/3` planner contracts are
+incompatible with this recording's case bindings. Strict replay rejects the
+bundle before request matching; it does not execute the current contracts against
+the old calls. The [recording regression](../../../../test_ask_cassettes.py)
+checks exit 2, `Cassette manifest mismatch: cases`, no results file, and unchanged
+raw-file hashes. Keep the bundle to test compatibility rejection and integrity.
+See the [evaluation guide](../../../../../docs/evaluation.md#strict-recorded-provider-replay)
+for replay methodology and evidence limits.
+
+To check the compatibility boundary:
 
 ```bash
 python scripts/evaluate_ask.py \
@@ -38,7 +43,8 @@ python scripts/evaluate_ask.py \
   --output reports/ask-harness/new-replay
 ```
 
-Exit 1 remains expected for the preserved date-range mismatch.
+Exit 2 is expected for the incompatible case binding. This is not a current
+provider-accuracy measurement; no paid recapture was performed.
 
 Provider retention disclosure: the fictional research-scope calls (0012 and 0013)
 omitted `store`, and their provider responses report `store: true`. The semantic
@@ -51,9 +57,3 @@ This v1 bundle is accepted only with the pinned original 16 raw-file hashes and
 canonical cassette hash. New captures use version 2 with manifest binding. Replay
 covers the app's adapted provider boundary and does not reproduce provider timing,
 post-call scheduling, or native-extension network behavior.
-
-
-The current 5/6 recorded result is an in-sample regression repair against the same
-capture that exposed the defect. It is not held-out generalization or live model
-accuracy. Alternate fictional endpoint cases establish only the bounded scope
-and refusal behavior they exercise.

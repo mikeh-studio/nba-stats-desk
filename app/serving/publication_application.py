@@ -4,11 +4,11 @@ import threading
 from collections import OrderedDict
 
 from fastapi.responses import JSONResponse
-from scripts.validate_publication_contract import digest
 from starlette.concurrency import run_in_threadpool
 
 from app.serving.core_application import create_core_application
 from app.serving.cutover import publication_token
+from app.serving.publication_contract import digest
 
 
 class PublicationApplication:

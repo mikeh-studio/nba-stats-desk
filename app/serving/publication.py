@@ -12,9 +12,8 @@ import math
 import re
 from datetime import date, datetime
 
-from scripts.validate_publication_contract import PROFILE, digest, timestamp
-
 from app.serving.core_dbt import isolated_dataset
+from app.serving.publication_contract import PROFILE, digest, timestamp
 
 KEYS = {
     "accepted_game_results": ["game_id"],

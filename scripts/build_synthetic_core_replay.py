@@ -3,7 +3,7 @@
 import json
 
 from app.serving.core_models import build_models
-from scripts.validate_publication_contract import (
+from app.serving.publication_contract import (
     CONTRACTS,
     allocation_key,
     digest,

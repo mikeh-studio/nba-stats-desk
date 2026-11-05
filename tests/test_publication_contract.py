@@ -1,6 +1,5 @@
 """Synthetic, offline rejection cases for the proposed app publication contract."""
 
-import importlib.util
 import json
 import socket
 from copy import deepcopy
@@ -10,11 +9,7 @@ import pytest
 from jsonschema import ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location(
-    "publication_contract", ROOT / "scripts/validate_publication_contract.py"
-)
-contract = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(contract)
+from app.serving import publication_contract as contract  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

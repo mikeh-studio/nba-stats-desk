@@ -5,7 +5,6 @@ import argparse
 import datetime as dt
 import json
 import os
-import re
 import shlex
 import shutil
 import signal
@@ -15,6 +14,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.log_redaction import redact_text  # noqa: E402
 
 DAG_ID = "nba_analytics_pipeline"
 
@@ -54,21 +56,6 @@ DBT_CONTRACT_SELECTOR = [
 
 ACTIVE_RUN_STATES = {"queued", "running"}
 TERMINAL_RUN_STATES = {"success", "failed"}
-
-SECRET_KEY_PATTERN = (
-    r"password|passwd|pwd|token|secret|api[_-]?key|access[_-]?key|"
-    r"secret[_-]?key|private[_-]?key|client[_-]?secret|credential"
-)
-SECRET_ASSIGNMENT_PATTERN = re.compile(
-    rf"(?i)\b({SECRET_KEY_PATTERN})(\s*[=:]\s*)[^\s,;]+"
-)
-SECRET_JSON_PATTERN = re.compile(
-    rf"(?i)([\"'](?:{SECRET_KEY_PATTERN})[\"']\s*:\s*)[\"'][^\"']+[\"']"
-)
-SECRET_AUTH_PATTERN = re.compile(
-    r"(?i)\b(authorization:\s*bearer\s+)[A-Za-z0-9._~+/=-]+"
-)
-SECRET_SK_PATTERN = re.compile(r"\bsk-[A-Za-z0-9_-]{12,}\b")
 
 
 @dataclass
@@ -141,18 +128,6 @@ def repo_root() -> Path:
 
 def format_command(args: list[str]) -> str:
     return " ".join(shlex.quote(arg) for arg in args)
-
-
-def redact_text(text: str, *, max_chars: int | None = None) -> str:
-    redacted = SECRET_JSON_PATTERN.sub(
-        lambda match: f'{match.group(1)}"<redacted>"', text
-    )
-    redacted = SECRET_ASSIGNMENT_PATTERN.sub(r"\1\2<redacted>", redacted)
-    redacted = SECRET_AUTH_PATTERN.sub(r"\1<redacted>", redacted)
-    redacted = SECRET_SK_PATTERN.sub("sk-<redacted>", redacted)
-    if max_chars is not None and len(redacted) > max_chars:
-        return redacted[-max_chars:]
-    return redacted
 
 
 def command_summary(result: CommandResult) -> dict[str, Any]:
