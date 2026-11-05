@@ -11,26 +11,6 @@ from app import local_server
 
 
 @pytest.mark.parametrize(
-    "script,required",
-    [
-        ("serve_jobs.py", "--also-state-dir"),
-        ("serve_app_with_jobs.py", "--snapshot-root"),
-        ("serve_weekly_candidate.py", "--authority"),
-    ],
-)
-def test_legacy_launcher_help_is_safe_and_preserves_options(script, required):
-    result = subprocess.run(
-        [sys.executable, "scripts/" + script, "--help"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    assert result.returncode == 0, result.stderr
-    assert required in result.stdout
-
-
-@pytest.mark.parametrize("directory", ["tests", "tests/manual"])
-@pytest.mark.parametrize(
     "runner",
     [
         "espn_cloud_scenarios",
@@ -41,9 +21,9 @@ def test_legacy_launcher_help_is_safe_and_preserves_options(script, required):
         "gamebook_cloud_scenarios",
     ],
 )
-def test_manual_cloud_runner_help_keeps_imports_without_running(directory, runner):
+def test_manual_cloud_runner_help_keeps_imports_without_running(runner):
     result = subprocess.run(
-        [sys.executable, f"{directory}/{runner}.py", "--help"],
+        [sys.executable, f"tests/manual/{runner}.py", "--help"],
         env={**os.environ, "PYTHON_DOTENV_DISABLED": "1"},
         capture_output=True,
         text=True,

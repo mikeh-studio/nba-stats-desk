@@ -9,9 +9,9 @@ PYTHON_DOTENV_DISABLED=1 python -m app.local_server app --state-dir /absolute/pa
 
 Use `python -m app.local_server jobs --state-dir /absolute/path/to/refresh-state`
 for the standalone Jobs page at `/`. Both `app` and `jobs` accept repeatable
-`--also-state-dir` arguments and an optional `--snapshot-root`. The three former
-`scripts/serve_*` entry points remain compatibility wrappers with their original
-modes and options. All modes bind loopback with proxy headers disabled and disable
+`--also-state-dir` arguments and an optional `--snapshot-root`. The old `serve_app_with_jobs.py`, `serve_jobs.py`, and
+`serve_weekly_candidate.py` scripts are replaced by the `app`, `jobs`, and
+`weekly` subcommands, respectively. All modes bind loopback with proxy headers disabled and disable
 dotenv loading. The `weekly` mode still requires independent authority; it does
 not inherit the normal app's data-source configuration.
 

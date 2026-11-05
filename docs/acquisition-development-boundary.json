@@ -1049,12 +1049,6 @@
       "presence_at_snapshot": "absent_from_main_snapshot"
     },
     {
-      "path": "app/agent/espn_corrections.py",
-      "maintenance": "compatibility_only",
-      "forward_development": "private",
-      "presence_at_snapshot": "absent_from_main_snapshot"
-    },
-    {
       "path": "tests/manual/espn_cloud_scenarios.py",
       "maintenance": "compatibility_only",
       "forward_development": "private",

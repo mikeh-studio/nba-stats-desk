@@ -2,6 +2,8 @@
 
 import json
 import socket
+import subprocess
+import sys
 from copy import deepcopy
 from pathlib import Path
 
@@ -10,6 +12,24 @@ from jsonschema import ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 from app.serving import publication_contract as contract  # noqa: E402
+
+
+def test_publication_validator_module_command():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.serving.publication_contract",
+            str(contract.CONTRACTS / "synthetic-manifest.json"),
+            "--binding",
+            str(contract.CONTRACTS / "synthetic-binding.json"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Publication contract consistent" in result.stdout
 
 
 @pytest.fixture(autouse=True)

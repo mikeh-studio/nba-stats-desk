@@ -497,3 +497,23 @@ def public_status(manifest, now):
     )
     schema_check("status", result)
     return result
+
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("manifest", type=Path)
+    parser.add_argument("--binding", type=Path)
+    args = parser.parse_args()
+    document = json.loads(args.manifest.read_text())
+    validate_manifest(document)
+    if args.binding:
+        validate_binding(json.loads(args.binding.read_text()), document)
+    print(
+        "Publication contract consistent; authority/content verification not performed."
+    )
+
+
+if __name__ == "__main__":
+    main()
