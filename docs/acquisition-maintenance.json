@@ -1,4 +1,61 @@
 {
   "schema": "acquisition-maintenance/1",
-  "changes": []
+  "changes": [
+    {
+      "path": "docs/espn-corrections-dev.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "1a60be03b1cb5003dc464643eb68b0032160adfffa936cddb902f0fe4da4f033",
+      "after_sha256": null
+    },
+    {
+      "path": "docs/espn-dev-pilot.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "39361ca88ee1690a88835944c8eb0110692376a77fe65d4ace09631cd5fec82c",
+      "after_sha256": null
+    },
+    {
+      "path": "docs/espn-only-dev.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "a4543c858231dcd53b9f049e71c557c6ffb0d462c4a1fbdc09a97ef644402a94",
+      "after_sha256": null
+    },
+    {
+      "path": "docs/gamebook-cloud.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "5d032e9a21bf916dd68bdfffc3bc9b0ddac31338d10a0998d12bf72d5f61303c",
+      "after_sha256": null
+    },
+    {
+      "path": "docs/gamebook-ingestion.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "b1a7a07ccaa4158c5d5925fca0a6fbd683a8260c303b56d26b6ebd3b8f5d210f",
+      "after_sha256": null
+    },
+    {
+      "path": "docs/gamebook-retrieval.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "bf8cf4e15ca3be2e5621eec4f89a3ecc73e612a2ad6a0eadbef44abbdf877d9f",
+      "after_sha256": null
+    },
+    {
+      "path": "docs/gamebook-storage.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "75a4f3448189bd707f95001ffbd2357adfc993b8bf5564ff797415d9cb4196c8",
+      "after_sha256": null
+    },
+    {
+      "path": "docs/play-by-play-alternatives.md",
+      "kind": "correctness",
+      "reason": "Remove historical dev procedure guide to avoid presenting it as current supported operations; summarize public source roles and safety boundaries in docs/data-sources.md. Prior public content remains in Git history.",
+      "before_sha256": "7586af38f5b606370a90be9b819f7384df844edb69c070f0953008e5bc8856b1",
+      "after_sha256": null
+    }
+  ]
 }

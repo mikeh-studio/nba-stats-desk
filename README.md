@@ -113,6 +113,7 @@ Every pull request runs in CI:
 | Guide | Covers |
 | --- | --- |
 | [Architecture](docs/architecture.md) | Existing pipeline flow, warehouse layout and serving |
+| [Data sources](docs/data-sources.md) | Source roles, validation and coverage limits |
 | [Publication reader](docs/core-production-preparation.md) | Opt-in release reader, supported routes, authority and freshness |
 | [Synthetic core demo](docs/core-offline-replay.md) | Credential-free local replay and supported example questions |
 | [Local Jobs monitor](docs/local-jobs-monitor.md) | Optional read-only local status and snapshot views |
