@@ -1,6 +1,6 @@
 {% extends "fragment.html" if fragment else "base.html" %}
 {% block content %}
-  <section class="hero">
+  <section class="hero profile-hero">
     <div class="hero-top">
       <div class="identity-row">
         <div class="player-avatar large" aria-hidden="true">
@@ -12,8 +12,8 @@
           {% endif %}
         </div>
         <div>
-          <div class="eyebrow">Inspect</div>
-          <h1>{{ page_title }}</h1>
+          <div class="eyebrow">{% if player_detail.player.team_abbr %}{{ player_detail.player.team_abbr }} · {% endif %}{{ season }}</div>
+          <h1>{{ player_detail.player.player_name }}</h1>
         </div>
       </div>
       <div class="hero-actions">
@@ -22,15 +22,33 @@
         {% else %}
           <span class="status">Status {{ player_detail.availability_state }}</span>
         {% endif %}
+        <a class="button-link secondary" href="/compare?player_a_id={{ player_detail.player.player_id }}">Compare player</a>
+        <button
+          class="track-button secondary"
+          type="button"
+          data-track-button
+          data-player-id="{{ player_detail.player.player_id }}"
+        >
+          Track player
+        </button>
       </div>
     </div>
-    <p class="subhead">
-      Explanation surface for current rank, short-window form, category edges, and schedule-derived opportunity.
-    </p>
+    {% set headline_stats = player_detail.stat_percentiles | selectattr("direction", "equalto", "higher") | list %}
+    {% if player_detail.panel_states.stat_percentiles == "fresh" and headline_stats %}
+      <dl class="profile-stats" aria-label="{{ season }} per-game averages">
+        {% for item in headline_stats[:5] %}
+          {% set pct = item.percentile | round | int %}
+          {% set suffix = "th" if pct % 100 in [11, 12, 13] else {1: "st", 2: "nd", 3: "rd"}.get(pct % 10, "th") %}
+          <div class="profile-stat">
+            <dt>{{ item.label }}</dt>
+            <dd class="profile-stat-value">{{ item.average }}</dd>
+            <dd class="profile-stat-rank">{{ pct }}{{ suffix }} percentile</dd>
+          </div>
+        {% endfor %}
+      </dl>
+      <p class="meta">{{ season }} per-game averages over {{ player_detail.sample.games_sampled or 0 }} games; percentiles against qualified players.</p>
+    {% endif %}
     <div class="chip-row">
-      {% if player_detail.player.team_abbr %}
-        <span class="chip">{{ player_detail.player.team_abbr }}</span>
-      {% endif %}
       {% if player_detail.player.recommendation_score %}
         <span class="chip">P-Rating {{ player_detail.player.recommendation_score }}</span>
       {% endif %}
@@ -41,33 +59,6 @@
         <span class="chip">Archetype {{ player_detail.archetype.archetype_label }}</span>
       {% endif %}
     </div>
-    <div class="hero-actions">
-      <a class="button-link secondary" href="/compare?player_a_id={{ player_detail.player.player_id }}">Compare player</a>
-      <button
-        class="track-button secondary"
-        type="button"
-        data-track-button
-        data-player-id="{{ player_detail.player.player_id }}"
-      >
-        Track player
-      </button>
-    </div>
-    <form class="player-search-form" data-player-search-form role="search">
-      <label class="sr-only" for="player-search-input">Find qualified player</label>
-      <div class="player-search-shell">
-        <input
-          id="player-search-input"
-          class="input"
-          name="q"
-          type="search"
-          placeholder="Find qualified player"
-          autocomplete="off"
-          data-player-search-input
-        />
-        <div class="player-search-results" data-player-search-results hidden></div>
-      </div>
-      <button class="button secondary" type="submit">Search</button>
-    </form>
     {% if player_detail.availability_state != "fresh" %}
       <div class="notice">
         <strong>This player is not currently ranked.</strong>
@@ -353,7 +344,7 @@
             </div>
             <div class="metric">
               <div class="metric-label">Confidence</div>
-              <div class="metric-value">{{ player_detail.archetype.cluster_confidence }}</div>
+              <div class="metric-value">{% if player_detail.archetype.cluster_confidence is not none %}{{ (player_detail.archetype.cluster_confidence | float * 100) | round | int }}%{% else %}—{% endif %}</div>
             </div>
           </div>
           {% if player_detail.archetype.summary %}

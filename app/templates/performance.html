@@ -1,15 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
   <section class="hero">
-    <div class="hero-top">
-      <div>
-        <div class="eyebrow">Performance</div>
-        <h1>Performance</h1>
-      </div>
-    </div>
-    <p class="subhead">
-      Explore {{ season }} playoff game performances against each player’s season baseline. Choose a date and game to review minutes, shooting, and box-score production.
-    </p>
+    <h1>Performance</h1>
+    <p class="subhead">{{ season }} playoff games against each player’s season baseline: minutes, shooting, and box-score production.</p>
   </section>
 
   {% if production_publication_enabled %}
@@ -24,29 +17,24 @@
   <script type="module" src="/static/production_compare_performance.js?v={{ static_version }}"></script>
   {% endif %}
 
-  <section class="card performance-controls">
-    <div class="card-header">
-      <h2>Controls</h2>
-      <span class="meta" id="performance-window-meta">{{ season }} Playoffs</span>
-    </div>
-    <div class="performance-control-grid">
-      <label class="performance-field">
-        <span class="meta">Date</span>
-        <select class="select" id="performance-date-select">
-          <option value="">Loading dates...</option>
-        </select>
-      </label>
-      <label class="performance-field">
-        <span class="meta">Game</span>
-        <select class="select" id="performance-game-select" disabled>
-          <option value="">All games</option>
-        </select>
-      </label>
-      <label class="performance-field performance-filter-field">
-        <span class="meta">Player</span>
-        <input class="input" id="performance-player-filter" type="search" placeholder="Filter player list" disabled />
-      </label>
-    </div>
+  <section class="filter-bar performance-controls" aria-label="Performance filters">
+    <label class="performance-field">
+      <span class="meta">Date</span>
+      <select class="select" id="performance-date-select">
+        <option value="">Loading dates...</option>
+      </select>
+    </label>
+    <label class="performance-field">
+      <span class="meta">Game</span>
+      <select class="select" id="performance-game-select" disabled>
+        <option value="">All games</option>
+      </select>
+    </label>
+    <label class="performance-field performance-filter-field">
+      <span class="meta">Player</span>
+      <input class="input" id="performance-player-filter" type="search" placeholder="Filter player list" disabled />
+    </label>
+    <span class="meta filter-bar-meta" id="performance-window-meta">{{ season }} Playoffs</span>
   </section>
 
   <section class="workspace performance-workspace">
@@ -127,17 +115,14 @@
   </div>
 
   <style>
-    .performance-controls {
-      gap: 1rem;
+    .performance-controls .performance-field {
+      flex: 0 1 16rem;
+    }
+    .performance-controls .performance-filter-field {
+      flex-basis: 20rem;
     }
     .performance-workspace {
       grid-template-columns: minmax(0, 1fr);
-    }
-    .performance-control-grid {
-      display: grid;
-      grid-template-columns: minmax(12rem, 0.8fr) minmax(14rem, 1.1fr) minmax(14rem, 1fr);
-      gap: 0.8rem;
-      align-items: end;
     }
     .performance-field {
       display: grid;
@@ -389,9 +374,6 @@
     }
     @media (max-width: 980px) {
       .performance-workspace {
-        grid-template-columns: 1fr;
-      }
-      .performance-control-grid {
         grid-template-columns: 1fr;
       }
       .performance-modal-panel {

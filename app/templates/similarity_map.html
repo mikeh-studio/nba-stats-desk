@@ -1,19 +1,13 @@
 {% extends "base.html" %}
 {% block content %}
   <section class="hero">
-    <div class="hero-top">
-      <div>
-        <div class="eyebrow">Statistical profiles</div>
-        <h1>Statistical Profile Similarity</h1>
-      </div>
-    </div>
+    <h1>Statistical Profile Similarity</h1>
     <p class="subhead">
-      Explore how machine-learning models group qualified {{ season }} players
-      by their statistical profiles. Colors identify model groups; the 3D map
-      is an approximate projection. Compare grouping models, select an archetype,
-      or search for a player to inspect their nearest matches in the full feature space.
+      How machine-learning models group qualified {{ season }} players by statistical profile.
+      Colors identify model groups; the 3D map is an approximate projection, and
+      search shows a player’s nearest matches in the full feature space.
+      <a href="/similarity-methodology?season={{ season }}">Features, scoring and model selection explained</a>
     </p>
-    <p><a href="/similarity-methodology?season={{ season }}">Features, scoring and model selection explained</a></p>
   </section>
 
   <div class="stack">
