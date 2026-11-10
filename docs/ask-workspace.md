@@ -225,10 +225,16 @@ silently approximated. Period-versus-period questions keep their existing route.
 Saved comparison context includes both full names and explicit dates. Fill-only
 follow-ups preserve that scope. Narrow-screen tables scroll horizontally.
 
-The shared header puts Search players beside the brand at the upper right, with
-four navigation links: Ask, Performance, Trending, and Profiles. Player profiles
-remain available from search and existing player URLs. Search stacks below the
-brand on narrow screens.
+The shared header is one row on desktop: the brand, four navigation links (Ask,
+Performance, Trending, and Profiles), and Search players at the upper right. Every
+page uses the same width and gutters. Player profiles remain available from search
+and existing player URLs. The links wrap below the brand and search at tablet
+widths, and search stacks below the brand on narrow screens.
+
+The empty Ask tab shows six example questions covering an overview, a two-player
+comparison, a regular-season/playoff split, a league-average comparison, similar
+players and contribution beyond scoring. Like follow-up suggestions, an example
+fills the composer without submitting.
 
 The new-question composer and model settings sit above the analysis tabs and
 remain visible while browsing history. The question remains in the top composer

@@ -2136,7 +2136,10 @@ def test_player_page_smoke() -> None:
     assert "<h2>Statistical Profile Similarity</h2>" in response.text
     assert "Gaussian mixture" in response.text
     assert "Compare player" in response.text
-    assert "Find qualified player" in response.text
+    # The shared header search replaces the duplicate in-profile search.
+    assert "Find qualified player" not in response.text
+    assert 'class="profile-stats"' in response.text
+    assert "per-game averages" in response.text
     assert "Performance" in response.text
     assert "Game Log" in response.text
     assert "Recent Windows" in response.text

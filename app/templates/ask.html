@@ -51,7 +51,19 @@
     {% endif %}
     <p class="meta agent-status" role="status" aria-live="polite" data-agent-status>Ready</p>
     <section data-agent-answer-card class="analysis-section">
-      <div class="empty-state" data-agent-empty><h1>Ask NBA Stats</h1><p>Ask about a player. We’ll show the period used and let you change it.</p><button type="button" class="button secondary" data-agent-example="Tell me how Jalen Johnson has been performing the past 12 months">Jalen Johnson · past 12 months</button></div>
+      <div class="empty-state ask-empty" data-agent-empty>
+        <h1>Ask NBA Stats</h1>
+        <p>Ask about a player. We’ll show the period used and let you change it.</p>
+        <p class="meta">Pick an example to edit it, or write your own above.</p>
+        <div class="ask-examples">
+          <button type="button" class="ask-example" data-agent-example="Tell me how Jalen Johnson has been performing the past 12 months"><span class="ask-example-kind">Recent form</span><span class="ask-example-text">Tell me how Jalen Johnson has been performing the past 12 months</span></button>
+          <button type="button" class="ask-example" data-agent-example="Compare Jalen Brunson and Tyrese Maxey in the 2025-26 regular season"><span class="ask-example-kind">Head to head</span><span class="ask-example-text">Compare Jalen Brunson and Tyrese Maxey in the 2025-26 regular season</span></button>
+          <button type="button" class="ask-example" data-agent-example="Shai Gilgeous-Alexander points regular season vs playoffs 2025-26"><span class="ask-example-kind">Splits</span><span class="ask-example-text">Shai Gilgeous-Alexander points regular season vs playoffs 2025-26</span></button>
+          <button type="button" class="ask-example" data-agent-example="Compare Victor Wembanyama rebounds against league average in 2025-26"><span class="ask-example-kind">Versus the league</span><span class="ask-example-text">Compare Victor Wembanyama rebounds against league average in 2025-26</span></button>
+          <button type="button" class="ask-example" data-agent-example="Find players similar to Cade Cunningham in 2025-26"><span class="ask-example-kind">Similar players</span><span class="ask-example-text">Find players similar to Cade Cunningham in 2025-26</span></button>
+          <button type="button" class="ask-example" data-agent-example="How did Anthony Edwards contribute beyond scoring in the 2025-26 regular season?"><span class="ask-example-kind">Beyond scoring</span><span class="ask-example-text">How did Anthony Edwards contribute beyond scoring in the 2025-26 regular season?</span></button>
+        </div>
+      </div>
       <div data-agent-answer hidden></div>
     </section>
     <section class="followup-section" data-followup-section hidden>

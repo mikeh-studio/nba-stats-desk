@@ -2,14 +2,10 @@
 .ask-desk .data-table .reference-player-row td {
   color: #ff7968;
 }
-body:has(.ask-desk) {
+.ask-desk {
   --accent: #ff452d;
   --accent-hot: #ff6253;
   --highlight: #f4f4f1;
-}
-body:has(.ask-desk) main {
-  max-width: 1440px;
-  padding: 0 3rem 3rem;
 }
 body:has(.ask-desk) .publication-health {
   order: 10;
@@ -464,9 +460,6 @@ body:has(.ask-desk) .publication-health {
   }
   .agent-tooltip-text {
     font-size: 16px;
-  }
-  body:has(.ask-desk) main {
-    padding: 0 1.25rem 2rem;
   }
   .chat-tab:nth-child(n + 4):not(.is-active) {
     display: none;
@@ -1175,4 +1168,59 @@ html:has(.metric-drawer[open]) { overflow:hidden; scrollbar-gutter:stable; }
   .semantic-results [data-column="rank"] { width: 36px; }
   .semantic-results [data-column="player"] { width: 30%; }
   .semantic-results [data-column="percentile"] { font-size: 0.7rem; }
+}
+
+/* Empty state: show the range of questions Ask can answer. */
+.ask-empty {
+  gap: 0.6rem;
+  padding: 1.75rem 0 0.5rem;
+  border: 0;
+  background: transparent;
+}
+.ask-empty h1 {
+  font-size: clamp(2rem, 4vw, 2.8rem);
+}
+.ask-examples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.ask-example {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+  min-height: 6.5rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.ask-example:hover,
+.ask-example:focus-visible {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+.ask-example-kind {
+  color: var(--accent);
+  font-size: 0.7rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ask-example-text {
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+@media (max-width: 900px) {
+  .ask-examples { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .ask-examples { grid-template-columns: 1fr; }
+  .ask-example { min-height: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ask-example { transition: none; }
 }
