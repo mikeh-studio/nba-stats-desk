@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
+from html import unescape
 from pathlib import Path
 from threading import Event, Thread
 from types import SimpleNamespace
@@ -1536,6 +1538,35 @@ def test_ask_page_smoke() -> None:
     assert ">RESEARCH</a>" not in response.text
     assert ">Dashboard</a>" not in response.text
     assert ">Visualize</a>" not in response.text
+
+
+@pytest.mark.parametrize("season", [DEFAULT_SEASON, "2024-25"])
+def test_ask_similarity_example_uses_selected_season(season: str) -> None:
+    from app.agent.reference_ask import parse_reference, reference_kind
+    from app.agent.semantic_serving import requested_seasons
+
+    client = build_client()
+    path = "/ask" if season == DEFAULT_SEASON else f"/ask?season={season}"
+    response = client.get(path)
+    assert response.status_code == 200
+    examples = [
+        unescape(value)
+        for value in re.findall(r'data-agent-example="([^"]+)"', response.text)
+    ]
+    similarity_examples = [q for q in examples if reference_kind(q) == "similarity"]
+    assert len(similarity_examples) == 1
+    question = similarity_examples[0]
+    # The season-profile handler rejects an explicit season that differs from
+    # the request. Exercise the actual rendered prompt, including the default
+    # route used by the browser, so a stale example fails before publication.
+    assert requested_seasons(question, season) == [season]
+    player = {"player_id": 1, "player_name": "Cade Cunningham"}
+    resolved, parsed_season, _ = parse_reference(
+        question, [player], season, "similarity"
+    )
+    assert resolved["player_id"] == player["player_id"]
+    assert resolved["player_name"] == player["player_name"]
+    assert parsed_season == season
 
 
 def test_ask_page_does_not_block_on_health() -> None:

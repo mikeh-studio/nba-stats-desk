@@ -234,7 +234,9 @@ widths, and search stacks below the brand on narrow screens.
 The empty Ask tab shows six example questions covering an overview, a two-player
 comparison, a regular-season/playoff split, a league-average comparison, similar
 players and contribution beyond scoring. Like follow-up suggestions, an example
-fills the composer without submitting.
+fills the composer without submitting. The season-profile similarity example
+omits a fixed season so it uses the request's selected season; that route requires
+the similarity publication and requested season to match.
 
 The new-question composer and model settings sit above the analysis tabs and
 remain visible while browsing history. The question remains in the top composer
