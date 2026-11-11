@@ -470,6 +470,7 @@ def main():
             "case_sha256": digest(input_dir / "cases.json"),
             "source_sha256": digest(input_dir / "source.json"),
             "grader_sha256": digest(ROOT / "scripts/ask_eval/grading.py"),
+            "summary_sha256": digest(ROOT / "scripts/ask_eval/summary.py"),
             "clock": args.clock,
             "selected_cases_sha256": sha(binding["cases"]),
             "schema_sha256": binding["schema_sha256"],
@@ -551,6 +552,9 @@ def main():
                 "Baseline reference failures may indicate missing structured evidence contracts, not wrong narrative numbers.",
             ],
         }
+        from scripts.ask_eval.summary import summarize as summarize_execution
+
+        report["evaluation_summary"] = summarize_execution(document["cases"], results)
         private_write(args.output / "results.json", json.dumps(report, indent=2) + "\n")
         print(
             f"{report['passed']}/{report['total']} cases passed; {args.output / 'results.json'}"
