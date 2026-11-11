@@ -1,14 +1,16 @@
 """Synthetic, offline rejection cases for the proposed app publication contract."""
 
 import json
+import os
 import socket
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path
 
 import pytest
-from jsonschema import ValidationError
+from jsonschema import SchemaError, ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
 from app.serving import publication_contract as contract  # noqa: E402
@@ -30,6 +32,84 @@ def test_publication_validator_module_command():
     )
     assert result.returncode == 0, result.stderr
     assert "Publication contract consistent" in result.stdout
+
+
+def test_schema_cache_retains_payload_checks_and_isolates_error_schema(
+    tmp_path, monkeypatch
+):
+    schema = {"type": "object", "properties": {"value": {"type": "integer"}}}
+    (tmp_path / "publication-status.schema.json").write_text(json.dumps(schema))
+    monkeypatch.setattr(contract, "CONTRACTS", tmp_path)
+    contract._validated_schema_text.cache_clear()
+    calls = []
+    original = contract.Draft202012Validator.check_schema
+
+    def check(cls, value):
+        calls.append(value)
+        return original(value)
+
+    monkeypatch.setattr(
+        contract.Draft202012Validator, "check_schema", classmethod(check)
+    )
+    contract.schema_check("status", {"value": 1})
+    with pytest.raises(ValidationError) as error:
+        contract.schema_check("status", {"value": "invalid"})
+    assert error.value.validator == "type"
+    assert list(error.value.path) == ["value"]
+    error.value.schema["type"] = "string"
+    with pytest.raises(ValidationError):
+        contract.schema_check("status", {"value": "still invalid"})
+    contract.schema_check("status", {"value": 2})
+    assert len(calls) == 1
+
+
+def test_schema_cache_uses_content_and_recovers_after_corrupt_or_missing_source(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "publication-status.schema.json"
+    original = json.dumps({"type": "object", "properties": {"value": {"minimum": 1}}})
+    changed = original.replace('"minimum": 1', '"minimum": 9')
+    assert len(original) == len(changed)
+    path.write_text(original)
+    info = path.stat()
+    monkeypatch.setattr(contract, "CONTRACTS", tmp_path)
+    contract._validated_schema_text.cache_clear()
+    contract.schema_check("status", {"value": 5})
+    path.write_text(changed)
+    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
+    with pytest.raises(ValidationError):
+        contract.schema_check("status", {"value": 5})
+    path.write_text('{"type": 123}')
+    with pytest.raises(SchemaError):
+        contract.schema_check("status", {"value": 5})
+    path.write_text(original)
+    contract.schema_check("status", {"value": 5})
+    path.unlink()
+    with pytest.raises(FileNotFoundError):
+        contract.schema_check("status", {"value": 5})
+    path.write_text(original)
+    contract.schema_check("status", {"value": 5})
+
+
+def test_schema_cache_parallel_calls_do_not_share_mutable_validation_state(
+    tmp_path, monkeypatch
+):
+    schema = {"type": "object", "properties": {"value": {"type": "integer"}}}
+    (tmp_path / "publication-status.schema.json").write_text(json.dumps(schema))
+    monkeypatch.setattr(contract, "CONTRACTS", tmp_path)
+    contract._validated_schema_text.cache_clear()
+
+    def validate(index):
+        contract.schema_check("status", {"value": index})
+        with pytest.raises(ValidationError) as error:
+            contract.schema_check("status", {"value": "invalid"})
+        error.value.schema["type"] = "null"
+        contract.schema_check("status", {"value": index})
+        return error.value.schema
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        errors = list(pool.map(validate, range(32)))
+    assert len({id(schema) for schema in errors}) == 32
 
 
 @pytest.fixture(autouse=True)
