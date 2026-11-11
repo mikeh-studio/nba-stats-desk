@@ -53,7 +53,12 @@ owns deadlines and model transport.
 2. **Context.** `PlanningContext` holds the current question (1–2,000 characters),
    selected season, calendar date and at most one host-selected prior scope. Prior
    answers, evidence rows, secrets, settings and repository objects never cross the
-   boundary. The current explicit scope wins.
+   boundary. For one successful executed summary, `PriorAnalysis` may also carry
+   optional `aggregation` (`average`, `total`, or `ratio`) and the host's
+   `aggregation_source`. The host derives these from its resolved query and
+   matching evidence, binds the complete effective scope, and omits them for
+   browser-recovered hints, incomplete legacy state, multi-query results and
+   non-summary operations. The current explicit scope or aggregation wins.
 3. **Classification.** `classify` returns an advisory `IntentSelection`, a
    `Withheld` result or a `ProviderFailure`. It is deterministic in v2. A selected
    handler route dispatches after the host rechecks eligibility, without `plan`.
@@ -86,6 +91,21 @@ resolution or clarification, never a guess. `league_leader` qualification applie
 the public appearance-floor policy and cannot relax it. v2 adds no custom formulas,
 multi-query batches, cross-season pooling or arbitrary handler payloads.
 
+The built-in reference provider inherits a validated prior `total` or `average`
+for a metric-only count follow-up. If the prior aggregation is unavailable, it
+clarifies instead of assuming per-game. A percentage follow-up uses the metric's
+required ratio convention; the host still validates the returned proposal and
+records final provenance. A validated minimum-game requirement carries forward
+to the ranking shown alongside a player summary. When a prior summary has
+a metric-specific attempt floor, explicit sort direction, nondefault limit,
+player exclusions or multiple seasons, a metric switch requires clarification.
+The host checks the player, metric, period and filters in the proposed follow-up
+before execution. An omitted as-of date inherits the validated date. A conflicting
+date requires clarification. The standalone reference grammar additionally accepts
+fully matched, one-player scalar count or shooting-percentage requests with an
+explicit season and omitted phase, using the public metric-query Regular Season
+default. It rejects unconsumed filters and modifiers.
+
 ## Identity
 
 The host passes only unambiguously resolved current player mentions, or its
@@ -116,8 +136,9 @@ and prompt revision, never prompt text.
 
 Providers may import `intelligence_contract`; the execution helpers `execute_plan`,
 `leader_game_floor`, `normalize_duplicate_rank_plan` and `single_period_rank_plan`
-from `plan_execution`; `explicit_scope` and `has_specific_metric` from
-`scope_policy`; and `load_contract` and `SemanticError` from `semantics`. These
+from `plan_execution`; `explicit_scope` and `has_specific_metric` from `scope_policy`; `load_semantic_catalog` and its exact
+`resolve_metric` lookup from `catalog`; and `load_contract` and `SemanticError`
+from `semantics`. These
 helpers are part of the `nba_intelligence/2` contract: removing one or changing its
 signature or behavior incompatibly requires a new API version.
 

@@ -2,11 +2,49 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from datetime import date
 from typing import Any
 
+from app.agent import intelligence_contract as api
 from app.seasons import SEASONS, season_bounds
+
+_QUERY_SCOPE_FIELDS = (
+    "metric",
+    "season",
+    "season_type",
+    "aggregation",
+    "operation",
+    "player_id",
+    "window",
+    "n",
+    "start_date",
+    "as_of",
+    "team_abbr",
+    "opponent_abbr",
+    "home_away",
+    "min_games",
+    "min_attempts",
+    "direction",
+    "limit",
+    "seasons",
+    "excluded_player_ids",
+)
+
+
+def _scope_fingerprint(scope: Any) -> str | None:
+    """Bind every effective scope field without copying it into the prior hint."""
+    if not isinstance(scope, dict):
+        return None
+    try:
+        serialized = json.dumps(
+            scope, sort_keys=True, separators=(",", ":"), allow_nan=False
+        ).encode()
+    except (TypeError, ValueError):
+        return None
+    return hashlib.sha256(serialized).hexdigest()
 
 
 def successful_analysis(payload: dict[str, Any]) -> bool:
@@ -20,11 +58,92 @@ def successful_analysis(payload: dict[str, Any]) -> bool:
 
 def analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:
     context = _analysis_context(question, payload)
+    # Reconstruct this hint from the host's resolved query and evidence. Saved
+    # conversation_context alone is never authority for planner provenance.
+    context.pop("validated_summary", None)
+    if validated := _validated_summary(payload, context):
+        context["validated_summary"] = validated
     # The route label is stored for later routing; it is never planner evidence.
     route = (payload.get("ask_route") or {}).get("route")
     if context and route:
         context["route"] = route
     return context
+
+
+def _validated_summary(
+    payload: dict[str, Any], context: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Expose one executed summary's aggregation, never an authored plan alone."""
+    if payload.get("status") != "ok":
+        return None
+    plan = payload.get("query_plan")
+    evidence = payload.get("semantic_evidence")
+    if not isinstance(plan, dict) or not isinstance(evidence, dict):
+        return None
+    queries, resolutions = plan.get("queries"), plan.get("aggregation_resolution")
+    rows, scope, metric = (
+        evidence.get("rows"),
+        evidence.get("scope"),
+        evidence.get("metric"),
+    )
+    players = context.get("players")
+    if not (
+        plan.get("route") == "governed_metrics"
+        and isinstance(queries, list)
+        and len(queries) == 1
+        and isinstance(queries[0], dict)
+        and isinstance(resolutions, list)
+        and len(resolutions) == 1
+        and isinstance(resolutions[0], dict)
+        and isinstance(rows, list)
+        and len(rows) == 1
+        and isinstance(rows[0], dict)
+        and isinstance(scope, dict)
+        and isinstance(metric, dict)
+        and isinstance(players, list)
+        and len(players) == 1
+        and isinstance(players[0], dict)
+    ):
+        return None
+    query, resolution = queries[0], resolutions[0]
+    aggregation, source = query.get("aggregation"), resolution.get("source")
+    fingerprint = _scope_fingerprint(scope)
+    if (
+        query.get("operation") != "summary"
+        or type(aggregation) is not str
+        or aggregation not in api.PRIOR_AGGREGATIONS
+        or type(source) is not str
+        or source not in api.PRIOR_AGGREGATION_SOURCES
+        or resolution.get("chosen_aggregation") != aggregation
+        or type(query.get("player_id")) is not int
+        or not isinstance(query.get("metric"), str)
+        or not isinstance(query.get("season"), str)
+        or type(query.get("season_type")) is not str
+        or query.get("season_type") not in {"Regular Season", "Playoffs", "Both"}
+        or query["player_id"] != players[0].get("player_id")
+        or query["player_id"] != rows[0].get("player_id")
+        or metric.get("key") != query["metric"]
+        or context.get("metrics") != [query["metric"]]
+        or context.get("scope") != scope
+        or fingerprint is None
+        or any(
+            scope.get(key) != query.get(key)
+            for key in _QUERY_SCOPE_FIELDS
+            if key != "as_of" or query.get("as_of") is not None
+        )
+    ):
+        return None
+    return {
+        "route": "governed_metrics",
+        "aggregation": aggregation,
+        "aggregation_source": source,
+        "operation": "summary",
+        "player_id": query["player_id"],
+        "metric": query["metric"],
+        "season": query["season"],
+        "season_type": query["season_type"],
+        "scope_fingerprint": fingerprint,
+    }
 
 
 def _analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:

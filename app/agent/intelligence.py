@@ -6,7 +6,7 @@ import asyncio
 import logging
 import re
 import types
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import asdict, fields, is_dataclass, replace
 from datetime import date
 from functools import lru_cache
 from importlib.metadata import entry_points
@@ -258,16 +258,66 @@ def planning_context(
             as_of=min(raw_scope["end"], today().isoformat()),
         )
     complete_scope = bool(raw_scope.get("season") and raw_scope.get("season_type"))
+    from app.agent.followup import _scope_fingerprint
+
+    validated = context.get("validated_summary")
+    prior_players = context.get("players") or []
+    metric_keys = context.get("metrics") or []
+    prior_aggregation = None
+    prior_aggregation_source = None
+    if (
+        not context.get("browser_recovered")
+        and isinstance(validated, dict)
+        and validated.get("route") == "governed_metrics"
+        and validated.get("operation") == "summary"
+        and isinstance(prior_players, list)
+        and len(prior_players) == 1
+        and isinstance(prior_players[0], dict)
+        and isinstance(metric_keys, list)
+        and len(metric_keys) == 1
+        and validated.get("player_id") == prior_players[0].get("player_id")
+        and validated.get("metric") == metric_keys[0]
+        and validated.get("scope_fingerprint")
+        == _scope_fingerprint(context.get("scope"))
+        and all(
+            validated.get(key) == raw_scope.get(key)
+            for key in (
+                "player_id",
+                "metric",
+                "season",
+                "season_type",
+                "aggregation",
+                "operation",
+            )
+        )
+        and type(validated.get("aggregation")) is str
+        and validated.get("aggregation") in api.PRIOR_AGGREGATIONS
+        and type(validated.get("aggregation_source")) is str
+        and validated.get("aggregation_source") in api.PRIOR_AGGREGATION_SOURCES
+    ):
+        prior_aggregation = validated["aggregation"]
+        prior_aggregation_source = validated["aggregation_source"]
     if complete_scope or context.get("players"):
         prior = api.PriorAnalysis(
             route_id="metrics",
             scopes=(_scope(raw_scope),) if complete_scope else (),
             player_names=tuple(
-                p["player_name"]
-                for p in context.get("players", [])
-                if p.get("player_name")
+                p["player_name"] for p in prior_players if p.get("player_name")
             ),
-            metric_keys=tuple(context.get("metrics", [])),
+            metric_keys=tuple(metric_keys),
+            aggregation=prior_aggregation,
+            aggregation_source=prior_aggregation_source,
+            min_games=raw_scope.get("min_games") if prior_aggregation else None,
+            requires_scope_clarification=bool(
+                prior_aggregation
+                and (
+                    raw_scope.get("min_attempts") is not None
+                    or raw_scope.get("direction") is not None
+                    or raw_scope.get("limit", 10) != 10
+                    or raw_scope.get("excluded_player_ids")
+                    or raw_scope.get("seasons") not in (None, [], [raw_scope["season"]])
+                )
+            ),
         )
     seasons = list(requested_seasons(question, selected_season))
     literal = explicit_scope(question)
@@ -475,6 +525,45 @@ def normalized_plan(
         return dict(status=result.status, queries=[], message=_SAFE[result.reason])
     if not isinstance(result, api.QueryPlan):
         raise ExecutionFailure("invalid_provider_output")
+    # A planner may omit or invent a cohort even when its primary number
+    # happens to match. Recheck a bare metric change against the trusted prior.
+    prior = context.prior
+    if prior and prior.aggregation:
+        from app.agent.reference_planner import followup_metric_key
+
+        phrase = re.fullmatch(
+            r"(?:what|how) about (?:total )?([\w% -]+?)(?: per game| in total| total)?(?: instead)?[?.!]*",
+            " ".join((dated_points_question or context.question).lower().split()),
+        )
+        metric_key = followup_metric_key(phrase[1]) if phrase else None
+        if metric_key:
+            valid = result.status == "query" and len(result.queries) == 1
+            query = result.queries[0] if valid else None
+            if query and len(prior.scopes) == 1 and query.scope.as_of is None:
+                query = replace(
+                    query, scope=replace(query.scope, as_of=prior.scopes[0].as_of)
+                )
+            if (
+                prior.requires_scope_clarification
+                or query is None
+                or query.operation != "summary"
+                or query.metric != metric_key
+                or (query.player_name,) != prior.player_names
+                or (query.scope,) != prior.scopes
+                or query.min_games not in (None, prior.min_games)
+                or query.min_attempts is not None
+                or query.limit != 10
+                or query.direction
+                not in (None, load_contract().metric(metric_key).direction)
+            ):
+                return dict(
+                    status="clarification_required",
+                    queries=[],
+                    message="Please restate the player, period and qualifying filters for the new statistic.",
+                )
+            result = replace(
+                result, queries=(replace(query, min_games=prior.min_games),)
+            )
     plan = dict(status=result.status, message="", queries=[])
     for proposal in result.queries:
         raw = asdict(proposal)

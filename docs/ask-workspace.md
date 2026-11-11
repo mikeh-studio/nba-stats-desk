@@ -1039,6 +1039,13 @@ Canonical date intervals and calendar scope are validated before execution. Assu
 explicit averages have no default disclosure, and partial follow-ups preserve a
 compatible previous aggregation. Fully restated named metric/time requests, including season requests, can start
 fresh; the omitted-aggregation default remains limited to dated PTS summaries. Identity and scope contradictions fail before literal-scope replacement.
+For a successful single-player governed summary, a metric-only follow-up may
+inherit its host-validated total or per-game aggregation and source provenance.
+The prior scope still includes its window, date, team, opponent and venue filters.
+Incomplete or browser-recovered hints do not prove aggregation; the reference
+planner withholds rather than silently changing a prior total into a per-game
+mean. An explicit new aggregation takes precedence, and a shooting percentage
+uses its pooled ratio convention.
 Zero points count as an observation; missing points remain unknown. Canonical
 unsupported-intent guards do not establish arbitrary-language accuracy. See the
 [semantic contract](semantic-contract.md) for scope and sample semantics.
