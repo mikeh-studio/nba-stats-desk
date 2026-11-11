@@ -13,6 +13,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import date, datetime, time, timedelta, timezone
+from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -103,17 +104,23 @@ def timestamp(value):
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+@lru_cache(maxsize=8)
+def _validated_schema_text(schema_text):
+    """Memoize only successful meta-schema checks of immutable source bytes."""
+    Draft202012Validator.check_schema(json.loads(schema_text))
+    return schema_text
+
+
 def schema_check(kind, value):
     suffix = "-v2" if value.get("version") == f"publication-{kind}/2" else ""
-    schema = json.loads(
-        (CONTRACTS / f"publication-{kind}{suffix}.schema.json").read_text()
-    )
+    schema_text = (CONTRACTS / f"publication-{kind}{suffix}.schema.json").read_text()
+    schema = json.loads(schema_text)
     if suffix and kind in {"manifest", "status"}:
         scope = weekly_scope(value["scope"])
         require(
             value["data_through"] == scope["last"], "cutoff differs from rolling scope"
         )
-    Draft202012Validator.check_schema(schema)
+    _validated_schema_text(schema_text)
     Draft202012Validator(schema, format_checker=FormatChecker()).validate(value)
 
 
