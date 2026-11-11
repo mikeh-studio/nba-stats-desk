@@ -310,6 +310,40 @@ The comparator rejects mismatched inputs. Reports retain code/content hashes,
 provider/model, per-turn payloads and checks, timing, parity, and failed attempts.
 Progress is flushed per case; failed runs are never overwritten.
 
+`results.json` also includes `evaluation_summary`, counted once per logical
+case-turn with JSON and SSE both required. Its expected outcome groups come only
+from explicit authored assertions: success, refusal, clarification, expected
+transport error, or unassessed. Refusal includes expected withholdings for invalid
+evidence, insufficient samples and not-applicable results; a successful response
+containing a null statistic remains a success. `outcome_definitions` records the
+status mapping. Missing or conflicting expectations stay unassessed, even when
+the observed response succeeds. Unknown actual outcomes and mixed transports
+remain visible in per-turn records and refusal diagnostics.
+
+The checked-in fictional corpus has 147 cases (123 distinct scenarios and 24
+paraphrases), 180 logical turns and 360 JSON/SSE requests. Explicit expectations
+divide those turns into 126 successes, 23 refusals, 14 clarifications, one expected
+transport error and 16 unassessed outcomes. These are expectation denominators,
+not a count of supported factual answers. A 147/147 contract pass includes all
+these categories; it does not establish 147 correct real-model answers. All cases
+remain pending human review. Regenerate corpus coverage when cases change.
+
+The supplementary dimensions report passed, failed, assessed and unassessed
+turns for asserted identity/scope, route, numeric values/units and outcomes.
+Route assertions establish the selected route, not full-plan correctness;
+numeric and display checks cover only their asserted fields. Uncategorized
+assertion paths remain listed. Correct refusals use the expected-refusal
+denominator; incorrect refusals are reported separately against explicitly
+expected successes. A justified refusal does not increase the expected-success
+denominator, and missing checks receive no dimension credit. The original case,
+parity and harness verdicts remain separate.
+
+Inspect `evaluation_summary.turns` by case ID and turn alongside the saved
+`cases`, raw `results`, execution mode, model-call counts and input/code hashes.
+`summary_sha256` identifies this supplementary reporting code separately from
+the unchanged grader hash. These summaries add inspectable reporting; they do
+not change expectations, grading, human approval or model-quality evidence.
+
 Controlled runs measure endpoint contract behavior, not natural-language planning
 accuracy. CI runs these checks without credentials. Real-provider evaluations are
 separate, explicit operations against the same frozen sources:
