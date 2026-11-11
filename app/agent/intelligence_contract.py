@@ -7,7 +7,7 @@ live in intelligence.py; execution remains in plan_execution.py.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal, Protocol, TypeAlias
+from typing import Literal, Protocol, TypeAlias, get_args
 
 API_VERSION = "nba_intelligence/2"
 ENTRY_POINT_GROUP = "nba_stats_desk.intelligence.v2"
@@ -15,6 +15,17 @@ ENTRY_POINT_GROUP = "nba_stats_desk.intelligence.v2"
 Phase: TypeAlias = Literal["Regular Season", "Playoffs", "Both"]
 Operation: TypeAlias = Literal["summary", "rank", "percentile", "game_log"]
 Aggregation: TypeAlias = Literal["average", "total", "ratio", "unspecified"]
+PriorAggregation: TypeAlias = Literal["average", "total", "ratio"]
+PriorAggregationSource: TypeAlias = Literal[
+    "explicit",
+    "inherited",
+    "metric_convention",
+    "planner_selected",
+    "omitted_default",
+    "legacy_average_compatibility",
+]
+PRIOR_AGGREGATIONS = frozenset(get_args(PriorAggregation))
+PRIOR_AGGREGATION_SOURCES = frozenset(get_args(PriorAggregationSource))
 Window: TypeAlias = Literal[
     "season_to_date",
     "last_n_games",
@@ -90,12 +101,16 @@ class RouteCapability:
 
 @dataclass(frozen=True, slots=True)
 class PriorAnalysis:
-    """Host-selected successful scope only; never answer text or statistical proof."""
+    """Host-selected successful scope and validated summary intent only."""
 
     route_id: str
     scopes: tuple[Scope, ...]
     player_names: tuple[str, ...]
     metric_keys: tuple[str, ...]
+    aggregation: PriorAggregation | None = None
+    aggregation_source: PriorAggregationSource | None = None
+    min_games: int | None = None
+    requires_scope_clarification: bool = False
 
 
 @dataclass(frozen=True, slots=True)
