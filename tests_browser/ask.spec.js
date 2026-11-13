@@ -754,7 +754,23 @@ test('question remains visible while an Ask request is pending', async ({page}) 
   await routed;
   await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
   await expect(page.locator('[data-agent-submit]')).toBeDisabled();
-  release();
+  const status = page.locator('[data-agent-status]');
+  const animation = () => status.evaluate(el => getComputedStyle(el, '::before').animationName);
+  try {
+    await expect(status).toBeVisible();
+    expect(await status.evaluate(el => getComputedStyle(el, '::before').backgroundImage)).toContain('basketball.svg');
+    expect(await animation()).toBe('ask-thinking');
+    const owner = await page.getByRole('tab', {selected: true}).getAttribute('data-chat-id');
+    await page.locator('[data-agent-new-chat]').click();
+    await expect(status).toBeHidden();
+    await selectSearchTab(page, owner);
+    await expect(status).toBeVisible();
+    await page.emulateMedia({reducedMotion: 'reduce'});
+    expect(await animation()).toBe('none');
+  } finally {
+    release();
+  }
+  await expect(status).toBeHidden();
   await expect(page.locator('[data-agent-submit]')).toBeEnabled();
   await expect(page.locator('[data-agent-question]')).toHaveValue(c.turns[0].question);
   await expect(page.locator('[data-agent-tables]')).toContainText('11.7 per game');
