@@ -543,7 +543,9 @@ body:has(.ask-desk) .publication-health {
   height: 1.15em;
   margin-right: 0.6em;
   vertical-align: -0.2em;
-  background: #ff9136 url("./icons/basketball.svg") center / contain no-repeat;
+  background: url("./icons/basketball.svg") 0 50% / 1.15em 100% repeat-x,
+    radial-gradient(circle at 35% 32%, #ffac56, #f88a30 58%, #cc601c);
+  box-shadow: inset 0 0 0 1px #68371c;
   border-radius: 50%;
   animation: ask-thinking 1.3s linear infinite;
 }
@@ -553,7 +555,7 @@ body:has(.ask-desk) .publication-health {
 }
 @keyframes ask-thinking {
   to {
-    transform: rotate(360deg);
+    background-position: 1.15em 50%, 0 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,5 @@
-import {comparisonDistribution, distributionNumber} from "./comparison_distribution.js?v=20261113-ask-basketball";
-import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261113-ask-basketball";
+import {comparisonDistribution, distributionNumber} from "./comparison_distribution.js?v=20261113-ask-basketball-v2";
+import {claimMode, observeClaims} from "./ask_claim_rollout.js?v=20261113-ask-basketball-v2";
 // Exact canonical evidence -> final DOM relationships; rendered text is never an oracle.
 export const UI_CLAIM_VERSION = "ask_ui_claim_bindings/1";
 const finite = Number.isFinite,
