@@ -17,6 +17,33 @@ metrics:
     percentile_key: reb_percentile
     leaderboard_column: avg_reb
     tier: 1
+  oreb:
+    label: OREB
+    description: Offensive rebounds per recorded appearance with a known component.
+    aliases: [offensive rebounds, offensive rebound, offensive boards]
+    game_log_key: oreb
+    trend_stat: OREB
+    percentile_key:
+    leaderboard_column:
+    tier: 3
+  dreb:
+    label: DREB
+    description: Defensive rebounds per recorded appearance with a known component.
+    aliases: [defensive rebounds, defensive rebound, defensive boards]
+    game_log_key: dreb
+    trend_stat: DREB
+    percentile_key:
+    leaderboard_column:
+    tier: 3
+  pf:
+    label: PF
+    description: Personal fouls per recorded appearance with a known component.
+    aliases: [personal fouls, personal foul, fouls, foul]
+    game_log_key: pf
+    trend_stat: PF
+    percentile_key:
+    leaderboard_column:
+    tier: 3
   ast:
     label: AST
     description: Assists per game across qualified players in the selected season.

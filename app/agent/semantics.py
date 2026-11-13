@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import calendar
 import math
+import operator
+import re
 from dataclasses import asdict, dataclass
 from dataclasses import field as dataclass_field
 from datetime import date, datetime, timedelta
@@ -23,9 +25,17 @@ from app.seasons import validate_season
 
 CATALOG_PATH = Path(__file__).with_name("semantic_contract.yml")
 COMPONENTS = frozenset(
-    "pts reb ast stl blk tov fg3m min fgm fga ftm fta fg3a plus_minus".split()
+    "pts reb ast stl blk tov fg3m min fgm fga ftm fta fg3a plus_minus oreb dreb pf".split()
 )
+OPTIONAL_COMPONENTS = frozenset({"oreb", "dreb", "pf"})
 PHASES = ("Regular Season", "Playoffs")
+STAT_FILTER_OPERATORS = {
+    "gt": operator.gt,
+    "gte": operator.ge,
+    "lt": operator.lt,
+    "lte": operator.le,
+    "eq": operator.eq,
+}
 
 
 class SemanticError(ValueError):
@@ -132,7 +142,7 @@ def _number(value: Any) -> float | None:
         return None
     try:
         parsed = float(value)
-    except (TypeError, ValueError) as exc:
+    except (TypeError, ValueError, OverflowError) as exc:
         raise SemanticError("invalid_data", "Non-numeric metric component") from exc
     if not math.isfinite(parsed):
         raise SemanticError("invalid_data", "Non-finite metric component")
@@ -218,8 +228,54 @@ class Query:
     limit: int = 10
     seasons: list[str] | None = None
     excluded_player_ids: list[int] | None = None
+    game_result: str | None = None
+    weekdays: list[int] | None = None
+    stat_filters: list[dict[str, Any]] | None = None
 
     def validate(self, metric: Metric) -> None:
+        for name in ("team_abbr", "opponent_abbr"):
+            value = getattr(self, name)
+            if value is not None and (
+                not isinstance(value, str) or not re.fullmatch(r"[A-Z]{2,4}", value)
+            ):
+                raise SemanticError("invalid_scope", f"Invalid {name}")
+        if self.game_result not in (None, "W", "L"):
+            raise SemanticError("invalid_scope", "Game result must be W or L")
+        if self.weekdays is not None and (
+            not isinstance(self.weekdays, list)
+            or not self.weekdays
+            or any(type(day) is not int or not 0 <= day <= 6 for day in self.weekdays)
+            or len(set(self.weekdays)) != len(self.weekdays)
+        ):
+            raise SemanticError(
+                "invalid_scope", "Weekdays must be distinct integers from 0 to 6"
+            )
+        if self.stat_filters is not None:
+            if not isinstance(self.stat_filters, list) or not self.stat_filters:
+                raise SemanticError("invalid_scope", "Supply stat filter predicates")
+            for predicate in self.stat_filters:
+                if not isinstance(predicate, dict) or set(predicate) != {
+                    "component",
+                    "op",
+                    "value",
+                }:
+                    raise SemanticError(
+                        "invalid_scope", "Invalid stat filter predicate"
+                    )
+                component, op, value = (
+                    predicate[k] for k in ("component", "op", "value")
+                )
+                if (
+                    not isinstance(component, str)
+                    or component not in COMPONENTS
+                    or not isinstance(op, str)
+                    or op not in STAT_FILTER_OPERATORS
+                    or not _finite_filter_number(value)
+                ):
+                    raise SemanticError(
+                        "invalid_scope",
+                        "Invalid stat filter component, operator or value",
+                    )
         if self.home_away not in (None, "HOME", "AWAY"):
             raise SemanticError("invalid_scope", "Venue must be HOME or AWAY")
         if self.seasons is not None:
@@ -394,9 +450,116 @@ def aggregate(
     }
 
 
-def run_query(
+def _finite_filter_number(value: Any) -> bool:
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _game_result(row: Mapping[str, Any]) -> Any:
+    """Read canonical outcome or the retained warehouse WL component."""
+    result, wl = row.get("game_result"), row.get("wl")
+    if result is not None and wl is not None and result != wl:
+        return None
+    return result if result is not None else wl
+
+
+def _matches_stat_filter(row: Mapping[str, Any], predicate: dict[str, Any]) -> bool:
+    value = _number(row.get(predicate["component"]))
+    return value is not None and STAT_FILTER_OPERATORS[predicate["op"]](
+        value, predicate["value"]
+    )
+
+
+def apply_game_filters(
+    rows: Sequence[Mapping[str, Any]], query: Query
+) -> list[Mapping[str, Any]]:
+    """Apply validated predicates together, rejecting unknown filter membership.
+
+    Supply rows already restricted to the relevant dates/identities. Missing box
+    scores remain partial metric evidence when their components are not filters.
+    """
+    fields = (
+        ("team_abbr", query.team_abbr),
+        ("opponent_abbr", query.opponent_abbr),
+        ("home_away", query.home_away),
+        ("game_result", query.game_result),
+    )
+    requested_fields = [(field, value) for field, value in fields if value is not None]
+    if not requested_fields and query.weekdays is None and query.stat_filters is None:
+        return list(rows)
+    relevant = (
+        [row for row in rows if row["player_id"] == query.player_id]
+        if query.player_id is not None and query.operation in ("summary", "game_log")
+        else rows
+    )
+    for row in relevant:
+        for field, _ in requested_fields:
+            value = _game_result(row) if field == "game_result" else row.get(field)
+            if field in ("team_abbr", "opponent_abbr"):
+                valid = isinstance(value, str) and bool(
+                    re.fullmatch(r"[A-Z]{2,4}", value)
+                )
+            elif field == "home_away":
+                valid = value in ("HOME", "AWAY")
+            else:
+                valid = value in ("W", "L")
+            if not valid:
+                label = "Home/away" if field == "home_away" else field
+                raise SemanticError(
+                    "incomplete_evidence",
+                    f"{label} is missing or unknown for games in this scope",
+                )
+        for predicate in query.stat_filters or []:
+            if _number(row.get(predicate["component"])) is None:
+                raise SemanticError(
+                    "incomplete_evidence",
+                    f"{predicate['component']} filter component is missing for games in this scope",
+                )
+    selected = []
+    for row in rows:
+        matches = True
+        for field, requested in requested_fields:
+            value = _game_result(row) if field == "game_result" else row.get(field)
+            if value != requested:
+                matches = False
+                break
+        if not matches:
+            continue
+        if (
+            query.weekdays is not None
+            and _date(row["game_date"]).weekday() not in query.weekdays
+        ):
+            continue
+        if not all(
+            _matches_stat_filter(row, predicate)
+            for predicate in query.stat_filters or []
+        ):
+            continue
+        selected.append(row)
+    return selected
+
+
+@dataclass(frozen=True)
+class QuerySelection:
+    rows: Sequence[Mapping[str, Any]]
+    scopes: list[tuple[str, str]]
+    seasons: list[str]
+    anchor: date
+    start: date | None
+    end: date
+
+
+def select_query_rows(
     evidence: Evidence, query: Query, contract: Contract | None = None
-) -> dict[str, Any]:
+) -> QuerySelection:
+    """Return full filtered cohort rows before presentation limits.
+
+    Appearance windows select each player's filtered appearances independently.
+    Callers producing individual series must then select ``query.player_id``;
+    cohort rows are retained so ranks and percentiles preserve their membership.
+    """
     contract = contract or load_contract()
     metric = contract.metric(query.metric)
     query.validate(metric)
@@ -427,41 +590,42 @@ def run_query(
     if anchor is None:
         raise SemanticError("unavailable", "No game date can anchor this scope")
     start, end = _window(query, anchor)
-    if query.home_away and any(
-        r.get("home_away") not in ("HOME", "AWAY")
-        for r in scoped
-        if (query.player_id is None or r["player_id"] == query.player_id)
-        and _date(r["game_date"]) <= end
-        and (start is None or _date(r["game_date"]) >= start)
-        and (query.team_abbr is None or r.get("team_abbr") == query.team_abbr)
-        and (
-            query.opponent_abbr is None or r.get("opponent_abbr") == query.opponent_abbr
-        )
-    ):
-        raise SemanticError(
-            "incomplete_evidence", "Home/away is missing for games in this scope"
-        )
-    selected = [
-        r
-        for r in scoped
-        if _date(r["game_date"]) <= end
-        and (start is None or _date(r["game_date"]) >= start)
-        and (query.team_abbr is None or r.get("team_abbr") == query.team_abbr)
-        and (
-            query.opponent_abbr is None or r.get("opponent_abbr") == query.opponent_abbr
-        )
-        and (query.home_away is None or r.get("home_away") == query.home_away)
+    dated = [
+        row
+        for row in scoped
+        if _date(row["game_date"]) <= end
+        and (start is None or _date(row["game_date"]) >= start)
     ]
+    selected = apply_game_filters(dated, query)
+    grouped: dict[int, list[Mapping[str, Any]]] = {}
+    for row in selected:
+        grouped.setdefault(row["player_id"], []).append(row)
+    selected = []
+    for rows in grouped.values():
+        rows.sort(key=lambda r: (str(r["game_date"]), r["game_id"]), reverse=True)
+        if query.window in ("last_n_games", "prior_n_games"):
+            assert query.n is not None
+            offset = query.n if query.window == "prior_n_games" else 0
+            rows = rows[offset : offset + query.n]
+        selected.extend(rows)
+    return QuerySelection(selected, scopes, seasons, anchor, start, end)
+
+
+def run_query(
+    evidence: Evidence, query: Query, contract: Contract | None = None
+) -> dict[str, Any]:
+    contract = contract or load_contract()
+    metric = contract.metric(query.metric)
+    selection = select_query_rows(evidence, query, contract)
+    selected = selection.rows
+    scopes, seasons = selection.scopes, selection.seasons
+    anchor, start, end = selection.anchor, selection.start, selection.end
     if query.operation == "game_log":
         rows = sorted(
             (r for r in selected if r["player_id"] == query.player_id),
             key=lambda r: (str(r["game_date"]), r["game_id"]),
             reverse=True,
         )
-        if query.window in ("last_n_games", "prior_n_games"):
-            assert query.n is not None
-            offset = query.n if query.window == "prior_n_games" else 0
-            rows = rows[offset : offset + query.n]
         observed = len(rows)
         warnings = []
         if (
@@ -529,10 +693,6 @@ def run_query(
     minimum = query.min_games if query.min_games is not None else contract.min_games
     for player_id, rows in grouped.items():
         rows.sort(key=lambda r: (str(r["game_date"]), r["game_id"]), reverse=True)
-        if query.window in ("last_n_games", "prior_n_games"):
-            assert query.n is not None
-            offset = query.n if query.window == "prior_n_games" else 0
-            rows = rows[offset : offset + query.n]
         summary = aggregate(rows, metric, query.aggregation)
         reasons = []
         if summary["valid_games"] < minimum:

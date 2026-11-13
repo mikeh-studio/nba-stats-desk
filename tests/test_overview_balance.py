@@ -69,12 +69,15 @@ def test_intent_and_overview_route(question, profile):
         "What about his rebounds and turnovers?",
         "How did Example Player's scoring and rebounding change?",
         "Give me an overview of Example Player's playmaking and defense",
-        "Example Player non-scoring stats at home",
         "Example Player non-scoring stats per 36 minutes",
     ],
 )
 def test_explicit_metrics_and_constraints_are_not_erased(question):
     assert not wants_overview(question)
+
+
+def test_supported_venue_filter_retains_focused_overview():
+    assert wants_overview("Example Player non-scoring stats at home")
 
 
 def test_contribution_contains_creation_without_scoring(metrics):

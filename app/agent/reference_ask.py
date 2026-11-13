@@ -6,13 +6,30 @@ import hashlib
 import json
 import math
 import re
+from dataclasses import replace
 from time import monotonic
 from typing import Any
 
 from app.agent.availability_ask import METRICS, _identities
 from app.agent.execution import timed
+from app.agent.game_filters import (
+    COMPONENTS as FILTER_COMPONENTS,
+)
+from app.agent.game_filters import (
+    extract_game_filters,
+    filter_description,
+    filter_scope,
+)
+from app.agent.independent_baseline import (
+    IndependentBaselineSpec,
+    build_independent_baseline,
+    independent_baseline_seasons,
+    parse_independent_baseline,
+    period_label,
+)
 from app.agent.payload import answer_payload
 from app.agent.performance_overview import identity_profile
+from app.agent.scope_policy import screen_assists_message
 from app.agent.semantic_serving import requested_seasons, source_players
 from app.agent.semantics import (
     Query,
@@ -20,10 +37,84 @@ from app.agent.semantics import (
     aggregate,
     load_contract,
     run_query,
+    select_query_rows,
 )
+from app.agent.time_defaults import resolve_recent_season
 
 BASELINE = r"\b(?:league\s+(?:average|baseline)|against\s+(?:the\s+)?baseline)\b"
 SIMILARITY = r"\b(?:similar(?:ity)?|resembles?|like|alike|nearest)\b"
+BASELINE_RELATIVE_PERIOD = (
+    r"\b(this|current|selected|last|previous|prior|these(?= playoffs\b)) "
+    r"(regular[ -]season|postseason|playoffs?|season)(?:['’]s)?\b"
+)
+
+
+def recent_appearance_window(text: str):
+    """Recognize a potential window without admitting its count or filters."""
+    return re.search(
+        r"\b(?:last|past)\s+(?:[a-z]+|\d+)\s+"
+        r"(?:(?:regular[ -]season|playoff)\s+)?"
+        r"(?:(?:home|away|road)\s+)?(?:games?|appearances?)\b",
+        text,
+        re.I,
+    )
+
+
+def recent_venue_mentions(text: str) -> tuple[bool, bool]:
+    """Recognize rejected venue windows after masking player identities."""
+    if not recent_appearance_window(text):
+        return False, False
+    # The caller masks identities before classifying venue, including venues
+    # written before the window ("on the road over the last five games").
+    scope = text
+    return (
+        bool(re.search(r"\bat home\b|\bhome (?:games?|appearances?)\b", scope, re.I)),
+        bool(
+            re.search(
+                r"\bon the road\b|\b(?:away|road) (?:games?|appearances?)\b|"
+                r"\b(?:games?|appearances?) away\b",
+                scope,
+                re.I,
+            )
+        ),
+    )
+
+
+def baseline_outcome_message(text: str) -> str | None:
+    wins = re.search(
+        r"\bin (?:wins|victories)\b|\b(?:wins|victories)[ -]only\b|"
+        r"\bonly (?:in )?(?:wins|victories)\b|"
+        r"\bgames (?:that )?(?:(?:(?:his|her|their|the) team|they|he|she) )?won\b(?!['’])",
+        text,
+        re.I,
+    )
+    losses = re.search(
+        r"\b(?:losses|defeats)\b|\bgames (?:that )?"
+        r"(?:(?:(?:his|her|their|the) team|they|he|she) )?lost\b",
+        text,
+        re.I,
+    )
+    if losses and (wins or re.search(r"\b(?:wins|victories)\b", text, re.I)):
+        outcomes = r"(?:wins|victories|losses|defeats)"
+        contrast = re.search(
+            rf"\b{outcomes}\s+(?:vs\.?|versus|against|compared (?:with|to))\s+{outcomes}\b",
+            text,
+            re.I,
+        )
+        return (
+            (
+                "This league baseline cannot compare separate wins and losses baselines. "
+                if contrast
+                else "Your request mentions both wins and losses. Please specify whether you want one unfiltered baseline or separate outcome baselines. "
+            )
+            + "Outcome-specific league baselines are not supported; an unfiltered baseline includes all results in the requested period."
+        )
+    if wins:
+        return (
+            "This league baseline cannot filter player or league appearances to wins only. "
+            "It supports all results within the same season, phase and date window; ask for that scope explicitly."
+        )
+    return None
 
 
 def reference_kind(question: str) -> str | None:
@@ -57,16 +148,239 @@ def reference_followup(question: str, context: dict[str, Any]) -> str | None:
     if eligible and any(
         re.fullmatch(pattern, metric, re.I) for pattern in METRICS.values()
     ):
-        for pattern in METRICS.values():
-            previous = re.sub(
-                r"(?<!\w)(?:" + pattern + r")(?!\w)", " ", previous, flags=re.I
+        # Replace only the requested measure, retaining its grammatical slot.
+        # Names and numeric predicate components are independent scope fields.
+        protected: list[tuple[int, int]] = []
+        names = [p["player_name"] for p in context.get("players", [])]
+        names.extend(context.get("reference_identity_names", []))
+        for name in names:
+            protected.extend(
+                match.span()
+                for match in re.finditer(
+                    r"(?<!\w)" + re.escape(name) + r"(?!\w)", previous, re.I
+                )
             )
-        return previous + " " + metric
+        components = "|".join(
+            re.escape(name) for name in sorted(FILTER_COMPONENTS, key=len, reverse=True)
+        )
+        protected.extend(
+            match.span()
+            for match in re.finditer(
+                rf"(?:\b(?:at least|more than|over|at most|no more than|fewer than|less than|under|exactly)\s+|[<>]=?\s*|=\s*)-?\d+(?:\.\d+)?\s+(?:{components})(?!\w)",
+                previous,
+                re.I,
+            )
+        )
+        spans = {
+            match.span()
+            for pattern in METRICS.values()
+            for match in re.finditer(
+                r"(?<!\w)(?:" + pattern + r")(?!\w)", previous, re.I
+            )
+            if not any(
+                start <= match.start() and match.end() <= end
+                for start, end in protected
+            )
+        }
+        ordered_spans = sorted(
+            (start, end)
+            for start, end in spans
+            if not any(
+                a <= start and end <= b and (a < start or end < b) for a, b in spans
+            )
+        )
+        if not ordered_spans:
+            return (
+                previous + " " + metric
+                if reference_kind(previous) == "similarity"
+                else None
+            )
+        for start, end in reversed(ordered_spans):
+            previous = previous[:start] + metric + previous[end:]
+        return previous
     return None
 
 
+class BaselinePeriodClarification(SemanticError):
+    """A period question requiring restatement, not an identity selection."""
+
+    def __init__(self):
+        super().__init__(
+            "clarification_required",
+            "Which season and phase do you mean by the recent season or playoffs? "
+            "Restate the full comparison with an explicit season and phase; "
+            "'recent' alone means the last ten recorded appearances.",
+        )
+
+
+def resolve_baseline_relative_seasons(text: str, selected_season: str) -> str:
+    """Reconcile every season anchor before any identifier can be consumed."""
+    alias = BASELINE_RELATIVE_PERIOD
+    matches = list(re.finditer(alias, text))
+    if not matches:
+        return text
+    # This is also the host's warehouse-load scope. An alias that the host
+    # cannot resolve to the same season must fail closed, rather than removing
+    # its words and accidentally querying the selected season.
+    seasons = set(requested_seasons(text, selected_season))
+    year = int(selected_season[:4]) - 1
+    previous = f"{year}-{str(year + 1)[-2:]}"
+
+    def resolve(match):
+        return (
+            selected_season
+            if match[1] in {"this", "current", "selected", "these"}
+            else previous
+        )
+
+    seasons.update(resolve(match) for match in matches)
+    if len(seasons) != 1:
+        raise SemanticError(
+            "unsupported_scope",
+            "The requested season references do not identify one shared season. "
+            "This league baseline cannot compare different seasons; specify the same season for the player and league.",
+        )
+    return re.sub(
+        alias,
+        lambda match: resolve(match) + (" " + match[2] if match[2] != "season" else ""),
+        text,
+    )
+
+
+def validate_baseline_period_shape(text: str) -> None:
+    """Keep temporal operations visible before the scalar grammar removes scope."""
+    # A calendar-resolved recent season still denotes a full season operand.
+    # Keep that distinction from an incidental year qualifying a shared window.
+    text = re.sub(
+        r"\b(?:most\s+)?recent\s+(?:nba\s+)?(?:regular[ -]season|season)\b",
+        "full season",
+        text,
+    )
+    if re.search(
+        r"\brecent\s+(?:20\d{2}[-–/](?:20)?\d{2}\s+)?"
+        r"(?:regular[ -]season|season|playoffs?|postseason)\b",
+        text,
+    ):
+        raise BaselinePeriodClarification()
+    if re.search(r"\btrend(?:s|ing)?\b", text):
+        raise SemanticError(
+            "unsupported_scope",
+            "This league baseline returns one summary for a shared period. "
+            "It cannot show a trend or changes across periods; ask for one period explicitly.",
+        )
+    # A range's 'to' is a date delimiter, not a comparison link. Mask it only
+    # for shape validation; the actual parser still validates the full range.
+    shape = re.sub(
+        r"\bfrom \d{4}-\d{2}-\d{2} (?:through|to) \d{4}-\d{2}-\d{2}\b",
+        " DATE_RANGE ",
+        text,
+    )
+    baseline = r"\b(?:league\s+(?:average|baseline)|baseline)\b"
+    # A bounded leading season clause qualifies the whole comparison, rather
+    # than attaching a season only to the first side of its binary link.
+    year = r"20\d{2}[-–/](?:20)?\d{2}(?![-/]\d)"
+    phase = r"(?:regular[ -]season|playoffs?|postseason|season)"
+    season = rf"(?:{year}(?: {phase})?|{phase} (?:in |for )?{year}|{BASELINE_RELATIVE_PERIOD}|full season)"
+    shape = re.sub(
+        rf"^(?:in|for|during|over) (?:the )?{season}(?:\s*,\s*|\s+)",
+        "",
+        shape,
+    )
+    # A leading comparison complement is a league operand. Its comma bounds
+    # the operand, including metric/date modifiers; without a comma, the first
+    # source-backed player token bounds the following focal clause.
+    prefix = re.match(r"^(?:compared (?:to|with)|against|versus|vs)\s+", shape)
+    preposed = False
+    if prefix:
+        boundary = shape.find(",", prefix.end())
+        player = re.search(r"\bplayer\d+\b", shape)
+        if player and (boundary < 0 or player.start() < boundary):
+            boundary = player.start()
+        if boundary >= 0 and re.search(baseline, shape[prefix.end() : boundary]):
+            preposed = True
+            league_operand = shape[prefix.end() : boundary]
+            shape = shape[boundary:].lstrip(", ") + " against " + league_operand
+    links = list(re.finditer(r"\b(?:versus|vs|against|with|to)\b", shape))
+    # Only the player-versus-league relationship is representable here. A
+    # second comparison, or one connecting periods rather than the baseline,
+    # must not collapse into one last-N/date/season statistic.
+    unsupported = len(links) > 1
+    sides = None
+    if len(links) == 1:
+        link = links[0]
+        sides = shape[: link.start()], shape[link.end() :]
+    elif not links and shape.count(",") == 1:
+        left, _, right = shape.partition(",")
+        sides = left, right
+    window = r"\blast \d+ games?\b|\brecent\b|\bDATE_RANGE\b"
+    season_scope = r"\b(?:20\d{2}[-–/](?:20)?\d{2}|season|playoffs?|postseason)\b"
+    if sides:
+        left, right = sides
+        if re.search(baseline, left) and re.search(r"\bplayer\d+\b", right):
+            focal, league = right, left
+        elif re.search(r"\bplayer\d+\b", left) and re.search(baseline, right):
+            focal, league = left, right
+        else:
+            unsupported = True
+            focal = league = ""
+        focal_window = re.search(window, focal)
+        league_window = re.search(window, league)
+        # The existing grammar accepts a focal appearance/date window qualified
+        # by a trailing league-side season. The reverse assigns a separate
+        # window to the league and cannot define one shared focal calendar.
+        if league_window and (focal_window or re.search(season_scope, focal)):
+            unsupported = True
+        if focal_window:
+            league_name = re.search(baseline, league)
+            if (
+                re.search(BASELINE_RELATIVE_PERIOD, league)
+                or re.search(
+                    r"\b(?:full|entire|whole) season\b|\bseason[ -]to[ -]date\b", league
+                )
+                or (preposed and re.search(season_scope, league))
+                or (
+                    league_name
+                    and re.search(season_scope, league[: league_name.start()])
+                )
+            ):
+                unsupported = True
+    elif re.search(window, shape) and re.search(season_scope, shape):
+        # Scope-bearing operands without a reliable boundary cannot authorize
+        # a single shared window merely because all words can be consumed.
+        unsupported = True
+    if unsupported:
+        raise SemanticError(
+            "unsupported_scope",
+            "This league baseline supports a player-versus-league summary for one shared period. "
+            "It cannot compare the season with a recent window or contrast other periods; ask for one period explicitly.",
+        )
+
+
 @timed("identity")
-def parse_reference(question, players, season, kind):
+def parse_reference(
+    question,
+    players,
+    season,
+    kind,
+    *,
+    enforce_profile_season=False,
+    period_question=None,
+):
+    filters = {}
+    if kind == "league_baseline":
+        tracking_text, _ = _identities(question, players)
+        if message := screen_assists_message(tracking_text):
+            raise SemanticError("unsupported_scope", message)
+        extracted = extract_game_filters(question, players)
+        question, filters = extracted.cleaned_question, extracted.query_fields
+        if period_question:
+            period_question = extract_game_filters(
+                period_question, players
+            ).cleaned_question
+    resolved_question, time_notes = resolve_recent_season(question)
+    if time_notes:
+        period_question = period_question or question
+        question = resolved_question
     if re.search(r"\bplayer\d+\b", question, re.I):
         raise SemanticError("clarification_required", "Use a player's full name.")
     text, named = _identities(question, players)
@@ -77,11 +391,62 @@ def parse_reference(question, players, season, kind):
         )
     player = next(iter(named.values()))
     seasons = requested_seasons(question, season)
+    if message := screen_assists_message(text):
+        raise SemanticError("unsupported_scope", message)
+    if kind == "league_baseline":
+        original_shape = (
+            _identities(period_question, players)[0] if period_question else text
+        )
+        independent = parse_independent_baseline(
+            text, player, season, filters=filters, original_shape=original_shape
+        )
+        if independent is not None:
+            return player, independent.player_query.season, independent
     if len(seasons) != 1:
         raise SemanticError("unsupported_scope", "Use one season for this comparison.")
+    if (
+        enforce_profile_season
+        and kind == "similarity"
+        and seasons != [season]
+        and not recent_appearance_window(text)
+    ):
+        raise SemanticError(
+            "unsupported_coverage",
+            "The similarity publication must match the selected season.",
+        )
+    if kind == "league_baseline":
+        resolved_text = resolve_baseline_relative_seasons(text, season)
+        period_text = (
+            _identities(period_question, players)[0] if period_question else text
+        )
+        validate_baseline_period_shape(period_text)
+        text = resolved_text
+        # Consume temporal connectors only next to a period this handler parses.
+        # A dangling connector must still require a complete scope request.
+        text = re.sub(
+            r"\b(?:during|over)\s+(?:the\s+)?"
+            r"(?=(?:20\d{2}[-–/](?:20)?\d{2}(?![-/]\d)|regular[ -]season|"
+            r"playoffs?|postseason|last \d+ games?|recent)\b)",
+            " ",
+            text,
+        )
     text = re.sub(r"player\d+|(?:20\d{2})[-–/](?:20)?\d{2}(?![-/]\d)", " ", text)
     text = re.sub(r"[’']s\b", " ", text)
     if kind == "similarity":
+        home, road = recent_venue_mentions(text)
+        if home or road:
+            venue = (
+                "home or road games"
+                if home and road
+                else "home games"
+                if home
+                else "road games"
+            )
+            raise SemanticError(
+                "unsupported_scope",
+                f"Recent statistical similarity cannot filter appearances to {venue}. "
+                "It supports each player's last-N appearances across all venues; ask for that scope explicitly.",
+            )
         games = re.search(
             r"\b(?:last|past)\s+(five|\d+)\s+(?:(?:regular[ -]season|playoff)\s+)?games?\b",
             text,
@@ -193,7 +558,7 @@ def parse_reference(question, players, season, kind):
         )
     text = re.sub(r"regular[ -]season|\b(?:playoffs?|postseason)\b", " ", text)
     text = re.sub(
-        r"\b(?:compare|compared|show|tell|me|how|did|does|perform|performed|against|versus|vs|with|to|the|for|in|season|this|per game|average|averaging|trend|his)\b",
+        r"\b(?:compare|compared|show|tell|me|how|did|does|perform|performed|against|versus|vs|with|to|the|for|in|season|this|per game|average|averaging|his)\b",
         " ",
         text,
     )
@@ -210,6 +575,7 @@ def parse_reference(question, players, season, kind):
         season_type=phase,
         player_id=player["player_id"],
         min_games=1,
+        **filters,
         **scope,
     )
     query.validate(metric)
@@ -249,14 +615,16 @@ def build_baseline(evidence, player, query):
     )
     if query.window == "last_n_games":
         current["scope"].update(window_start=start, window_end=end)
-    peers = [
-        r
-        for r in evidence.rows
-        if r["season"] == query.season
-        and r["season_type"] == query.season_type
-        and (start is None or r["game_date"] >= start)
-        and r["game_date"] <= end
-    ]
+    peer_query = replace(
+        query,
+        player_id=None,
+        operation="summary",
+        window="date_range",
+        start_date=start or f"{query.season[:4]}-07-01",
+        as_of=end,
+        n=None,
+    )
+    peers = select_query_rows(evidence, peer_query).rows
     metric = load_contract().metric(query.metric)
     baseline = aggregate(peers, metric, query.aggregation)
     baseline.pop("game_ids", None)  # Full peer membership belongs in source artifacts.
@@ -288,6 +656,7 @@ def build_baseline(evidence, player, query):
         if scale == 100
         else f"{metric.label} per game",
         "baseline_scope": {
+            **filter_scope(current["scope"]),
             "season": query.season,
             "season_type": query.season_type,
             "start_date": start,
@@ -450,6 +819,40 @@ def render_reference(evidence, player):
             "Incomplete inputs suppress the difference; individual partial averages use only complete observations.",
             *evidence["warnings"],
         ]
+        if evidence.get("independent_periods"):
+            focal_period = period_label(evidence["scope"])
+            league_period = period_label(scope)
+            payload["answer"] = (
+                f"{player['player_name']} ({focal_period}): {fmt(a['display_value'])} {metric['label']}; "
+                f"league baseline ({league_period}): {fmt(b['display_value'])}. "
+                + (
+                    "The difference is unavailable because a comparison sample is incomplete."
+                    if delta is None
+                    else f"Player minus league: {delta:+.1f} {evidence['difference_unit']}."
+                )
+            )
+            table = payload["tables"][0]
+            table["title"] += " — independent periods"
+            table["columns"].append({"key": "period", "label": "Selected period"})
+            table["rows"][0].append(focal_period)
+            table["rows"][1].append(league_period)
+            payload["assumptions"] = [
+                f"Player period: {focal_period}.",
+                f"League period: {league_period}.",
+                "These are two independently selected periods; the league window is not the focal player's calendar interval. This compares descriptive averages, not a trend or statistical significance.",
+                "League baseline: all matching recorded appearances, including this player, with at least one appearance per player. Count averages are appearance-weighted; shooting ratios pool complete components, never average game percentages.",
+                "Missing inputs remain unknown; partial averages use only complete observations and suppress the difference and chart. Zero denominators are unavailable.",
+                f"Player source: {evidence['provenance']['source']}; snapshot {evidence['provenance']['snapshot_id']}; data through {evidence['provenance']['data_through']}.",
+                f"League source: {evidence['baseline_provenance']['source']}; snapshot {evidence['baseline_provenance']['snapshot_id']}; data through {evidence['baseline_provenance']['data_through']}.",
+                *evidence["warnings"],
+            ]
+            if scope.get("appearance_window_definition"):
+                payload["assumptions"].append(
+                    f"League window: up to {scope['n']} matching recorded appearances per player, selected independently before pooling. "
+                    f"{scope['player_count']} players contributed {b['observed_games']} appearances; "
+                    f"{scope['partial_window_players']} players had fewer than {scope['n']}. Their actual appearances are retained, without invented games. "
+                    f"Observed league dates: {scope['selected_start_date']} through {scope['selected_end_date']}."
+                )
     from app.agent.claim_renderers import reference_tables
 
     reference_tables(payload, player)
@@ -472,8 +875,13 @@ def answer_reference(
     context = route_context.context
     inherited_reference = route_context.reference_followup_question is not None
     question = route_context.reference_question
+    period_clarification = False
     try:
-        seasons = requested_seasons(question, agent.settings.season)
+        seasons = (
+            independent_baseline_seasons(question, agent.settings.season)
+            if kind == "league_baseline"
+            else None
+        ) or requested_seasons(question, agent.settings.season)
         if agent.semantic_agent is None:
             raise SemanticError(
                 "unsupported_coverage",
@@ -481,13 +889,12 @@ def answer_reference(
             )
         if (
             kind == "similarity"
-            and not re.search(
-                r"\b(?:last|past)\s+(?:five|\d+)\s+(?:(?:regular[ -]season|playoff)\s+)?games?\b",
-                question,
-                re.I,
-            )
             and seasons != [agent.settings.season]
+            and not recent_appearance_window(question)
         ):
+            # Fail fast for an obvious published-profile request. A raw-name
+            # window match only defers this decision: parse_reference repeats
+            # the authoritative check after masking source-backed identities.
             raise SemanticError(
                 "unsupported_coverage",
                 "The similarity publication must match the selected season.",
@@ -523,7 +930,12 @@ def answer_reference(
                 or p["player_name"] != chosen["player_name"]
             ]
         player, season, spec = parse_reference(
-            question, players, agent.settings.season, kind
+            question,
+            players,
+            agent.settings.season,
+            kind,
+            enforce_profile_season=True,
+            period_question=route_context.period_question,
         )
         if (
             inherited_reference
@@ -538,7 +950,10 @@ def answer_reference(
                 "invalid_context",
                 "Saved reference identity does not match this source. Restate the full name and scope.",
             )
-        if kind == "similarity" and isinstance(spec, dict):
+        if isinstance(spec, IndependentBaselineSpec):
+            evidence = build_independent_baseline(source, player, spec)
+            payload = render_reference(evidence, player)
+        elif kind == "similarity" and isinstance(spec, dict):
             from app.agent.recent_similarity import (
                 build_recent_similarity,
                 render_recent_similarity,
@@ -553,13 +968,20 @@ def answer_reference(
                 else build_baseline(source, player, spec)
             )
             payload = render_reference(evidence, player)
+        if note := filter_description(evidence.get("scope", {})):
+            payload.setdefault("assumptions", []).append(note)
         if kind == "league_baseline" and evidence["difference"] is not None:
             metric = evidence["metric"]
             unit = "%" if metric["unit"] == "ratio" else "per game"
             payload["charts"] = [
                 {
                     "type": "bar",
-                    "title": f"{metric['label']} — player versus league",
+                    "title": f"{metric['label']} — player versus league"
+                    + (
+                        " — independent periods"
+                        if evidence.get("independent_periods")
+                        else ""
+                    ),
                     "x_label": "Group",
                     "y_label": f"{metric['label']} ({unit})",
                     "series": [
@@ -570,7 +992,17 @@ def answer_reference(
                                 {
                                     "x": label,
                                     "y": group["display_value"],
-                                    "meta": f"{group['valid_games']} complete player appearances",
+                                    "meta": f"{group['valid_games']} complete player appearances"
+                                    + (
+                                        "; "
+                                        + period_label(
+                                            evidence["scope"]
+                                            if label == player["player_name"]
+                                            else evidence["baseline_scope"]
+                                        )
+                                        if evidence.get("independent_periods")
+                                        else ""
+                                    ),
                                 }
                                 for label, group in (
                                     (player["player_name"], evidence["player"]),
@@ -585,14 +1017,28 @@ def answer_reference(
             "question": original,
             "reference_question": question,
             "players": [{k: player[k] for k in ("player_id", "player_name")}],
+            "reference_identity_names": [
+                player["player_name"],
+                *player.get("aliases", []),
+            ],
             "scope": evidence["scope"],
+            **(
+                {"baseline_scope": evidence["baseline_scope"]}
+                if evidence.get("independent_periods")
+                else {}
+            ),
             "metrics": [evidence["metric"]["key"]]
             if kind == "league_baseline"
             else evidence.get("metrics", []),
         }
     except SemanticError as exc:
         payload = answer_payload(str(exc), status=exc.code)
-        if exc.code == "clarification_required" and "players" in locals():
+        period_clarification = isinstance(exc, BaselinePeriodClarification)
+        if (
+            exc.code == "clarification_required"
+            and not period_clarification
+            and "players" in locals()
+        ):
             from app.agent.performance_overview import resolve_overview_player
 
             options = resolve_overview_player(question, players, source.rows)
@@ -625,7 +1071,7 @@ def answer_reference(
         trace.set_plan(route=kind, confidence=1.0)
         trace.outcome = "answered" if payload["status"] == "ok" else payload["status"]
     if store:
-        if payload["status"] == "clarification_required":
+        if payload["status"] == "clarification_required" and not period_clarification:
             store.set_pending_clarification(
                 conversation_id,
                 question=question,

@@ -843,7 +843,7 @@ async def propose(provider, context, *, model, budget):
         raise ExecutionFailure("invalid_provider_output") from None
 
 
-def plan_question(
+def _plan_question(
     client,
     *,
     settings,
@@ -857,6 +857,7 @@ def plan_question(
     dated_points_eligible=True,
     dated_points_question=None,
     deterministic=False,
+    literal_question=None,
 ):
     provider = get_provider(settings)
     current_question = (
@@ -892,7 +893,11 @@ def plan_question(
                 model_calls=0,
             )
     context = planning_context(
-        current_question, selected_season, players, teams, conversation_context
+        literal_question or current_question,
+        selected_season,
+        players,
+        teams,
+        conversation_context,
     )
     from app.agent.reference_planner import ReferenceProvider, league_leader_plan
 
@@ -900,9 +905,21 @@ def plan_question(
         deterministic and dated_points_eligible
     ):
         reference = ReferenceProvider()
+        from app.agent.game_filters import extract_game_filters
+
+        reference_context = (
+            replace(
+                context,
+                question=extract_game_filters(
+                    context.question, players
+                ).cleaned_question,
+            )
+            if literal_question
+            else context
+        )
         proposed = asyncio.run(
             reference.plan(
-                context,
+                reference_context,
                 api.IntentSelection("metrics", False),
                 prompts=reference.prompts(),
                 budget=api.PlanningBudget(monotonic() + 1, 0, 0),
@@ -957,4 +974,55 @@ def plan_question(
         plan["status"],
         plan["model_calls"],
     )
+    return plan
+
+
+def plan_question(client, *, question, conversation_context=None, **kwargs):
+    """Bind host-parsed predicates without changing the optional provider ABI."""
+    from app.agent.game_filters import extract_game_filters, filter_scope
+
+    extracted = extract_game_filters(question, kwargs.get("players", ()))
+    predicates = dict(extracted.query_fields)
+    from app.agent.derived_series import period_comparison_plan
+
+    period_plan = period_comparison_plan(
+        extracted.cleaned_question,
+        kwargs["selected_season"],
+        [p["player_name"] for p in kwargs.get("players", ())],
+    )
+    if period_plan:
+        for proposal in period_plan["queries"]:
+            proposal.update(predicates)
+        period_plan["explicit_period_operands"] = True
+        return period_plan
+    prior = (conversation_context or {}).get("scope") or {}
+    # A terse metric follow-up retains the successful scoped population. New
+    # literals replace their own dimension; other predicate dimensions persist.
+    if re.match(r"^(?:what|how) about\b", question, re.I):
+        predicates = {**filter_scope(prior), **predicates}
+    if explicit_metric_mentions(extracted.cleaned_question) & {"oreb", "dreb", "pf"}:
+        kwargs["deterministic"] = True
+    if not predicates:
+        return _plan_question(
+            client,
+            question=question,
+            conversation_context=conversation_context,
+            **kwargs,
+        )
+    kwargs["deterministic"] = True
+    kwargs["literal_question"] = question
+    plan = _plan_question(
+        client,
+        question=extracted.cleaned_question,
+        conversation_context=conversation_context,
+        **kwargs,
+    )
+    for proposal in plan.get("queries", []):
+        for key, value in predicates.items():
+            if proposal.get(key) is not None and proposal[key] != value:
+                raise SemanticError(
+                    "invalid_plan",
+                    "The proposed game filter contradicts the requested scope.",
+                )
+        proposal.update(predicates)
     return plan

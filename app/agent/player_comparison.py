@@ -133,8 +133,13 @@ def evaluative_sides(text):
 
 
 def comparison_sides(question):
+    from app.agent.game_filters import extract_game_filters
     from app.agent.overview_positions import strip_peer_clause
 
+    try:
+        question = extract_game_filters(question).cleaned_question
+    except SemanticError:
+        return None  # Preserve the semantic guard's exact predicate refusal.
     original = strip_peer_clause(question.split("\nClarification:", 1)[0])
     original = original.split("\nSelected player:", 1)[0]
     if "\nCurrent question:" in original:
@@ -157,6 +162,8 @@ def comparison_sides(question):
 
     if re.match(r"\s*(?:in\s+)?" + MONTH_PATTERN, parts[1], re.I):
         return None
+    if re.match(r"\s*(?:from\s+)?20\d{2}-\d{2}-\d{2}\b", parts[1], re.I):
+        return None
     # A baseline is not a second player, regardless of comparison wording.
     if re.match(
         r"\s*(?:(?:the|his|her|their|its|an?)\s+)?(?:prior|previous|last|past|this|current|career|league|average player|best season|rookie season|year ago|regular season|playoffs?|postseason|home|away|road|before|after|20\d{2})\b",
@@ -168,6 +175,10 @@ def comparison_sides(question):
 
 
 def comparison_scope(question, season, today=None):
+    from app.agent.game_filters import extract_game_filters
+
+    extracted = extract_game_filters(question)
+    question = extracted.cleaned_question
     # Never silently turn round, clutch, per-minute or last-N-game requests into
     # a whole-season average. Those need their own governed scope.
     if re.search(
@@ -186,6 +197,7 @@ def comparison_scope(question, season, today=None):
         year = int(playoff_year[1])
         question += f" {year - 1}-{str(year)[-2:]}"
     scope = overview_scope(question, season, today)
+    scope.update(extracted.query_fields)
     scope["seasons"] = [
         s
         for s in scope["seasons"]
@@ -196,6 +208,13 @@ def comparison_scope(question, season, today=None):
 
 @timed("comparison")
 def build_comparison(question, evidence, players, scope, selected=None, choices=None):
+    from app.agent.game_filters import (
+        extract_game_filters,
+        filter_description,
+        filter_question,
+    )
+
+    question = extract_game_filters(question).cleaned_question
     sides = comparison_sides(question)
     if not sides:
         raise SemanticError(
@@ -361,6 +380,8 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
     # Optional impact measures stay absent until a verified matching-scope source is connected.
     impact = []
     canonical = f"{names[0]} vs {names[1]} from {scope['start']} through {scope['end']} ({' + '.join(scope['phases'])})"
+    if note := filter_question(scope):
+        canonical += " " + note
     return {
         "status": "ok"
         if all(s["status"] == "ok" for s in summaries)
@@ -385,6 +406,7 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
             f"Source: {evidence.source}; snapshot {evidence.snapshot_id}. Warehouse coverage is not independent proof of complete NBA coverage.",
             "Comparisons describe recorded box-score production, not isolated player impact.",
             "Additional sections retain each metric's valid/observed appearances. Partial inputs suppress differences. Shooting rates use aggregate attempts, not averaged game percentages; per-36 rates use total minutes.",
+            *([filter_description(scope)] if filter_description(scope) else []),
         ],
         "semantic_evidence": {
             "kind": "player_comparison",

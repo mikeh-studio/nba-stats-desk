@@ -19,6 +19,12 @@ from app.agent.semantics import SemanticError
 _METRICS = {
     "points": "pts",
     "rebounds": "reb",
+    "offensive rebounds": "oreb",
+    "defensive rebounds": "dreb",
+    "personal fouls": "pf",
+    "oreb": "oreb",
+    "dreb": "dreb",
+    "pf": "pf",
     "assists": "ast",
     "steals": "stl",
     "blocks": "blk",
@@ -96,6 +102,25 @@ class ReferenceProvider:
         return api.IntentSelection("metrics", context.prior is not None)
 
     async def plan(self, context, intent, *, prompts, budget, model):
+        from app.agent.derived_series import period_comparison_plan
+
+        periods = period_comparison_plan(
+            context.question, context.selected_season, context.player_names
+        )
+        if periods:
+            proposals = []
+            scope_fields = {f.name for f in fields(api.Scope)}
+            for specification in periods["queries"]:
+                query = dict(specification)
+                scope = api.Scope(
+                    **{key: query.pop(key) for key in scope_fields if key in query}
+                )
+                proposals.append(
+                    api.QueryProposal(
+                        scope=scope, aggregation_source="explicit", **query
+                    )
+                )
+            return api.QueryPlan("metrics", "compare", tuple(proposals))
         leader = league_leader_plan(context.question, context.selected_season)
         if leader:
             q = dict(leader["queries"][0])

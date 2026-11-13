@@ -5,7 +5,15 @@ shared season selector; old page links with a season parameter redirect to the
 latest view. Explicit historical API requests remain supported.
 
 Ask accepts historical seasons in the question, including “last season.” Without
-a stated period it starts with the latest season and checks supported archives
+a stated year, “recent season” and “most recent NBA season” resolve to the latest
+NBA season whose regular-season opening date has passed on the request date.
+During the offseason this remains the preceding season until the next opener.
+The `season.yml` calendar follows official NBA opening dates and is extended
+at season rollover. The answer discloses the resolved season. This explicit time
+request overrides an older selected season or conversational scope and retains
+the normal source-coverage checks.
+
+Without a stated period it starts with the latest season and checks supported archives
 newest first when season evidence is unavailable. Available teammate studies use
 their published date window. Answers disclose an earlier-season fallback and its
 scope. Explicit seasons/dates and conversational follow-up scope are preserved;
@@ -218,10 +226,11 @@ new sections from current evidence.
 league-wide inputs and permits publication only after an isolated rebuild and
 transactional baseline checks. Saved answers retain their original evidence.
 
-Supported scope is a shared date range and regular season, playoffs, or both.
-Explicit playoff years resolve to the corresponding season. Round, clutch,
-opponent, home/away, wins-only and per-possession/per-minute filters are not
-silently approximated. Period-versus-period questions keep their existing route.
+Supported scope is a shared date range and regular season, playoffs, or both,
+with the same supported game predicates for both players and the ranking cohort.
+Explicit playoff years resolve to the corresponding season. Round, clutch and
+per-possession filters remain unavailable. Period-versus-period questions keep
+their metric-comparison route.
 Saved comparison context includes both full names and explicit dates. Fill-only
 follow-ups preserve that scope. Narrow-screen tables scroll horizontally.
 
@@ -718,8 +727,37 @@ invariant failures (an invalid plan, an incompatible comparison, failed evidence
 validation) keep their status code for traces and evaluation, but the reader sees
 a plain-language message rather than the internal error text.
 Metric abbreviations and scoring/efficiency requests replace inherited fantasy
-intent. Home/away qualifiers bypass the broad overview so their filters remain
-part of the governed metric plan.
+intent. Supported literal game predicates retain the broad overview or focused
+profile when that is the requested task; every displayed metric, distribution,
+prior-period summary and peer cohort uses that predicate.
+
+## Existing-data game filters
+
+The public host parses bounded home/away, appearance-team and opponent
+abbreviations, wins/losses, weekday and per-game component-threshold clauses.
+Examples include `at home`, `on the road`, `for LAL`, `against BOS`, `in wins`,
+`on Mondays`, and `in games with at least 4 assists`. Thresholds support more
+than, at least, fewer than, at most and exactly for recorded box-score components.
+Offensive rebounds, defensive rebounds and personal fouls are available as count
+metrics when the connected source contains them. Missing components remain
+unknown; they are never substituted with zero or total rebounds.
+
+Recognized filters select the intersection of matching recorded appearances
+before appearance windows or metric arithmetic. The same predicates apply to
+the player and every league/scorecard cohort member. Summaries disclose their
+filters and valid/observed samples; shooting rates pool makes and attempts over
+the selected appearances. A missing requested predicate field withholds the
+answer instead of silently excluding unknown rows. Team/opponent labels are
+validated against the loaded source evidence. Unknown remaining language stays
+with the normal full-match planner guard. Contradictory, negated, disjunctive or
+asymmetric player/league predicates require a restated scope or separate questions.
+
+The host executes recognized scalar clauses with its deterministic reference
+grammar even when an optional model provider is selected. This adds no model
+knowledge or new data source. Successful follow-ups, identity selections and
+browser recovery preserve the predicate fields and original window metadata and
+validate them again against current evidence. Browser hints cannot establish a
+previous aggregation's trusted provenance.
 
 ## Governed similarity and league references
 
@@ -767,14 +805,51 @@ not the average of player averages or the older dashboard baseline table.
 Evidence includes player and league values, components, sample counts, scoped
 a peer-membership count and SHA-256 digest, source provenance, and the unrounded
 player-minus-league change. The digest uses sorted `(season, game_id, player_id)`
-tuples serialized as compact UTF-8 JSON. Full peer IDs remain reconstructible from
+tuples serialized as compact UTF-8 JSON. Full peer-game membership remains reconstructible from
 the source snapshot rather than being copied into browser chat history.
 Missing components suppress the change; partial individual averages remain
 labeled with their complete-input counts. Ratios differ in percentage points.
-A metric-only follow-up recalculates the same reference scope, including browser
-context recovery. Recovered identity hints are validated when a follow-up inherits
+A metric-only follow-up replaces the requested statistic in place and recalculates
+the same reference scope, including its numeric game predicates and independent
+player/league periods. Browser context recovery retains the same guards.
+Recovered identity hints are validated when a follow-up inherits
 them; a new explicit player question starts from its own identity. Unknown
 conditions never fall back to an unfiltered answer.
+
+For example, “How did Nikola Jokić compare with the league average in assists per
+game during the 2024-25 regular season?” compares his per-game average with the
+average across all recorded player appearances in that regular season.
+That shared-period comparison retains `league_baseline/2`. Explicit independent
+operands use `league_baseline/3`: “Compare Nikola Jokić assists during the full
+2024-25 regular season against the league average over the last 2 games”, or
+“Compare Nikola Jokić assists over the last 2 games against the league average
+during the full 2024-25 regular season”. Reversed operand order is also accepted.
+The answer and table name both periods; chart metadata retains each bar's scope.
+Independent season, phase and bounded single-archive date operands require source
+coverage for each requested scope. An unqualified appearance operand inherits the
+other operand's stated season and phase.
+
+For an independent league last-N operand, Ask pools **up to N matching recorded
+appearances per player**, including the focal player. This is not the focal
+player's calendar window. All players with at least one matching appearance are
+included; short windows retain their actual samples, disclose their count and
+carry a warning. Missing inputs suppress the difference and chart. A global
+leading season qualifier retains shared-calendar behavior. A bare league-side
+“in 2024-25” retains its shared-scope meaning; use “full” or “entire” for an
+independent full-season operand. “Recent season” also denotes a full season and
+uses the most recent NBA season that has started, based on the request date and
+official opening-date calendar. Its resolved season stays pinned through identity
+selection and follow-up. “This season” refers to the selected season. Unsupported
+or unbounded operand shapes, unknown modifiers and asymmetric filters remain
+withheld. Two aggregate periods do not establish a trend; league-trend requests
+remain unsupported.
+
+Wins-only requests filter both focal and league appearances to verified wins.
+Requests mixing wins and losses require a clear single scope or separate
+questions. “At home over his last five games” and “over his last
+five games at home” receive the same venue-specific similarity refusal. Screen-assist
+requests, including league comparisons, explain that the box scores lack the
+necessary tracking data.
 
 `app/agent/routes.py` is the ordered dispatch registry. The first matching route
 wins; semantic subroutes reuse its precedence after resolving conversation scope.

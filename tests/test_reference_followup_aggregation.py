@@ -55,11 +55,13 @@ def endpoint_client(monkeypatch, current_settings):
     )
 
 
-def post(client, transport, question, conversation_id, **extra):
+def post(
+    client, transport, question, conversation_id, *, request_season="2024-25", **extra
+):
     response = client.post(
         "/api/agent/ask"
         + ("/stream" if transport == "sse" else "")
-        + "?season=2024-25",
+        + f"?season={request_season}",
         json={"question": question, "conversation_id": conversation_id, **extra},
     )
     assert response.status_code == 200, response.text

@@ -423,6 +423,9 @@ def test_metric_tiers_assign_every_metric_a_tier() -> None:
     assert catalog.tier_keys(1) == ("pts", "reb", "ast")
     assert catalog.tier_keys(2) == ("stl", "blk", "tov")
     assert catalog.tier_keys(3) == (
+        "oreb",
+        "dreb",
+        "pf",
         "fg3m",
         "min",
         "fg_pct",

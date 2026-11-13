@@ -19,7 +19,7 @@ from app.agent.semantics import SemanticError, load_contract
 
 _METRIC = re.compile(
     r"\b(?:points?|rebounds?|assists?|steals?|blocks?|scoring|shooting|"
-    r"minutes?|turnovers?|efficiency|field[ -]goals?|free[ -]throws?|"
+    r"minutes?|turnovers?|personal fouls?|fouls?|oreb|dreb|pf|efficiency|field[ -]goals?|free[ -]throws?|"
     r"three[ -]pointers?|3[ -]pointers?|games? played|"
     r"pts|reb|ast|stl|blk|tov|fgm|fga|fg|ftm|fta|ft|3pm|3pa|3p|ts|efg)\b|%",
     re.I,
@@ -149,6 +149,16 @@ def fantasy_decision(question):
     return None
 
 
+def screen_assists_message(question: str) -> str | None:
+    """One missing-feed diagnosis; callers mask source-backed names if available."""
+    if re.search(r"\bscreen[ -]assists?\b", question, re.I):
+        return (
+            "Screen assists require tracking data that is not connected. "
+            "Recorded box-score assists measure a different action and cannot substitute for screen assists."
+        )
+    return None
+
+
 def question_scope(question: str) -> dict[str, str | None]:
     """Enforce representable scope before dispatch; no production route selection."""
     if decision := fantasy_decision(question):
@@ -173,8 +183,21 @@ def question_scope(question: str) -> dict[str, str | None]:
             status="clarification_required",
             message="Do you mean total points or points per game?",
         )
+    if message := screen_assists_message(question):
+        return dict(
+            kind="unavailable_grain",
+            status="unsupported_scope",
+            message=message,
+        )
+    from app.agent.game_filters import extract_game_filters
+
+    try:
+        supported = extract_game_filters(question) if kind != "venue" else None
+    except SemanticError as exc:
+        return dict(kind="game_filter", status=exc.code, message=str(exc))
+    question = supported.cleaned_question if supported else question
     if re.search(
-        r"\b(?:causal|causation|cause[ds]?|predict\w*|forecast\w*|rolling|cumulative|"
+        r"\b(?:causal|causation|cause[ds]?|predict\w*|forecast\w*|"
         r"overtime|in wins|in losses|on (?:Mondays?|Tuesdays?|Wednesdays?|Thursdays?|Fridays?|Saturdays?|Sundays?)|"
         r"with (?:at least|more than|fewer than) \d+ (?:points|rebounds|assists))\b",
         question,
@@ -192,9 +215,10 @@ def question_scope(question: str) -> dict[str, str | None]:
     if re.search(
         r"\b(?:lineups?|starting five|closing five|on[ -]court|off[ -]court|on/off|clutch|"
         r"possessions?|assisted baskets|deflections?|shot contests?|"
-        r"offensive rebounds?|defensive rebounds?|oreb|dreb|box[ -]?outs?|"
-        r"screen assists?|potential assists?|secondary assists?|charges drawn|"
-        r"loose[ -]balls?|fouls?|rim protection|rim shots?|defended shots?|"
+        r"box[ -]?outs?|"
+        r"potential assists?|secondary assists?|charges drawn|"
+        r"(?:technical|flagrant|shooting|offensive|defensive) fouls?|fouls? drawn|foul[ -]outs?|fouled out|"
+        r"loose[ -]balls?|rim protection|rim shots?|defended shots?|"
         r"defensive rating|rebound chances?|contested rebounds?)\b",
         question,
         re.I,

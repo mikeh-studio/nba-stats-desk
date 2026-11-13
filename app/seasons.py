@@ -57,6 +57,22 @@ def current_season() -> str:
     return _selected_season.get()
 
 
+def most_recent_season(as_of: date) -> str:
+    """Latest NBA season that has begun, including throughout the offseason."""
+    with SEASON_FILE.open("r", encoding="utf-8") as handle:
+        starts = yaml.safe_load(handle)["regular_season_starts"]
+    eligible = [
+        (date.fromisoformat(opening), validate_season(season))
+        for season, opening in starts.items()
+        if date.fromisoformat(opening) <= as_of
+    ]
+    if not eligible:
+        raise ValueError(
+            "The requested date precedes the supported NBA season calendar."
+        )
+    return max(eligible)[1]
+
+
 def dataset_for_season(dataset: str, season: str) -> str:
     validate_season(season)
     return (

@@ -25,6 +25,9 @@ _QUERY_SCOPE_FIELDS = (
     "team_abbr",
     "opponent_abbr",
     "home_away",
+    "game_result",
+    "weekdays",
+    "stat_filters",
     "min_games",
     "min_attempts",
     "direction",
@@ -239,11 +242,12 @@ def resolve_followup(
     """Inherit identity and scope only when the new question does not replace them."""
     if not context:
         return question, {}
+    continues_analysis = inherits_analysis(question)
     players = context.get("players", [])
     resolved = question
-    if len(players) == 2:
+    if len(players) == 2 and continues_analysis:
         resolved = re.sub(
-            r"\b(?:each player|both players|both of them|these two|they|them|their)\b",
+            r"\b(?:each player|both players|both of them|these two|they|them|their)\b(?!\s+team\s+(?:won|lost)\b)",
             lambda m: (
                 " and ".join(p["player_name"] for p in players)
                 + ("’s" if m[0].lower() == "their" else "")
@@ -271,9 +275,9 @@ def resolve_followup(
                     resolved,
                     flags=re.I,
                 )
-    if len(players) == 1:
+    if len(players) == 1 and continues_analysis:
         resolved = re.sub(
-            r"\b(his|him|he)\b",
+            r"\b(his|him|he)\b(?!\s+team\s+(?:won|lost)\b)",
             lambda m: (
                 players[0]["player_name"] + ("’s" if m[0].lower() == "his" else "")
             ),
@@ -281,6 +285,25 @@ def resolve_followup(
             flags=re.I,
         )
     scope = context.get("scope", {})
+    from app.agent.game_filters import (
+        extract_game_filters,
+        filter_question,
+        filter_scope,
+    )
+
+    # Preserve each prior predicate unless this turn explicitly replaces that
+    # dimension. Canonical clauses are parsed and validated again on execution.
+    try:
+        new_predicates = extract_game_filters(question).query_fields
+    except ValueError:
+        return resolved, {}  # The request's normal scope guard supplies refusal.
+    carried = {
+        key: value
+        for key, value in filter_scope(scope).items()
+        if key not in new_predicates and continues_analysis
+    }
+    if carried:
+        resolved += " " + filter_question(carried)
     inherited = {}
     changes_dates = re.search(
         r"\b(?:20\d{2}|last|past|previous|prior|this (?:season|month|week|year)|current season|recently|lately|today|yesterday|since|before|after|from|as.of|January|February|March|April|May|June|July|August|September|October|November|December)\b",
@@ -351,3 +374,28 @@ def resolve_followup(
             "Playmaking is measured by assists per game, following the prior overview."
         )
     return resolved, inherited
+
+
+def inherits_analysis(question: str) -> bool:
+    """Recognize a scope/metric continuation, never a complete new named ask."""
+    from app.agent.game_filters import extract_game_filters
+
+    try:
+        analysis_question = extract_game_filters(question).cleaned_question
+    except ValueError:
+        return False  # The normal request guard supplies the scope refusal.
+    return bool(
+        re.search(
+            r"\b(?:each player|both players|both of them|these two|his|him|he|her|she|their|them|they|same|instead)\b",
+            analysis_question,
+            re.I,
+        )
+        or re.match(
+            r"\s*(?:(?:what|how) about\b|and\b)",
+            analysis_question,
+            re.I,
+        )
+        or re.fullmatch(
+            r"\s*(?:at home|on the road|in (?:wins|losses))\s*[?.!]*", question, re.I
+        )
+    )

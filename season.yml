@@ -3,3 +3,16 @@
 # from this value. Earlier seasons are served from season-suffixed archive
 # datasets; see docs/operations.md#season-rollover.
 current_season: "2026-27"
+
+# NBA regular-season opening dates. Extend this calendar during season rollover.
+# The July archive boundary does not mean the next NBA season has started.
+# Sources (NBA opening-night announcement and official schedule releases):
+# https://www.nba.com/news/nba-rosters-regular-season-2023-24
+# https://pr.nba.com/2024-25-nba-regular-season-schedule/
+# https://pr.nba.com/2025-26-nba-regular-season-schedule/
+# https://pr.nba.com/2026-27-nba-regular-season-schedule/
+regular_season_starts:
+  "2023-24": "2023-10-24"
+  "2024-25": "2024-10-22"
+  "2025-26": "2025-10-21"
+  "2026-27": "2026-10-20"

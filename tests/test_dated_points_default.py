@@ -200,7 +200,6 @@ def test_raw_mismatches_fail_before_literal_scope_can_overwrite(change):
 @pytest.mark.parametrize(
     "suffix",
     [
-        " on Tuesdays",
         " in wins",
         " excluding overtime",
         " and predict tomorrow",
@@ -212,6 +211,15 @@ def test_raw_mismatches_fail_before_literal_scope_can_overwrite(change):
 def test_canonical_unsupported_modifiers_withhold(endpoint, transport, suffix):
     payload = endpoint(QUESTION + suffix, transport)
     assert payload.get("status") != "ok" and not payload["tables"], payload
+
+
+@pytest.mark.parametrize("transport", ["json", "sse"])
+def test_dated_weekday_filter_reports_empty_verified_sample(endpoint, transport):
+    payload = endpoint(QUESTION + " on Tuesdays", transport)
+    assert payload["status"] == "no_observations", payload
+    assert payload["semantic_evidence"]["scope"]["weekdays"] == [1]
+    assert payload["semantic_evidence"]["rows"] == []
+    assert all(table["rows"] == [] for table in payload["tables"])
 
 
 @pytest.mark.parametrize(

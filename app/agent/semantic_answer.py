@@ -12,7 +12,7 @@ from typing import Any
 from app.agent.award_lookup import award_intro, resolve_award_question, wants_award
 from app.agent.clock import today as semantic_today
 from app.agent.execution import timed
-from app.agent.followup import analysis_context, resolve_followup
+from app.agent.followup import analysis_context, inherits_analysis, resolve_followup
 from app.agent.history import saved_context_question
 from app.agent.intelligence import plan_question
 from app.agent.metric_presentation import (
@@ -119,7 +119,9 @@ def normalize_metric_plan_scope(
     """One date/exclusion normalization path for facts and prepared execution."""
     validated_points_scope = plan.pop("validated_points_scope", None)
     for query in plan.get("queries", []):
-        if metric_window.get("window") == "date_range":
+        if metric_window.get("window") == "date_range" and not plan.get(
+            "explicit_period_operands"
+        ):
             query.update(metric_window)
         if validated_points_scope:
             query.update(validated_points_scope)
@@ -637,6 +639,12 @@ def render_answer(
     from app.agent.claim_renderers import metric_tables
 
     metric_tables(payload, players)
+    from app.agent.game_filters import filter_description
+
+    for _, section in sections:
+        if note := filter_description(section["scope"]):
+            if note not in payload["assumptions"]:
+                payload["assumptions"].append(note)
     return payload
 
 
@@ -783,9 +791,31 @@ class SemanticAsk:
                 }
             )
         request_question = question
+        series_followup = context.get(
+            "analysis_type"
+        ) == "derived_series" and inherits_analysis(original)
         overview_pending = None
         snapshot, plan = {}, {}
+        retained_series_plan = None
         try:
+            if series_followup:
+                from app.agent.derived_series import (
+                    derived_series_followup_plan,
+                    derived_series_question,
+                )
+
+                retained_series_plan = derived_series_followup_plan(original, context)
+                if retained_series_plan is None:
+                    raise SemanticError(
+                        "clarification_required",
+                        "Restate the player, metric and series operation for this follow-up; the requested series change is not supported.",
+                    )
+                question = derived_series_question(retained_series_plan)
+                request_question = question
+                inherited = {
+                    "seasons": retained_series_plan.query.get("seasons")
+                    or [retained_series_plan.query["season"]]
+                }
             if resume_error:
                 raise resume_error
             notice = None
@@ -1030,6 +1060,7 @@ class SemanticAsk:
                 and not inherited
                 and not selected_player
                 and not context
+                and not re.search(r"\b(?:rolling|cumulative|trend)\b", question, re.I)
                 and not allow_fallback
                 and all(
                     season_bounds(s)[1] < date.fromisoformat(capture_timestamp()[:10])
@@ -1256,7 +1287,53 @@ class SemanticAsk:
                     ]
                 if not overview:
                     question, players = prepare_names(question, players)
-                if split:
+                from app.agent.derived_series import (
+                    derived_series_plan,
+                    render_derived_series_answer,
+                )
+                from app.agent.game_filters import extract_game_filters
+
+                extracted = extract_game_filters(question) if not split else None
+                series_plan = (
+                    retained_series_plan
+                    or derived_series_plan(
+                        extracted.cleaned_question,
+                        seasons[0],
+                        [p["player_name"] for p in players],
+                    )
+                    if extracted
+                    else None
+                )
+                if series_plan:
+                    if series_plan.query.get("window") == "date_range":
+                        series_plan.query["seasons"] = seasons_in_dates(
+                            series_plan.query["start_date"], series_plan.query["as_of"]
+                        )
+                        if not set(series_plan.query["seasons"]).issubset(seasons):
+                            snapshot, evidence = load_evidence(
+                                series_plan.query["seasons"]
+                            )
+                            seasons = series_plan.query["seasons"]
+                    assert extracted is not None
+                    payload = render_derived_series_answer(
+                        series_plan,
+                        evidence,
+                        players,
+                        query_fields=extracted.query_fields,
+                    )
+                    plan = {
+                        "status": payload["status"],
+                        "queries": [series_plan.query],
+                        "model_calls": 0,
+                        "message": "Governed appearance series",
+                    }
+                    result = {"status": payload["status"]}
+                elif re.search(r"\b(?:rolling|cumulative|trend)\b", question, re.I):
+                    raise SemanticError(
+                        "unsupported_scope",
+                        "Specify one player, statistic and period for a rolling N-game average, cumulative count, or game trend.",
+                    )
+                elif split:
                     payload = answer_split(question, evidence, players, seasons[0])
                     plan = payload["semantic_plan"]
                     result = {"status": payload["status"]}

@@ -1415,26 +1415,46 @@ class StatsAgent:
         model: str | None = None,
     ) -> dict[str, Any]:
         from app.agent.route_labels import finish_route
+        from app.agent.semantics import SemanticError
+        from app.agent.time_defaults import resolve_recent_season
         from app.agent.visualization import VisualizationAgent
 
         routing: dict[str, str] = {}
-        payload = run_name_matching(
-            self,
-            question,
-            selected_player,
-            conversation_id,
-            lambda effective_question, selection: self._answer(
+        time_notes = []
+        try:
+            effective_question, time_notes = resolve_recent_season(question)
+        except SemanticError as exc:
+            from app.agent.payload import answer_payload
+
+            routing.update(route="clarify", source="deterministic")
+            payload = answer_payload(
+                str(exc), status=exc.code, conversation_id=conversation_id
+            )
+        else:
+            time_scope = dict(
+                period_question=question if time_notes else None, assumptions=time_notes
+            )
+            payload = run_name_matching(
+                self,
                 effective_question,
-                conversation_id=conversation_id,
+                selected_player,
+                conversation_id,
+                lambda effective_question, selection: self._answer(
+                    effective_question,
+                    conversation_id=conversation_id,
+                    trace=trace,
+                    progress_callback=progress_callback,
+                    selected_player=selection,
+                    provider=provider,
+                    model=model,
+                    routing=routing,
+                    period_question=time_scope["period_question"],
+                ),
                 trace=trace,
-                progress_callback=progress_callback,
-                selected_player=selection,
-                provider=provider,
-                model=model,
-                routing=routing,
-            ),
-            trace=trace,
-        )
+                time_scope=time_scope,
+            )
+            time_notes = time_scope["assumptions"]
+        payload.setdefault("assumptions", []).extend(time_notes)
         payload = finish_route(
             payload,
             route=routing["route"],
@@ -1472,6 +1492,7 @@ class StatsAgent:
         provider: str | None = None,
         model: str | None = None,
         routing: dict[str, str] | None = None,
+        period_question: str | None = None,
     ) -> dict[str, Any]:
         cleaned_question = question.strip()
         if not cleaned_question:
@@ -1558,6 +1579,7 @@ class StatsAgent:
             self.settings,
             self.semantic_agent is not None,
             reference_reply=reference_reply,
+            period_question=period_question,
         )
         route = select_route(route_context)
         if routing is not None:

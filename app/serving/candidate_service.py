@@ -366,6 +366,9 @@ class CandidatePTSService:
                         "team_abbr",
                         "opponent_abbr",
                         "home_away",
+                        "game_result",
+                        "weekdays",
+                        "stat_filters",
                     )
                 )
                 or type(q.get("player_name")) is not str

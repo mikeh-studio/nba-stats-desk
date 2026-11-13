@@ -316,8 +316,6 @@ def test_natural_performance_phrasing_uses_full_overview(evidence, wording):
         "How did Curry do in fantasy?",
         "How did Curry play against Boston?",
         "How did Curry rank in assists?",
-        "How did Curry perform at home?",
-        "How did Curry play on the road?",
         "How did Curry perform away?",
         "How did Curry do in minutes?",
         "How did Curry perform in FGM?",
@@ -326,6 +324,13 @@ def test_natural_performance_phrasing_uses_full_overview(evidence, wording):
 )
 def test_specific_performance_requests_do_not_become_overviews(question):
     assert not wants_overview(question)
+
+
+@pytest.mark.parametrize(
+    "question", ["How did Curry perform at home?", "How did Curry play on the road?"]
+)
+def test_supported_venue_performance_keeps_overview(question):
+    assert wants_overview(question)
 
 
 def test_home_performance_keeps_venue_filter_in_governed_plan(evidence):
@@ -348,9 +353,15 @@ def test_home_performance_keeps_venue_filter_in_governed_plan(evidence):
         model="test",
     )
     assert result["status"] == "ok"
-    assert result["semantic_evidence"]["rows"][0]["value"] == 7
-    assert result["query_plan"]["queries"][0]["home_away"] == "HOME"
-    assert "summary_paragraphs" not in result["semantic_evidence"]
+    assert result["semantic_evidence"]["scope"]["home_away"] == "HOME"
+    points = next(
+        metric
+        for metric in result["semantic_evidence"]["metrics"]
+        if metric["key"] == "pts"
+    )
+    assert points["value"] == 7
+    assert points["observed_games"] == 1
+    assert "summary_paragraphs" in result["semantic_evidence"]
 
 
 def test_full_playoffs_compare_same_season_regular_season(evidence):
@@ -598,13 +609,11 @@ def test_focus_does_not_erase_unsupported_or_specific_conditions(condition):
 @pytest.mark.parametrize(
     "requested",
     [
-        "offensive rebounds",
         "box-outs",
         "screen assists",
         "potential assists",
         "rim protection",
         "defensive rating",
-        "fouls",
         "rebound chances",
     ],
 )
@@ -617,6 +626,15 @@ def test_focused_profiles_cannot_substitute_box_scores_for_unconnected_measures(
         question_intent(f"How did Curry perform in {requested}?")["status"]
         == "unsupported_scope"
     )
+
+
+@pytest.mark.parametrize(
+    "requested", ["offensive rebounds", "defensive rebounds", "personal fouls", "fouls"]
+)
+def test_source_count_metrics_are_not_tracking_scope_refusals(requested):
+    from app.agent.scope_policy import question_scope
+
+    assert question_scope(f"How did Curry perform in {requested}?")["status"] is None
 
 
 @pytest.mark.parametrize(

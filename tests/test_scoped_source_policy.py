@@ -88,7 +88,7 @@ def test_real_scoped_retained_capture_is_one_read_with_typed_phase_and_provenanc
     evidence = snapshot_evidence(value)
     assert len(client.calls) == 1
     sql, args = client.calls[0]
-    assert f"FROM `{RELATION}` FOR SYSTEM_TIME AS OF @snapshot_at" in sql
+    assert f"FROM `{RELATION}` AS fact FOR SYSTEM_TIME AS OF @snapshot_at" in sql
     assert "WHERE season = @season_0 AND season_type IN UNNEST(@phases)" in sql
     params = {p.name: p.to_api_repr() for p in args["job_config"].query_parameters}
     assert params["phases"]["parameterType"] == {
