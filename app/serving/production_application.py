@@ -88,8 +88,10 @@ class ProductionApplication:
             if (
                 table.table_type != "SNAPSHOT"
                 or table.num_rows != asset["rows"]
-                or table.expires is None
-                or table.expires < timestamp(manifest["freshness"]["expires_at"])
+                or (
+                    table.expires is not None
+                    and table.expires < timestamp(manifest["freshness"]["expires_at"])
+                )
             ):
                 raise ValueError("production snapshot unavailable")
             return asset["name"], table
