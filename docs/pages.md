@@ -52,6 +52,13 @@ endpoints above; no stale compatibility responses are served.
 
 ### Data Access
 
+Production core releases may use immutable snapshots with no table expiration.
+Physical retention is separate from source freshness: policy validity, release
+freshness, revocations and content validation still apply before serving. Legacy
+snapshots with an expiration remain readable only when they outlive the release's
+freshness boundary. A durable table does not certify current-season completeness
+or make an expired release eligible.
+
 The service reads only from gold, agent, and metadata datasets. It is public
 read-only for v1 and does not include auth.
 

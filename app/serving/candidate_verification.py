@@ -47,8 +47,10 @@ def verify_candidate(client, envelope, accepted, *, project, namespace, now):
         if (
             table.table_type != "SNAPSHOT"
             or table.num_rows != asset["rows"]
-            or table.expires is None
-            or table.expires < timestamp(manifest["freshness"]["expires_at"])
+            or (
+                table.expires is not None
+                and table.expires < timestamp(manifest["freshness"]["expires_at"])
+            )
         ):
             raise ValueError("candidate snapshot metadata differs")
         rows = ordered(name, client.list_rows(table, max_results=asset["rows"] + 1))

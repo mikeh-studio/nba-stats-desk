@@ -985,6 +985,46 @@ def test_source_authority_reads_generation_pinned_gcs_registry(production):
         authority.policy("serving")
 
 
+def test_durable_snapshots_keep_freshness_and_content_checks(production):
+    from app.serving.candidate_verification import verify_candidate
+
+    p = production
+    for table in p.tables.values():
+        table.expires = None
+    assert (
+        verify_candidate(
+            p.client, p.envelope, p.accepted, project=PROJECT, namespace=NS, now=NOW
+        )["status"]
+        == "verified_contents_only"
+    )
+    assert p.app.application(None) is not None
+    p.clock[0] = p.envelope["manifest"]["freshness"]["expires_at"]
+    with pytest.raises(ValueError, match="authority"):
+        p.app.application(None)
+    with pytest.raises(ValueError, match="candidate expired"):
+        verify_candidate(
+            p.client,
+            p.envelope,
+            p.accepted,
+            project=PROJECT,
+            namespace=NS,
+            now=p.clock[0],
+        )
+
+
+def test_snapshot_deletion_before_authority_expiry_remains_rejected(production):
+    from app.serving.candidate_verification import verify_candidate
+
+    p = production
+    next(iter(p.tables.values())).expires = timestamp(NOW)
+    with pytest.raises(ValueError, match="snapshot metadata"):
+        verify_candidate(
+            p.client, p.envelope, p.accepted, project=PROJECT, namespace=NS, now=NOW
+        )
+    with pytest.raises(ValueError, match="snapshot unavailable"):
+        p.app.application(None)
+
+
 def test_independent_candidate_content_verification_detects_changed_table(production):
     from app.serving.candidate_verification import verify_candidate
 
