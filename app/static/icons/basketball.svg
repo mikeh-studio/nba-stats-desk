@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- One seamless horizontal repeat of the ball's grooves. -->
+  <g fill="none" stroke="#582e17" stroke-width="1.65">
+    <path d="M0 12h24M6 -1v26M11 -1q15 13 0 26"/>
+  </g>
+</svg>

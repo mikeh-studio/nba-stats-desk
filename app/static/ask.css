@@ -536,17 +536,18 @@ body:has(.ask-desk) .publication-health {
   font-size: 0.8rem;
   margin-top: 0.35rem;
 }
-.ask-desk [data-thinking="true"]::before {
+.agent-status[data-thinking="true"]::before {
   content: "";
   display: inline-block;
-  width: 0.85em;
-  height: 0.85em;
+  width: 1.15em;
+  height: 1.15em;
   margin-right: 0.6em;
-  vertical-align: -0.1em;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
+  vertical-align: -0.2em;
+  background: url("./icons/basketball.svg") 0 50% / 1.15em 100% repeat-x,
+    radial-gradient(circle at 35% 32%, #ffac56, #f88a30 58%, #cc601c);
+  box-shadow: inset 0 0 0 1px #68371c;
   border-radius: 50%;
-  animation: ask-thinking 0.9s linear infinite;
+  animation: ask-thinking 1.3s linear infinite;
 }
 .ask-desk .button[data-thinking="true"] {
   opacity: 0.85;
@@ -554,11 +555,11 @@ body:has(.ask-desk) .publication-health {
 }
 @keyframes ask-thinking {
   to {
-    transform: rotate(360deg);
+    background-position: 1.15em 50%, 0 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .ask-desk [data-thinking="true"]::before {
+  .agent-status[data-thinking="true"]::before {
     animation: none;
   }
 }
