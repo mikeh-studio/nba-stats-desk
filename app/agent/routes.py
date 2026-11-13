@@ -47,6 +47,7 @@ class RouteContext:
     settings: Any
     governed: bool
     reference_reply: str | None = None
+    period_question: str | None = None
 
     @property
     def research_followup(self):
@@ -118,6 +119,20 @@ def availability(c):
     )
 
 
+def research_requested(question):
+    """Ordinary box-score game predicates belong to governed metric scope."""
+    from app.agent.game_filters import extract_game_filters
+    from app.agent.semantics import SemanticError
+
+    try:
+        question = extract_game_filters(question).cleaned_question
+    except SemanticError:
+        # The semantic scope guard returns the actionable contradictory-filter
+        # refusal before any model work.
+        return False
+    return wants_research(question)
+
+
 @dataclass(frozen=True)
 class Route:
     key: str
@@ -156,7 +171,14 @@ ROUTES = (
         "research",
         "research",
         lambda c: bool(
-            (wants_research(c.question) or c.research_followup)
+            (
+                (
+                    research_requested(c.question)
+                    if c.governed
+                    else wants_research(c.question)
+                )
+                or c.research_followup
+            )
             and not c.preserve_study
             and not split_kind(c.question)
             and (not c.reference or wants_availability(c.question))

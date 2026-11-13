@@ -1,8 +1,8 @@
-import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261109-ui-modernization-v1";
-import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261109-ui-modernization-v1";
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261109-ui-modernization-v1";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261109-ui-modernization-v1";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261109-ui-modernization-v1";
+import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261112-ask-game-filters-v1";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261112-ask-game-filters-v1";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261112-ask-game-filters-v1";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261112-ask-game-filters-v1";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261112-ask-game-filters-v1";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -10,13 +10,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261109-ui-modernization-v1";
+} from "./ask_comparison.js?v=20261112-ask-game-filters-v1";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261109-ui-modernization-v1";
+} from "./ask_sessions.js?v=20261112-ask-game-filters-v1";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -24,8 +24,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261109-ui-modernization-v1";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261109-ui-modernization-v1";
+} from "./ask_presentation.js?v=20261112-ask-game-filters-v1";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261112-ask-game-filters-v1";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -1954,6 +1954,18 @@ function buildAskBody(question, selection, conversationId = activeConversationId
         season: scope.season || null,
         start: scope.start || scope.start_date || null,
         end: scope.end || scope.as_of || null,
+        start_date: scope.start_date || null,
+        as_of: scope.as_of || null,
+        season_type: scope.season_type || null,
+        team_abbr: scope.team_abbr || null,
+        opponent_abbr: scope.opponent_abbr || null,
+        home_away: scope.home_away || null,
+        game_result: scope.game_result || null,
+        weekdays: scope.weekdays || null,
+        stat_filters: scope.stat_filters || null,
+        window: scope.window || null,
+        n: scope.n || null,
+        seasons: scope.seasons || null,
         phases: (scope.phases || (scope.season_type ? [scope.season_type] : []))
           .filter((phase) =>
             ["Regular Season", "Playoffs", "Both"].includes(phase),

@@ -192,9 +192,13 @@ def test_no_appearance_is_not_a_loss(evidence):
 def test_scope_guard_and_period_comparison_keeps_old_route():
     assert comparison_sides("Jalen Brunson last 10 games vs previous 10") is None
     assert comparison_sides("Jalen Brunson vs. Wemby")
-    for phrase in ("last 10 games", "Finals", "per 48", "home", "in wins"):
+    for phrase in ("last 10 games", "Finals", "per 48", "home"):
         with pytest.raises(SemanticError):
             comparison_scope(f"Jalen Brunson vs Wemby {phrase}", "2025-26")
+    assert (
+        comparison_scope("Jalen Brunson vs Wemby in wins", "2025-26")["game_result"]
+        == "W"
+    )
     explicit = comparison_scope(
         "Jalen Brunson vs Wemby 2025 playoffs", "2025-26", date(2026, 9, 12)
     )

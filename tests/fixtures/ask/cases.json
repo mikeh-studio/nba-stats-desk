@@ -2870,14 +2870,14 @@
         "status": "pending",
         "reviewer": null
       },
-      "oracle_note": "Fail closed on invalid evidence, ambiguous identity or unsupported scope. Preserve unknown values.",
+      "oracle_note": "Wins filtering is supported, but this frozen source has no verified game-outcome field. Withhold with incomplete_evidence and no tables; never infer wins or publish an unfiltered numerical answer. Pending human review.",
       "turns": [
         {
           "question": "Compare Avery Example points against league average in wins in 2024-25",
           "checks": [
             {
               "path": "status",
-              "equals": "unsupported_scope"
+              "equals": "incomplete_evidence"
             },
             {
               "path": "tables",

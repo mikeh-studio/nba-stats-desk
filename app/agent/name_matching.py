@@ -404,7 +404,14 @@ def name_matching_entrypoint(answer):
 
 
 def run_name_matching(
-    agent, question, selected_player, conversation_id, callback, *, trace=None
+    agent,
+    question,
+    selected_player,
+    conversation_id,
+    callback,
+    *,
+    trace=None,
+    time_scope=None,
 ):
     """Keep clarification replies on the original route and original scope."""
     from app.agent.scope_policy import name_reply, starts_new_question
@@ -465,6 +472,8 @@ def run_name_matching(
                 # Allow a second preflight after the original spelling is replaced.
                 session.choices[normalize_player_text(choice["player_name"])] = choice
             question = pending.question
+            if time_scope is not None:
+                time_scope.update(pending.query_plan.get("time_scope") or {})
             selected_player = None
         store.clear_pending_clarification(conversation_id)
     token = _session.set(session)
@@ -490,6 +499,11 @@ def run_name_matching(
                         "name_matching": True,
                         "mention": exc.mention,
                         "choices": session.choices,
+                        **(
+                            {"time_scope": dict(time_scope)}
+                            if time_scope and time_scope.get("period_question")
+                            else {}
+                        ),
                     },
                     candidates=payload["clarification_options"],
                 )

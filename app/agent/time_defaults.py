@@ -7,7 +7,38 @@ from datetime import date
 from app.agent.clock import today as semantic_today
 from app.agent.overview_calendar import MONTH_PATTERN, MONTHS, literal_date_intervals
 from app.agent.semantics import SemanticError
-from app.seasons import SEASONS, season_bounds
+from app.seasons import SEASONS, most_recent_season, season_bounds
+
+
+def resolve_recent_season(question, today=None):
+    """Resolve season recency before routing or loading a season's roster."""
+    pattern = (
+        r"\b(?:the\s+)?(?:most\s+)?recent\s+(?:NBA\s+)?(?:regular[ -]season|season)\b"
+    )
+    if not re.search(pattern, question, re.I):
+        return question, []
+    today = today or semantic_today()
+    anchor = re.search(r"\bas[ -]of (\d{4}-\d{2}-\d{2})\b", question, re.I)
+    if anchor:
+        try:
+            today = date.fromisoformat(anchor[1])
+        except ValueError as exc:
+            raise SemanticError(
+                "clarification_required", "Please provide a valid as-of date."
+            ) from exc
+    try:
+        season = most_recent_season(today)
+    except ValueError as exc:
+        raise SemanticError("unsupported_coverage", str(exc)) from exc
+
+    def replacement(match):
+        phase = " regular season" if re.search(r"regular", match[0], re.I) else ""
+        return season + phase
+
+    return re.sub(pattern, replacement, question, flags=re.I), [
+        f"Using ‘recent season’ as the most recent NBA season that has started "
+        f"({season}), as of {today.isoformat()}."
+    ]
 
 
 def resolve_time_defaults(question, today=None, context=None):
@@ -21,8 +52,8 @@ def resolve_time_defaults(question, today=None, context=None):
                 "clarification_required", "Please provide a valid as-of date."
             ) from exc
     context = context or {}
+    question, notes = resolve_recent_season(question, today)
     original = question
-    notes = []
     alternatives = []
     # Explicit ranges and clarification replies already have their own validators.
     if "\nClarification:" in question:

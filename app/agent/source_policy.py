@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterator, NoReturn
 
-from app.agent.semantics import COMPONENTS, PHASES, SemanticError
+from app.agent.semantics import COMPONENTS, OPTIONAL_COMPONENTS, PHASES, SemanticError
 from app.seasons import validate_season
 
 
@@ -33,11 +33,16 @@ def capture_sql(sources, phases=None):
             "team_abbr",
             "opponent_abbr",
             "home_away",
-            *sorted(COMPONENTS),
+            *sorted(COMPONENTS - OPTIONAL_COMPONENTS),
+            *[
+                f"CAST(JSON_VALUE(TO_JSON_STRING(fact), '$.{field}') AS FLOAT64) AS {field}"
+                for field in sorted(OPTIONAL_COMPONENTS)
+            ],
+            "JSON_VALUE(TO_JSON_STRING(fact), '$.wl') AS game_result",
         ]
     )
     selects = [
-        f"SELECT {columns} FROM `{source}` FOR SYSTEM_TIME AS OF @snapshot_at "
+        f"SELECT {columns} FROM `{source}` AS fact FOR SYSTEM_TIME AS OF @snapshot_at "
         f"WHERE season = @season_{i}"
         + (" AND season_type IN UNNEST(@phases)" if phases is not None else "")
         for i, source in enumerate(sources)

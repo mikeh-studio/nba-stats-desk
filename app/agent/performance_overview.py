@@ -57,6 +57,12 @@ ABSENCE_MESSAGE = (
 
 
 def wants_overview(question):
+    from app.agent.game_filters import extract_game_filters
+
+    try:
+        question = extract_game_filters(question).cleaned_question
+    except SemanticError:
+        return False  # The semantic scope guard supplies the exact refusal.
     original = peer_question(question.split("\nClarification:", 1)[0])
     return (
         bool(
@@ -87,6 +93,10 @@ def wants_overview(question):
 
 
 def overview_scope(question, selected_season, today=None, *, comparison=None):
+    from app.agent.game_filters import extract_game_filters
+
+    extracted = extract_game_filters(question)
+    question = extracted.cleaned_question
     comparison = comparison if comparison is not None else comparison_intent(question)
     question = peer_question(question)
     question = question.replace("–", "-")
@@ -292,6 +302,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             "The requested period starts before available 2023–24 coverage.",
         )
     return dict(
+        **extracted.query_fields,
         comparison_intent=comparison,
         recent_appearances=10 if recent else None,
         first_appearances=2 if first else None,
@@ -451,13 +462,29 @@ def build_overview(question, evidence, players, scope, selected=None):
             ],
         }
     player = candidates[0]
+    from app.agent.game_filters import filter_description, filter_scope
+    from app.agent.semantics import Query, apply_game_filters
+
+    predicates = filter_scope(scope)
+    filter_query = Query("pts", scope["seasons"][0], "average", **predicates)
+    filter_query.validate(load_contract().metric("pts"))
     if scope.get("recent_appearances") or scope.get("first_appearances"):
         scope = dict(scope)
         scope["previous_phases"] = list(scope["phases"])
         games = sorted(
             (
                 r
-                for r in evidence.rows
+                for r in apply_game_filters(
+                    [
+                        r
+                        for r in evidence.rows
+                        if r["season_type"] in scope["phases"]
+                        and scope["start"]
+                        <= date.fromisoformat(str(r["game_date"]))
+                        <= scope["end"]
+                    ],
+                    filter_query,
+                )
                 if r["player_id"] == player["player_id"]
                 and r["season_type"] in scope["phases"]
                 and scope["start"]
@@ -488,12 +515,15 @@ def build_overview(question, evidence, players, scope, selected=None):
     start, end = scope["start"], scope["end"]
 
     def rows_between(lo, hi, phases):
-        return [
-            r
-            for r in evidence.rows
-            if r["season_type"] in phases
-            and lo <= date.fromisoformat(str(r["game_date"])) <= hi
-        ]
+        return apply_game_filters(
+            [
+                r
+                for r in evidence.rows
+                if r["season_type"] in phases
+                and lo <= date.fromisoformat(str(r["game_date"])) <= hi
+            ],
+            filter_query,
+        )
 
     current = rows_between(start, end, scope["phases"])
     previous_phases = scope.get("previous_phases", scope["phases"])
@@ -738,6 +768,7 @@ def build_overview(question, evidence, players, scope, selected=None):
             )
             + "; gaps without appearances are omitted.",
             "Shooting percentages use aggregate makes and attempts; percentage changes are percentage points. TS% uses the 0.44 free-throw approximation. Per-36 rates are descriptive, not causal effects.",
+            *([filter_description(scope)] if predicates else []),
         ],
         "metric_definitions": [
             {

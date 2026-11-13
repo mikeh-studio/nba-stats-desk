@@ -178,9 +178,24 @@ the covered phases. Classification provenance identifies either the supporting
 statistics snapshot/game/player key or the actual final-box-score/Out-report
 source. Injury bulletins are not evidence for statistics-based classifications.
 
-Player split evidence uses `player_splits/1`. The ordinary `Query` also accepts
-`home_away=HOME|AWAY`; unknown venue values in the requested player/date/team/
-opponent scope block a venue-filtered result. `Both` does not erase a phase-versus-
+Player split evidence uses `player_splits/1`. The ordinary `Query` accepts
+historical `team_abbr`/`opponent_abbr`, `home_away=HOME|AWAY`,
+`game_result=W|L`, and `weekdays` as distinct Monday-zero through Sunday-six
+integers. `stat_filters` contains raw-component predicates with exactly
+`component`, `op` (`gt`, `gte`, `lt`, `lte`, `eq`) and a finite numeric `value`.
+Predicates combine with AND, and run before last-N or prior-N appearance selection.
+A valid filter with no matches returns no observations. Missing or unknown source
+membership for any requested predicate withholds the result even if another
+predicate would exclude that row. Named scalar and game-log queries check the
+focal player's relevant dated appearances; ranking, percentile and league-reference
+queries require membership across their relevant cohort. Unfiltered missing metric
+components retain ordinary partial/unavailable semantics.
+
+`select_query_rows(evidence, query)` exposes the shared validated selection before
+any presentation cap, including independently selected per-player appearance
+windows. It retains cohort rows for ranking membership; individual derived series
+select the focal player after this step. `apply_game_filters` shares the predicate
+logic with already scoped overview/scorecard evidence. `Both` does not erase a phase-versus-
 phase comparison. Explicit split groups execute independently under the same
 metric contract. Incomplete components suppress differences even when a partial
 individual average can be displayed. Percentage changes remain percentage points.
@@ -242,6 +257,45 @@ components. Last-N calendar bounds are the first and last selected player appear
 Version 2 replaces the full peer membership and repeated league game IDs with a
 count and deterministic membership digest, avoiding season-sized browser payloads. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references)
 for supported language and weighting. Dashboard baseline values are not reused.
+
+`league_baseline/3` adds two independently selected, explicitly bounded operands.
+For example, “Compare Avery Example assists during the full 2024-25 regular season
+against the league average over the last 2 games” retains the player's season
+average and a distinct league appearance window. The inverse uses “Avery Example
+assists over the last 2 games against the league average during the full 2024-25
+regular season”; either operand order is accepted. Each operand binds its own
+season, phase and period through a separate validated `Query`. An unqualified
+appearance operand inherits the opposite operand's stated season and phase.
+Explicit ISO date operands must each fit one supported archive with declared
+source coverage. Their literal dates determine required archives before loading
+the source roster, overriding an unrelated selected season. Appearance windows
+are bounded to 1–100 recorded appearances. Equal player/league N values still
+retain independent membership: each league player's latest N appearances can
+fall outside the focal player's latest-N calendar interval.
+
+The independent league last-N definition is **up to N matching recorded
+appearances per player**, followed by pooling across all contributing players,
+including the focal player. Predicates apply before each player's appearance
+selection. Players with at least one matching appearance remain included when
+fewer than N are recorded; actual per-player counts/date bounds, the number of
+short windows and a partial-window warning remain in evidence. Missing appearances
+are never invented. Count averages weight appearances equally; shooting ratios
+pool complete components. Missing components remain unknown, disclose valid and
+observed samples, and suppress the difference/chart; zero denominators remain
+unavailable. Source completeness and cohort coverage are required before either
+period executes. The two aggregates do not establish a trend or significance.
+
+The compatible player/baseline envelope carries `independent_periods: true`,
+separate player and baseline scopes/provenance, actual source-through cutoffs,
+and the peer-membership count/SHA-256 digest. Answer text, table period cells and
+chart metadata disclose the two periods. Neither a requested full season nor a
+source cutoff establishes games beyond the returned snapshot. A global leading
+season clause retains the shared-calendar `/2` convention. A bare league-side
+“in 2024-25” also retains shared scope; “full”, “entire”, or original “recent
+season” wording requests its independent full-season meaning. The effective
+numeric season remains pinned through identity selection and follow-up; original
+recent wording is used only to retain operand ownership. Unknown modifiers,
+asymmetric filters and unrecognized operand grammar remain refused.
 
 `similarity_reference/1` validates a separate published feature-profile result;
 it is not an ordinary metric query. The profile must match the selected identity
@@ -323,8 +377,8 @@ totals/averages retain their filters. Road and away games share the canonical
 AWAY scope. Mixed regular-season/playoff language requires affirmative combined
 intent rather than silently selecting Playoffs.
 
-Recognized unsupported predictions, causal calculations, rolling calculations and
-additional game filters are withheld. These literal guards are not a complete
+Predictions, causal calculations and unsupported additional game filters are
+withheld. These literal guards are not a complete
 natural-language parser: arbitrary unfamiliar wording still depends on model
 interpretation. There is no whole-question word whitelist or universal language
 accuracy claim.
@@ -447,3 +501,49 @@ publications, the metric inventory, opt-in Phase 2 routing, request telemetry,
 and parity checks. Routing and deterministic planning remain off by default.
 Activation requires the contract's fresh measurements and explicit rollout gates;
 local and fixture validation do not establish production readiness.
+
+
+### Optional box-score components and serving compatibility
+
+OREB, DREB and PF are counting metrics supporting totals, per-game averages,
+individual game logs, rankings and percentiles under the ordinary missingness and
+qualification rules. Their raw components are optional: retained snapshots without
+these fields still validate and serve existing metrics; missing new components
+remain unavailable and never become zero.
+
+Fixed bounded warehouse capture projects optional OREB/DREB/PF and the warehouse
+`wl` outcome through literal JSON paths, so older relation schemas do not fail
+merely because those columns are absent. Unknown outcomes remain unknown. Trusted
+source policy still authorizes only the exact generated SQL and typed parameters,
+with the existing relation, snapshot, row and byte limits.
+
+Serving aggregate capabilities do not represent the new game predicates. Filtered
+requests require bound source-certified game detail or the ordinary facts path.
+The additive metric inventory retains exact publication contract-digest checks;
+existing certified publications require rebuilding against this catalog before
+serving with it. No publication, activation or data-source authority is implied.
+
+### Dated and derived metric series
+
+`derived_series/1` supports a single player's single-metric dated appearance trend,
+rolling averages over 1–100 selected appearances, and cumulative counting-stat
+totals. It reuses the validated row selector and ordinary aggregation engine.
+Filters run before trailing-window selection; every selected observation enters
+the calculation before the latest 100 points are selected for display.
+
+The first N−1 rolling observations are warmup points without a value. Missing
+components remain observations in each window and retain valid/observed/missing
+counts; they never become zero. Ratios pool complete components and remain
+unavailable at zero denominators. Partial cumulative totals disclose the known
+components; charts are withheld if a displayed non-warmup point is partial or
+missing. Trend output requires at least two observations and presents raw dated
+values without a fitted trend or significance claim. Aggregate evidence retains
+game IDs, numerator, denominator and components plus snapshot/source-through scope.
+This bounded route accepts validated single-archive ISO date intervals; unsupported
+cross-archive series or unrecognized calculation grammar refuse before execution.
+Metric-only follow-ups replace the metric inside the retained, validated series
+plan and recompute for its current player, mode, rolling N, filters and resolved
+source-date cutoff. Count/ratio changes retain their metric conventions; genuinely
+incompatible changes, such as a cumulative percentage or a per-game cumulative
+total, require clarification. Recovered browser hints without the complete
+structured series plan require restatement rather than becoming a scalar answer.

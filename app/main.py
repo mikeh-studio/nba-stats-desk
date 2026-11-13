@@ -28,7 +28,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 from starlette.concurrency import run_in_threadpool
 
 from app.agent.capacity import CapacityExceeded, Delivery, admission
@@ -85,7 +85,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261109-ui-modernization-v1"
+STATIC_VERSION = "20261112-ask-game-filters-v1"
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
 templates.env.globals["available_seasons"] = SEASONS
@@ -129,13 +129,65 @@ class PriorPlayer(BaseModel):
     role: Literal["focal", "teammate"] | None = None
 
 
+class PriorStatFilter(BaseModel):
+    component: Literal[
+        "pts",
+        "reb",
+        "ast",
+        "stl",
+        "blk",
+        "tov",
+        "min",
+        "fgm",
+        "fga",
+        "fg3m",
+        "fg3a",
+        "ftm",
+        "fta",
+        "oreb",
+        "dreb",
+        "pf",
+        "plus_minus",
+    ]
+    op: Literal["gt", "gte", "lt", "lte", "eq"]
+    value: float = Field(strict=True, allow_inf_nan=False)
+
+
 class PriorScope(BaseModel):
     season: str | None = Field(default=None, max_length=7)
     start: date | None = None
     end: date | None = None
+    start_date: date | None = None
+    as_of: date | None = None
+    season_type: Literal["Regular Season", "Playoffs", "Both"] | None = None
     phases: list[Literal["Regular Season", "Playoffs", "Both"]] = Field(
         default_factory=list, max_length=2
     )
+    team_abbr: str | None = Field(default=None, pattern=r"^[A-Z]{2,4}$")
+    opponent_abbr: str | None = Field(default=None, pattern=r"^[A-Z]{2,4}$")
+    home_away: Literal["HOME", "AWAY"] | None = None
+    game_result: Literal["W", "L"] | None = None
+    weekdays: list[Annotated[StrictInt, Field(ge=0, le=6)]] | None = Field(
+        default=None, min_length=1, max_length=7
+    )
+    stat_filters: list[PriorStatFilter] | None = Field(
+        default=None, min_length=1, max_length=8
+    )
+    window: (
+        Literal[
+            "season_to_date",
+            "last_n_games",
+            "prior_n_games",
+            "last_n_days",
+            "last_n_months",
+            "last_week",
+            "last_month",
+            "date_range",
+        ]
+        | None
+    ) = None
+    n: StrictInt | None = Field(default=None, ge=1, le=10000)
+    seasons: list[str] | None = Field(default=None, max_length=4)
 
 
 class PriorAvailability(BaseModel):
@@ -170,7 +222,14 @@ class PriorAnalysis(BaseModel):
     reference_question: str | None = Field(default=None, max_length=4000)
     award_reference: PriorAward | None = None
     analysis_type: (
-        Literal["availability", "summary", "comparison", "appearances", "player_split"]
+        Literal[
+            "availability",
+            "summary",
+            "comparison",
+            "appearances",
+            "player_split",
+            "derived_series",
+        ]
         | None
     ) = None
 

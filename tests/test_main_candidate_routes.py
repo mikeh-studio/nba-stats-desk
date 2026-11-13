@@ -499,3 +499,45 @@ def test_candidate_exposes_jobs_only_when_explicitly_mounted():
                 ).status_code
                 == 403
             )
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"game_result": "W"},
+        {"weekdays": [0]},
+        {"stat_filters": [{"component": "min", "op": "gt", "value": 30}]},
+    ],
+)
+def test_pts_candidate_rejects_new_game_filters_before_reading_totals(
+    candidate_client, monkeypatch, filters
+):
+    from types import SimpleNamespace
+
+    from app.serving import candidate_service
+
+    _, service, _ = candidate_client
+    plan = {
+        "status": "query",
+        "model_calls": 0,
+        "queries": [
+            {
+                "metric": "pts",
+                "operation": "summary",
+                "aggregation": "total",
+                "season": "2026-27",
+                "season_type": "Regular Season",
+                "window": "season_to_date",
+                "player_name": "Alex Example",
+                **filters,
+            }
+        ],
+    }
+    monkeypatch.setattr(candidate_service, "plan_question", lambda *a, **k: plan)
+    monkeypatch.setattr(
+        service,
+        "_single",
+        lambda *a, **k: pytest.fail("unfiltered candidate totals read"),
+    )
+    with pytest.raises(ServingError, match="unsupported_candidate_question"):
+        service.ask(QUESTION, SimpleNamespace(ask_intelligence_provider="reference"))

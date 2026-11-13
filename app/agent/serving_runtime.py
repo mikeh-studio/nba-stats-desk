@@ -350,6 +350,9 @@ class PilotPublication:
                 "team_abbr",
                 "opponent_abbr",
                 "home_away",
+                "game_result",
+                "weekdays",
+                "stat_filters",
                 "seasons",
             )
         )

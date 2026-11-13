@@ -21,10 +21,13 @@ def saved_context_question(question: str, payload: dict[str, Any]) -> str:
     scope = evidence.get("scope") or {}
     player = (payload.get("player_profile") or {}).get("player") or {}
     if evidence.get("metrics") and player.get("player_name") and scope.get("start"):
+        from app.agent.game_filters import filter_question
+
         return (
             f"{player['player_name']} performance from {scope['start']} "
-            f"through {scope['end']} ({' + '.join(scope['phases'])})"
-        )
+            f"through {scope['end']} ({' + '.join(scope['phases'])}) "
+            + filter_question(scope)
+        ).rstrip()
     return question
 
 

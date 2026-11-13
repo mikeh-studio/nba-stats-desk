@@ -80,8 +80,9 @@ CRITICAL = {
         "boundary_baseline_one_date": [(1, "semantic_evidence.player.value", 0)],
     },
     "unsupported": {
-        cid: [(1, "status", "unsupported_scope"), (1, "tables", [])]
-        for cid in ["unsupported_filter", "round_refusal"]
+        "unsupported_filter": [(1, "status", "incomplete_evidence"), (1, "tables", [])],
+        "round_refusal": [(1, "status", "unsupported_scope"), (1, "tables", [])],
+        "lineup_refusal": [(1, "status", "unsupported_scope"), (1, "tables", [])],
     },
     "conversation": {
         "follow_new_player": [
