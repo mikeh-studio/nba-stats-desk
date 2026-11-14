@@ -10,11 +10,14 @@ import threading
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 
+from fastapi import HTTPException
+from pydantic import ValidationError
 from starlette.responses import JSONResponse
 
 from app.serving.control_cache import ControlCache
 from app.serving.core_application import create_core_application
 from app.serving.cutover import publication_token
+from app.serving.metric_products import MetricSelection, validate_core_product
 from app.serving.production_workers import PublicationWorkers
 from app.serving.publication import Resolver, ordered
 from app.serving.publication_contract import digest, timestamp
@@ -23,7 +26,16 @@ from app.serving.publication_contract import digest, timestamp
 class ProductionApplication:
     production_reader = True
 
-    def __init__(self, *, client, project, namespace, authority, cache_ttl=5):
+    def __init__(
+        self,
+        *,
+        client,
+        project,
+        namespace,
+        authority,
+        cache_ttl=5,
+        metric_product_resolver=None,
+    ):
         if not re.fullmatch(
             r"[a-z][a-z0-9-]{4,61}[a-z0-9]", project
         ) or not re.fullmatch(r"nba_core_[a-z0-9_]{3,64}", namespace):
@@ -36,6 +48,7 @@ class ProductionApplication:
         )
         self.controls = ControlCache(cache_ttl)
         self.workers = PublicationWorkers()
+        self.metric_product_resolver = metric_product_resolver
 
     query = Resolver.query
 
@@ -104,16 +117,22 @@ class ProductionApplication:
         with ThreadPoolExecutor(max_workers=min(6, len(assets))) as pool:
             return dict(pool.map(read, assets))
 
-    def application(self, token):
+    def application(self, token, selected=False):
         # Fail closed before warehouse reads, but never prevent legacy startup.
         self.authority.policy("serving")
         envelope = self.release(token)
         manifest, binding = envelope["manifest"], envelope["binding"]
+        product = None
+        if selected and self.metric_product_resolver is not None:
+            product = validate_core_product(
+                self.metric_product_resolver(envelope), manifest, binding
+            )
         key = (
             manifest["publication_id"],
             digest(envelope),
             manifest["input_fingerprint"],
             digest(manifest["scope"]),
+            digest(product),
         )
         with self.lock:
             if key not in self.apps:
@@ -174,6 +193,7 @@ class ProductionApplication:
                     authorize=authorize,
                     production_authority=self.authority,
                     run_blocking=self.workers.run,
+                    metric_product=product,
                 )
                 while len(self.apps) > 2:
                     self.apps.popitem(last=False)
@@ -195,7 +215,65 @@ class ProductionApplication:
 
     async def serve_http(self, scope, receive, send):
         try:
-            app = await self.workers.run(self.application, publication_token(scope))
+            token = publication_token(scope)
+            selected_request = False
+            if (
+                self.metric_product_resolver is not None
+                and scope.get("method") == "POST"
+                and scope["path"].endswith(("/api/agent/ask", "/api/agent/ask/stream"))
+            ):
+                body = bytearray()
+                while True:
+                    event = await receive()
+                    if event["type"] != "http.request":
+                        raise HTTPException(400, "Ask body unavailable")
+                    body.extend(event.get("body", b""))
+                    if len(body) > 16384:
+                        raise HTTPException(413, "Ask body too large")
+                    if not event.get("more_body"):
+                        break
+                try:
+                    payload = json.loads(body)
+                except (ValueError, UnicodeError) as exc:
+                    raise HTTPException(422, "invalid Ask body") from exc
+                if not isinstance(payload, dict):
+                    raise HTTPException(422, "invalid Ask body")
+                selected_request = (
+                    payload.get("metric_product") is not None
+                    or payload.get("selection") is not None
+                )
+                if "selection" in payload and payload["selection"] is not None:
+                    try:
+                        selection = MetricSelection.model_validate(payload["selection"])
+                    except ValidationError as exc:
+                        raise HTTPException(422, "invalid metric selection") from exc
+                    pinned = selection.product.get("publication_id")
+                    if not pinned or (token is not None and pinned != token):
+                        raise HTTPException(409, "conflicting metric selection")
+                    token = pinned
+                original_receive = receive
+                delivered = False
+
+                async def receive():
+                    nonlocal delivered
+                    if not delivered:
+                        delivered = True
+                        return {
+                            "type": "http.request",
+                            "body": bytes(body),
+                            "more_body": False,
+                        }
+                    return await original_receive()
+
+            app = (
+                await self.workers.run(self.application, token, True)
+                if selected_request
+                else await self.workers.run(self.application, token)
+            )
+        except HTTPException as exc:
+            return await JSONResponse(
+                {"detail": exc.detail}, status_code=exc.status_code
+            )(scope, receive, send)
         except Exception:
             return await JSONResponse(
                 {"detail": "publication unavailable; refresh the flow"}, status_code=503

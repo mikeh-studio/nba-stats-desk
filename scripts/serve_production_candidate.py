@@ -76,6 +76,7 @@ def create(config_path):
 
 def create_config(config):
     from app.main import app as legacy
+    from app.serving.metric_products import read_core_product
     from app.serving.production_application import ProductionApplication
     from app.serving.source_authority import ProviderAuthorities, SourceAuthority
     from google.cloud import bigquery
@@ -103,11 +104,19 @@ def create_config(config):
             clock=clock,
             cache_ttl=30,
         )
+
+    def metric_product(envelope):
+        document = json.loads(Path(config["metric_products_path"]).read_text())
+        return read_core_product(document, envelope["manifest"], envelope["binding"])
+
     core = ProductionApplication(
         client=bigquery.Client(project=config["project"]),
         project=config["project"],
         namespace=config["namespace"],
         authority=authority,
+        metric_product_resolver=metric_product
+        if "metric_products_path" in config
+        else None,
     )
     # Reuse the generation-pinned, bounded GCS control reader used for source
     # controls; local paths remain supported for explicitly local operation.

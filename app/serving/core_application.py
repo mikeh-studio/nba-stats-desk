@@ -9,6 +9,7 @@ from datetime import date
 from functools import partial, wraps
 from inspect import iscoroutinefunction
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -21,6 +22,7 @@ from starlette.routing import Match
 from app.agent.semantics import Evidence, Query, SemanticError, run_query
 from app.serving.core_models import build_models, metrics
 from app.serving.cutover import publication_token
+from app.serving.metric_products import MetricSelection, validate_core_product
 from app.serving.publication import equal_values, ordered, validate_receipt
 from app.serving.publication_contract import (
     PROFILE,
@@ -34,6 +36,8 @@ from app.serving.publication_contract import (
 class Ask(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=500)
+    metric_product: Literal["core_box_score"] | None = None
+    selection: MetricSelection | None = None
 
 
 class StatQuery(BaseModel):
@@ -55,6 +59,7 @@ def create_core_application(
     warehouse_context=None,
     production_authority=None,
     run_blocking=run_in_threadpool,
+    metric_product=None,
 ):
     """Caller supplies pinned offline bundle, trusted replay clock and authority.
 
@@ -65,6 +70,8 @@ def create_core_application(
         raise ValueError("bundle integrity differs")
     bundle = copy.deepcopy(bundle)
     manifest, binding, models = bundle["manifest"], bundle["binding"], bundle["models"]
+    if metric_product is not None:
+        metric_product = validate_core_product(metric_product, manifest, binding)
     if warehouse_context is not None and production_authority is not None:
         raise ValueError("rehearsal cannot be promoted by a reader flag")
     warehouse_receipt = None
@@ -533,7 +540,9 @@ def create_core_application(
     def query_api(q: StatQuery):
         return query(q)
 
-    def ask(question):
+    def ask(question, selected=None, product=None):
+        if selected is not None or product is not None:
+            return selected_ask(question, selected)
         # Closed rephrasings retain exact identity and the publication scope.
         natural_total = re.fullmatch(
             r"how many points did (.+?) score\??", question.strip(), re.I
@@ -657,16 +666,85 @@ def create_core_application(
             raise HTTPException(422, "invalid date range") from exc
         return query(q)
 
+    def selected_ask(question, selected):
+        if metric_product is None:
+            raise HTTPException(409, "metric product is not configured")
+        question_digest = digest(question.strip())
+        if selected is not None:
+            if (
+                selected.product != metric_product
+                or selected.query.question_digest != question_digest
+            ):
+                raise HTTPException(
+                    409, "metric selection differs; replay the pinned question"
+                )
+        # Reconstruct against this pinned publication's roster, never the
+        # current pointer. Caller-authored query fields cannot change the answer
+        # while retaining the original displayed question.
+        match = re.fullmatch(
+            r"(.+?) (?:ratio (?:fg%|fg_pct)|(?:field goal percentage|fg%))(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?\??",
+            question.strip(),
+            re.I,
+        )
+        if not match:
+            raise HTTPException(
+                422, "Use: Player Name ratio FG% from YYYY-MM-DD to YYYY-MM-DD"
+            )
+        name, first, last = match.groups()
+        found = [
+            p
+            for p in identities.values()
+            if p["player_name"].casefold() == name.casefold()
+        ]
+        if len(found) != 1:
+            raise HTTPException(422, "player identity requires clarification")
+        pid = found[0]["player_id"]
+        first, last = first or scope["first"], last or scope["last"]
+        try:
+            q = StatQuery(
+                player_id=pid,
+                metric="fg_pct",
+                aggregation="ratio",
+                first=first,
+                last=last,
+            )
+        except ValueError as exc:
+            raise HTTPException(422, "invalid date range") from exc
+        if selected is not None and (
+            selected.query.player_id != pid
+            or selected.query.first != q.first
+            or selected.query.last != q.last
+        ):
+            raise HTTPException(409, "metric selection identity or dates differ")
+        result = query(q)
+        result["selection"] = {
+            "version": "metric-selection/1",
+            "product": copy.deepcopy(metric_product),
+            "query": {
+                "player_id": pid,
+                "first": str(q.first),
+                "last": str(q.last),
+                "question_digest": question_digest,
+            },
+        }
+        return result
+
     @app.post("/api/agent/ask")
     def ask_api(body: Ask):
-        return ask(body.question)
+        if "selection" in body.model_fields_set and body.selection is None:
+            raise HTTPException(422, "invalid metric selection")
+        return ask(body.question, body.selection, body.metric_product)
 
     @app.post("/api/agent/ask/stream")
     def ask_stream(body: Ask):
-        result = ask(body.question)
+        if "selection" in body.model_fields_set and body.selection is None:
+            raise HTTPException(422, "invalid metric selection")
+        result = ask(body.question, body.selection, body.metric_product)
 
         async def stream():
             try:
+                if production_authority is not None:
+                    await run_blocking(production_authority.check, manifest, binding)
                 available = (
                     await run_blocking(authorized) is True
                     and status()["freshness"] != "expired"

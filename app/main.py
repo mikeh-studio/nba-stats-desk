@@ -238,6 +238,8 @@ class AgentAskRequest(BaseModel):
     # Question length policy lives in _validate_agent_question so every
     # violation gets the same 400 with a readable detail message.
     question: str
+    metric_product: str | None = None
+    selection: dict[str, Any] | None = None
     conversation_id: str | None = Field(default=None, max_length=80)
     previous_context: PriorAnalysis | None = None
     # Set when the user clicks a clarification option; the agent resumes the
@@ -1983,6 +1985,10 @@ async def api_agent_ask(
     agent_client: Annotated[Any | None, Depends(get_agent_client)],
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
 ) -> Response:
+    if payload.model_fields_set & {"metric_product", "selection"}:
+        raise HTTPException(
+            409, "Metric selection requires the configured publication reader."
+        )
     if candidate is not None and request.query_params:
         raise HTTPException(
             status_code=400, detail="Candidate scope must be stated in the question."
@@ -2034,6 +2040,10 @@ async def api_agent_ask_stream(
     agent_client: Annotated[Any | None, Depends(get_agent_client)],
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
 ) -> StreamingResponse:
+    if payload.model_fields_set & {"metric_product", "selection"}:
+        raise HTTPException(
+            409, "Metric selection requires the configured publication reader."
+        )
     if candidate is not None and request.query_params:
         raise HTTPException(
             status_code=400, detail="Candidate scope must be stated in the question."

@@ -1214,3 +1214,48 @@ secondary and its expandable explanation names the qualifying group and directio
 Shooting percentages, totals, per-game averages, per-36 rates and custom estimates
 retain distinct units. Raw evidence, values, claim bindings and API fields remain
 unchanged, so saved answers can adopt the vocabulary without querying again.
+
+## Opt-in pinned core metric selection
+
+The explicit production composition can load `metric_products_path`, pointing to a
+server-mounted JSON sidecar or a `metric-product-registry/1` document with a
+`products` array. The default application requires no registry. Registry entries
+are closed `metric-product/1` descriptions of an actual publication, manifest and
+binding digests, identity version and identity-input digest, freshness boundary,
+and the reader's executable FG% definition and versioned aggregation policy.
+Descriptors identify evidence and semantics; the existing independently configured
+source authority, publication verification and expiry gates still authorize every
+answer. A descriptor alone cannot authorize data or turn an offline replay into
+production evidence.
+
+The initial supported product is `core_box_score` and its selected operation is
+single-player FG%, computed from summed complete makes and attempts. Missing
+components retain observed/valid/missing counts; zero attempts are unavailable.
+Selecting another metric returns unsupported rather than substituting FG%.
+Normal Ask requests preserve their existing response shape. An unconfigured host
+rejects a supplied metric product or selection instead of silently dropping it.
+
+On a configured production composition, for example:
+
+```sh
+curl --json '{"question":"Example Player ratio FG% from 2026-10-20 to 2026-10-30","metric_product":"core_box_score"}' \
+  http://127.0.0.1:8036/publication-core/api/agent/ask
+```
+
+Use a player and date range actually present in the selected publication. The
+returned `selection` binds the sidecar plus the resolved player ID, exact dates,
+and question digest. Save that object with the original question and send both
+as `{"question":"...","selection":{...}}` to replay. The same request works at
+`/publication-core/api/agent/ask/stream`, whose `final` event carries the same
+payload. The request captures one publication before calculation and streaming;
+a promotion cannot change its final result. Retained pins replay that publication
+after a newer publication is selected or rolled back. An explicit publication
+header/query token must agree with the selection. Invalid, mismatched, expired,
+revoked or unavailable pins fail closed without an unpinned retry. A changed
+player ID or date range with the original question is rejected.
+
+Keep old product descriptors in the configured registry while those publications
+remain replayable. Registry lookup and product validation run only for explicitly
+selected requests; existing player pages and unselected core questions do not
+read descriptors. This interface does not change the production mode, host,
+source policy, dependency pin or scheduler.
