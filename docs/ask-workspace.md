@@ -1259,3 +1259,11 @@ remain replayable. Registry lookup and product validation run only for explicitl
 selected requests; existing player pages and unselected core questions do not
 read descriptors. This interface does not change the production mode, host,
 source policy, dependency pin or scheduler.
+
+Pinned selections require this explicitly configured reader. Older, unpatched
+hosts may ignore unknown request members; do not send a selection to an arbitrary
+legacy Ask host and treat its answer as a replay. The reader checks the identity
+mapping input digest through the existing source-authority dependency revocation
+registry on every guarded read, including cached readers. Revoking that mapping
+digest makes both JSON and streamed pinned answers unavailable. Streaming repeats
+authority and freshness checks immediately before its single numeric final event.

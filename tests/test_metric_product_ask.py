@@ -271,3 +271,100 @@ def test_same_question_promotion_pinned_stream_and_rollback(production):
             json={"question": QUESTION, "selection": answer_a["selection"]},
         )
         assert revoked.status_code == 503
+
+
+@pytest.mark.parametrize("route", ["/api/agent/ask", "/api/agent/ask/stream"])
+def test_future_selection_and_mapping_revocation_fail_closed(production, route):
+    p, product = configure(production)
+    with TestClient(p.app) as client:
+        # Warm the unselected cached reader first; its cache must not consume the
+        # selected request or erase the selected tuple.
+        assert client.post(route, json={"question": QUESTION}).status_code == 200
+        selected = client.post(
+            "/api/agent/ask",
+            json={"question": QUESTION, "metric_product": "core_box_score"},
+        ).json()
+        assert selected["selection"]["product"] == product
+        future = copy.deepcopy(selected["selection"])
+        future["version"] = "metric-selection/99"
+        response = client.post(route, json={"question": QUESTION, "selection": future})
+        assert response.status_code == 422 and "numerator" not in response.text
+        p.registry["revoked_dependencies"].append(product["identity_digest"])
+        p.registry_path.write_text(json.dumps(p.registry))
+        response = client.post(
+            route, json={"question": QUESTION, "selection": selected["selection"]}
+        )
+        assert response.status_code == 503 and "numerator" not in response.text
+
+
+def test_inclusive_one_day_and_coverage_boundaries(production):
+    p, _ = configure(production)
+    day = p.accepted["games"][0]["game_date"]
+    with TestClient(p.app) as client:
+        response = client.post(
+            "/api/agent/ask",
+            json={
+                "question": f"Test Player A ratio FG% from {day} to {day}",
+                "metric_product": "core_box_score",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert result_row(response.json())["observed_games"] == 1
+        for first, last in [("2026-10-19", "2026-10-30"), ("2026-10-20", "2026-10-31")]:
+            bad = client.post(
+                "/api/agent/ask",
+                json={
+                    "question": f"Test Player A ratio FG% from {first} to {last}",
+                    "metric_product": "core_box_score",
+                },
+            )
+            assert bad.status_code == 422 and "numerator" not in bad.text
+
+
+def test_pinned_ambiguous_identity_requires_clarification():
+    from app.serving.core_models import build_models
+
+    bundle = synthetic_bundle()
+    bundle["accepted"]["players"][1]["player_name"] = "Test Player A"
+    bundle["models"] = build_models(
+        bundle["accepted"], materialized_at=bundle["manifest"]["materialized_at"]
+    )
+    for asset in bundle["manifest"]["assets"]:
+        asset["digest"] = digest(bundle["models"][asset["name"]])
+    bundle["binding"]["manifest_digest"] = digest(bundle["manifest"])
+    app = create_core_application(
+        bundle,
+        expected_digest=digest(bundle),
+        clock=lambda: "2026-11-01T16:00:00Z",
+        authorize=lambda *_: True,
+        metric_product=make_core_product(bundle["manifest"], bundle["binding"]),
+    )
+    with TestClient(
+        app, base_url="http://127.0.0.1", client=("127.0.0.1", 1)
+    ) as client:
+        response = client.post(
+            "/api/agent/ask",
+            json={"question": QUESTION, "metric_product": "core_box_score"},
+        )
+        assert response.status_code == 422 and "clarification" in response.text
+
+
+def test_expiry_before_stream_final_suppresses_all_numbers():
+    bundle = synthetic_bundle()
+    clock = ["2026-11-01T16:00:00Z"]
+    app = create_core_application(
+        bundle,
+        expected_digest=digest(bundle),
+        clock=lambda: clock[0],
+        authorize=lambda *_: True,
+        metric_product=make_core_product(bundle["manifest"], bundle["binding"]),
+    )
+    endpoint = next(r.endpoint for r in app.routes if r.path == "/api/agent/ask/stream")
+    response = endpoint(Ask(question=QUESTION, metric_product="core_box_score"))
+    clock[0] = bundle["manifest"]["freshness"]["expires_at"]
+
+    async def collect():
+        return "".join([chunk async for chunk in response.body_iterator])
+
+    text = asyncio.run(collect())
+    assert text == 'event: error\ndata: {"detail":"authority unavailable"}\n\n'
