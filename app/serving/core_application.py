@@ -11,7 +11,7 @@ from inspect import iscoroutinefunction
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.routing import APIRoute
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -31,12 +31,17 @@ from app.serving.publication_contract import (
     timestamp,
     validate_binding,
 )
+from app.serving.shot_products import (
+    SHOT_CATALOG_ENTRY,
+    query_shots,
+    validate_shot_product,
+)
 
 
 class Ask(BaseModel):
     model_config = ConfigDict(extra="forbid")
     question: str = Field(min_length=1, max_length=500)
-    metric_product: Literal["core_box_score"] | None = None
+    metric_product: Literal["core_box_score", "shot_events"] | None = None
     selection: MetricSelection | None = None
 
 
@@ -60,6 +65,9 @@ def create_core_application(
     production_authority=None,
     run_blocking=run_in_threadpool,
     metric_product=None,
+    shot_product=None,
+    shot_authorize=None,
+    metric_product_options=(),
 ):
     """Caller supplies pinned offline bundle, trusted replay clock and authority.
 
@@ -185,6 +193,22 @@ def create_core_application(
             )
             if missing != field["missing_count"]:
                 raise ValueError("manifest/model missingness differs")
+    if shot_product is not None:
+        shot_product = validate_shot_product(shot_product, manifest, binding, models)
+        if shot_authorize is None:
+            raise ValueError("independent shot authority required")
+
+    def shots_available():
+        try:
+            return (
+                shot_product is not None
+                and timestamp(clock())
+                < timestamp(shot_product["product"]["expires_at"])
+                and shot_authorize(copy.deepcopy(shot_product["product"])) is True
+            )
+        except Exception:
+            return False
+
     app = FastAPI(
         title="NBA core stats"
         if production_authority is not None
@@ -295,6 +319,10 @@ def create_core_application(
                 or status()["freshness"] == "expired"
             ):
                 raise ValueError("authority expired before emission")
+            if getattr(
+                request.state, "shot_selected", False
+            ) and not await run_blocking(shots_available):
+                raise ValueError("shot authority expired before emission")
             response.headers["X-Publication-ID"] = manifest["publication_id"]
             response.headers["Cache-Control"] = "no-store"
             return response
@@ -341,6 +369,17 @@ def create_core_application(
     @app.get("/api/health")
     def health():
         return status()
+
+    @app.get("/api/core/metric-products")
+    def product_catalog():
+        # Static allowlist discoverability does not assert evidence availability.
+        return {
+            "version": "optional-metric-catalog/1",
+            "configured_products": list(metric_product_options),
+            "metrics": [copy.deepcopy(SHOT_CATALOG_ENTRY)]
+            if "shot_events" in metric_product_options
+            else [],
+        }
 
     @app.get("/api/players/search")
     def search(q: str = ""):
@@ -542,7 +581,7 @@ def create_core_application(
 
     def ask(question, selected=None, product=None):
         if selected is not None or product is not None:
-            return selected_ask(question, selected)
+            return selected_ask(question, selected, product)
         # Closed rephrasings retain exact identity and the publication scope.
         natural_total = re.fullmatch(
             r"how many points did (.+?) score\??", question.strip(), re.I
@@ -666,13 +705,31 @@ def create_core_application(
             raise HTTPException(422, "invalid date range") from exc
         return query(q)
 
-    def selected_ask(question, selected):
-        if metric_product is None:
+    def selected_ask(question, selected, product):
+        kind = selected.product.get("product") if selected is not None else product
+        if product is not None and product != kind:
+            raise HTTPException(409, "conflicting metric products")
+        selected_product = (
+            shot_product["product"]
+            if kind == "shot_events" and shot_product is not None
+            else metric_product
+            if kind == "core_box_score"
+            else None
+        )
+        if selected_product is None:
             raise HTTPException(409, "metric product is not configured")
+        if kind == "shot_events":
+            try:
+                if not shots_available():
+                    raise ValueError("shot authority unavailable")
+            except Exception as exc:
+                raise HTTPException(
+                    503, "shot authority or freshness unavailable"
+                ) from exc
         question_digest = digest(question.strip())
         if selected is not None:
             if (
-                selected.product != metric_product
+                selected.product != selected_product
                 or selected.query.question_digest != question_digest
             ):
                 raise HTTPException(
@@ -681,14 +738,36 @@ def create_core_application(
         # Reconstruct against this pinned publication's roster, never the
         # current pointer. Caller-authored query fields cannot change the answer
         # while retaining the original displayed question.
+        scoped_question = question.strip()
+        if kind == "shot_events":
+            natural = re.fullmatch(
+                r"What share of (.+?)[’']s observed attempts were contested(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?\??",
+                scoped_question,
+                re.I,
+            )
+            if natural:
+                name, first, last = natural.groups()
+                scoped_question = (
+                    name
+                    + " ratio contested_attempt_share"
+                    + (f" from {first} to {last}" if first else "")
+                )
+        grammar = (
+            r"(.+?) (?:ratio contested_attempt_share|contested attempt share)(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?\??"
+            if kind == "shot_events"
+            else r"(.+?) (?:ratio (?:fg%|fg_pct)|(?:field goal percentage|fg%))(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?\??"
+        )
         match = re.fullmatch(
-            r"(.+?) (?:ratio (?:fg%|fg_pct)|(?:field goal percentage|fg%))(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?\??",
-            question.strip(),
+            grammar,
+            scoped_question,
             re.I,
         )
         if not match:
             raise HTTPException(
-                422, "Use: Player Name ratio FG% from YYYY-MM-DD to YYYY-MM-DD"
+                422,
+                "Use: Player Name ratio "
+                + ("contested_attempt_share" if kind == "shot_events" else "FG%")
+                + " from YYYY-MM-DD to YYYY-MM-DD",
             )
         name, first, last = match.groups()
         found = [
@@ -716,10 +795,37 @@ def create_core_application(
             or selected.query.last != q.last
         ):
             raise HTTPException(409, "metric selection identity or dates differ")
-        result = query(q)
+        if kind == "shot_events":
+            player(q.player_id)
+            if not first_day <= q.first <= q.last <= last_day:
+                raise HTTPException(
+                    422, "date range outside replay; no silent clamping"
+                )
+            result = wrap(
+                query_shots(
+                    shot_product,
+                    facts,
+                    player_id=pid,
+                    first=str(q.first),
+                    last=str(q.last),
+                )
+            )
+            coverage = result["data"]["coverage"]
+            value = result["data"]["rows"][0]["display_value"]
+            metric_row = result["data"]["rows"][0]
+            result["answer"] = (
+                (
+                    f"{value:g}% contested · {metric_row['numerator']:g} of {metric_row['denominator']:g} observed attempts"
+                    if value is not None
+                    else "Contested attempt share is unavailable"
+                )
+                + f" · {coverage['covered_games']} of {coverage['eligible_games']} eligible player-games covered ({coverage['unknown_games']} unknown)."
+            )
+        else:
+            result = query(q)
         result["selection"] = {
             "version": "metric-selection/1",
-            "product": copy.deepcopy(metric_product),
+            "product": copy.deepcopy(selected_product),
             "query": {
                 "player_id": pid,
                 "first": str(q.first),
@@ -730,16 +836,29 @@ def create_core_application(
         return result
 
     @app.post("/api/agent/ask")
-    def ask_api(body: Ask):
-        if "selection" in body.model_fields_set and body.selection is None:
-            raise HTTPException(422, "invalid metric selection")
-        return ask(body.question, body.selection, body.metric_product)
-
-    @app.post("/api/agent/ask/stream")
-    def ask_stream(body: Ask):
+    def ask_api(body: Ask, request: Request):
         if "selection" in body.model_fields_set and body.selection is None:
             raise HTTPException(422, "invalid metric selection")
         result = ask(body.question, body.selection, body.metric_product)
+        if (
+            request is not None
+            and result.get("selection", {}).get("product", {}).get("product")
+            == "shot_events"
+        ):
+            request.state.shot_selected = True
+        return result
+
+    @app.post("/api/agent/ask/stream")
+    def ask_stream(body: Ask, request: Request):
+        if "selection" in body.model_fields_set and body.selection is None:
+            raise HTTPException(422, "invalid metric selection")
+        result = ask(body.question, body.selection, body.metric_product)
+        shot_selected = (
+            result.get("selection", {}).get("product", {}).get("product")
+            == "shot_events"
+        )
+        if request is not None:
+            request.state.shot_selected = shot_selected
 
         async def stream():
             try:
@@ -749,7 +868,9 @@ def create_core_application(
                     await run_blocking(authorized) is True
                     and status()["freshness"] != "expired"
                 )
-            except ValueError:
+                if shot_selected:
+                    available = available and await run_blocking(shots_available)
+            except Exception:
                 available = False
             if not available:
                 yield 'event: error\ndata: {"detail":"authority unavailable"}\n\n'
@@ -767,7 +888,7 @@ def create_core_application(
         autoescape=select_autoescape(),
     ).get_template("core_replay.html")
 
-    def page(title, payload=None):
+    def page(title, payload=None, api_base=""):
         return HTMLResponse(
             template.render(
                 title=title,
@@ -786,13 +907,15 @@ def create_core_application(
                     )
                 ),
                 status=status(),
+                metric_product_options=metric_product_options,
+                api_base=api_base,
             )
         )
 
     @app.get("/")
     @app.get("/ask")
-    def ask_page():
-        return page("Ask core stats")
+    def ask_page(request: Request):
+        return page("Ask core stats", api_base=request.scope.get("root_path", ""))
 
     @app.get("/players/{player_id}")
     @app.get("/players/{player_id}/content")

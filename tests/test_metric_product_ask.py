@@ -12,6 +12,7 @@ from app.serving.metric_products import (
 from app.serving.publication_contract import digest
 from fastapi.testclient import TestClient
 from scripts.build_synthetic_core_replay import synthetic_bundle
+from starlette.requests import Request
 
 from test_production_publication import production as production_fixture
 
@@ -131,7 +132,10 @@ def test_stream_rechecks_authority_after_result_capture():
         metric_product=make_core_product(bundle["manifest"], bundle["binding"]),
     )
     endpoint = next(r.endpoint for r in app.routes if r.path == "/api/agent/ask/stream")
-    response = endpoint(Ask(question=QUESTION, metric_product="core_box_score"))
+    response = endpoint(
+        Ask(question=QUESTION, metric_product="core_box_score"),
+        Request({"type": "http", "state": {}}),
+    )
     state["allowed"] = False
 
     async def collect():
@@ -237,7 +241,7 @@ def test_same_question_promotion_pinned_stream_and_rollback(production):
         )
         # Production endpoints are wrapped async functions with a __wrapped__ sync original.
         endpoint = getattr(endpoint, "__wrapped__", endpoint)
-        response = endpoint(Ask(**request))
+        response = endpoint(Ask(**request), Request({"type": "http", "state": {}}))
         active[0] = bid
 
         async def collect():
@@ -360,7 +364,10 @@ def test_expiry_before_stream_final_suppresses_all_numbers():
         metric_product=make_core_product(bundle["manifest"], bundle["binding"]),
     )
     endpoint = next(r.endpoint for r in app.routes if r.path == "/api/agent/ask/stream")
-    response = endpoint(Ask(question=QUESTION, metric_product="core_box_score"))
+    response = endpoint(
+        Ask(question=QUESTION, metric_product="core_box_score"),
+        Request({"type": "http", "state": {}}),
+    )
     clock[0] = bundle["manifest"]["freshness"]["expires_at"]
 
     async def collect():

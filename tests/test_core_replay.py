@@ -8,6 +8,7 @@ from app.serving.core_models import build_models
 from app.serving.publication_contract import digest
 from fastapi.testclient import TestClient
 from scripts.build_synthetic_core_replay import synthetic_bundle
+from starlette.requests import Request
 
 
 @pytest.fixture(autouse=True)
@@ -190,7 +191,10 @@ def test_stream_authority_error_becomes_error_event(bundle):
         authorize=unavailable,
     )
     endpoint = next(r.endpoint for r in app.routes if r.path == "/api/agent/ask/stream")
-    response = endpoint(Ask(question="Test Player A total points"))
+    response = endpoint(
+        Ask(question="Test Player A total points"),
+        Request({"type": "http", "state": {}}),
+    )
 
     async def collect():
         return "".join([chunk async for chunk in response.body_iterator])

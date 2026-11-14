@@ -1267,3 +1267,64 @@ mapping input digest through the existing source-authority dependency revocation
 registry on every guarded read, including cached readers. Revoking that mapping
 digest makes both JSON and streamed pinned answers unavailable. Streaming repeats
 authority and freshness checks immediately before its single numeric final event.
+
+## Optional observed contested-attempt share
+
+The optional `shot_events` product adds `contested_attempt_share` to the same
+selected Ask JSON and SSE interface. It uses the existing governed ratio engine:
+`SUM(contested_attempts) / SUM(observed_attempts)`, never an average of per-game
+percentages. This is a share of **observed attempts** from the approved shot
+source, not an estimate for unobserved games or a replacement for box-score FG%.
+The reader requires the exact core publication to establish player-game
+eligibility, identity and inclusive dates. Ordinary core requests never read this
+optional product.
+
+The closed shot descriptor binds additive component rows, per-game coverage,
+independent event-source and expected-inventory revisions and versions, the
+source-through watermark, identity, semantics, expiry and the core reference.
+Complete partitions include explicit zero-attempt rows for every eligible player;
+unknown partitions contribute no observed attempts. Answers disclose covered,
+eligible and unknown player-games. Covered zero attempts and unknown coverage both
+have unavailable ratios but retain distinct denominators and coverage. Source and
+inventory digests identify evidence; trusted composition must independently check
+its verification and revocation authority before serving it. Completeness asserted
+by the artifact itself never grants authority.
+
+Programmatic opt-in on `ProductionApplication` supplies
+`shot_product_resolver(envelope, product_id)` and `shot_authorize(descriptor)`.
+The resolver may call `read_shot_product` on a locally mounted
+`shot-product-registry/1` document containing `active_product_id` and retained
+`products`. A replay passes its exact product ID, so promotion or rollback cannot
+silently choose a different artifact. The authority callback must verify the
+independently approved exact descriptor, source and inventory revisions, validity
+and revocations; it is repeated before JSON emission and immediately before the
+single streamed final event, alongside core authority and freshness checks.
+No shot product is enabled by the default production launcher.
+
+For a self-contained, explicitly synthetic UI demonstration with no warehouse or
+provider access:
+
+```sh
+PYTHON_DOTENV_DISABLED=1 python scripts/serve_synthetic_metric_products.py --port 8038
+```
+
+Open [the loopback synthetic demo](http://127.0.0.1:8038/ask), select “Observed
+contested attempt share,” and ask:
+
+> What share of Test Player A’s observed attempts were contested from 2026-10-20 to 2026-10-30?
+
+The answer shows `10% contested`, `1 of 10 observed attempts`, and `2 of 2 eligible
+player-games covered`, with an expandable evidence view. The equivalent API body
+is `{"question":"Test Player A ratio contested_attempt_share from 2026-10-20 to 2026-10-30","metric_product":"shot_events"}`.
+Use the returned selection with the identical original question for JSON or SSE
+replay. This fixture uses a frozen replay clock and synthetic pins; it neither
+reads nor publishes production evidence.
+
+If the active core advances while the active shot artifact still refers to the
+previous core, a new selected-shot request returns unavailable with no statistic
+or measured-coverage claim. A retained selection continues to resolve its exact
+old core/shot pair while both authorities remain valid. Pointer promotion and
+rollback affect new selections; they do not rewrite an answer already captured
+for streaming. Source or mapping revocation and either expiry suppress the final
+numeric event. The product registry supplies discovery and retention; the
+independently supplied authority callback supplies revocation decisions.
