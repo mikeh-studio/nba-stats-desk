@@ -547,3 +547,18 @@ source-date cutoff. Count/ratio changes retain their metric conventions; genuine
 incompatible changes, such as a cumulative percentage or a per-game cumulative
 total, require clarification. Recovered browser hints without the complete
 structured series plan require restatement rather than becoming a scalar answer.
+
+## Optional shot metric product contract
+
+`app.serving.shot_products` defines a closed optional `shot_events` artifact for
+`contested_attempt_share`: summed contested attempts divided by summed observed
+attempts using the existing governed ratio arithmetic. Its stored unit is ratio;
+its display unit is percent. The descriptor binds source and independent inventory
+revisions/versions, source-through, component/coverage digests, expiry and the exact
+core product reference. The validator checks eligible player-game identities and
+dates against that core's validated models. Complete partitions contain explicit
+zero-attempt rows; unknown partitions contribute no zero production. The query
+helper discloses covered and eligible player-games and unknown partitions.
+These structural and arithmetic checks do not grant source authority. Consuming
+composition must independently validate source/inventory verification, freshness
+and revocations before making this optional product available to Ask.
