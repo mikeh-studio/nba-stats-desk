@@ -683,13 +683,15 @@ test("main Ask routes publication answers and falls back for unsupported or unav
     if (url.startsWith('/publication-core')) return {ok:false, status:503};
     assert.deepEqual(JSON.parse(options.body), request.body);
     return {ok:true, body:new ReadableStream({start(controller) {
-      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', conversation_id:owner}})}\n\n`));
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', conversation_id:owner, request_id:'legacy-fallback-request'}})}\n\n`));
       controller.close();
     }})};
   };
   await agent.askQuestionStream({...request, finished:false});
   assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
-  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.at(-1);
+  // Several synthetic responses can share a millisecond; select the actual
+  // fallback response by its request identity instead of timestamp ordering.
+  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.find(t => t.request_id === 'legacy-fallback-request');
   assert.equal(fallback.payload.answer, 'Legacy source answer');
   assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
 });
