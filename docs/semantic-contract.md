@@ -562,3 +562,26 @@ produce an unavailable ratio. Responses disclose covered and eligible games plus
 integer numerator/denominator. This optional metric is never substituted for FG%
 and does not expand the closed core publication profile. See the
 [selection, authority and synthetic demo contract](ask-workspace.md#optional-observed-contested-attempt-share).
+
+## Core metric descriptor compatibility
+
+Core FG% descriptors cover the executable numerator, denominator, required
+components, ratio aggregation and unit, together with the reviewed policy for
+pooled complete components, missingness, unavailable zero denominators and
+one-decimal percentage display. An unsupported calculation or policy is rejected
+at descriptor issuance and admission. Display labels do not change semantic
+identity. The descriptor separately binds the exact publication, binding and
+roster input/version; a roster revision changes the descriptor without changing
+the FG% definition. A digest is an identity, not source authority.
+
+## Shot count wire bounds
+
+Shot wire counts must be actual nonnegative integers no larger than `2^53 - 1`;
+booleans, floats (including `-0.0`), exponent-form floats and numeric strings are
+rejected before hashing and at admission. The sum across all covered partitions
+and player-game rows must also fit this bound, preserving exact pooled components
+when they enter the governed float arithmetic and browser JSON. JSON's integer
+lexeme `-0` parses as ordinary integer zero; its canonical representation is `0`.
+Covered zero attempts remain distinct from unknown partitions. Eligibility is
+checked against every exact core player-game, so an added roster appearance
+invalidates a stale optional artifact even if its descriptor was copied intact.

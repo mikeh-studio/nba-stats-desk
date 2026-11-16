@@ -1328,3 +1328,11 @@ rollback affect new selections; they do not rewrite an answer already captured
 for streaming. Source or mapping revocation and either expiry suppress the final
 numeric event. The product registry supplies discovery and retention; the
 independently supplied authority callback supplies revocation decisions.
+
+Selected date ranges compare the inclusive, canonical `game_date` values already
+stored in the immutable publication. They do not convert tipoff timestamps using
+the request machine's timezone. Season and phase come from the pinned publication
+scope, so a change to planner timezone or default phase cannot reinterpret a
+retained selection. Authority and freshness are still checked for every replay;
+expiry is not bypassed by retaining a token. No numeric components are streamed
+before the terminal authority/freshness recheck.
