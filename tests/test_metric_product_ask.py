@@ -368,3 +368,36 @@ def test_expiry_before_stream_final_suppresses_all_numbers():
 
     text = asyncio.run(collect())
     assert text == 'event: error\ndata: {"detail":"authority unavailable"}\n\n'
+
+
+def test_replay_uses_stored_game_date_not_default_timezone_or_phase(
+    production, monkeypatch
+):
+    from dataclasses import replace
+
+    from app.agent import semantics
+
+    p, _ = configure(production)
+    day = p.accepted["games"][0]["game_date"]
+    question = f"Test Player A ratio FG% from {day} to {day}"
+    with TestClient(p.app) as client:
+        initial = client.post(
+            "/api/agent/ask",
+            json={"question": question, "metric_product": "core_box_score"},
+        ).json()
+        original = semantics.load_contract()
+        monkeypatch.setattr(
+            semantics,
+            "load_contract",
+            lambda: replace(
+                original, timezone="Pacific/Kiritimati", default_phase="Playoffs"
+            ),
+        )
+        replay = {"question": question, "selection": initial["selection"]}
+        assert client.post("/api/agent/ask", json=replay).json() == initial
+        streamed = client.post("/api/agent/ask/stream", json=replay)
+        assert json.loads(streamed.text.split("data: ")[1]) == initial
+        row = result_row(initial)
+        expected = [r["game_id"] for r in p.accepted["games"] if r["game_date"] == day]
+        assert row["game_ids"] == expected
+        assert row["observed_games"] == 1
