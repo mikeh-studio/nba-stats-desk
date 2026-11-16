@@ -1336,3 +1336,13 @@ scope, so a change to planner timezone or default phase cannot reinterpret a
 retained selection. Authority and freshness are still checked for every replay;
 expiry is not bypassed by retaining a token. No numeric components are streamed
 before the terminal authority/freshness recheck.
+
+To demonstrate unknown coverage independently of covered zero attempts, add
+`--unknown-last-game` to the synthetic launcher. The first game, `2026-10-20`,
+remains covered and Test Player B has zero observed attempts. Its one-day answer
+is unavailable with `1 of 1` eligible game covered and components `0/0`.
+The second game, `2026-10-21`, remains core-eligible with unknown shot observations;
+its answer is unavailable with `0 of 1` covered and null components. The default
+launcher keeps both games covered. `npm run test:metric-product-browser` runs this
+real loopback browser regression with the dedicated Playwright configuration;
+public CI runs it after the existing browser suite.

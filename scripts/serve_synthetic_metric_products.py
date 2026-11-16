@@ -9,7 +9,7 @@ os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
-def create():
+def create(*, unknown_last_game=False):
     from app.serving.core_application import create_core_application
     from app.serving.metric_products import make_core_product
     from app.serving.publication_contract import digest
@@ -21,14 +21,17 @@ def create():
     games = sorted(bundle["accepted"]["games"], key=lambda r: r["game_id"])
     coverage, rows = [], []
     for i, game in enumerate(games):
+        unknown = unknown_last_game and i == len(games) - 1
         coverage.append(
             dict(
                 game_id=game["game_id"],
                 game_date=game["game_date"],
-                status="complete",
-                expected_events=1 if i == 0 else 9,
+                status="unknown" if unknown else "complete",
+                expected_events=None if unknown else 1 if i == 0 else 9,
             )
         )
+        if unknown:
+            continue
         for pid in (101, 202):
             rows.append(
                 dict(
@@ -45,7 +48,9 @@ def create():
         expires_at=core["expires_at"],
         source_revision=digest(["synthetic source", rows]),
         inventory_revision=digest(["synthetic inventory", coverage]),
-        source_through=max(g["game_date"] for g in games),
+        source_through=max(
+            c["game_date"] for c in coverage if c["status"] == "complete"
+        ),
     )
     expected = digest(bundle)
     shot_digest = digest(shots["product"])
@@ -68,5 +73,15 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, default=8038)
+    parser.add_argument(
+        "--unknown-last-game",
+        action="store_true",
+        help="Demonstrate one unknown shot partition; core games remain eligible",
+    )
     args = parser.parse_args()
-    uvicorn.run(create(), host="127.0.0.1", port=args.port, proxy_headers=False)
+    uvicorn.run(
+        create(unknown_last_game=args.unknown_last_game),
+        host="127.0.0.1",
+        port=args.port,
+        proxy_headers=False,
+    )
