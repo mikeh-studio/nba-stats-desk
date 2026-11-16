@@ -11,6 +11,44 @@ from app.agent.semantics import Metric, aggregate
 from app.serving.metric_products import make_core_product, validate_core_product
 from app.serving.publication_contract import digest, timestamp
 
+# Components enter a float-based governed engine and browser JSON consumers.
+# Nonnegative counts keep every bounded sample exactly representable.
+MAX_EXACT_SHOT_COUNT = 2**53 - 1
+
+
+def _bounded_integer(value):
+    return type(value) is int and 0 <= value <= MAX_EXACT_SHOT_COUNT
+
+
+def _validate_count_wire(coverage, rows):
+    expected_total = 0
+    observed_total = 0
+    for partition in coverage:
+        if not isinstance(partition, dict):
+            raise ValueError("invalid shot coverage shape")
+        count = partition.get("expected_events")
+        if count is not None:
+            if not _bounded_integer(count):
+                raise ValueError("shot inventory count outside exact integer range")
+            expected_total += count
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("invalid shot component shape")
+        observed, contested = (
+            row.get("observed_attempts"),
+            row.get("contested_attempts"),
+        )
+        if (
+            not _bounded_integer(observed)
+            or not _bounded_integer(contested)
+            or contested > observed
+        ):
+            raise ValueError("shot components outside exact integer range")
+        observed_total += observed
+    if expected_total > MAX_EXACT_SHOT_COUNT or observed_total > MAX_EXACT_SHOT_COUNT:
+        raise ValueError("pooled shot sample outside exact integer range")
+
+
 SHOT_METRIC = Metric(
     key="contested_attempt_share",
     label="Contested attempt share",
@@ -82,6 +120,7 @@ def make_shot_product(
     source_version="shot-events/1",
     inventory_version="shot-event-inventory/1",
 ):
+    _validate_count_wire(coverage, rows)
     coverage = sorted(copy.deepcopy(coverage), key=lambda r: r["game_id"])
     rows = sorted(copy.deepcopy(rows), key=lambda r: (r["game_id"], r["player_id"]))
     product = {
@@ -124,6 +163,7 @@ def validate_shot_product(artifact, manifest, binding, models):
         or not isinstance(rows, list)
     ):
         raise ValueError("invalid shot shape")
+    _validate_count_wire(coverage, rows)
     core = make_core_product(manifest, binding)
     validate_core_product(product.get("core_reference"), manifest, binding)
     if (
