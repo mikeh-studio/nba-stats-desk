@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agent import semantics
 from app.serving.publication_contract import digest
 
-CORE_SEMANTICS = {
+_SUPPORTED_CORE_POLICY = {
     "version": "metric-semantics/1",
     "product": "core_box_score",
     "metric": "fg_pct",
@@ -26,24 +26,46 @@ CORE_SEMANTICS = {
     "zero_denominator": "unavailable",
     "unit": "ratio",
     "display_scale": 100,
+    "display_decimal_places": 1,
 }
+CORE_SEMANTICS = copy.deepcopy(_SUPPORTED_CORE_POLICY)
 RATIO_ALGORITHM_VERSION = "governed-ratio-policy/1"
+_SUPPORTED_FG_DEFINITION = {
+    "numerator": "fgm",
+    "denominator": "fga",
+    "unit": "ratio",
+    "components": ["fga", "fgm"],
+    "aggregations": ["ratio"],
+}
+
+
+def _fg_definition():
+    metric = semantics.load_contract().metric("fg_pct")
+    return {
+        "numerator": metric.numerator,
+        "denominator": metric.denominator,
+        "unit": metric.unit,
+        "components": sorted(metric.components),
+        "aggregations": list(metric.aggregations),
+    }
+
+
+def validate_core_semantics():
+    """Reject unsupported definitions instead of assigning them an honest-looking pin."""
+    if (
+        CORE_SEMANTICS != _SUPPORTED_CORE_POLICY
+        or _fg_definition() != _SUPPORTED_FG_DEFINITION
+    ):
+        raise ValueError("unsupported core metric definition or aggregation policy")
 
 
 def core_semantic_revision():
     """Cover the executable definition and arithmetic, including null policy."""
-    metric = semantics.load_contract().metric("fg_pct")
     return digest(
         {
             "policy": CORE_SEMANTICS,
             "algorithm": RATIO_ALGORITHM_VERSION,
-            "metric": {
-                "numerator": metric.numerator,
-                "denominator": metric.denominator,
-                "unit": metric.unit,
-                "components": sorted(metric.components),
-                "aggregations": list(metric.aggregations),
-            },
+            "metric": _fg_definition(),
         }
     )
 
@@ -53,6 +75,7 @@ CORE_SEMANTIC_REVISION = core_semantic_revision()
 
 def make_core_product(manifest, binding):
     """Describe an envelope; callers independently establish its authority."""
+    validate_core_semantics()
     return {
         "version": "metric-product/1",
         "product": "core_box_score",
