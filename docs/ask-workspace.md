@@ -1267,3 +1267,11 @@ mapping input digest through the existing source-authority dependency revocation
 registry on every guarded read, including cached readers. Revoking that mapping
 digest makes both JSON and streamed pinned answers unavailable. Streaming repeats
 authority and freshness checks immediately before its single numeric final event.
+
+Selected date ranges compare the inclusive, canonical `game_date` values already
+stored in the immutable publication. They do not convert tipoff timestamps using
+the request machine's timezone. Season and phase come from the pinned publication
+scope, so a change to planner timezone or default phase cannot reinterpret a
+retained selection. Authority and freshness are still checked for every replay;
+expiry is not bypassed by retaining a token. No numeric components are streamed
+before the terminal authority/freshness recheck.
