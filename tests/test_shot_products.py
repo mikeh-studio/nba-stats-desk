@@ -313,16 +313,21 @@ def test_real_file_registry_promotion_failure_replay_and_rollback(production, tm
             ).json()
             == a
         )
+        promoted_replay = client.post(
+            "/api/agent/ask/stream",
+            json={"question": QUESTION, "selection": a["selection"]},
+        )
+        assert promoted_replay.status_code == 200
+        assert json.loads(promoted_replay.text.split("data: ")[1]) == a
         registry["active_product_id"] = one["product"]["product_id"]
         path.write_text(json.dumps(registry))
         assert client.post("/api/agent/ask", json=request).json() == a
-        assert (
-            client.post(
-                "/api/agent/ask/stream",
-                json={"question": QUESTION, "selection": b["selection"]},
-            ).status_code
-            == 200
+        rollback_replay = client.post(
+            "/api/agent/ask/stream",
+            json={"question": QUESTION, "selection": b["selection"]},
         )
+        assert rollback_replay.status_code == 200
+        assert json.loads(rollback_replay.text.split("data: ")[1]) == b
         registry["products"] = [one]
         path.write_text(json.dumps(registry))
         assert (
