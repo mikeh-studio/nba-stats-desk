@@ -547,3 +547,14 @@ source-date cutoff. Count/ratio changes retain their metric conventions; genuine
 incompatible changes, such as a cumulative percentage or a per-game cumulative
 total, require clarification. Recovered browser hints without the complete
 structured series plan require restatement rather than becoming a scalar answer.
+
+## Core metric descriptor compatibility
+
+Core FG% descriptors cover the executable numerator, denominator, required
+components, ratio aggregation and unit, together with the reviewed policy for
+pooled complete components, missingness, unavailable zero denominators and
+one-decimal percentage display. An unsupported calculation or policy is rejected
+at descriptor issuance and admission. Display labels do not change semantic
+identity. The descriptor separately binds the exact publication, binding and
+roster input/version; a roster revision changes the descriptor without changing
+the FG% definition. A digest is an identity, not source authority.

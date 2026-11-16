@@ -8,6 +8,7 @@ import pytest
 from app.agent import formulas, semantics
 from app.serving.metric_products import (
     CORE_SEMANTIC_REVISION,
+    CORE_SEMANTICS,
     core_semantic_revision,
     make_core_product,
     validate_core_product,
@@ -17,6 +18,8 @@ from scripts.build_synthetic_core_replay import synthetic_bundle
 
 
 def test_revision_binds_definition_but_ignores_unrelated_metrics(monkeypatch):
+    bundle = synthetic_bundle()
+    product = make_core_product(bundle["manifest"], bundle["binding"])
     original = semantics.load_contract()
     metrics = dict(original.metrics)
     metrics["pts"] = replace(metrics["pts"], numerator="reb")
@@ -27,11 +30,14 @@ def test_revision_binds_definition_but_ignores_unrelated_metrics(monkeypatch):
     assert core_semantic_revision() == CORE_SEMANTIC_REVISION
     metrics["fg_pct"] = replace(metrics["fg_pct"], denominator="fta")
     assert core_semantic_revision() != CORE_SEMANTIC_REVISION
-    bundle = synthetic_bundle()
-    product = make_core_product(bundle["manifest"], bundle["binding"])
-    monkeypatch.undo()
+    with pytest.raises(ValueError, match="unsupported core metric"):
+        make_core_product(bundle["manifest"], bundle["binding"])
     with pytest.raises(ValueError):
         validate_core_product(product, bundle["manifest"], bundle["binding"])
+    monkeypatch.undo()
+    assert (
+        validate_core_product(product, bundle["manifest"], bundle["binding"]) == product
+    )
 
 
 def test_ratio_algorithm_change_requires_reviewed_policy_revision():
@@ -74,3 +80,37 @@ def test_independent_ratio_of_sums_missing_and_zero():
     )
     empty = semantics.aggregate([dict(game_id="m", fgm=None, fga=1)], metric, "ratio")
     assert empty["value"] is empty["numerator"] is empty["denominator"] is None
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("aggregation", "mean_of_ratios"),
+        ("zero_denominator", "zero"),
+        ("display_decimal_places", 2),
+        ("missing", "fill_zero"),
+    ],
+)
+def test_incompatible_policy_changes_digest_and_fails_admission(
+    monkeypatch, field, value
+):
+    bundle = synthetic_bundle()
+    product = make_core_product(bundle["manifest"], bundle["binding"])
+    monkeypatch.setitem(CORE_SEMANTICS, field, value)
+    assert core_semantic_revision() != CORE_SEMANTIC_REVISION
+    with pytest.raises(ValueError, match="unsupported core metric"):
+        make_core_product(bundle["manifest"], bundle["binding"])
+    with pytest.raises(ValueError):
+        validate_core_product(product, bundle["manifest"], bundle["binding"])
+
+
+def test_roster_revision_is_separate_but_changes_descriptor():
+    import copy
+
+    bundle = synthetic_bundle()
+    original = make_core_product(bundle["manifest"], bundle["binding"])
+    manifest = copy.deepcopy(bundle["manifest"])
+    manifest["versions"]["identity"] = "synthetic-roster/2"
+    revised = make_core_product(manifest, bundle["binding"])
+    assert digest(original) != digest(revised)
+    assert revised["semantic_revision"] == original["semantic_revision"]
