@@ -683,14 +683,15 @@ test("main Ask routes publication answers and falls back for unsupported or unav
     if (url.startsWith('/publication-core')) return {ok:false, status:503};
     assert.deepEqual(JSON.parse(options.body), request.body);
     return {ok:true, body:new ReadableStream({start(controller) {
-      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', conversation_id:owner}})}\n\n`));
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', request_id:'fallback-response', conversation_id:owner}})}\n\n`));
       controller.close();
     }})};
   };
   await agent.askQuestionStream({...request, finished:false});
   assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
-  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.at(-1);
+  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.find(t => t.request_id === 'fallback-response');
   assert.equal(fallback.payload.answer, 'Legacy source answer');
+  assert.equal(fallback.payload.publication_id, undefined);
   assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
 });
 
@@ -702,25 +703,51 @@ test("publication Ask labels scaled shooting values as percentages and raw fallb
   const owner = agent.getNavigation().activeConversationId;
   agent.startNewChat();
   const rows = [
-    {value:0.5, display_value:50, valid_games:2, observed_games:2},
+    {value:0.5, display_value:50, valid_games:2, observed_games:2, numerator:2, denominator:4},
     {value:0, display_value:0, valid_games:2, observed_games:2},
     {value:0.5, valid_games:2, observed_games:2},
-    {value:null, display_value:null, valid_games:0, observed_games:2},
+    {value:null, display_value:null, valid_games:0, observed_games:2, numerator:null, denominator:null, missing_component_games:2},
+    {value:null, display_value:null, valid_games:1, observed_games:1, numerator:0, denominator:0, missing_component_games:0},
   ];
-  const data = {metric:{label:'FG%',unit:'ratio'},scope:{aggregation:'ratio'},rows};
+  const data = {metric:{key:'fg_pct',label:'FG%',unit:'ratio'},scope:{aggregation:'ratio'},rows};
   globalThis.fetch = async () => ({ok:true,json:async()=>({
     publication_id:'pub_0123456789abcdef',
     scope:{season:'2026-27',phase:'Regular Season',first:'2026-10-20',last:'2026-10-30'},data,
   })});
   const before = JSON.stringify(data);
   await agent.askQuestionStream({conversationId:owner,question:'Test Player A ratio FG%',body:{},finished:false});
-  const answer = agent.loadHistoryState().conversations.find(c=>c.id===owner).turns[0].payload.answer;
+  const {answer, counts} = agent.loadHistoryState().conversations.find(c=>c.id===owner).turns[0].payload;
+  assert.deepEqual(counts.slice(-2).map(row=>[row.numerator, row.denominator, row.missing_component_games]), [[null,null,2], [0,0,0]]);
+  assert.match(answer, /0 made of 0 attempted/);
   assert.match(answer, /FG% \(ratio\): 50%\./);
   assert.match(answer, /FG% \(ratio\): 0%\./);
   assert.match(answer, /FG% \(ratio\): 0\.5 \(ratio\)\./);
   assert.match(answer, /FG% \(ratio\): unavailable\./);
   assert.doesNotMatch(answer, /50 \(ratio\)|unavailable%/);
   assert.equal(JSON.stringify(data), before);
+});
+
+test("publication comparisons save counts with the player who supplied them", async () => {
+  const agent = await loadAgentModule({elements:{
+    '[data-agent-form][data-publication-routing]':new FakeElement(),
+  }});
+  agent.startNewChat();
+  const owner = agent.getNavigation().activeConversationId;
+  agent.startNewChat();
+  const players = [[101, 1, 2], [202, 3, 4]].map(([player_id, numerator, denominator]) => ({
+    player_id, metrics: [{metric:'fg_pct', numerator, denominator, valid_games:2, observed_games:2, missing_games:0}],
+  }));
+  globalThis.fetch = async () => ({ok:true, json:async () => ({
+    publication_id:'pub_0123456789abcdef',
+    scope:{season:'2026-27', phase:'Regular Season', first:'2026-10-20', last:'2026-10-30'},
+    data:{players, differences:[{metric:'fg_pct', aggregation:'ratio', difference:-25, unit:'percentage_points'}]},
+  })});
+  await agent.askQuestionStream({conversationId:owner, question:'compare Test Player A vs Test Player B ratio FG%', body:{}, finished:false});
+  const {answer, counts} = agent.loadHistoryState().conversations.find(chat => chat.id === owner).turns[0].payload;
+  assert.deepEqual(counts.map(row => [row.player_id, row.numerator, row.denominator, row.missing_component_games]),
+    [[101, 1, 2, 0], [202, 3, 4, 0]]);
+  assert.match(answer, /Player A: .*1 made of 2 attempted/);
+  assert.match(answer, /Player B: .*3 made of 4 attempted/);
 });
 
 test("two tab requests finish out of order without changing each other's state", async () => {

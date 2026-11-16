@@ -331,6 +331,11 @@ percentiles still describe the full qualified league cohort.
 - Browser cache: the existing season-specific `askChatHistory:v1` key remains
   compatible. Up to 25 recent conversations (favoring open tabs) are cached;
   storage failures are surfaced rather than silently discarding in-memory work.
+- Completed publication-backed Ask answers keep their displayed text, publication ID,
+  and per-result numerator, denominator and game counts in the browser turn.
+  Reopening a turn displays the original response even after the publication changes.
+  A new question uses the release available at submission time. Older saved turns
+  display their original text.
 - Navigation/drafts: `askOpenTabs:v1:<season>` stores tab order, the active tab,
   and per-conversation drafts. Closing a tab retains its draft.
 - Local history: when `AGENT_HISTORY_ENABLED=true`, the existing JSONL file
