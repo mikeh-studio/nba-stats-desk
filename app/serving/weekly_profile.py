@@ -12,6 +12,11 @@ BASE = json.loads(
 )
 
 
+THREES_PROFILE = "core_stats_weekly_3pm_v1"
+BOUND_THREES_PROFILE = "core_stats_weekly_3pm_v2"
+THREES_CAPABILITY = "ask_three_point_leaders"
+
+
 def weekly_scope(value):
     if set(value) != {"season", "phase", "first", "last", "provider"}:
         raise ValueError("invalid rolling scope fields")
@@ -33,12 +38,16 @@ def weekly_scope(value):
 def profile_for(manifest):
     if manifest.get("version") == "publication-manifest/1":
         return BASE
-    if (
-        manifest.get("version") != "publication-manifest/2"
-        or manifest.get("profile") != "core_stats_weekly_v1"
-    ):
+    if manifest.get("version") != "publication-manifest/2" or manifest.get(
+        "profile"
+    ) not in {"core_stats_weekly_v1", THREES_PROFILE, BOUND_THREES_PROFILE}:
         raise ValueError("unsupported publication profile")
     result = copy.deepcopy(BASE)
-    result["version"] = "core_stats_weekly_v1"
+    result["version"] = manifest["profile"]
+    if manifest["profile"] in {THREES_PROFILE, BOUND_THREES_PROFILE}:
+        result["capabilities"][THREES_CAPABILITY] = [
+            "fct_player_game_stats",
+            "dim_game",
+        ]
     result["scope"] = weekly_scope(manifest["scope"])
     return result

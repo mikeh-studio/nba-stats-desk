@@ -10,7 +10,11 @@
       "pattern": "^pub_[0-9a-f]{16}$"
     },
     "profile": {
-      "const": "core_stats_weekly_v1"
+      "enum": ["core_stats_weekly_v1", "core_stats_weekly_3pm_v1", "core_stats_weekly_3pm_v2"]
+    },
+    "three_point_certificate_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     },
     "purpose": {
       "enum": [
@@ -463,6 +467,7 @@
           "compare_core",
           "performance_core",
           "ask_player_stats",
+          "ask_three_point_leaders",
           "player_search",
           "team_results_sql"
         ]

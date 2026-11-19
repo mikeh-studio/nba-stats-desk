@@ -1214,3 +1214,13 @@ secondary and its expandable explanation names the qualifying group and directio
 Shooting percentages, totals, per-game averages, per-36 rates and custom estimates
 retain distinct units. Raw evidence, values, claim bindings and API fields remain
 unchanged, so saved answers can adopt the vocabulary without querying again.
+
+## Published three-point leaderboard
+
+On a publication-enabled host, a standalone regular-season three-point leader
+question uses the active weekly release when it has the
+`ask_three_point_leaders` capability. The answer identifies the release and
+cutoff, and reports makes per game, total makes, and appearances. Qualification
+uses 70% of the largest team game count through that cutoff, rounded up.
+Historical seasons continue through the existing historical reader. A release
+without the capability cannot answer this leaderboard.

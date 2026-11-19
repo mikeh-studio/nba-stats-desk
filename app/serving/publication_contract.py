@@ -19,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 from jsonschema import Draft202012Validator, FormatChecker
 
-from app.serving.weekly_profile import profile_for, weekly_scope
+from app.serving.weekly_profile import BOUND_THREES_PROFILE, profile_for, weekly_scope
 
 CONTRACTS = Path(__file__).resolve().parents[2] / "contracts" / "publication"
 PROFILE = json.loads((CONTRACTS / "core-stats-v1.json").read_text())
@@ -70,6 +70,15 @@ def allocation_key(manifest):
     return digest(
         {
             "profile_digest": digest(profile_for(manifest)),
+            **(
+                {
+                    "three_point_certificate_sha256": manifest[
+                        "three_point_certificate_sha256"
+                    ]
+                }
+                if manifest["profile"] == BOUND_THREES_PROFILE
+                else {}
+            ),
             **{
                 key: manifest[key]
                 for key in (
@@ -134,6 +143,11 @@ def validate_manifest(manifest):
     """Reject inconsistent declarations; this does not authenticate evidence."""
     profile = profile_for(manifest)
     schema_check("manifest", manifest)
+    require(
+        ("three_point_certificate_sha256" in manifest)
+        == (manifest["profile"] == BOUND_THREES_PROFILE),
+        "coverage certificate differs from publication profile",
+    )
     if manifest["version"] == "publication-manifest/2":
         source_policy = (
             "nba_manual_selection/1"

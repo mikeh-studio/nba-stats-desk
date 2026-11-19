@@ -1674,6 +1674,53 @@ class StatsAgent:
         if route.handler == "semantic":
             try:
                 assert self.semantic_agent is not None
+                published = getattr(self.repo, "active_three_point_leaders", None)
+                if published and runtime is None and selected_player is None:
+                    from app.agent.source_policy import get_source_policy
+                    from app.seasons import DEFAULT_SEASON
+                    from app.serving.three_point_leaders import (
+                        asks_for_three_point_leaders,
+                    )
+
+                    if (
+                        self.settings.season == DEFAULT_SEASON
+                        and get_source_policy(getattr(self.repo, "source_policy", None))
+                        is None
+                        and asks_for_three_point_leaders(
+                            cleaned_question, DEFAULT_SEASON
+                        )
+                    ):
+                        try:
+                            answer = published()
+                        except (ValueError, OSError, KeyError):
+                            answer = answer_payload(
+                                "The current publication has no verified three-point leaderboard available.",
+                                status="unsupported_coverage",
+                            )
+                        if answer is not None:
+                            answer["conversation_id"] = conversation_id
+                            route_hint(
+                                answer, route="governed_metrics", source="deterministic"
+                            )
+                            if (
+                                conversation_id
+                                and self.conversation_store
+                                and answer["status"] == "ok"
+                            ):
+                                from app.agent.followup import analysis_context
+
+                                next_context = analysis_context(
+                                    cleaned_question, answer
+                                )
+                                answer["conversation_context"] = next_context
+                                self.conversation_store.append_turn(
+                                    conversation_id,
+                                    question=cleaned_question,
+                                    answer=answer["answer"],
+                                    context=next_context,
+                                    max_turns=self.settings.agent_conversation_max_turns,
+                                )
+                            return answer
                 payload = self.semantic_agent.answer(
                     cleaned_question,
                     client=self._get_client(provider_name)

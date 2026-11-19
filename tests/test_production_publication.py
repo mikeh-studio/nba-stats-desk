@@ -1417,3 +1417,25 @@ def test_composed_legacy_lifespan_runs(tmp_path):
     with TestClient(compose_legacy(legacy, {"jobs_state_dir": str(tmp_path)})):
         assert events == ["start"]
     assert events == ["start", "stop"]
+
+
+def test_leaderboard_certificate_is_part_of_release_identity(production):
+    from app.serving.publication_contract import allocation_key, fingerprint
+    from app.serving.weekly_profile import BOUND_THREES_PROFILE
+
+    old = production.envelope["manifest"]
+    manifest = dict(
+        old, profile=BOUND_THREES_PROFILE, three_point_certificate_sha256="a" * 64
+    )
+    other = dict(manifest, three_point_certificate_sha256="b" * 64)
+    assert allocation_key(other) != allocation_key(manifest)
+    assert fingerprint(other) != fingerprint(manifest)
+    assert allocation_key(old) == old["allocation_key"]
+    forged = copy.deepcopy(production.envelope)
+    forged["manifest"]["three_point_certificate_sha256"] = "a" * 64
+    with pytest.raises(ValueError, match="certificate"):
+        validate_binding(forged["binding"], forged["manifest"])
+    missing = copy.deepcopy(production.envelope)
+    missing["manifest"]["profile"] = BOUND_THREES_PROFILE
+    with pytest.raises(ValueError, match="certificate"):
+        validate_binding(missing["binding"], missing["manifest"])

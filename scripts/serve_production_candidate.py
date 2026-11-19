@@ -43,6 +43,7 @@ def compose_legacy(app, config):
 
 def attach_publication(app, core, mode):
     """Expose verified publication data alongside the existing app's own data."""
+    from anyio.from_thread import BlockingPortal
     from app.serving.production_workers import PublicationWorkers
     from starlette.responses import JSONResponse
 
@@ -66,6 +67,61 @@ def attach_publication(app, core, mode):
             )(scope, receive, send)
         return await core(scope, receive, send)
 
+    def read_leaders():
+        current_mode = mode()
+        if current_mode == "legacy":
+            return None
+        if current_mode != "production":
+            raise ValueError("Production publication unavailable")
+        envelope = core.release(None)
+        manifest = envelope["manifest"]
+        from app.seasons import DEFAULT_SEASON
+
+        if manifest["scope"]["season"] != DEFAULT_SEASON:
+            raise ValueError("Active publication does not cover the selected season")
+        answer = core.application(
+            manifest["publication_id"]
+        ).state.three_point_leaders()
+        if mode() != "production" or core.release(None) != envelope:
+            raise ValueError("Active publication changed during the request")
+        if core.authority.check(manifest, envelope["binding"]) is not True:
+            raise ValueError("Production release authority unavailable")
+        return answer
+
+    async def bounded_leaders():
+        # JSON and streaming Ask both call from synchronous workers. Cold loads
+        # share the publication core's admission and offload limits with HTTP.
+        budget = core.workers
+        budget.requests.acquire_nowait()
+        try:
+            return await budget.run(read_leaders)
+        finally:
+            budget.requests.release()
+
+    portal = None
+    previous_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def publication_lifespan(application):
+        nonlocal portal
+        async with previous_lifespan(application) as state, BlockingPortal() as active:
+            portal = active
+            try:
+                yield state
+            finally:
+                portal = None
+
+    def active_leaders():
+        active = portal
+        if active is None:
+            raise ValueError("Publication reader unavailable")
+        try:
+            return active.call(bounded_leaders)
+        except Exception as exc:
+            raise ValueError("Publication reader unavailable") from exc
+
+    app.router.lifespan_context = publication_lifespan
+    app.state.active_three_point_leaders = active_leaders
     app.mount("/publication-core", publication)
     app.state.production_publication_enabled = True
 
