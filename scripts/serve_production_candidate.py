@@ -43,10 +43,8 @@ def compose_legacy(app, config):
 
 def attach_publication(app, core, mode):
     """Expose verified publication data alongside the existing app's own data."""
-    from anyio import WouldBlock
     from anyio.from_thread import BlockingPortal
     from app.serving.production_workers import PublicationWorkers
-    from google.api_core.exceptions import GoogleAPIError
     from starlette.responses import JSONResponse
 
     workers = PublicationWorkers()
@@ -119,7 +117,7 @@ def attach_publication(app, core, mode):
             raise ValueError("Publication reader unavailable")
         try:
             return active.call(bounded_leaders)
-        except (WouldBlock, GoogleAPIError, TypeError, RuntimeError) as exc:
+        except Exception as exc:
             raise ValueError("Publication reader unavailable") from exc
 
     app.router.lifespan_context = publication_lifespan

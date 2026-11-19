@@ -150,12 +150,14 @@ def test_active_reader_requires_positive_authority_before_returning():
     )
     from app.serving.production_workers import PublicationWorkers
     from google.api_core.exceptions import ServiceUnavailable
+    from google.auth.exceptions import RefreshError
 
     core.workers = PublicationWorkers()
     attach_publication(app, core, lambda: "production")
     with TestClient(app) as client:
-        with pytest.raises(ValueError, match="authority"):
+        with pytest.raises(ValueError, match="unavailable") as failure:
             app.state.active_three_point_leaders()
+        assert "authority" in str(failure.value.__cause__)
         core.authority.check = lambda *_: True
         assert app.state.active_three_point_leaders() == {"status": "ok"}
 
@@ -171,12 +173,14 @@ def test_active_reader_requires_positive_authority_before_returning():
         with pytest.raises(ValueError, match="unavailable"):
             client.portal.call(exhausted)
 
-        def cold_failure(*_):
-            raise ServiceUnavailable("upstream internal detail")
+        from unittest.mock import Mock
 
-        core.application = cold_failure
-        with pytest.raises(ValueError, match="^Publication reader unavailable$"):
-            app.state.active_three_point_leaders()
+        for failure_type in (ServiceUnavailable, RefreshError):
+            core.application = Mock(
+                side_effect=failure_type("upstream internal detail")
+            )
+            with pytest.raises(ValueError, match="^Publication reader unavailable$"):
+                app.state.active_three_point_leaders()
 
 
 def test_rejects_boolean_in_materialized_three_point_counts():

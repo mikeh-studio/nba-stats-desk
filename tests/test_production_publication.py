@@ -1435,3 +1435,7 @@ def test_leaderboard_certificate_is_part_of_release_identity(production):
     forged["manifest"]["three_point_certificate_sha256"] = "a" * 64
     with pytest.raises(ValueError, match="certificate"):
         validate_binding(forged["binding"], forged["manifest"])
+    missing = copy.deepcopy(production.envelope)
+    missing["manifest"]["profile"] = BOUND_THREES_PROFILE
+    with pytest.raises(ValueError, match="certificate"):
+        validate_binding(missing["binding"], missing["manifest"])
