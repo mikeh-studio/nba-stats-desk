@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
@@ -128,6 +129,9 @@ class BigQueryWarehouseRepository:
     settings: Settings
     client: bigquery.Client | None = None
     source_policy: SourcePolicy | None = None
+    active_three_point_leaders: Callable[[], dict[str, Any] | None] | None = field(
+        default=None, repr=False, compare=False
+    )
     _recent_performance_rows_cache: tuple[float, list[dict[str, Any]]] | None = field(
         default=None,
         init=False,

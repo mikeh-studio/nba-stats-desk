@@ -1,8 +1,6 @@
 from types import SimpleNamespace
 
 import pytest
-from fastapi.testclient import TestClient
-
 from app.agent.semantics import Evidence
 from app.main import app, get_repository, get_settings
 from app.repository import BigQueryWarehouseRepository
@@ -11,6 +9,7 @@ from app.serving.three_point_leaders import (
     leader_answer,
     validate_leader_source,
 )
+from fastapi.testclient import TestClient
 from tests.test_semantic_migration import settings
 
 QUESTION = "Who is leading the league in 3PTs this season?"
@@ -100,10 +99,17 @@ def test_general_ask_uses_published_totals_and_refuses_lost_authority(monkeypatc
         app.dependency_overrides, get_settings, lambda: service_settings
     )
     monkeypatch.setitem(app.dependency_overrides, get_repository, lambda: repo)
+    from app.agent.conversation import InMemoryConversationStore
+
+    store = InMemoryConversationStore()
+    monkeypatch.setattr("app.main._season_conversation_store", lambda _: store)
     with TestClient(app) as client:
 
         def ask():
-            response = client.post("/api/agent/ask", json={"question": QUESTION})
+            response = client.post(
+                "/api/agent/ask",
+                json={"question": QUESTION, "conversation_id": "leader-test"},
+            )
             assert response.status_code == 200
             return response.json()
 
@@ -111,9 +117,46 @@ def test_general_ask_uses_published_totals_and_refuses_lost_authority(monkeypatc
         assert result["publication_id"] == pid and result["status"] == "ok"
         assert result["tables"][0]["rows"][0] == [1, "Player 0", "12.0", 12, 1]
 
+        (turn,) = store.get_turns("leader-test", max_turns=1)
+        assert turn.question == QUESTION
+        assert turn.context["metrics"] == ["fg3m"] and turn.context["players"] == []
+        assert turn.context["scope"]["as_of"] == scope["last"]
+
         def revoked():
             raise ValueError("revoked")
 
         repo.active_three_point_leaders = revoked
         result = ask()
         assert result["status"] == "unsupported_coverage" and not result["tables"]
+
+
+def test_active_reader_requires_positive_authority_before_returning():
+    from fastapi import FastAPI
+    from scripts.serve_production_candidate import attach_publication
+
+    app = FastAPI()
+    envelope = dict(
+        manifest=dict(
+            publication_id="pub_0123456789abcdef", scope={"season": "2026-27"}
+        ),
+        binding={},
+    )
+    core = SimpleNamespace(
+        release=lambda token: envelope,
+        application=lambda token: SimpleNamespace(
+            state=SimpleNamespace(three_point_leaders=lambda: {"status": "ok"})
+        ),
+        authority=SimpleNamespace(check=lambda *_: False),
+    )
+    attach_publication(app, core, lambda: "production")
+    with pytest.raises(ValueError, match="authority"):
+        app.state.active_three_point_leaders()
+    core.authority.check = lambda *_: True
+    assert app.state.active_three_point_leaders() == {"status": "ok"}
+
+
+def test_rejects_boolean_in_materialized_three_point_counts():
+    scope, accepted, models = league()
+    models["fct_player_game_stats"][1]["fg3m"] = True
+    with pytest.raises(ValueError, match="differ"):
+        validate_leader_source(scope, accepted, models)

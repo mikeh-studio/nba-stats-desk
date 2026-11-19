@@ -72,7 +72,8 @@ def attach_publication(app, core, mode):
             return None
         if current_mode != "production":
             raise ValueError("Production publication unavailable")
-        manifest = core.release(None)["manifest"]
+        envelope = core.release(None)
+        manifest = envelope["manifest"]
         from app.seasons import DEFAULT_SEASON
 
         if manifest["scope"]["season"] != DEFAULT_SEASON:
@@ -80,11 +81,10 @@ def attach_publication(app, core, mode):
         answer = core.application(
             manifest["publication_id"]
         ).state.three_point_leaders()
-        if mode() != "production" or core.release(None)["manifest"] != manifest:
+        if mode() != "production" or core.release(None) != envelope:
             raise ValueError("Active publication changed during the request")
-        core.authority.check(
-            manifest, core.release(manifest["publication_id"])["binding"]
-        )
+        if core.authority.check(manifest, envelope["binding"]) is not True:
+            raise ValueError("Production release authority unavailable")
         return answer
 
     app.state.active_three_point_leaders = active_leaders

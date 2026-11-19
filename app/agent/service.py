@@ -1693,17 +1693,34 @@ class StatsAgent:
                         try:
                             answer = published()
                         except (ValueError, OSError, KeyError):
-                            from app.agent.payload import answer_payload
-
                             answer = answer_payload(
                                 "The current publication has no verified three-point leaderboard available.",
                                 status="unsupported_coverage",
                             )
                         if answer is not None:
                             answer["conversation_id"] = conversation_id
-                            return route_hint(
+                            route_hint(
                                 answer, route="governed_metrics", source="deterministic"
                             )
+                            if (
+                                conversation_id
+                                and self.conversation_store
+                                and answer["status"] == "ok"
+                            ):
+                                from app.agent.followup import analysis_context
+
+                                next_context = analysis_context(
+                                    cleaned_question, answer
+                                )
+                                answer["conversation_context"] = next_context
+                                self.conversation_store.append_turn(
+                                    conversation_id,
+                                    question=cleaned_question,
+                                    answer=answer["answer"],
+                                    context=next_context,
+                                    max_turns=self.settings.agent_conversation_max_turns,
+                                )
+                            return answer
                 payload = self.semantic_agent.answer(
                     cleaned_question,
                     client=self._get_client(provider_name)

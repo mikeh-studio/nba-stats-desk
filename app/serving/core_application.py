@@ -144,8 +144,10 @@ def create_core_application(
     ):
         raise ValueError("core model arithmetic differs")
     from app.serving.weekly_profile import THREES_CAPABILITY
+
     if THREES_CAPABILITY in manifest["capabilities"]:
         from app.serving.three_point_leaders import validate_leader_source
+
         validate_leader_source(scope, bundle["accepted"], models)
     if warehouse_receipt is None:
         selected = {g["game_id"]: g for g in manifest["selected_games"]}
@@ -220,18 +222,17 @@ def create_core_application(
 
     def published_leaders():
         from app.serving.three_point_leaders import leader_answer
-        from app.serving.weekly_profile import THREES_CAPABILITY
 
         if (
             production_authority is None
             or THREES_CAPABILITY not in manifest["capabilities"]
         ):
             raise ValueError("This publication has no verified three-point leaderboard")
-        production_authority.check(manifest, binding)
-        if authorized() is not True or status()["freshness"] not in {
-            "fresh",
-            "stale_usable",
-        }:
+        if (
+            production_authority.check(manifest, binding) is not True
+            or authorized() is not True
+            or status()["freshness"] not in {"fresh", "stale_usable"}
+        ):
             raise ValueError("Publication authority or freshness is unavailable")
         return leader_answer(evidence, manifest)
 

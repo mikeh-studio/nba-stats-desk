@@ -33,7 +33,8 @@ def validate_leader_source(scope, accepted, models):
     }
     if (
         len(games) != len(accepted["games"])
-        or len(set.union(set(), *games.values())) != 30
+        or any(len(teams) != 2 for teams in games.values())
+        or len(set().union(*games.values())) != 30
     ):
         raise ValueError("Three-point rankings require the full league")
     expected = {}
@@ -56,7 +57,8 @@ def validate_leader_source(scope, accepted, models):
         teams_by_game != games
         or len(facts) != len(expected)
         or any(
-            row["season"] != scope["season"]
+            type(row["fg3m"]) is not int
+            or row["season"] != scope["season"]
             or row["season_type"] != scope["phase"]
             or not scope["first"] <= str(row["game_date"]) <= scope["last"]
             for row in facts
@@ -87,20 +89,27 @@ def leader_answer(evidence, manifest):
     )
     section = run_query(replace(evidence, cohort_complete=True), query)
     rows = section["rows"]
-    names = {r["player_id"]: r["player_name"] for r in evidence.rows}
-    text = " ".join(
-        leader_statement(section, section["metric"], section["scope"], names)
-    )
     if not rows:
         return answer_payload(
             "No players met the minimum games requirement.",
             status="unsupported_coverage",
+            publication_id=manifest["publication_id"],
         )
+    names = {r["player_id"]: r["player_name"] for r in evidence.rows}
+    text = " ".join(
+        leader_statement(section, section["metric"], section["scope"], names)
+    )
     pid = manifest["publication_id"]
     return answer_payload(
         text,
         status="ok",
         publication_id=pid,
+        conversation_context={
+            "scope": section["scope"],
+            "players": [],
+            "metrics": [section["metric"]["key"]],
+            "answer_summary": text,
+        },
         assumptions=[
             f"{scope['season']} regular season through {scope['last']} · Publication {pid}.",
             f"Minimum {minimum} games. Per-game rates are ranked before rounding.",
