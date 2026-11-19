@@ -202,13 +202,15 @@ def test_pending_reply_reports_pending_source(reply):
 
 
 @pytest.mark.parametrize(
-    "question,route",
+    "question,expected_status",
     [
-        ("Show Blair Sample's game log for points", "governed_metrics"),
-        ("Who leads the league in assists this season?", "governed_metrics"),
+        ("Show Blair Sample's game log for points", "unsupported"),
+        ("Who leads the league in assists this season?", "ok"),
     ],
 )
-def test_new_question_replaces_pending_overview_clarification(question, route):
+def test_new_question_replaces_pending_overview_clarification(
+    question, expected_status
+):
     store = InMemoryConversationStore()
     store.set_pending_clarification(
         "p",
@@ -218,18 +220,33 @@ def test_new_question_replaces_pending_overview_clarification(question, route):
     )
     model = CapturingModel({"planner_response": NO_DECISION})
     payload = agent(model, store=store).answer(question, conversation_id="p")
-    assert payload["ask_route"]["route"] == route
+    assert payload["ask_route"]["route"] == "governed_metrics"
     assert payload["ask_route"]["source"] == "deterministic"
-    assert payload["status"] != "ok"
+    assert payload["status"] == expected_status
     assert payload.get("player_profile") is None
-    plans = [
-        json.loads(r["input"][0]["content"])
-        for r in model.requests
-        if r.get("text", {}).get("format", {}).get("name") == "semantic_intent_v3"
-    ]
-    assert plans and "Clarification:" not in json.dumps(plans[-1])
-    assert "How is Avery performing?" not in json.dumps(plans[-1])
     assert store.get_pending_clarification("p") is None
+    if expected_status == "ok":
+        assert model.requests == []
+        evidence = payload["semantic_evidence"]
+        assert evidence["metric"]["key"] == "ast"
+        assert evidence["scope"]["operation"] == "rank"
+        assert evidence["scope"]["aggregation"] == "average"
+        assert evidence["scope"]["season"] == "2024-25"
+        assert evidence["scope"]["player_id"] is None
+        assert [
+            (row["player_id"], row["rank"], row["value"]) for row in evidence["rows"]
+        ] == [(202, 1, 4.5), (303, 1, 4.5), (101, 3, 2.5)]
+        (turn,) = store.get_turns("p", max_turns=1)
+        assert turn.question == question
+        assert turn.context["players"] == []
+    else:
+        plans = [
+            json.loads(r["input"][0]["content"])
+            for r in model.requests
+            if r.get("text", {}).get("format", {}).get("name") == "semantic_intent_v3"
+        ]
+        assert plans and "Clarification:" not in json.dumps(plans[-1])
+        assert "How is Avery performing?" not in json.dumps(plans[-1])
 
 
 def test_semantic_ask_does_not_fold_new_question_into_pending():
