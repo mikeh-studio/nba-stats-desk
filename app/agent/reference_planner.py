@@ -277,6 +277,8 @@ LEADER_METRICS = {
     "threes": "fg3m",
     "three pointers": "fg3m",
     "3 pointers": "fg3m",
+    "3pts": "fg3m",
+    "3pm": "fg3m",
     "turnovers": "tov",
     "minutes": "min",
 }
@@ -307,7 +309,7 @@ def league_leader_plan(question: str, selected_season: str) -> dict[str, Any] | 
     match = re.fullmatch(
         r"(?:who|which player)\s+(?:led|leads|was leading|is leading)\s+the\s+(?:league|nba)"
         rf"\s+(?:in|is)\s+(?P<metric>{metrics})"
-        r"(?:\s+(?:in|during|for)?\s*(?:the\s+)?(?P<season>20\d{2}-\d{2})(?:\s+season)?)?"
+        r"(?:\s+(?:(?:(?:in|during|for)\s+)?(?:the\s+)?(?P<season>20\d{2}-\d{2})(?:\s+season)?|this season))?"
         r"(?:\s+(?:in\s+)?(?:the\s+)?(?P<phase>regular season|playoffs))?",
         " ".join(question.strip().rstrip("?.!").split()),
         re.I,

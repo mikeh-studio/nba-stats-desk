@@ -66,6 +66,28 @@ def attach_publication(app, core, mode):
             )(scope, receive, send)
         return await core(scope, receive, send)
 
+    def active_leaders():
+        current_mode = mode()
+        if current_mode == "legacy":
+            return None
+        if current_mode != "production":
+            raise ValueError("Production publication unavailable")
+        manifest = core.release(None)["manifest"]
+        from app.seasons import DEFAULT_SEASON
+
+        if manifest["scope"]["season"] != DEFAULT_SEASON:
+            raise ValueError("Active publication does not cover the selected season")
+        answer = core.application(
+            manifest["publication_id"]
+        ).state.three_point_leaders()
+        if mode() != "production" or core.release(None)["manifest"] != manifest:
+            raise ValueError("Active publication changed during the request")
+        core.authority.check(
+            manifest, core.release(manifest["publication_id"])["binding"]
+        )
+        return answer
+
+    app.state.active_three_point_leaders = active_leaders
     app.mount("/publication-core", publication)
     app.state.production_publication_enabled = True
 

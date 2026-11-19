@@ -1674,6 +1674,36 @@ class StatsAgent:
         if route.handler == "semantic":
             try:
                 assert self.semantic_agent is not None
+                published = getattr(self.repo, "active_three_point_leaders", None)
+                if published and runtime is None and selected_player is None:
+                    from app.agent.source_policy import get_source_policy
+                    from app.seasons import DEFAULT_SEASON
+                    from app.serving.three_point_leaders import (
+                        asks_for_three_point_leaders,
+                    )
+
+                    if (
+                        self.settings.season == DEFAULT_SEASON
+                        and get_source_policy(getattr(self.repo, "source_policy", None))
+                        is None
+                        and asks_for_three_point_leaders(
+                            cleaned_question, DEFAULT_SEASON
+                        )
+                    ):
+                        try:
+                            answer = published()
+                        except (ValueError, OSError, KeyError):
+                            from app.agent.payload import answer_payload
+
+                            answer = answer_payload(
+                                "The current publication has no verified three-point leaderboard available.",
+                                status="unsupported_coverage",
+                            )
+                        if answer is not None:
+                            answer["conversation_id"] = conversation_id
+                            return route_hint(
+                                answer, route="governed_metrics", source="deterministic"
+                            )
                 payload = self.semantic_agent.answer(
                     cleaned_question,
                     client=self._get_client(provider_name)

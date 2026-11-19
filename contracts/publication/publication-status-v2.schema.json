@@ -10,7 +10,7 @@
       "pattern": "^pub_[0-9a-f]{16}$"
     },
     "profile": {
-      "const": "core_stats_weekly_v1"
+      "enum": ["core_stats_weekly_v1", "core_stats_weekly_3pm_v1"]
     },
     "data_through": {
       "type": "string",
@@ -33,6 +33,7 @@
           "compare_core",
           "performance_core",
           "ask_player_stats",
+          "ask_three_point_leaders",
           "player_search",
           "team_results_sql"
         ]

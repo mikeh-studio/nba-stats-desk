@@ -46,3 +46,12 @@ The manifest is immutable once sealed. Mutable building/validating/held/failed/e
 Offline replay uses an explicit evaluation clock pinned to each run through its allocation key. The profile's example clock is for the synthetic fixture only; retained input reviews must precede the run clock. Original capture and source verification times remain unchanged. The 8-day warning and 10-day maximum are additionally capped by cutoff age and the trusted producer's earlier authority/milestone deadline. A production reader supplies trusted wall time and checks current authority; replay acceptance cannot make an expired release fresh. These contracts are not a replacement for the existing scoped source guards or full runtime acceptance tests.
 
 Candidate allocation binds canonical source inputs to one persisted publication ID and materialization clock. The input fingerprint includes that clock; all row ingestion timestamps reuse it across retries. Actual load attempt times remain separate audit. The producer registry must serialize allocation and reject conflicting reuse; this validator only checks a single declaration.
+
+The opt-in weekly profile `core_stats_weekly_3pm_v1` adds
+`ask_three_point_leaders` to the existing version 2 transport. The producer
+reconciles the FG3M cohort to accepted appearances. Both producer and reader
+verify opening-night coverage, all 30 teams, both participating teams per game,
+and every player's made threes against the accepted box scores. This capability
+covers the season-to-date regular-season ranking by made threes per game.
+The manifest and binding retain the capability set and profile-specific digest.
+Earlier weekly profiles retain their original capabilities and fingerprints.

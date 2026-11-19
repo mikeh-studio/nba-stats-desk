@@ -518,7 +518,11 @@ def get_repository(
         raise HTTPException(
             status_code=403, detail="A trusted source policy is required."
         )
-    return _cached_repository(settings_for_season(settings, current_season()))
+    repo = _cached_repository(settings_for_season(settings, current_season()))
+    repo.active_three_point_leaders = getattr(
+        app.state, "active_three_point_leaders", None
+    )
+    return repo
 
 
 def get_agent_client() -> Any | None:
