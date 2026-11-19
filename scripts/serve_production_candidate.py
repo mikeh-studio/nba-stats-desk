@@ -43,7 +43,10 @@ def compose_legacy(app, config):
 
 def attach_publication(app, core, mode):
     """Expose verified publication data alongside the existing app's own data."""
+    from anyio import WouldBlock
+    from anyio.from_thread import BlockingPortal
     from app.serving.production_workers import PublicationWorkers
+    from google.api_core.exceptions import GoogleAPIError
     from starlette.responses import JSONResponse
 
     workers = PublicationWorkers()
@@ -66,7 +69,7 @@ def attach_publication(app, core, mode):
             )(scope, receive, send)
         return await core(scope, receive, send)
 
-    def active_leaders():
+    def read_leaders():
         current_mode = mode()
         if current_mode == "legacy":
             return None
@@ -87,6 +90,39 @@ def attach_publication(app, core, mode):
             raise ValueError("Production release authority unavailable")
         return answer
 
+    async def bounded_leaders():
+        # JSON and streaming Ask both call from synchronous workers. Cold loads
+        # share the publication core's admission and offload limits with HTTP.
+        budget = core.workers
+        budget.requests.acquire_nowait()
+        try:
+            return await budget.run(read_leaders)
+        finally:
+            budget.requests.release()
+
+    portal = None
+    previous_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def publication_lifespan(application):
+        nonlocal portal
+        async with previous_lifespan(application) as state, BlockingPortal() as active:
+            portal = active
+            try:
+                yield state
+            finally:
+                portal = None
+
+    def active_leaders():
+        active = portal
+        if active is None:
+            raise ValueError("Publication reader unavailable")
+        try:
+            return active.call(bounded_leaders)
+        except (WouldBlock, GoogleAPIError, TypeError, RuntimeError) as exc:
+            raise ValueError("Publication reader unavailable") from exc
+
+    app.router.lifespan_context = publication_lifespan
     app.state.active_three_point_leaders = active_leaders
     app.mount("/publication-core", publication)
     app.state.production_publication_enabled = True

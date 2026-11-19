@@ -55,3 +55,9 @@ and every player's made threes against the accepted box scores. This capability
 covers the season-to-date regular-season ranking by made threes per game.
 The manifest and binding retain the capability set and profile-specific digest.
 Earlier weekly profiles retain their original capabilities and fingerprints.
+
+New three-point proposals use `core_stats_weekly_3pm_v2`. Its manifest binds the
+canonical SHA-256 of the release's coverage certificate into the allocation key,
+publication ID and binding. The reader accepts existing v1 releases with their
+original fingerprints. Deploy the compatible reader before promoting a v2
+release. For rollback, restore a compatible data release before the old reader.

@@ -13,6 +13,7 @@ BASE = json.loads(
 
 
 THREES_PROFILE = "core_stats_weekly_3pm_v1"
+BOUND_THREES_PROFILE = "core_stats_weekly_3pm_v2"
 THREES_CAPABILITY = "ask_three_point_leaders"
 
 
@@ -39,11 +40,11 @@ def profile_for(manifest):
         return BASE
     if manifest.get("version") != "publication-manifest/2" or manifest.get(
         "profile"
-    ) not in {"core_stats_weekly_v1", THREES_PROFILE}:
+    ) not in {"core_stats_weekly_v1", THREES_PROFILE, BOUND_THREES_PROFILE}:
         raise ValueError("unsupported publication profile")
     result = copy.deepcopy(BASE)
     result["version"] = manifest["profile"]
-    if manifest["profile"] == THREES_PROFILE:
+    if manifest["profile"] in {THREES_PROFILE, BOUND_THREES_PROFILE}:
         result["capabilities"][THREES_CAPABILITY] = [
             "fct_player_game_stats",
             "dim_game",

@@ -10,7 +10,7 @@
       "pattern": "^pub_[0-9a-f]{16}$"
     },
     "profile": {
-      "enum": ["core_stats_weekly_v1", "core_stats_weekly_3pm_v1"]
+      "enum": ["core_stats_weekly_v1", "core_stats_weekly_3pm_v1", "core_stats_weekly_3pm_v2"]
     },
     "data_through": {
       "type": "string",

@@ -14,7 +14,7 @@ from app.serving.publication_contract import (
     fingerprint,
     validate_binding,
 )
-from app.serving.weekly_profile import THREES_PROFILE, profile_for, weekly_scope
+from app.serving.weekly_profile import BOUND_THREES_PROFILE, profile_for, weekly_scope
 
 
 def proposal(
@@ -26,7 +26,7 @@ def proposal(
     namespace,
     materialized_at,
     generation,
-    certify_three_point_leaders=False,
+    three_point_certificate_sha256=None,
 ):
     scope = weekly_scope(accepted["scope"])
     if accepted["status"] != "accepted" or accepted["runtime_eligible"] is not False:
@@ -65,11 +65,12 @@ def proposal(
         data_through=scope["last"],
         capabilities=list(PROFILE["capabilities"]),
     )
-    if certify_three_point_leaders:
+    if three_point_certificate_sha256 is not None:
         from app.serving.three_point_leaders import validate_leader_source
 
         validate_leader_source(scope, accepted, models)
-        manifest["profile"] = THREES_PROFILE
+        manifest["profile"] = BOUND_THREES_PROFILE
+        manifest["three_point_certificate_sha256"] = three_point_certificate_sha256
         manifest["capabilities"] = list(profile_for(manifest)["capabilities"])
     manifest["allocation_key"] = allocation_key(manifest)
     manifest["input_fingerprint"] = fingerprint(manifest)

@@ -148,11 +148,35 @@ def test_active_reader_requires_positive_authority_before_returning():
         ),
         authority=SimpleNamespace(check=lambda *_: False),
     )
+    from app.serving.production_workers import PublicationWorkers
+    from google.api_core.exceptions import ServiceUnavailable
+
+    core.workers = PublicationWorkers()
     attach_publication(app, core, lambda: "production")
-    with pytest.raises(ValueError, match="authority"):
-        app.state.active_three_point_leaders()
-    core.authority.check = lambda *_: True
-    assert app.state.active_three_point_leaders() == {"status": "ok"}
+    with TestClient(app) as client:
+        with pytest.raises(ValueError, match="authority"):
+            app.state.active_three_point_leaders()
+        core.authority.check = lambda *_: True
+        assert app.state.active_three_point_leaders() == {"status": "ok"}
+
+        async def exhausted():
+            async with core.workers.requests:
+                import anyio
+
+                return await anyio.to_thread.run_sync(
+                    app.state.active_three_point_leaders
+                )
+
+        core.workers.requests.total_tokens = 1
+        with pytest.raises(ValueError, match="unavailable"):
+            client.portal.call(exhausted)
+
+        def cold_failure(*_):
+            raise ServiceUnavailable("upstream internal detail")
+
+        core.application = cold_failure
+        with pytest.raises(ValueError, match="^Publication reader unavailable$"):
+            app.state.active_three_point_leaders()
 
 
 def test_rejects_boolean_in_materialized_three_point_counts():
