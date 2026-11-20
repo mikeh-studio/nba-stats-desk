@@ -391,14 +391,14 @@ def test_loaded_scoped_snapshot_is_reused_for_identity_and_roster_is_bounded():
 
 def test_unknown_capture_or_identity_shape_is_denied_at_real_dispatch(monkeypatch):
     import app.agent.semantic_source as semantic_source
-    import app.repository._bigquery as repository
+    import app.repository._bq.ask as ask_repository
 
     client = CapturingClient(rows=regular_rows())
     monkeypatch.setattr(semantic_source, "capture_sql", lambda *a: "SELECT 1; SELECT 2")
     with pytest.raises(SemanticError):
         source(client, policy()).capture_scoped([SEASON], ["Regular Season"])
     monkeypatch.setattr(
-        repository, "identity_sql", lambda *a: "SELECT * FROM unrelated"
+        ask_repository, "identity_sql", lambda *a: "SELECT * FROM unrelated"
     )
     repo = BigQueryWarehouseRepository(
         settings(), client=client, source_policy=policy()
