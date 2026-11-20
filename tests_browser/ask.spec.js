@@ -657,7 +657,7 @@ for (const width of [1280, 390]) {
     await submit(page, question);
     const firstId = posts[0].conversation_id;
     await expect(input).toHaveValue('');
-    await expect(input).toHaveAttribute('placeholder', 'Ask a follow-up about this report…');
+    await expect(input).toHaveAttribute('placeholder', 'Ask about this report…');
     await expect(page.locator('[data-agent-submit]')).toHaveAccessibleName('Send follow-up');
     await page.reload();
     await expect(input).toHaveValue('');
@@ -802,7 +802,7 @@ for (const width of [1280, 390]) {
     const originalId = posts[0].conversation_id;
     const panel = page.locator('[data-ask-composer]');
     const input = panel.locator('[data-agent-question]');
-    await expect(input).toHaveAttribute('placeholder', 'Ask a follow-up about this report…');
+    await expect(input).toHaveAttribute('placeholder', 'Ask about this report…');
     await expect(panel.getByRole('button', {name: 'Send follow-up', exact: true})).toBeVisible();
     await input.fill(c.turns[1].question);
     await panel.getByRole('button', {name: 'Send follow-up', exact: true}).click();

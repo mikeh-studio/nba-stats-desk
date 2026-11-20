@@ -48,6 +48,7 @@ let historyGeneration = 0;
 let historyHasMore = false;
 let viewedPayload = null;
 let navigationGeneration = 0;
+let statusHideTimer = null;
 
 function storageNotice(message) {
   const el = document.querySelector("[data-storage-notice]");
@@ -69,7 +70,9 @@ function resizeQuestionInputs() {
   for (const field of document.querySelectorAll("[data-agent-question]")) {
     if (!field.getClientRects().length) continue;
     field.style.height = "36px";
-    field.style.height = Math.max(36, field.scrollHeight) + "px";
+    field.style.height = field.value
+      ? Math.max(36, field.scrollHeight) + "px"
+      : "36px";
   }
 }
 
@@ -1092,7 +1095,7 @@ function syncComposerMode(report) {
   const input = document.querySelector("[data-agent-question]");
   if (input instanceof HTMLTextAreaElement) {
     input.placeholder = followupMode
-      ? "Ask a follow-up about this report…"
+      ? "Ask about this report…"
       : "Ask a question…";
   }
   const submit = document.querySelector("[data-agent-submit]");
@@ -2201,6 +2204,10 @@ async function askQuestion(question, selection = null) {
   setBusy(true);
   const statusEl = document.querySelector("[data-agent-status]");
   const submit = document.querySelector("[data-agent-submit]");
+  if (statusHideTimer) {
+    clearTimeout(statusHideTimer);
+    statusHideTimer = null;
+  }
   if (statusEl) statusEl.textContent = "Thinking";
   if (statusEl) statusEl.hidden = false;
   if (submit instanceof HTMLButtonElement) submit.disabled = true;
@@ -2226,7 +2233,13 @@ async function askQuestion(question, selection = null) {
     setBusy(false);
     renderTabs();
     rememberDraft();
-    if (statusEl?.textContent === "Answered") statusEl.hidden = true;
+    if (statusEl?.textContent === "Answered") {
+      if (statusHideTimer) clearTimeout(statusHideTimer);
+      statusHideTimer = setTimeout(() => {
+        statusHideTimer = null;
+        if (statusEl.textContent === "Answered") statusEl.hidden = true;
+      }, 1500);
+    }
     if (submit instanceof HTMLButtonElement) submit.disabled = false;
   }
 }

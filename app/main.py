@@ -85,7 +85,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261120-ui-combined-preview-v1"
+STATIC_VERSION = "20261120-ui-modernization-v1"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -2181,12 +2181,13 @@ def ask_page(
 
 @app.get("/weekly-pts", response_class=HTMLResponse)
 def weekly_pts_page(request: Request) -> HTMLResponse:
+    if getattr(request.app.state, "weekly_pts", None) is None:
+        raise HTTPException(status_code=404, detail="Not Found")
     context = {
         "request": request,
         "page_title": "Weekly PTS snapshot",
         "season": current_season(),
-        "weekly_pts_enabled": getattr(request.app.state, "weekly_pts", None)
-        is not None,
+        "weekly_pts_enabled": True,
         "jobs_monitor_enabled": getattr(
             request.app.state, "jobs_monitor_enabled", False
         ),

@@ -510,7 +510,7 @@ test("unified composer switches between new-question and follow-up modes", async
   assert.equal(composer.dataset.composerMode, "followup");
   assert.equal(section.hidden, false);
   assert.equal(context.textContent, "Avery Example · 2025-26");
-  assert.equal(input.placeholder, "Ask a follow-up about this report…");
+  assert.equal(input.placeholder, "Ask about this report…");
   assert.equal(submit.getAttribute("aria-label"), "Send follow-up");
   assert.match(suggestions.innerHTML, /What about assists\?/);
 

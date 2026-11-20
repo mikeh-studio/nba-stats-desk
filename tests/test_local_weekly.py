@@ -144,9 +144,7 @@ def test_weekly_pts_operator_route_and_ask_separation(weekly_root, monkeypatch):
     monkeypatch.setattr(main.app.state, "weekly_pts", None, raising=False)
     monkeypatch.setattr(main.app.state, "jobs_monitor_enabled", False, raising=False)
     disabled_page = client.get("/weekly-pts")
-    assert disabled_page.status_code == 200
-    assert 'id="weekly-pts-form"' not in disabled_page.text
-    assert "Weekly PTS snapshot is not configured" in disabled_page.text
+    assert disabled_page.status_code == 404
 
 
 def test_selection_change_during_response_fails_closed(weekly_root, monkeypatch):

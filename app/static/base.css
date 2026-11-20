@@ -1004,9 +1004,11 @@ details.explain p {
     grid-template-areas:
       "brand search"
       "tabs tabs";
+    gap: 0.9rem;
   }
   .nav-links {
     grid-column: auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.85rem;
   }
   .nav-tabs {
@@ -1032,6 +1034,9 @@ details.explain p {
       "tabs";
     gap: 0.6rem;
   }
+  .nav-links {
+    grid-template-columns: 1fr;
+  }
   .nav-player-search {
     justify-self: stretch;
   }
@@ -1039,6 +1044,7 @@ details.explain p {
     gap: 0.4rem 1rem;
   }
   .nav-tabs a {
+    min-height: 2.6rem;
     font-size: 0.74rem;
     letter-spacing: 0.06em;
   }
