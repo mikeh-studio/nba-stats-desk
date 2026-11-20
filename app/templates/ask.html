@@ -1,7 +1,9 @@
 {% extends "base.html" %}
-{% block content %}
+{% block head %}
 <meta name="ask-claim-enforcement" content="{{ ask_claim_enforcement }}" />
 <link rel="stylesheet" href="/static/ask.css?v={{ static_version }}" />
+{% endblock %}
+{% block content %}
 <section class="ask-desk" aria-label="Ask NBA Stats">
   {% if ask_local_espn_dev %}<div class="notice" role="status">Local 2026–27 review · ESPN box scores with partial coverage. Only players with mapped NBA identities are included. Current-season league rankings are unavailable. Historical answers identify their warehouse source.</div>{% endif %}
   <section class="ask-query">

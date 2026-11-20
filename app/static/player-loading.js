@@ -1,8 +1,5 @@
 import { seasonFetch } from "./season.js";
-// Match the versioned module already loaded by base.html: a second module URL
-// would install duplicate document-level handlers.
-const version = new URL(import.meta.url).searchParams.get("v");
-const { initPlayerContent } = await import(`./workbench.js?v=${encodeURIComponent(version)}`);
+import { initPlayerContent } from "./workbench.js";
 const content = document.querySelector("#player-content");
 const loading = document.querySelector("#player-loading");
 const status = document.querySelector("#player-load-status");
@@ -34,7 +31,7 @@ async function load() {
     research?.addEventListener("toggle", async () => {
       if (!research.open) return;
       try {
-        const { initialize } = await import(`./research.js?v=${encodeURIComponent(version)}`);
+        const { initialize } = await import("./research.js");
         await initialize(research.querySelector("[data-research-root]"));
       } catch {
         research.querySelector("[data-research-status]").textContent = "Research could not load. Reload the page to retry.";

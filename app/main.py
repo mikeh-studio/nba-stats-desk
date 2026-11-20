@@ -85,9 +85,17 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261113-ask-basketball-v2"
+STATIC_VERSION = "20261120-frontend-assets-v1"
+
+
+def _static_js_modules() -> tuple[str, ...]:
+    return tuple(path.name for path in sorted((BASE_DIR / "static").glob("*.js")))
+
+
+STATIC_JS_MODULES = _static_js_modules()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
+templates.env.globals["static_js_modules"] = STATIC_JS_MODULES
 templates.env.globals["available_seasons"] = SEASONS
 TRACKING_CAP = 8
 HEALTH_CACHE_TTL_SECONDS = 60

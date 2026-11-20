@@ -1,6 +1,8 @@
 {% extends "base.html" %}
-{% block content %}
+{% block head %}
 <link rel="stylesheet" href="/static/what_changed.css?v={{ static_version }}" />
+{% endblock %}
+{% block content %}
 <section class="hero changed-hero">
   <div class="eyebrow">Player movement · {{ season }}</div>
   <h1>Trending</h1>
