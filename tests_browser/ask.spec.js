@@ -182,8 +182,8 @@ for (const width of [1280, 390, 320]) {
     await page.setViewportSize({width, height:900});
     const c = await prepare(page, 'baseline_points');
     await submit(page, c.turns[0].question);
-    await expect(page.locator('.nav-tabs a')).toHaveCount(4);
-    await expect(page.locator('.nav-tabs a')).toHaveText(['ASK', 'PERFORMANCE', 'TRENDING', 'PROFILES']);
+    await expect(page.locator('.nav-tabs a')).toHaveCount(5);
+    await expect(page.locator('.nav-tabs a')).toHaveText(['ASK', 'PERFORMANCE', 'TRENDING', 'PLAYERS', 'PROFILES']);
     const brand = await page.locator('.brand-lockup').boundingBox();
     const search = await page.locator('.nav-player-search').boundingBox();
     const query = await page.locator('.ask-query').boundingBox();

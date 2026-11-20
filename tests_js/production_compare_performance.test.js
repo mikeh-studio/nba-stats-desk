@@ -57,3 +57,46 @@ test('performance reads pin the publication and reject changed or unavailable re
   await assert.rejects(publicationRead('/api/performance/dates', token, async () => ({ok:true, json:async () => ({publication_id:'pub_ffffffffffffffff'})})), /changed/);
   await assert.rejects(publicationRead('/api/performance/dates', token, async () => ({ok:false})), /unavailable/);
 });
+
+test('performance phase switcher toggles playoff and published regular-season controls inside filter bar', async () => {
+  const token = 'pub_0123456789abcdef';
+  globalThis.document = {createElement: () => new Element()};
+  globalThis.Option = class { constructor(text, value) { this.text = text; this.value = value; } };
+  const phase = new Element(), date = new Element(), game = new Element(), status = new Element(), results = new Element();
+  const playoffControl = {hidden: false}, playoffView = {hidden: false};
+  const pubControl = {hidden: true}, pubView = {hidden: true};
+  const windowMeta = {textContent: '2026-27 Playoffs', dataset: {playoffLabel: '2026-27 Playoffs'}};
+  phase.value = 'playoffs';
+  const nodes = {
+    '[data-performance-phase]': phase,
+    '[data-publication-date]': date,
+    '[data-publication-game]': game,
+    '[data-publication-status]': status,
+    '[data-publication-results]': results,
+    '#performance-window-meta': windowMeta,
+  };
+  const card = {
+    querySelector: (key) => nodes[key],
+    querySelectorAll: (key) => key.includes('playoff') ? [playoffControl, playoffView] : [pubControl, pubView],
+  };
+  globalThis.fetch = async () => ({
+    ok: true,
+    json: async () => ({publication_id: token, scope: {season: '2026-27', phase: 'Regular Season', first: '2026-10-20', last: '2026-10-30'}, data: ['2026-10-20']}),
+  });
+  await initPerformance(card);
+  assert.equal(playoffControl.hidden, false);
+  assert.equal(pubControl.hidden, true);
+  phase.value = 'publication';
+  phase.listeners.change();
+  assert.equal(playoffControl.hidden, true);
+  assert.equal(playoffView.hidden, true);
+  assert.equal(pubControl.hidden, false);
+  assert.equal(pubView.hidden, false);
+  assert.equal(windowMeta.textContent, 'Regular season (published)');
+  phase.value = 'playoffs';
+  phase.listeners.change();
+  assert.equal(playoffControl.hidden, false);
+  assert.equal(pubControl.hidden, true);
+  assert.equal(windowMeta.textContent, '2026-27 Playoffs');
+  delete globalThis.document;
+});

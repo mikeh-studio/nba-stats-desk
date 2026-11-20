@@ -8,91 +8,118 @@
     <p class="subhead">{{ season }} playoff games against each player’s season baseline: minutes, shooting, and box-score production.</p>
   </section>
 
+  <div class="performance-surface"{% if production_publication_enabled %} data-publication-performance{% endif %}>
+    <section class="filter-bar performance-controls" aria-label="Performance filters">
+      {% if production_publication_enabled %}
+      <label class="performance-field performance-phase-field">
+        <span class="meta">Phase</span>
+        <select class="select" id="performance-phase-select" data-performance-phase>
+          <option value="playoffs">Playoffs</option>
+          <option value="publication">Regular season (published)</option>
+        </select>
+      </label>
+      {% endif %}
+      <label class="performance-field" data-performance-playoff-control>
+        <span class="meta">Date</span>
+        <select class="select" id="performance-date-select">
+          <option value="">Loading dates...</option>
+        </select>
+      </label>
+      <label class="performance-field" data-performance-playoff-control>
+        <span class="meta">Game</span>
+        <select class="select" id="performance-game-select" disabled>
+          <option value="">All games</option>
+        </select>
+      </label>
+      <label class="performance-field performance-filter-field" data-performance-playoff-control>
+        <span class="meta">Player</span>
+        <input class="input" id="performance-player-filter" type="search" placeholder="Filter player list" disabled />
+      </label>
+      {% if production_publication_enabled %}
+      <label class="performance-field" data-performance-publication-control hidden>
+        <span class="meta">Date</span>
+        <select class="select" data-publication-date disabled><option value="">Loading dates…</option></select>
+      </label>
+      <label class="performance-field" data-performance-publication-control hidden>
+        <span class="meta">Game</span>
+        <select class="select" data-publication-game disabled><option value="">Select a date</option></select>
+      </label>
+      {% endif %}
+      <span class="meta filter-bar-meta" id="performance-window-meta" data-playoff-label="{{ season }} Playoffs">{{ season }} Playoffs</span>
+    </section>
+
+    <section class="workspace performance-workspace">
+      <div class="main-stack">
+        <article class="card">
+          <div class="performance-playoff-view" data-performance-playoff-view>
+            <div class="card-header">
+              <div>
+                <h2>Player List</h2>
+                <p class="meta" id="performance-list-meta">Select a date to load players.</p>
+              </div>
+              <div class="tab-list" id="performance-status-tabs" aria-label="Performance status">
+                <button class="tab-button is-active" type="button" data-status="all">All</button>
+                <button class="tab-button" type="button" data-status="above">Above</button>
+                <button class="tab-button" type="button" data-status="below">Below</button>
+              </div>
+            </div>
+
+            <div id="performance-empty" class="empty-state">
+              <p>Recent player game rows will appear here.</p>
+            </div>
+
+            <div class="table-scroll" id="performance-table-wrap" hidden>
+              <table class="data-table compact performance-table">
+                <thead>
+                  <tr>
+                    <th>Player</th>
+                    <th>Game</th>
+                    <th class="performance-rating-header">
+                      <span class="performance-rating-heading">
+                        <button class="performance-sort-button" type="button" data-sort-key="score">P-Rating <span data-sort-indicator="score"></span></button>
+                        <span class="performance-info-wrap" data-performance-rating-info>
+                          <button class="performance-info-icon" type="button" aria-label="How P-Rating works" aria-describedby="performance-rating-tooltip">i</button>
+                          <span class="performance-rating-tooltip" id="performance-rating-tooltip" role="tooltip">
+                            P-Rating compares the selected game to that player's season-to-date baseline. PTS, REB, AST, STL, and BLK are converted to z-scores and summed. MIN, 3PM, FG%, and FT% are context only.
+                          </span>
+                        </span>
+                      </span>
+                    </th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="min">MIN <span data-sort-indicator="min"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="pts">PTS <span data-sort-indicator="pts"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="reb">REB <span data-sort-indicator="reb"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="ast">AST <span data-sort-indicator="ast"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="fg3m">3PM <span data-sort-indicator="fg3m"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="fg_pct">FG% <span data-sort-indicator="fg_pct"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="ft_pct">FT% <span data-sort-indicator="ft_pct"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="stl">STL <span data-sort-indicator="stl"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="blk">BLK <span data-sort-indicator="blk"></span></button></th>
+                  </tr>
+                </thead>
+                <tbody id="performance-player-rows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          {% if production_publication_enabled %}
+          <div class="performance-publication-view" data-performance-publication-view hidden>
+            <div class="card-header">
+              <div>
+                <h2>Player List</h2>
+                <p class="meta">Regular-season box scores from the active publication. Publication data does not include P-Rating.</p>
+              </div>
+            </div>
+            <p class="meta" data-publication-status role="status">Loading publication…</p>
+            <div class="table-scroll" data-publication-results></div>
+          </div>
+          {% endif %}
+        </article>
+      </div>
+    </section>
+  </div>
   {% if production_publication_enabled %}
-  <section class="card" data-publication-performance>
-    <h2>Published regular-season performance</h2>
-    <p class="meta">This publication contains regular-season box scores; the playoff controls below use the existing app data. Publication data does not include P-Rating.</p>
-    <label>Date <select class="select" data-publication-date disabled><option value="">Loading dates…</option></select></label>
-    <label>Game <select class="select" data-publication-game disabled><option value="">Select a date</option></select></label>
-    <p data-publication-status role="status">Loading publication…</p>
-    <div data-publication-results></div>
-  </section>
   <script type="module" src="/static/production_compare_performance.js?v={{ static_version }}"></script>
   {% endif %}
-
-  <section class="filter-bar performance-controls" aria-label="Performance filters">
-    <label class="performance-field">
-      <span class="meta">Date</span>
-      <select class="select" id="performance-date-select">
-        <option value="">Loading dates...</option>
-      </select>
-    </label>
-    <label class="performance-field">
-      <span class="meta">Game</span>
-      <select class="select" id="performance-game-select" disabled>
-        <option value="">All games</option>
-      </select>
-    </label>
-    <label class="performance-field performance-filter-field">
-      <span class="meta">Player</span>
-      <input class="input" id="performance-player-filter" type="search" placeholder="Filter player list" disabled />
-    </label>
-    <span class="meta filter-bar-meta" id="performance-window-meta">{{ season }} Playoffs</span>
-  </section>
-
-  <section class="workspace performance-workspace">
-    <div class="main-stack">
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Player List</h2>
-            <p class="meta" id="performance-list-meta">Select a date to load players.</p>
-          </div>
-          <div class="tab-list" id="performance-status-tabs" aria-label="Performance status">
-            <button class="tab-button is-active" type="button" data-status="all">All</button>
-            <button class="tab-button" type="button" data-status="above">Above</button>
-            <button class="tab-button" type="button" data-status="below">Below</button>
-          </div>
-        </div>
-
-        <div id="performance-empty" class="empty-state">
-          <p>Recent player game rows will appear here.</p>
-        </div>
-
-        <div class="table-scroll" id="performance-table-wrap" hidden>
-          <table class="data-table compact performance-table">
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Game</th>
-                <th class="performance-rating-header">
-                  <span class="performance-rating-heading">
-                    <button class="performance-sort-button" type="button" data-sort-key="score">P-Rating <span data-sort-indicator="score"></span></button>
-                    <span class="performance-info-wrap" data-performance-rating-info>
-                      <button class="performance-info-icon" type="button" aria-label="How P-Rating works" aria-describedby="performance-rating-tooltip">i</button>
-                      <span class="performance-rating-tooltip" id="performance-rating-tooltip" role="tooltip">
-                        P-Rating compares the selected game to that player's season-to-date baseline. PTS, REB, AST, STL, and BLK are converted to z-scores and summed. MIN, 3PM, FG%, and FT% are context only.
-                      </span>
-                    </span>
-                  </span>
-                </th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="min">MIN <span data-sort-indicator="min"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="pts">PTS <span data-sort-indicator="pts"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="reb">REB <span data-sort-indicator="reb"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="ast">AST <span data-sort-indicator="ast"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="fg3m">3PM <span data-sort-indicator="fg3m"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="fg_pct">FG% <span data-sort-indicator="fg_pct"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="ft_pct">FT% <span data-sort-indicator="ft_pct"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="stl">STL <span data-sort-indicator="stl"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="blk">BLK <span data-sort-indicator="blk"></span></button></th>
-              </tr>
-            </thead>
-            <tbody id="performance-player-rows"></tbody>
-          </table>
-        </div>
-      </article>
-    </div>
-  </section>
 
   <div class="performance-player-modal" data-performance-modal hidden>
     <div class="performance-modal-backdrop" data-performance-modal-close></div>

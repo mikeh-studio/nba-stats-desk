@@ -1541,8 +1541,9 @@ def test_ask_page_smoke() -> None:
     assert "claude-opus-5" in response.text
     assert "claude-sonnet-5" in response.text
     assert "Claude (Anthropic)" in response.text
+    assert '<a class="brand-title" href="/ask">NBA Stats Desk</a>' in response.text
     assert ">ASK</a>" in response.text
-    assert ">PLAYERS</a>" not in response.text
+    assert ">PLAYERS</a>" in response.text
     assert ">TRENDING</a>" in response.text
     assert ">PERFORMANCE</a>" in response.text
     assert ">PROFILES</a>" in response.text
@@ -1550,6 +1551,9 @@ def test_ask_page_smoke() -> None:
     assert ">RESEARCH</a>" not in response.text
     assert ">Dashboard</a>" not in response.text
     assert ">Visualize</a>" not in response.text
+    assert response.text.index('class="ask-desk"') < response.text.index(
+        "data-publication-health"
+    )
 
 
 @pytest.mark.parametrize("season", [DEFAULT_SEASON, "2024-25"])
@@ -2204,6 +2208,9 @@ def test_player_page_unavailable_state_smoke() -> None:
 
     assert response.status_code == 200
     assert "This player is not currently ranked." in response.text
+    assert "Summary highlights are not available for this player yet." in response.text
+    assert "bounded reason fields" not in response.text
+    assert "explanation contract" not in response.text
 
 
 def test_player_page_does_not_block_on_health() -> None:
@@ -3128,3 +3135,28 @@ def test_pages_keep_meta_and_stylesheets_in_head_and_fragment_clean() -> None:
     assert '<link rel="stylesheet"' not in fragment.text
     assert "<meta " not in fragment.text
     assert "<style>" not in fragment.text
+
+
+def test_navigation_wayfinding_and_unified_filter_bars() -> None:
+    client = build_client()
+    for route in ("/players", "/players/7", "/research"):
+        response = client.get(route)
+        assert response.status_code == 200
+        assert (
+            '<a href="/players" class="is-active" aria-current="page">PLAYERS</a>'
+            in response.text
+        )
+    for route in ("/performance", "/what-changed", "/similarity-map"):
+        response = client.get(route)
+        assert response.status_code == 200
+        assert 'class="filter-bar ' in response.text
+    app.state.production_publication_enabled = True
+    try:
+        perf = client.get("/performance")
+        assert perf.status_code == 200
+        assert "data-publication-performance" in perf.text
+        assert "data-performance-phase" in perf.text
+        assert "Regular season (published)" in perf.text
+        assert perf.text.count('class="filter-bar ') == 1
+    finally:
+        app.state.production_publication_enabled = False

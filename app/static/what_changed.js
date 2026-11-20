@@ -149,6 +149,8 @@ export function initWhatChanged(doc = document, fetcher = seasonFetch) {
     } finally { if (id === requestId) list.setAttribute("aria-busy", "false"); }
   }
   form.addEventListener("submit", (event) => { event.preventDefault(); load(); });
+  doc.querySelector("#changed-period")?.addEventListener("change", () => load());
+  doc.querySelector("#changed-phase")?.addEventListener("change", () => load());
   search.addEventListener("input", () => { shown = 20; render(); });
   doc.querySelectorAll("[data-mover-view]").forEach((button) => button.addEventListener("click", () => {
     view = button.dataset.moverView; shown = 20;

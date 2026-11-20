@@ -88,8 +88,8 @@
           <p>{{ player_detail.reason_summary }}</p>
         {% else %}
           <div class="empty-state">
-            <strong>No bounded reason fields are available.</strong>
-            <p class="meta">This player can still be tracked, but the explanation contract is currently unavailable.</p>
+            <strong>Summary highlights are not available for this player yet.</strong>
+            <p class="meta">You can still track this player and review their game logs, recent windows, and profile comparisons below.</p>
           </div>
         {% endif %}
         <div class="chip-row">
@@ -105,7 +105,7 @@
         </div>
         <details class="explain">
           <summary>How this works</summary>
-          <p>This section uses the bounded reason fields from the player-detail read model. It is intentionally summary-ready, not an open-ended evidence dump.</p>
+          <p>This card summarizes a player’s standout statistical categories, areas to watch, and recent momentum across the selected season.</p>
         </details>
       </article>
 

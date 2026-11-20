@@ -85,7 +85,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261120-frontend-assets-v1"
+STATIC_VERSION = "20261120-ui-nav-filters-v1"
 
 
 def _static_js_modules() -> tuple[str, ...]:

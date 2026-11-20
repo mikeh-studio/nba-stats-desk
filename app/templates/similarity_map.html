@@ -20,24 +20,27 @@
         <span class="meta" id="map-meta">Loading projection…</span>
       </div>
 
-      <div class="map-controls">
+      <div class="filter-bar map-controls" aria-label="Archetype map filters">
         <form class="search-form map-search" id="map-search-form" onsubmit="return false;">
-          <input
-            type="text"
-            id="map-search-input"
-            class="input"
-            list="map-player-list"
-            placeholder="Find a player to trace their matches…"
-            autocomplete="off"
-            aria-label="Find a player in archetypes"
-          />
+          <label class="map-search-field" for="map-search-input">
+            <span class="meta">Player</span>
+            <input
+              type="text"
+              id="map-search-input"
+              class="input"
+              list="map-player-list"
+              placeholder="Find a player to trace their matches…"
+              autocomplete="off"
+              aria-label="Find a player in archetypes"
+            />
+          </label>
           <datalist id="map-player-list"></datalist>
         </form>
         <button class="button secondary" id="map-clear-btn" type="button" hidden>
           Clear selection
         </button>
+        <div class="map-model-controls" id="map-model-controls" aria-label="Archetype grouping models"></div>
       </div>
-      <div class="map-model-controls" id="map-model-controls" aria-label="Archetype grouping models"></div>
       <p class="meta similarity-note" id="map-model-note"></p>
 
       <div class="map-layout">

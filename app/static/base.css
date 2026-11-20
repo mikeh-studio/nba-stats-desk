@@ -88,8 +88,13 @@ main {
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.03em;
+  text-decoration: none;
   text-transform: uppercase;
   white-space: nowrap;
+}
+.brand-title:hover,
+.brand-title:focus-visible {
+  color: var(--accent-hot);
 }
 .nav-links {
   grid-area: tabs;
@@ -134,6 +139,9 @@ main {
   transition: color 160ms ease, background-color 160ms ease;
 }
 @media (max-width: 600px) {
+  .nav-tabs {
+    gap: 0.35rem 0.75rem;
+  }
   .nav-tabs a {
     font-size: 0.64rem;
     letter-spacing: 0.03em;
@@ -428,7 +436,9 @@ p {
   color: var(--muted);
 }
 .publication-health {
-  margin: 0 0 20px;
+  margin: 0.75rem 0 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--line);
 }
 .publication-health summary {
   cursor: pointer;

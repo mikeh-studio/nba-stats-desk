@@ -1,6 +1,6 @@
-.changed-controls { display: grid; grid-template-columns: 1.5fr 1fr 1.1fr auto; gap: 16px; align-items: end; }
-.changed-controls label, .changed-search { display: grid; gap: 8px; font-size: .82rem; color: var(--muted); }
-.changed-controls .select, .changed-controls .input, .changed-search .input { width: 100%; min-width: 0; }
+.changed-controls .changed-field { flex: 1 1 14rem; }
+.changed-search { display: grid; gap: 8px; font-size: .82rem; color: var(--muted); }
+.changed-search .input { width: 100%; min-width: 0; }
 .changed-context { margin: 18px 0; }
 .changed-view-controls, .mover-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
 .changed-list { display: grid; gap: 18px; margin: 20px 0; }
@@ -23,25 +23,21 @@
 .mover-games summary, .changed-method summary { cursor: pointer; }
 .mover-games .table-scroll { max-height: 360px; overflow: auto; }
 .changed-discovery, .changed-list, .mover-card, .mover-games { min-width: 0; }
-.changed-controls label { min-width: 0; }
 .changed-method { margin-top: 20px; font-size: .85rem; line-height: 1.7; }
 .changed-method p { color: var(--muted); }
 .delta-positive { color: var(--success); }
 .delta-negative { color: var(--danger); }
 .mover-injuries { padding-left: 16px; font-size: .76rem; line-height: 1.7; }
 @media (max-width: 1000px) {
-  .changed-controls { grid-template-columns: 1fr 1fr; }
   .mover-clusters { grid-template-columns: 1fr; }
 }
 @media (max-width: 600px) {
-  .changed-controls { grid-template-columns: 1fr; }
   .mover-card { padding: 14px; }
   .changed-search { width: 100%; }
   .mover-score { text-align: left; }
 }
 
 /* Opportunity map and Sports Journal player inspector. */
-.changed-controls { background: transparent; border-inline: 0; padding: 16px 0; }
 .changed-discovery { background: transparent; border: 0; padding: 0; }
 .changed-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 28px; align-items: start; }
 .changed-overview, #changed-chart, #changed-detail { min-width: 0; }

@@ -8,19 +8,22 @@
   <h1>Trending</h1>
   <p class="subhead">Top performers and players gaining production across recent game windows, with the games behind each change.</p>
 </section>
-<form class="card changed-controls" id="changed-controls">
-  <label>Compare
+<form class="filter-bar changed-controls" id="changed-controls" aria-label="Trending filters">
+  <label class="changed-field">
+    <span class="meta">Compare</span>
     <select class="select" name="period" id="changed-period">
       <option value="four_games">Last 4 team games vs previous 4</option>
       <option value="week">Latest complete week vs previous week</option>
     </select>
   </label>
-  <label>Season phase
+  <label class="changed-field">
+    <span class="meta">Season phase</span>
     <select class="select" name="season_type" id="changed-phase">
       <option value="Regular Season">Regular season</option><option value="Playoffs">Playoffs</option>
     </select>
   </label>
-  <label>Through date <span class="meta">(blank = latest data)</span>
+  <label class="changed-field">
+    <span class="meta">Through date (blank = latest data)</span>
     <input class="input" name="as_of" id="changed-date" type="date" />
   </label>
   <button class="button" type="submit">Update</button>

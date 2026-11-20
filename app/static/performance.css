@@ -1,5 +1,17 @@
+.performance-surface {
+  display: grid;
+  gap: 1rem;
+}
+.performance-playoff-view,
+.performance-publication-view {
+  display: grid;
+  gap: 0.875rem;
+}
 .performance-controls .performance-field {
   flex: 0 1 16rem;
+}
+.performance-controls .performance-phase-field {
+  flex-basis: 15rem;
 }
 .performance-controls .performance-filter-field {
   flex-basis: 20rem;
