@@ -1,8 +1,8 @@
-import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261113-ask-basketball-v2";
-import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261113-ask-basketball-v2";
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261113-ask-basketball-v2";
-import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261113-ask-basketball-v2";
-import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261113-ask-basketball-v2";
+import {bindComparisonPlots} from "./comparison_plot_ui.js?v=20261116-saved-ask-counts";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js?v=20261116-saved-ask-counts";
+import {followupFitsReport, isFollowupReport} from "./ask_followup.js?v=20261116-saved-ask-counts";
+import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js?v=20261116-saved-ask-counts";
+import {bindRenderedClaims} from "./ask_claim_bindings.js?v=20261116-saved-ask-counts";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
   comparisonPresentation,
@@ -10,13 +10,13 @@ import {
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
-} from "./ask_comparison.js?v=20261113-ask-basketball-v2";
+} from "./ask_comparison.js?v=20261116-saved-ask-counts";
 import {
   normalizeTabs,
   openTab,
   closeTab,
   matchesSession,
-} from "./ask_sessions.js?v=20261113-ask-basketball-v2";
+} from "./ask_sessions.js?v=20261116-saved-ask-counts";
 import {
   overviewPresentation,
   overviewMetricsTable,
@@ -24,8 +24,8 @@ import {
   metricAbbreviation,
   bindMetricHelp,
   ordinal,
-} from "./ask_presentation.js?v=20261113-ask-basketball-v2";
-import {bindMetricDrawer} from "./metric_drawer.js?v=20261113-ask-basketball-v2";
+} from "./ask_presentation.js?v=20261116-saved-ask-counts";
+import {bindMetricDrawer} from "./metric_drawer.js?v=20261116-saved-ask-counts";
 function escHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -2019,26 +2019,56 @@ function renderAskFailure(message, statusText, request) {
   if (statusEl) statusEl.textContent = statusText;
 }
 
+// Keep only the row identity and sample used for this answer in chat history.
+function publicationCounts(row, metric, playerId = row.player_id) {
+  return {
+    metric, player_id: playerId, game_id: row.game_id,
+    numerator: row.numerator, denominator: row.denominator,
+    valid_games: row.valid_games, observed_games: row.observed_games,
+    missing_component_games: "missing_component_games" in row ? row.missing_component_games : row.missing_games,
+  };
+}
+
+function publicationSample(counts) {
+  if (counts.numerator == null || counts.denominator == null) return '';
+  return counts.metric === 'fg_pct'
+    ? `${counts.numerator} made of ${counts.denominator} attempted.`
+    : `Numerator: ${counts.numerator}. Denominator: ${counts.denominator}.`;
+}
+
 function publicationAnswer(result) {
   const scope = result.scope;
   const data = result.data;
+  const counts = [];
   const lines = [`Publication ${result.publication_id} · ${scope.season} ${scope.phase}, ${scope.first} through ${scope.last}.`];
   if (Array.isArray(data.rows)) {
     for (const row of data.rows) {
+      const sample = publicationCounts(row, data.metric?.key);
+      counts.push(sample);
       const value = row.display_value ?? row.value;
       const unit = data.metric?.unit === 'ratio' && value != null
         ? (row.display_value != null ? '%' : ' (ratio)') : '';
       lines.push(`${data.metric?.label || 'Value'} (${data.scope?.aggregation || 'result'}): ${value == null ? 'unavailable' : value}${unit}.`);
+      const sampleText = publicationSample(sample);
+      if (sampleText) lines.push(sampleText);
       if (row.observed_games != null) lines.push(`${row.valid_games} of ${row.observed_games} observed games have the required data${row.missing_component_games ? `; ${row.missing_component_games} missing` : ''}.`);
       if (row.game_id) lines.push(`Game ${row.game_id}.`);
     }
     if (!data.rows.length) lines.push('No matching observations.');
   } else if (Array.isArray(data.differences)) {
     for (const item of data.differences) lines.push(`${item.metric} (${item.aggregation}): ${item.difference == null ? 'unavailable' : item.difference} ${item.unit}; player A minus player B.`);
+    for (const [index, player] of (data.players || []).entries()) {
+      for (const metric of player.metrics) {
+        const sample = publicationCounts(metric, metric.metric, player.player_id);
+        counts.push(sample);
+        const coverage = `${sample.valid_games} of ${sample.observed_games} games with the required data.`;
+        lines.push(`Player ${index === 0 ? 'A' : 'B'}: ${coverage} ${publicationSample(sample)}`.trimEnd());
+      }
+    }
   } else {
     lines.push('The publication returned an unsupported result shape.');
   }
-  return lines.join('\n\n');
+  return {answer: lines.join('\n\n'), publication_id: result.publication_id, counts};
 }
 
 async function askQuestionStream(request) {
@@ -2060,8 +2090,11 @@ async function askQuestionStream(request) {
       }
       const result = await published.json();
       if (result.scope?.season === selectedSeason()) {
-        const answer = publicationAnswer(result);
-        handleStreamEvent('final', {payload: {status: 'ok', answer, assumptions: [], tables: [], charts: [], metric_definitions: [], followups: [], conversation_id: request.conversationId}}, request);
+        const payload = {
+          ...publicationAnswer(result), status: 'ok', conversation_id: request.conversationId,
+          assumptions: [], tables: [], charts: [], metric_definitions: [], followups: [],
+        };
+        handleStreamEvent('final', {payload}, request);
         return;
       }
     }
