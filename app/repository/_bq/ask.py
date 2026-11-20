@@ -50,7 +50,9 @@ class BigQueryAskMixin(BigQueryBaseMixin):
             or not set(player_ids) <= policy.allowed_player_ids
         ):
             denied("Identity is outside the approved source scope")
-        sql = identity_sql(policy.relation(season))
+        import app.repository._bigquery as _bq_export
+
+        sql = getattr(_bq_export, "identity_sql", identity_sql)(policy.relation(season))
         params = [
             bigquery.ScalarQueryParameter(
                 "snapshot_at", "TIMESTAMP", policy.snapshot_at
