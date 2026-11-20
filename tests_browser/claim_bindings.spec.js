@@ -230,9 +230,7 @@ test("actual endpoint multi-answer and multi-tab history survives real browser s
     for (let turn = 0; turn < 2; turn++) {
       const question =
         "Give an overview of Avery Example in the 2024-25 regular season.";
-      const input = page.locator(
-        turn ? "[data-followup-question]" : "[data-agent-question]",
-      );
+      const input = page.locator("[data-agent-question]");
       await input.fill(question);
       const response = page.waitForResponse((r) =>
         r.url().includes("/api/agent/ask/stream"),

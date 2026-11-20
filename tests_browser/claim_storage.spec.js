@@ -41,9 +41,7 @@ test("reachable100-row ranking survives real browser history and reports actual 
   expect(payload.semantic_evidence.rows[99].player_id).toBe(1);
   expect(payload.claim_validation.errors).toEqual([]);
   const submit = async (follow) => {
-    const input = page.locator(
-      follow ? "[data-followup-question]" : "[data-agent-question]",
-    );
+    const input = page.locator("[data-agent-question]");
     await input.fill(question);
     const pending = page.waitForResponse((r) =>
       r.url().includes("/api/agent/ask/stream"),

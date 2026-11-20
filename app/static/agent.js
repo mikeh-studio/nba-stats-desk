@@ -66,7 +66,7 @@ function saveTabs() {
   }
 }
 function resizeQuestionInputs() {
-  for (const field of document.querySelectorAll("[data-agent-question], [data-followup-question]")) {
+  for (const field of document.querySelectorAll("[data-agent-question]")) {
     if (!field.getClientRects().length) continue;
     field.style.height = "36px";
     field.style.height = Math.max(36, field.scrollHeight) + "px";
@@ -80,7 +80,6 @@ function rememberDraft() {
     ...tabState.drafts[key],
     settings: currentAskSettings(),
     question: document.querySelector("[data-agent-question]")?.value || "",
-    followup: document.querySelector("[data-followup-question]")?.value || "",
   };
   saveTabs();
 }
@@ -89,13 +88,11 @@ function restoreDraft() {
   if (redirect) redirect.hidden = true;
   const draft = tabState.drafts[activeConversationId || "new"] || {};
   const query = document.querySelector("[data-agent-question]");
-  const followup = document.querySelector("[data-followup-question]");
   const opening = historyState.conversations.find(
     (conversation) => conversation.id === activeConversationId,
   )?.turns[0];
-  if (query) query.value = draft.question ?? opening?.question ?? "";
+  if (query) query.value = draft.question ?? "";
   restoreAskSettings(draft.settings || opening);
-  if (followup) followup.value = draft.followup || "";
   resizeQuestionInputs();
 }
 function renderTabs() {
@@ -901,11 +898,7 @@ function renderContext(payload) {
 function bindExampleButtons(root = document) {
   root.querySelectorAll("[data-agent-example]").forEach((button) => {
     button.addEventListener("click", () => {
-      const followup = document.querySelector("[data-followup-question]");
-      const input =
-        !document.querySelector("[data-followup-section]")?.hidden && followup
-          ? followup
-          : document.querySelector("[data-agent-question]");
+      const input = document.querySelector("[data-agent-question]");
       if (!(input instanceof HTMLTextAreaElement)) return;
       input.value = button.dataset.agentExample || "";
       const redirect = document.querySelector("[data-followup-redirect]");
@@ -978,10 +971,7 @@ function resetAuxiliaryPanels() {
     const el = document.querySelector(selector);
     if (el) el.innerHTML = "";
   }
-  for (const selector of ["[data-followup-section]"]) {
-    const el = document.querySelector(selector);
-    if (el) el.hidden = true;
-  }
+  syncComposerMode(null);
   const tableCard = document.querySelector("[data-agent-table-card]");
   const tableEl = document.querySelector("[data-agent-tables]");
   const chartCard = document.querySelector("[data-agent-chart-card]");
@@ -1086,11 +1076,37 @@ function latestFollowupReport() {
   return [...(conversation?.turns || [])].reverse().find(turn => isFollowupReport(turn.payload));
 }
 
+function syncComposerMode(report) {
+  const followupMode = Boolean(report);
+  const composer = document.querySelector("[data-ask-composer]");
+  if (composer) composer.dataset.composerMode = followupMode ? "followup" : "new";
+  const section = document.querySelector("[data-followup-section]");
+  if (section) section.hidden = !followupMode;
+  const label = document.querySelector("[data-agent-question-label]");
+  if (label) {
+    label.textContent = followupMode
+      ? "Follow-up question about this report"
+      : "Ask a question";
+    label.className = followupMode ? "sr-only" : "eyebrow";
+  }
+  const input = document.querySelector("[data-agent-question]");
+  if (input instanceof HTMLTextAreaElement) {
+    input.placeholder = followupMode
+      ? "Ask a follow-up about this report…"
+      : "Ask a question…";
+  }
+  const submit = document.querySelector("[data-agent-submit]");
+  if (submit) {
+    const actionLabel = followupMode ? "Send follow-up" : "Ask";
+    submit.setAttribute("aria-label", actionLabel);
+    submit.setAttribute("title", actionLabel);
+  }
+}
+
 function renderFollowupComposer(payload) {
   // A failed follow-up must not remove the usable report or its retry input.
   const report = isFollowupReport(payload) ? payload : latestFollowupReport()?.payload;
-  const section = document.querySelector("[data-followup-section]");
-  if (section) section.hidden = !report;
+  syncComposerMode(report);
   if (!report) return;
   const comparison = comparisonPresentation(report);
   const overview = comparison ? null : overviewPresentation(report);
@@ -1617,7 +1633,7 @@ function startNewChat() {
   const statusEl = document.querySelector("[data-agent-status]");
   activeConversationId = newConversationId();
   tabState = openTab(tabState, activeConversationId);
-  tabState.drafts[activeConversationId] = {question: "", followup: ""};
+  tabState.drafts[activeConversationId] = {question: ""};
   setBusy(false);
   runtimeFor().lastQuestion = "";
   runtimeFor().currentAnswerEl = null;
@@ -1776,7 +1792,22 @@ function handleStreamEvent(eventName, payload, state) {
   if (eventName === "final") {
     validateResponseOwner(payload.payload, state);
     persistHistoryTurn(state.question, payload.payload || {}, state.conversationId, state.body);
+    if (isFollowupReport(payload.payload)) {
+      const draft = tabState.drafts[state.conversationId];
+      if (draft && String(draft.question || "").trim() === String(state.question || "").trim()) {
+        draft.question = "";
+        saveTabs();
+      }
+    }
     if (requestIsVisible(state)) {
+      const input = document.querySelector("[data-agent-question]");
+      if (
+        isFollowupReport(payload.payload) &&
+        input instanceof HTMLTextAreaElement &&
+        input.value.trim() === String(state.question || "").trim()
+      ) {
+        input.value = "";
+      }
       renderPayload(payload.payload || {});
       if (statusEl) statusEl.textContent = "Answered";
     }
@@ -2016,7 +2047,10 @@ function renderAskFailure(message, statusText, request) {
     metric_definitions: [],
     followups: [],
   });
-  if (statusEl) statusEl.textContent = statusText;
+  if (statusEl) {
+    statusEl.textContent = statusText;
+    statusEl.hidden = false;
+  }
 }
 
 function publicationAnswer(result) {
@@ -2200,19 +2234,17 @@ async function askQuestion(question, selection = null) {
 const SEND_ICON = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
 function setBusy(busy) {
-  for (const selector of ["[data-agent-submit]", "[data-followup-submit]"]) {
-    const button = document.querySelector(selector);
-    if (button) {
-      if (busy) button.textContent = "…";
-      else button.innerHTML = SEND_ICON;
-      button.dataset.thinking = String(busy);
-    }
+  const button = document.querySelector("[data-agent-submit]");
+  if (button) {
+    if (busy) button.textContent = "…";
+    else button.innerHTML = SEND_ICON;
+    button.dataset.thinking = String(busy);
   }
   const status = document.querySelector("[data-agent-status]");
   if (status) status.dataset.thinking = String(busy);
   document
     .querySelectorAll(
-      "[data-followup-submit], [data-agent-submit], [data-saved-question-retry], [data-agent-provider], [data-agent-model]",
+      "[data-agent-submit], [data-saved-question-retry], [data-agent-provider], [data-agent-model]",
     )
     .forEach((el) => {
       el.disabled = busy;
@@ -2232,57 +2264,57 @@ function initAgentPage() {
   ) {
     return;
   }
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const question = input.value.trim();
-    if (!question) return;
-    askNewQuestion(question);
-  });
-  const followupForm = document.querySelector("[data-followup-form]");
-  const followupInput = document.querySelector("[data-followup-question]");
-  followupForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (!followupInput.value.trim() || runtimeFor().inFlight) return;
-    const sentQuestion = followupInput.value.trim();
-    const conversation = historyState.conversations.find(c => c.id === activeConversationId);
+    const sentQuestion = input.value.trim();
+    if (!sentQuestion || runtimeFor().inFlight) return;
     const report = latestFollowupReport();
-    const reportQuestion = [conversation?.turns[0]?.question, report?.question].filter(Boolean).join(" ");
-    if (!report) return;
-    const suggestions = [...document.querySelectorAll("[data-followup-suggestions] [data-agent-example]")]
-      .map(button => button.dataset.agentExample);
-    if (!followupFitsReport(sentQuestion, report.payload, reportQuestion, suggestions)) {
-      document.querySelector("[data-followup-redirect]").hidden = false;
+    if (report) {
+      const conversation = historyState.conversations.find(
+        (c) => c.id === activeConversationId,
+      );
+      const reportQuestion = [
+        conversation?.turns[0]?.question,
+        report?.question,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const suggestions = [
+        ...document.querySelectorAll(
+          "[data-followup-suggestions] [data-agent-example]",
+        ),
+      ].map((button) => button.dataset.agentExample);
+      const redirect = document.querySelector("[data-followup-redirect]");
+      if (
+        !followupFitsReport(
+          sentQuestion,
+          report.payload,
+          reportQuestion,
+          suggestions,
+        )
+      ) {
+        if (redirect) redirect.hidden = false;
+        return;
+      }
+      if (redirect) redirect.hidden = true;
+      await askQuestion(sentQuestion);
       return;
     }
-    document.querySelector("[data-followup-redirect]").hidden = true;
-    const submittedId = activeConversationId;
-    await askQuestion(sentQuestion);
-    if (
-      activeConversationId === submittedId &&
-      document.querySelector("[data-agent-status]")?.textContent ===
-        "Answered" &&
-      followupInput.value.trim() === sentQuestion
-    )
-      followupInput.value = "";
-    if (activeConversationId === submittedId) rememberDraft();
+    await askNewQuestion(sentQuestion);
   });
-  followupInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-      event.preventDefault();
-      followupForm.requestSubmit();
-    }
-  });
-  input.addEventListener("input", rememberDraft);
-  followupInput?.addEventListener("input", () => {
-    document.querySelector("[data-followup-redirect]").hidden = true;
+  input.addEventListener("input", () => {
+    const redirect = document.querySelector("[data-followup-redirect]");
+    if (redirect) redirect.hidden = true;
     rememberDraft();
   });
-  document.querySelector("[data-followup-new-tab]")?.addEventListener("click", () => {
-    const question = followupInput.value.trim();
-    if (!question || runtimeFor().inFlight) return;
-    startNewChat();
-    askNewQuestion(question);
-  });
+  document
+    .querySelector("[data-followup-new-tab]")
+    ?.addEventListener("click", () => {
+      const question = input.value.trim();
+      if (!question || runtimeFor().inFlight) return;
+      startNewChat();
+      askNewQuestion(question);
+    });
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
@@ -2296,6 +2328,8 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     referenceTable,
     renderTable,
     renderAuxiliaryPayload,
+    renderFollowupComposer,
+    syncComposerMode,
     updateSourceCoverage,
     turnEvidenceMarkup,
     buildAskBody,
