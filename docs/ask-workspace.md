@@ -247,33 +247,38 @@ fills the composer without submitting. The season-profile similarity example
 omits a fixed season so it uses the request's selected season; that route requires
 the similarity publication and requested season to match.
 
-The new-question composer and model settings sit above the analysis tabs and
-remain visible while browsing history. The question remains in the top composer
-during and after submission. Repeating the same question with the same season,
-provider, and model reuses its completed answer without another request or turn,
-including after reload and after follow-ups. Failed requests can be retried.
-Changing the question or settings creates a separate analysis on submission
-(an untouched draft is reused). Comparison uses the trimmed question and current
-setting values; changing a setting back before submitting counts as unchanged.
-New chat opens an empty composer. Switching tabs restores their question drafts
-and settings; submitted search snapshots survive page reloads.
-The bottom follow-up composer appends to the selected conversation and retains
-its validated identity/date/phase context. The compact composer shows report scope
-and an accessible send button. Both question bars use a 52px minimum-height,
-14px-radius grid container with a 28px arrow button, a centered 16px SVG, and 12px right/bottom insets. Textareas grow with
-wrapped text and shrink when cleared; the button occupies its own column.
-Suggestions fill the follow-up composer without submitting. A conservative
+The chat tab strip sits at the top of the workspace. In a fresh or empty tab, the
+**Ask NBA Stats** hero heading, concise framing copy, and six example prompt cards
+pair directly with the single unified bottom-pinned composer, with **Model settings**
+tucked below the composer controls as a compact disclosure. The standalone status
+line remains hidden when idle and announces active progress or failures via
+`role="status"` and `aria-live="polite"`.
+
+Once an answer is rendered, the report turns appear in the main analysis area and
+the single unified composer docks at the bottom of the report in follow-up mode.
+It displays the active report scope label and clickable follow-up suggestion chips
+above the textarea, uses placeholder `"Ask a follow-up about this report…"`, clears
+the completed question from the input, and appends follow-ups to the selected
+conversation with its validated identity/date/phase context. The question bar uses
+a 52px minimum-height, 14px-radius grid container with a 28px arrow button, a
+centered 16px SVG, and 12px right/bottom insets. The textarea grows with wrapped
+text and shrinks when cleared; the button occupies its own column.
+
+Suggestions fill the unified composer without submitting. A conservative
 browser vocabulary check admits common refinements, names in the report, and
 terms in the opening/current report question so clarification replies remain usable.
 Exact report suggestions also pass, including suggestions with unfamiliar words;
-edited suggestions use the normal check. The follow-up composer is hidden when
-the chat has neither a usable report nor a pending clarification. A failed
-follow-up retains the prior report context and allows an explicit retry.
-Unrecognized wording stays in the composer and asks for clarification or “Open in
-new tab”; that action submits with a new conversation ID and no previous context.
-This navigation aid is not semantic identity validation: novel related wording may
-need rephrasing. The backend still validates identity/scope and fetches evidence.
-Editing or switching tabs clears the prompt; prior reports and drafts remain.
+edited suggestions use the normal check. The follow-up header and suggestions are
+hidden when the chat has neither a usable report nor a pending clarification. A
+failed request or follow-up retains the prior report context and draft to allow an
+explicit retry. Unrecognized wording in follow-up mode stays in the composer and
+shows an inline redirect bar offering “Start a separate analysis in a new tab →”;
+that action submits with a new conversation ID and no previous context. This
+navigation aid is not semantic identity validation: novel related wording may need
+rephrasing. The backend still validates identity/scope and fetches evidence.
+Clicking **New chat** opens a fresh tab where the single composer returns to
+new-question mode. Editing or switching tabs clears the redirect prompt; prior
+reports, per-tab drafts, and model settings remain.
 
 Ask uses one tab per conversation. Five tabs are visible on desktop, including
 the new-question draft. At smaller widths, fewer tabs are shown; More remains

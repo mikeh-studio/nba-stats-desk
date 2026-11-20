@@ -1526,7 +1526,11 @@ def test_ask_page_smoke() -> None:
     assert "data-agent-model" in response.text
     assert "data-chat-tabs" in response.text
     assert "data-chat-more" in response.text
-    assert "data-followup-form" in response.text
+    assert "data-ask-composer" in response.text
+    assert "data-agent-form" in response.text
+    assert "data-followup-section" in response.text
+    assert "data-followup-form" not in response.text
+    assert 'id="weekly-pts-form"' not in response.text
     assert "data-agent-history-list" in response.text
     assert "data-agent-new-chat" in response.text
     assert "data-history-search" in response.text

@@ -27,7 +27,8 @@ freshness are not inferred from an offline success.
 The normal app can read a local weekly snapshot when
 `NBA_WEEKLY_SNAPSHOT_ROOT` is explicitly set to an absolute path. With the setting
 unset or empty, it does not discover a local snapshot. `--snapshot-root` explicitly selects a root
-for the combined launcher. The Ask page's weekly PTS lookup and scoped Player
+for the combined launcher. The `/weekly-pts` operator page's weekly PTS lookup
+(linked from `/jobs-monitor/`) and scoped Player
 and scoring comparison sections read the selected successful local build; other
 app features retain their existing data source. The local result is labeled
 with its season, date scope and snapshot ID, and original source expiry remains
