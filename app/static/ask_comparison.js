@@ -1,7 +1,7 @@
-import {comparisonPlot} from "./comparison_plot_ui.js?v=20261113-ask-basketball-v2";
-import {comparisonLead, comparisonStatus} from "./comparison_policy.js?v=20261113-ask-basketball-v2";
-import {prepareClaimEvidence} from "./ask_claim_bindings.js?v=20261113-ask-basketball-v2";
-import { dateLabel, ordinal } from "./ask_presentation.js?v=20261113-ask-basketball-v2";
+import {comparisonPlot} from "./comparison_plot_ui.js";
+import {comparisonLead, comparisonStatus} from "./comparison_policy.js";
+import {prepareClaimEvidence} from "./ask_claim_bindings.js";
+import { dateLabel, ordinal } from "./ask_presentation.js";
 
 const esc = (v) =>
   String(v ?? "")

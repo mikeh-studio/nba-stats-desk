@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="panel" aria-label="Weekly PTS snapshot">
+  <div class="section-heading">
+    <div>
+      <span class="eyebrow">Local operator diagnostic</span>
+      <h1>Weekly PTS snapshot</h1>
+      <p class="meta">Inspect player points from the selected local weekly build without altering natural-language Ask.</p>
+    </div>
+    {% if jobs_monitor_enabled %}<a class="button secondary" href="/jobs-monitor/">Jobs monitor</a>{% endif %}
+  </div>
+  {% if weekly_pts_enabled %}
+  <form id="weekly-pts-form" class="controls-grid">
+    <label>Find player <input class="input" id="weekly-player-search" type="search" maxlength="64" /></label>
+    <button class="button secondary" type="button" id="weekly-player-find">Find</button>
+    <label>Matches <select class="input" id="weekly-player-results"><option value="">Choose a player</option></select></label>
+    <label>Player ID <input class="input" name="player_id" type="number" min="1" required /></label>
+    <label>Points <select class="input" name="aggregation"><option value="average">Per game</option><option value="total">Total</option></select></label>
+    <button class="button secondary" type="submit">Look up PTS</button>
+  </form>
+  <p class="meta" id="weekly-pts-result" role="status"></p>
+  <script type="module" src="/static/weekly_pts.js?v={{ static_version }}"></script>
+  {% else %}
+  <p class="meta" role="status">Weekly PTS snapshot is not configured for this process.</p>
+  {% endif %}
+</section>
+{% endblock %}

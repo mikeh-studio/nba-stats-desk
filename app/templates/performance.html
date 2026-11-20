@@ -1,95 +1,125 @@
 {% extends "base.html" %}
+{% block head %}
+  <link rel="stylesheet" href="/static/performance.css?v={{ static_version }}" />
+{% endblock %}
 {% block content %}
   <section class="hero">
     <h1>Performance</h1>
     <p class="subhead">{{ season }} playoff games against each player’s season baseline: minutes, shooting, and box-score production.</p>
   </section>
 
+  <div class="performance-surface"{% if production_publication_enabled %} data-publication-performance{% endif %}>
+    <section class="filter-bar performance-controls" aria-label="Performance filters">
+      {% if production_publication_enabled %}
+      <label class="performance-field performance-phase-field">
+        <span class="meta">Phase</span>
+        <select class="select" id="performance-phase-select" data-performance-phase>
+          <option value="playoffs">Playoffs</option>
+          <option value="publication">Regular season (published)</option>
+        </select>
+      </label>
+      {% endif %}
+      <label class="performance-field" data-performance-playoff-control>
+        <span class="meta">Date</span>
+        <select class="select" id="performance-date-select">
+          <option value="">Loading dates...</option>
+        </select>
+      </label>
+      <label class="performance-field" data-performance-playoff-control>
+        <span class="meta">Game</span>
+        <select class="select" id="performance-game-select" disabled>
+          <option value="">All games</option>
+        </select>
+      </label>
+      <label class="performance-field performance-filter-field" data-performance-playoff-control>
+        <span class="meta">Player</span>
+        <input class="input" id="performance-player-filter" type="search" placeholder="Filter player list" disabled />
+      </label>
+      {% if production_publication_enabled %}
+      <label class="performance-field" data-performance-publication-control hidden>
+        <span class="meta">Date</span>
+        <select class="select" data-publication-date disabled><option value="">Loading dates…</option></select>
+      </label>
+      <label class="performance-field" data-performance-publication-control hidden>
+        <span class="meta">Game</span>
+        <select class="select" data-publication-game disabled><option value="">Select a date</option></select>
+      </label>
+      {% endif %}
+      <span class="meta filter-bar-meta" id="performance-window-meta" data-playoff-label="{{ season }} Playoffs">{{ season }} Playoffs</span>
+    </section>
+
+    <section class="workspace performance-workspace">
+      <div class="main-stack">
+        <article class="card">
+          <div class="performance-playoff-view" data-performance-playoff-view>
+            <div class="card-header">
+              <div>
+                <h2>Player List</h2>
+                <p class="meta" id="performance-list-meta">Select a date to load players.</p>
+              </div>
+              <div class="tab-list" id="performance-status-tabs" aria-label="Performance status">
+                <button class="tab-button is-active" type="button" data-status="all">All</button>
+                <button class="tab-button" type="button" data-status="above">Above</button>
+                <button class="tab-button" type="button" data-status="below">Below</button>
+              </div>
+            </div>
+
+            <div id="performance-empty" class="empty-state">
+              <p>Recent player game rows will appear here.</p>
+            </div>
+
+            <div class="table-scroll" id="performance-table-wrap" hidden>
+              <table class="data-table compact performance-table">
+                <thead>
+                  <tr>
+                    <th>Player</th>
+                    <th>Game</th>
+                    <th class="performance-rating-header">
+                      <span class="performance-rating-heading">
+                        <button class="performance-sort-button" type="button" data-sort-key="score">P-Rating <span data-sort-indicator="score"></span></button>
+                        <span class="performance-info-wrap" data-performance-rating-info>
+                          <button class="performance-info-icon" type="button" aria-label="How P-Rating works" aria-describedby="performance-rating-tooltip">i</button>
+                          <span class="performance-rating-tooltip" id="performance-rating-tooltip" role="tooltip">
+                            P-Rating compares the selected game to that player's season-to-date baseline. PTS, REB, AST, STL, and BLK are converted to z-scores and summed. MIN, 3PM, FG%, and FT% are context only.
+                          </span>
+                        </span>
+                      </span>
+                    </th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="min">MIN <span data-sort-indicator="min"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="pts">PTS <span data-sort-indicator="pts"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="reb">REB <span data-sort-indicator="reb"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="ast">AST <span data-sort-indicator="ast"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="fg3m">3PM <span data-sort-indicator="fg3m"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="fg_pct">FG% <span data-sort-indicator="fg_pct"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="ft_pct">FT% <span data-sort-indicator="ft_pct"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="stl">STL <span data-sort-indicator="stl"></span></button></th>
+                    <th><button class="performance-sort-button" type="button" data-sort-key="blk">BLK <span data-sort-indicator="blk"></span></button></th>
+                  </tr>
+                </thead>
+                <tbody id="performance-player-rows"></tbody>
+              </table>
+            </div>
+          </div>
+
+          {% if production_publication_enabled %}
+          <div class="performance-publication-view" data-performance-publication-view hidden>
+            <div class="card-header">
+              <div>
+                <h2>Player List</h2>
+                <p class="meta">Regular-season box scores from the active publication. Publication data does not include P-Rating.</p>
+              </div>
+            </div>
+            <p class="meta" data-publication-status role="status">Loading publication…</p>
+            <div class="table-scroll" data-publication-results></div>
+          </div>
+          {% endif %}
+        </article>
+      </div>
+    </section>
+  </div>
   {% if production_publication_enabled %}
-  <section class="card" data-publication-performance>
-    <h2>Published regular-season performance</h2>
-    <p class="meta">This publication contains regular-season box scores; the playoff controls below use the existing app data. Publication data does not include P-Rating.</p>
-    <label>Date <select class="select" data-publication-date disabled><option value="">Loading dates…</option></select></label>
-    <label>Game <select class="select" data-publication-game disabled><option value="">Select a date</option></select></label>
-    <p data-publication-status role="status">Loading publication…</p>
-    <div data-publication-results></div>
-  </section>
   <script type="module" src="/static/production_compare_performance.js?v={{ static_version }}"></script>
   {% endif %}
-
-  <section class="filter-bar performance-controls" aria-label="Performance filters">
-    <label class="performance-field">
-      <span class="meta">Date</span>
-      <select class="select" id="performance-date-select">
-        <option value="">Loading dates...</option>
-      </select>
-    </label>
-    <label class="performance-field">
-      <span class="meta">Game</span>
-      <select class="select" id="performance-game-select" disabled>
-        <option value="">All games</option>
-      </select>
-    </label>
-    <label class="performance-field performance-filter-field">
-      <span class="meta">Player</span>
-      <input class="input" id="performance-player-filter" type="search" placeholder="Filter player list" disabled />
-    </label>
-    <span class="meta filter-bar-meta" id="performance-window-meta">{{ season }} Playoffs</span>
-  </section>
-
-  <section class="workspace performance-workspace">
-    <div class="main-stack">
-      <article class="card">
-        <div class="card-header">
-          <div>
-            <h2>Player List</h2>
-            <p class="meta" id="performance-list-meta">Select a date to load players.</p>
-          </div>
-          <div class="tab-list" id="performance-status-tabs" aria-label="Performance status">
-            <button class="tab-button is-active" type="button" data-status="all">All</button>
-            <button class="tab-button" type="button" data-status="above">Above</button>
-            <button class="tab-button" type="button" data-status="below">Below</button>
-          </div>
-        </div>
-
-        <div id="performance-empty" class="empty-state">
-          <p>Recent player game rows will appear here.</p>
-        </div>
-
-        <div class="table-scroll" id="performance-table-wrap" hidden>
-          <table class="data-table compact performance-table">
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Game</th>
-                <th class="performance-rating-header">
-                  <span class="performance-rating-heading">
-                    <button class="performance-sort-button" type="button" data-sort-key="score">P-Rating <span data-sort-indicator="score"></span></button>
-                    <span class="performance-info-wrap" data-performance-rating-info>
-                      <button class="performance-info-icon" type="button" aria-label="How P-Rating works" aria-describedby="performance-rating-tooltip">i</button>
-                      <span class="performance-rating-tooltip" id="performance-rating-tooltip" role="tooltip">
-                        P-Rating compares the selected game to that player's season-to-date baseline. PTS, REB, AST, STL, and BLK are converted to z-scores and summed. MIN, 3PM, FG%, and FT% are context only.
-                      </span>
-                    </span>
-                  </span>
-                </th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="min">MIN <span data-sort-indicator="min"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="pts">PTS <span data-sort-indicator="pts"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="reb">REB <span data-sort-indicator="reb"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="ast">AST <span data-sort-indicator="ast"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="fg3m">3PM <span data-sort-indicator="fg3m"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="fg_pct">FG% <span data-sort-indicator="fg_pct"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="ft_pct">FT% <span data-sort-indicator="ft_pct"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="stl">STL <span data-sort-indicator="stl"></span></button></th>
-                <th><button class="performance-sort-button" type="button" data-sort-key="blk">BLK <span data-sort-indicator="blk"></span></button></th>
-              </tr>
-            </thead>
-            <tbody id="performance-player-rows"></tbody>
-          </table>
-        </div>
-      </article>
-    </div>
-  </section>
 
   <div class="performance-player-modal" data-performance-modal hidden>
     <div class="performance-modal-backdrop" data-performance-modal-close></div>
@@ -113,285 +143,6 @@
       </div>
     </article>
   </div>
-
-  <style>
-    .performance-controls .performance-field {
-      flex: 0 1 16rem;
-    }
-    .performance-controls .performance-filter-field {
-      flex-basis: 20rem;
-    }
-    .performance-workspace {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .performance-field {
-      display: grid;
-      gap: 0.35rem;
-    }
-    .performance-field .select,
-    .performance-field .input {
-      width: 100%;
-      min-width: 0;
-    }
-    .performance-table {
-      min-width: 1160px;
-    }
-    .performance-table th:first-child,
-    .performance-table td:first-child {
-      width: 15.5rem;
-    }
-    .performance-table th:nth-child(2),
-    .performance-table td:nth-child(2) {
-      width: 9rem;
-    }
-    .performance-table th:nth-child(n+3),
-    .performance-table td:nth-child(n+3) {
-      min-width: 4.7rem;
-    }
-    .performance-rating-header {
-      min-width: 8rem;
-    }
-    .performance-rating-heading {
-      position: relative;
-      display: inline-flex;
-      gap: 0.35rem;
-      align-items: center;
-      white-space: nowrap;
-    }
-    .performance-player-button {
-      display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 0.65rem;
-      align-items: center;
-      width: 100%;
-      border: 0;
-      padding: 0;
-      color: var(--ink);
-      background: transparent;
-      text-align: left;
-      cursor: pointer;
-    }
-    .performance-player-text {
-      display: grid;
-      gap: 0.12rem;
-      min-width: 0;
-    }
-    .performance-player-name {
-      color: var(--ink);
-      font-weight: 700;
-      line-height: 1.15;
-    }
-    .performance-player-button:hover .performance-player-name,
-    .performance-player-button:focus-visible .performance-player-name {
-      color: var(--accent-hot);
-    }
-    .performance-sort-button {
-      display: inline-flex;
-      gap: 0.25rem;
-      align-items: center;
-      border: 0;
-      padding: 0;
-      color: inherit;
-      background: transparent;
-      font: inherit;
-      text-transform: inherit;
-      letter-spacing: inherit;
-      cursor: pointer;
-    }
-    .performance-sort-button:hover,
-    .performance-sort-button:focus-visible {
-      color: var(--highlight);
-    }
-    .performance-info-wrap {
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-    }
-    .performance-info-icon {
-      display: inline-grid;
-      place-items: center;
-      width: 1rem;
-      height: 1rem;
-      border: 1px solid rgba(231, 224, 212, 0.42);
-      border-radius: 0;
-      color: var(--muted);
-      background: rgba(255, 255, 255, 0.04);
-      font-family: var(--font-mono);
-      font-size: 0.62rem;
-      line-height: 1;
-      cursor: help;
-    }
-    .performance-info-icon:hover,
-    .performance-info-icon:focus-visible {
-      border-color: rgba(255, 81, 43, 0.58);
-      color: var(--highlight);
-      outline: none;
-    }
-    .performance-rating-tooltip {
-      position: absolute;
-      z-index: 20;
-      top: calc(100% + 0.55rem);
-      left: 50%;
-      width: min(22rem, 72vw);
-      padding: 0.65rem 0.75rem;
-      border: 1px solid rgba(231, 224, 212, 0.18);
-      border-radius: 0;
-      color: var(--ink);
-      background: rgba(17, 20, 24, 0.98);
-      box-shadow: none;
-      font-family: var(--font-body);
-      font-size: 0.78rem;
-      font-weight: 500;
-      line-height: 1.45;
-      letter-spacing: 0;
-      text-align: left;
-      text-transform: none;
-      white-space: normal;
-      transform: translateX(-50%) translateY(-0.2rem);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity 140ms ease, transform 140ms ease;
-    }
-    .performance-info-wrap:hover .performance-rating-tooltip,
-    .performance-info-wrap:focus-within .performance-rating-tooltip {
-      transform: translateX(-50%) translateY(0);
-      opacity: 1;
-    }
-    .performance-status {
-      display: inline-flex;
-      min-width: 4.5rem;
-      justify-content: center;
-      padding: 0.3rem 0.5rem;
-      border-radius: 0;
-      border: 1px solid var(--line);
-      font-family: var(--font-mono);
-      font-size: 0.74rem;
-      text-transform: uppercase;
-    }
-    .performance-status.above {
-      border-color: rgba(93, 211, 158, 0.4);
-      color: var(--success);
-      background: rgba(93, 211, 158, 0.1);
-    }
-    .performance-status.below {
-      border-color: rgba(255, 107, 107, 0.4);
-      color: var(--danger);
-      background: rgba(255, 107, 107, 0.1);
-    }
-    .performance-status.near {
-      color: var(--muted);
-      background: rgba(255, 255, 255, 0.03);
-    }
-    .performance-delta {
-      display: block;
-      margin-top: 0.15rem;
-      color: var(--muted);
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-    }
-    .performance-player-modal {
-      position: fixed;
-      inset: 0;
-      z-index: 50;
-      display: grid;
-      place-items: center;
-      padding: 1rem;
-    }
-    .performance-player-modal[hidden] {
-      display: none;
-    }
-    .performance-modal-backdrop {
-      position: absolute;
-      inset: 0;
-      background: rgba(5, 7, 10, 0.74);
-      backdrop-filter: blur(5px);
-    }
-    .performance-modal-panel {
-      position: relative;
-      width: min(100%, 680px);
-      max-height: min(84vh, 720px);
-      overflow: auto;
-      border: 1px solid rgba(255, 81, 43, 0.3);
-      border-radius: 0;
-      padding: 1.15rem;
-      background: var(--surface);
-      box-shadow: none;
-    }
-    .performance-modal-close {
-      position: absolute;
-      top: 0.75rem;
-      right: 0.75rem;
-      display: inline-grid;
-      width: 2rem;
-      height: 2rem;
-      place-items: center;
-      border: 1px solid var(--line);
-      border-radius: 0;
-      color: var(--muted);
-      background: rgba(255, 255, 255, 0.04);
-      font-size: 1.2rem;
-      line-height: 1;
-      cursor: pointer;
-    }
-    .performance-modal-close:hover,
-    .performance-modal-close:focus-visible {
-      color: var(--highlight);
-      border-color: rgba(255, 81, 43, 0.5);
-    }
-    .performance-modal-header {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 1rem;
-      align-items: start;
-      padding-right: 2.35rem;
-    }
-    .performance-modal-header h2 {
-      margin: 0;
-    }
-    .performance-modal-summary {
-      grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
-      gap: 0.55rem;
-      margin-top: 1rem;
-    }
-    .performance-modal-summary .metric {
-      min-width: 0;
-      padding: 0.65rem;
-      gap: 0.25rem;
-    }
-    .performance-modal-summary .metric .meta {
-      overflow-wrap: anywhere;
-      font-size: 0.66rem;
-      line-height: 1.25;
-    }
-    .performance-modal-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.6rem;
-      justify-content: flex-end;
-      margin-top: 1rem;
-      padding-top: 0.9rem;
-      border-top: 1px solid var(--line);
-    }
-    @media (max-width: 980px) {
-      .performance-workspace {
-        grid-template-columns: 1fr;
-      }
-      .performance-modal-panel {
-        max-height: calc(100vh - 1.6rem);
-        padding: 1rem;
-      }
-      .performance-modal-header {
-        grid-template-columns: 1fr;
-      }
-      .performance-modal-actions {
-        justify-content: stretch;
-      }
-      .performance-modal-actions .button,
-      .performance-modal-actions .button-link {
-        flex: 1 1 100%;
-      }
-    }
-  </style>
 
   <script type="module" src="/static/performance.js?v={{ static_version }}"></script>
 {% endblock %}

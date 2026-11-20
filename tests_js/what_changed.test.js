@@ -35,7 +35,7 @@ test("rendered evidence escapes source content and rejects unsafe report links",
 });
 
 // Baselines and axis placement matter when top performers include new players.
-const { opportunityPoints, chartAxis, renderOpportunityMap } = await import('../app/static/what_changed.js');
+const { opportunityPoints, chartAxis, renderOpportunityMap, initWhatChanged } = await import('../app/static/what_changed.js');
 test('map excludes unknown, short, and traded baselines without dropping zero changes', () => {
   const item = {player_id:1,player_name:'Zero',team_abbr:'AAA',production_delta:0,current:{values:{min:30}},previous:{values:{min:30},games_played:3,team_games:4}};
   const items=[item,{...item,player_id:2,production_delta:null},{...item,player_id:3,team_changed:true},{...item,player_id:4,previous:{...item.previous,games_played:2}}];
@@ -57,4 +57,66 @@ test('overlapping map points retain separate keyboard targets and escaped labels
   assert.ok(html.indexOf('data-select-player="2"')<html.indexOf('data-select-player="1"'));
   assert.equal(html.includes('<img'),false);
   assert.match(renderOpportunityMap([],null),/ranked list/);
+});
+test('changing Compare or Season phase auto-triggers Trending data reload', async () => {
+  const makeNode = (value = "") => ({
+    value,
+    innerHTML: "",
+    textContent: "",
+    hidden: false,
+    listeners: {},
+    addEventListener(name, fn) { this.listeners[name] = fn; },
+    setAttribute() {},
+    querySelectorAll() { return []; },
+  });
+  const nodes = {
+    "#changed-controls": makeNode(),
+    "#changed-period": makeNode("four_games"),
+    "#changed-phase": makeNode("Regular Season"),
+    "#changed-list": makeNode(),
+    "#changed-status": makeNode(),
+    "#changed-more": makeNode(),
+    "#changed-search": makeNode(),
+    "#changed-chart": makeNode(),
+    "#changed-detail": makeNode(),
+    "#changed-chart-note": makeNode(),
+    "#changed-dates": makeNode(),
+    "#changed-ranking": makeNode(),
+  };
+  const doc = {
+    querySelector: (sel) => nodes[sel],
+    querySelectorAll: () => [],
+  };
+  const origFormData = globalThis.FormData;
+  globalThis.FormData = class {
+    *[Symbol.iterator]() {
+      yield ["period", nodes["#changed-period"].value];
+      yield ["season_type", nodes["#changed-phase"].value];
+    }
+  };
+  const urls = [];
+  try {
+    initWhatChanged(doc, async (url) => {
+      urls.push(url);
+      return {
+        ok: true,
+        json: async () => ({
+          state: "empty",
+          items: [],
+          ranking: { top: "Top", surging: "Surging", formula: "Index", minimum_games: 3 },
+        }),
+      };
+    });
+    assert.equal(urls.length, 1);
+    nodes["#changed-period"].value = "week";
+    await nodes["#changed-period"].listeners.change();
+    assert.equal(urls.length, 2);
+    assert.match(urls[1], /period=week/);
+    nodes["#changed-phase"].value = "Playoffs";
+    await nodes["#changed-phase"].listeners.change();
+    assert.equal(urls.length, 3);
+    assert.match(urls[2], /season_type=Playoffs/);
+  } finally {
+    globalThis.FormData = origFormData;
+  }
 });

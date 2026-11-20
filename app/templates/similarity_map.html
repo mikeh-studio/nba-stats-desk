@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block head %}
+  <link rel="stylesheet" href="/static/similarity_map.css?v={{ static_version }}" />
+{% endblock %}
 {% block content %}
   <section class="hero">
     <h1>Statistical Profile Similarity</h1>
@@ -17,24 +20,27 @@
         <span class="meta" id="map-meta">Loading projection…</span>
       </div>
 
-      <div class="map-controls">
+      <div class="filter-bar map-controls" aria-label="Archetype map filters">
         <form class="search-form map-search" id="map-search-form" onsubmit="return false;">
-          <input
-            type="text"
-            id="map-search-input"
-            class="input"
-            list="map-player-list"
-            placeholder="Find a player to trace their matches…"
-            autocomplete="off"
-            aria-label="Find a player in archetypes"
-          />
+          <label class="map-search-field" for="map-search-input">
+            <span class="meta">Player</span>
+            <input
+              type="text"
+              id="map-search-input"
+              class="input"
+              list="map-player-list"
+              placeholder="Find a player to trace their matches…"
+              autocomplete="off"
+              aria-label="Find a player in archetypes"
+            />
+          </label>
           <datalist id="map-player-list"></datalist>
         </form>
         <button class="button secondary" id="map-clear-btn" type="button" hidden>
           Clear selection
         </button>
+        <div class="map-model-controls" id="map-model-controls" aria-label="Archetype grouping models"></div>
       </div>
-      <div class="map-model-controls" id="map-model-controls" aria-label="Archetype grouping models"></div>
       <p class="meta similarity-note" id="map-model-note"></p>
 
       <div class="map-layout">
@@ -65,99 +71,6 @@
       </p>
     </div>
   </div>
-
-  <style>
-    .map-controls {
-      display: flex;
-      gap: 0.75rem;
-      align-items: center;
-      flex-wrap: wrap;
-      margin-bottom: 0.75rem;
-    }
-    .map-search {
-      flex: 1 1 280px;
-      max-width: 38rem;
-    }
-    .map-search .input {
-      width: 100%;
-      min-width: 18rem;
-    }
-    .map-model-controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      margin: 0 0 0.75rem;
-    }
-    .map-model-controls .tab-button {
-      min-height: 36px;
-    }
-    .map-layout {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr);
-      gap: 1rem;
-    }
-    @media (min-width: 960px) {
-      .map-layout.has-selection {
-        grid-template-columns: minmax(0, 1fr) 300px;
-      }
-    }
-    .similarity-plot {
-      width: 100%;
-      height: 640px;
-      min-height: 420px;
-    }
-    .map-panel {
-      border: 1px solid var(--line);
-      border-radius: 0;
-      padding: 1rem;
-    }
-    .map-panel-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 0.75rem;
-      margin-bottom: 0.5rem;
-    }
-    .map-panel-head h3 {
-      margin: 2px 0 0;
-    }
-    .map-neighbor-list {
-      list-style: none;
-      margin: 0.75rem 0 0;
-      padding: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-    .map-neighbor {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
-      cursor: pointer;
-    }
-    .map-neighbor:hover .map-neighbor-name {
-      text-decoration: underline;
-    }
-    .map-neighbor-score {
-      font-variant-numeric: tabular-nums;
-      opacity: 0.85;
-    }
-    .map-panel-foot {
-      margin-top: 0.75rem;
-    }
-    .similarity-note {
-      margin-top: 0.75rem;
-    }
-    .similarity-empty {
-      padding: 48px 16px;
-      text-align: center;
-    }
-    @media (max-width: 720px) {
-      .map-search .input {
-        min-width: 0;
-      }
-    }
-  </style>
 
   <script src="https://cdn.plot.ly/plotly-gl3d-2.35.2.min.js" charset="utf-8"></script>
   <script type="module" src="/static/similarity_map.js?v={{ static_version }}"></script>

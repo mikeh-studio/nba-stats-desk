@@ -122,6 +122,31 @@ def test_normal_app_uses_snapshot_without_replacing_other_routes(
     assert client.get("/api/players/1").json()["item"]["player"]["player_id"] == 1
 
 
+def test_weekly_pts_operator_route_and_ask_separation(weekly_root, monkeypatch):
+    root, _, live = weekly_root
+    service = LocalWeeklyPTS(root, clock=lambda: live["now"])
+    monkeypatch.setattr(main.app.state, "weekly_pts", service, raising=False)
+    monkeypatch.setattr(main.app.state, "jobs_monitor_enabled", True, raising=False)
+    client = TestClient(
+        main.app, base_url="http://127.0.0.1", client=("127.0.0.1", 4000)
+    )
+    ask_page = client.get("/ask")
+    assert ask_page.status_code == 200
+    assert 'id="weekly-pts-form"' not in ask_page.text
+    assert f'src="/static/weekly_pts.js?v={main.STATIC_VERSION}"' not in ask_page.text
+
+    operator_page = client.get("/weekly-pts")
+    assert operator_page.status_code == 200
+    assert 'id="weekly-pts-form"' in operator_page.text
+    assert f'src="/static/weekly_pts.js?v={main.STATIC_VERSION}"' in operator_page.text
+    assert 'href="/jobs-monitor/"' in operator_page.text
+
+    monkeypatch.setattr(main.app.state, "weekly_pts", None, raising=False)
+    monkeypatch.setattr(main.app.state, "jobs_monitor_enabled", False, raising=False)
+    disabled_page = client.get("/weekly-pts")
+    assert disabled_page.status_code == 404
+
+
 def test_selection_change_during_response_fails_closed(weekly_root, monkeypatch):
     root, _, live = weekly_root
     service = LocalWeeklyPTS(root, clock=lambda: live["now"])

@@ -136,15 +136,33 @@ test("point descriptors scale linearly without embedding metric/source objects",
 });
 
 test("nested presentation import tracks application STATIC_VERSION", async () => {
-  const { readFile } = await import("node:fs/promises");
+  const { readFile, readdir } = await import("node:fs/promises");
   const main = await readFile(
     new URL("../app/main.py", import.meta.url),
     "utf8",
   );
   const version = main.match(/STATIC_VERSION = "([^"]+)"/)[1];
+  assert.ok(version);
+  const baseTemplate = await readFile(
+    new URL("../app/templates/base.html", import.meta.url),
+    "utf8",
+  );
+  assert.ok(baseTemplate.includes('<script type="importmap">'));
+  assert.ok(
+    baseTemplate.includes(
+      '"/static/{{ module }}": "/static/{{ module }}?v={{ static_version }}"',
+    ),
+  );
   const comparison = await readFile(
     new URL("../app/static/ask_comparison.js", import.meta.url),
     "utf8",
   );
-  assert.ok(comparison.includes("ask_presentation.js?v=" + version));
+  assert.ok(comparison.includes('from "./ask_presentation.js"'));
+  const staticDir = new URL("../app/static/", import.meta.url);
+  for (const name of (await readdir(staticDir)).filter((f) =>
+    f.endsWith(".js"),
+  )) {
+    const source = await readFile(new URL(name, staticDir), "utf8");
+    assert.ok(!/import[\s\S]*?from\s+["'][^"']*\?v=/.test(source), name);
+  }
 });

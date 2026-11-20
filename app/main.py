@@ -85,9 +85,17 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261113-ask-basketball-v2"
+STATIC_VERSION = "20261120-ui-modernization-v1"
+
+
+def _static_js_modules() -> tuple[str, ...]:
+    return tuple(path.name for path in sorted((BASE_DIR / "static").glob("*.js")))
+
+
+STATIC_JS_MODULES = _static_js_modules()
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.globals["static_version"] = STATIC_VERSION
+templates.env.globals["static_js_modules"] = STATIC_JS_MODULES
 templates.env.globals["available_seasons"] = SEASONS
 TRACKING_CAP = 8
 HEALTH_CACHE_TTL_SECONDS = 60
@@ -2149,8 +2157,6 @@ def ask_page(
         "request": request,
         "page_title": "Ask NBA Stats",
         "season": current_season(),
-        "weekly_pts_enabled": getattr(request.app.state, "weekly_pts", None)
-        is not None,
         "production_publication_enabled": getattr(
             request.app.state, "production_publication_enabled", False
         ),
@@ -2171,6 +2177,25 @@ def ask_page(
         },
     }
     return templates.TemplateResponse(request, "ask.html", context)
+
+
+@app.get("/weekly-pts", response_class=HTMLResponse)
+def weekly_pts_page(request: Request) -> HTMLResponse:
+    if getattr(request.app.state, "weekly_pts", None) is None:
+        raise HTTPException(status_code=404, detail="Not Found")
+    context = {
+        "request": request,
+        "page_title": "Weekly PTS snapshot",
+        "season": current_season(),
+        "weekly_pts_enabled": True,
+        "jobs_monitor_enabled": getattr(
+            request.app.state, "jobs_monitor_enabled", False
+        ),
+        "production_publication_enabled": getattr(
+            request.app.state, "production_publication_enabled", False
+        ),
+    }
+    return templates.TemplateResponse(request, "weekly_pts.html", context)
 
 
 @app.get("/visualize", response_class=RedirectResponse)

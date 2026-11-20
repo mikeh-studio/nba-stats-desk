@@ -60,10 +60,30 @@ export async function initCompare(card) {
 }
 
 export async function initPerformance(card) {
+  const phase = card.querySelector('[data-performance-phase]');
   const date = card.querySelector('[data-publication-date]');
   const game = card.querySelector('[data-publication-game]');
   const status = card.querySelector('[data-publication-status]');
   const results = card.querySelector('[data-publication-results]');
+  if (phase && typeof card.querySelectorAll === 'function') {
+    const windowMeta = card.querySelector('#performance-window-meta');
+    const syncPhase = () => {
+      const isPublication = phase.value === 'publication';
+      for (const node of card.querySelectorAll('[data-performance-playoff-control], [data-performance-playoff-view]')) {
+        node.hidden = isPublication;
+      }
+      for (const node of card.querySelectorAll('[data-performance-publication-control], [data-performance-publication-view]')) {
+        node.hidden = !isPublication;
+      }
+      if (windowMeta) {
+        windowMeta.textContent = isPublication
+          ? 'Regular season (published)'
+          : windowMeta.dataset?.playoffLabel || windowMeta.textContent;
+      }
+    };
+    phase.addEventListener('change', syncPhase);
+    syncPhase();
+  }
   let token, generation = 0;
   function reset(select, text) { select.replaceChildren(new Option(text, '')); select.disabled = true; }
   try {

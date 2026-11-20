@@ -1,4 +1,7 @@
 {% extends "base.html" %}
+{% block head %}
+<link rel="stylesheet" href="/static/research.css?v={{ static_version }}" />
+{% endblock %}
 {% block content %}
 <section id="player-loading" class="hero" aria-labelledby="player-loading-title">
   <div class="eyebrow">Player profile · {{ season }}</div>

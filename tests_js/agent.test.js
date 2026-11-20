@@ -12,7 +12,16 @@ class FakeElement {
     this.className = "";
     this.tabIndex = 0;
     this.focused = false;
+    this.attributes = new Map();
     this._innerHTML = "";
+  }
+
+  setAttribute(name, value) {
+    this.attributes.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this.attributes.get(name) ?? null;
   }
 
   get innerHTML() {
@@ -444,11 +453,10 @@ test("starting a follow-up preserves previously completed response nodes", async
   assert.equal(completed.innerHTML, "Completed answer with evidence");
 });
 
-test("thinking indicators start and reset for Ask and follow-ups", async () => {
+test("thinking indicators start and reset for unified Ask composer", async () => {
   const elements = Object.fromEntries(
     [
       "[data-agent-submit]",
-      "[data-followup-submit]",
       "[data-agent-status]",
     ].map((selector) => [selector, new FakeElement()]),
   );
@@ -458,13 +466,59 @@ test("thinking indicators start and reset for Ask and follow-ups", async () => {
     assert.equal(element.dataset.thinking, "true");
   }
   assert.equal(elements["[data-agent-submit]"].textContent, "…");
-  assert.equal(elements["[data-followup-submit]"].textContent, "…");
   agent.setBusy(false);
   for (const element of Object.values(elements)) {
     assert.equal(element.dataset.thinking, "false");
   }
   assert.match(elements["[data-agent-submit]"].innerHTML, /<svg/);
-  assert.match(elements["[data-followup-submit]"].innerHTML, /<svg/);
+});
+
+test("unified composer switches between new-question and follow-up modes", async () => {
+  const composer = new FakeElement("section");
+  const section = new FakeElement("div");
+  const context = new FakeElement("span");
+  const suggestions = new FakeElement("div");
+  const label = new FakeElement("label");
+  const input = new FakeElement("textarea");
+  const submit = new FakeElement("button");
+  const elements = {
+    "[data-ask-composer]": composer,
+    "[data-followup-section]": section,
+    "[data-followup-context]": context,
+    "[data-followup-suggestions]": suggestions,
+    "[data-agent-question-label]": label,
+    "[data-agent-question]": input,
+    "[data-agent-submit]": submit,
+    "[data-agent-empty]": new FakeElement(),
+    "[data-agent-answer]": new FakeElement(),
+  };
+  const agent = await loadAgentModule({ elements });
+  agent.startNewChat();
+  assert.equal(composer.dataset.composerMode, "new");
+  assert.equal(section.hidden, true);
+  assert.equal(input.placeholder, "Ask a question…");
+  assert.equal(submit.getAttribute("aria-label"), "Ask");
+
+  agent.renderFollowupComposer({
+    status: "ok",
+    conversation_context: {
+      players: [{ player_name: "Avery Example" }],
+      scope: { season: "2025-26" },
+    },
+    followups: ["What about assists?"],
+  });
+  assert.equal(composer.dataset.composerMode, "followup");
+  assert.equal(section.hidden, false);
+  assert.equal(context.textContent, "Avery Example · 2025-26");
+  assert.equal(input.placeholder, "Ask about this report…");
+  assert.equal(submit.getAttribute("aria-label"), "Send follow-up");
+  assert.match(suggestions.innerHTML, /What about assists\?/);
+
+  agent.startNewChat();
+  assert.equal(composer.dataset.composerMode, "new");
+  assert.equal(section.hidden, true);
+  assert.equal(input.placeholder, "Ask a question…");
+  assert.equal(submit.getAttribute("aria-label"), "Ask");
 });
 
 test("line charts keep negative and positive observations inside the plot", async () => {
@@ -594,8 +648,7 @@ test("Ask sends the OpenRouter provider and its selected model", async () => {
 
 test("each new tab owns a stable ID, draft, and both-player context", async () => {
   const input = new FakeElement("textarea");
-  const followup = new FakeElement("textarea");
-  const elements = {"[data-agent-question]": input, "[data-followup-question]": followup,
+  const elements = {"[data-agent-question]": input,
     "[data-agent-empty]": new FakeElement(), "[data-agent-answer]": new FakeElement()};
   const agent = await loadAgentModule({elements});
   agent.startNewChat();

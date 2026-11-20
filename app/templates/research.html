@@ -1,6 +1,8 @@
 {% extends "base.html" %}
-{% block content %}
+{% block head %}
 <link rel="stylesheet" href="/static/players.css?v={{ static_version }}" />
+{% endblock %}
+{% block content %}
 <section class="hero players-hero">
   <div class="eyebrow">Player directory · {{ season }}</div>
   <h1>Players</h1>
