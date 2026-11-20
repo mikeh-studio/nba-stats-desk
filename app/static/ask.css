@@ -37,6 +37,11 @@ body:has(.ask-desk) .publication-health {
   border-bottom: 1px solid var(--line);
   margin: 0 -1rem 1.5rem;
 }
+@media (max-width: 720px) {
+  .chat-tab-strip {
+    margin: 0 -0.8rem 1.5rem;
+  }
+}
 .chat-tabs {
   display: flex;
   gap: 5px;
