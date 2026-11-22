@@ -19,6 +19,7 @@ from app.agent.metric_presentation import (
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.research_ask import refusal
 from app.agent.route_labels import route_hint
+from app.agent.scope_policy import absence_cue_text
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -57,10 +58,7 @@ METRICS = {
 
 
 def wants_availability(question):
-    # These idioms ask for information; "out" is not a participation condition.
-    question = re.sub(
-        r"\b(?:find|figure|check|work|point|turns?)\s+out\b", "", question, flags=re.I
-    )
+    question = absence_cue_text(question)
     return bool(
         re.search(
             r"\b(?:without|out|absent|absence|sidelined|unavailable|availability|injured|injury)\b|\b(?:did not|didn.t) play\b|\b(?:missed games?|sat out|sits|sitting)\b"

@@ -218,7 +218,8 @@ def test_real_adapter_matrix(provider, scenario, expected, attempts, clock):
             plan = plan_question(
                 client,
                 model=model,
-                question="Who leads in points per game?",
+                # An explicit minutes threshold keeps this on the model adapter path.
+                question="Who leads in points per game among players averaging 20 minutes?",
                 selected_season="2025-26",
             )
             actual = plan["status"]

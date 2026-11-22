@@ -1733,9 +1733,7 @@ class StatsAgent:
                     progress_callback=progress_callback,
                 )
                 return payload
-            except ValueError:
-                raise
-            except PlayerNameError:
+            except (ValueError, PlayerNameError, ExecutionFailure):
                 raise
             except Exception as exc:
                 raise AgentExecutionError("Governed analytics request failed") from exc

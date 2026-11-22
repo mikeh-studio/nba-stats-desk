@@ -297,22 +297,42 @@ LEADER_LABELS = dict(
 LEADER_GAME_SHARE = 0.7
 
 
+# Match the ranking intent, statistic, and scope independently. Requiring the
+# full question prevents a team, efficiency measure or time window disappearing.
+_LEADER_METRIC = "|".join(
+    re.escape(key).replace(r"\ ", "[ -]") for key in LEADER_METRICS
+)
+_LEADER_SUBJECT = r"(?:who|which player)"
+_LEADER_PERIOD = (
+    r"(?: (?:(?:(?:in|during|for) )?(?:the )?(?P<season>20\d{2}-\d{2})(?: season)?"
+    r"|this season|(?:right )?now|currently))?"
+    r"(?: (?:in )?(?:the )?(?P<phase>regular season|playoffs))?"
+)
+_LEADER_RATE = r"(?:per game|a game|a night)"
+_LEADER_LEAGUE = r"(?: in the (?:league|nba))?"
+_LEADER_FORMS = (
+    # “Leading assists”, “leads in assists” and “leads the NBA in assists”.
+    rf"{_LEADER_SUBJECT}(?: (?:led|leads|was leading|is leading)|'s leading) "
+    rf"(?:(?:the (?:league|nba) (?:in|is)|in) )?(?P<metric>{_LEADER_METRIC})"
+    rf"(?: {_LEADER_RATE})?{_LEADER_LEAGUE}",
+    # “Most” is unambiguously a per-game ranking only with a stated rate.
+    rf"{_LEADER_SUBJECT}(?: has|(?: is|'s) (?:averaging|putting up|handing out)) "
+    rf"(?:the )?most (?P<metric>{_LEADER_METRIC}) {_LEADER_RATE}{_LEADER_LEAGUE}",
+    rf"{_LEADER_SUBJECT}(?: is|'s) (?:the )?(?:nba(?:'s)? )?"
+    rf"(?:(?:best|top|leading) scorer|highest[ -]scoring player|scoring leader){_LEADER_LEAGUE}",
+)
+_LEADER_PATTERNS = tuple(re.compile(form + _LEADER_PERIOD) for form in _LEADER_FORMS)
+
+
 def league_leader_plan(question: str, selected_season: str) -> dict[str, Any] | None:
-    """Recognize the whole of "who led the league in X [season] [phase]".
+    """Recognize unfiltered league leader questions, including scorer shorthand.
 
     Per-game leadership is the league's standard for counting stats. Anything
     beyond a season and phase defers to the model planner.
     """
-    metrics = "|".join(
-        re.escape(k) for k in sorted(LEADER_METRICS, key=len, reverse=True)
-    ).replace(r"\ ", r"[ -]")
-    match = re.fullmatch(
-        r"(?:who|which player)\s+(?:led|leads|was leading|is leading)\s+the\s+(?:league|nba)"
-        rf"\s+(?:in|is)\s+(?P<metric>{metrics})"
-        r"(?:\s+(?:(?:(?:in|during|for)\s+)?(?:the\s+)?(?P<season>20\d{2}-\d{2})(?:\s+season)?|this season))?"
-        r"(?:\s+(?:in\s+)?(?:the\s+)?(?P<phase>regular season|playoffs))?",
-        " ".join(question.strip().rstrip("?.!").split()),
-        re.I,
+    text = " ".join(question.strip().rstrip("?.!").replace("’", "'").casefold().split())
+    match = next(
+        (m for pattern in _LEADER_PATTERNS if (m := pattern.fullmatch(text))), None
     )
     if not match:
         return None
@@ -322,7 +342,8 @@ def league_leader_plan(question: str, selected_season: str) -> dict[str, Any] | 
     phase = (
         "Playoffs" if (match["phase"] or "").lower() == "playoffs" else "Regular Season"
     )
-    metric = LEADER_METRICS[re.sub(r"[ -]", " ", match["metric"].lower())]
+    metric_name = match.groupdict().get("metric", "scoring")
+    metric = LEADER_METRICS[re.sub(r"[ -]", " ", metric_name.lower())]
     regular = phase == "Regular Season"
     return {
         "status": "query",

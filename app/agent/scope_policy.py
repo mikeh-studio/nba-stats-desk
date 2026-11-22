@@ -26,6 +26,16 @@ _METRIC = re.compile(
 )
 
 
+def absence_cue_text(question: str) -> str:
+    # Ignore idiomatic uses of "out" while preserving any separate absence condition.
+    return re.sub(
+        r"\b(?:find|figure|check|work|point|turns?|handing)\s+out\b",
+        "",
+        question,
+        flags=re.I,
+    )
+
+
 def has_specific_metric(question: str) -> bool:
     """Recognize metric changes before inheriting or broadening analysis intent."""
     return bool(_METRIC.search(question))

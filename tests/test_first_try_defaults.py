@@ -108,6 +108,12 @@ def test_unnamed_statistic_defaults_to_full_overview(question, expected):
         ("Who led the league in scoring 2025-26", "pts", "Regular Season"),
         ("Who led the league is scoring 2025-26", "pts", "Regular Season"),
         ("Who led the NBA in rebounds in the 2025-26 season?", "reb", "Regular Season"),
+        ("Who is leading the league in 3PTs this season", "fg3m", "Regular Season"),
+        ("Who leads the NBA in 3PM?", "fg3m", "Regular Season"),
+        ("Who is best scorer now", "pts", "Regular Season"),
+        ("Who’s the top scorer in the NBA right now?", "pts", "Regular Season"),
+        ("Which player is the scoring leader this season?", "pts", "Regular Season"),
+        ("Who leads the league in blocks this season?", "blk", "Regular Season"),
         ("Who leads the league in assists", "ast", "Regular Season"),
         ("Who led the league in three pointers 2025-26 playoffs", "fg3m", "Playoffs"),
     ],
@@ -116,6 +122,7 @@ def test_league_leader_is_planned_without_the_model(question, metric, phase):
     plan = league_leader_plan(question, "2025-26")
     query = plan["queries"][0]
     assert plan["model_calls"] == 0
+    assert query["season"] == "2025-26"
     assert (query["metric"], query["season_type"]) == (metric, phase)
     assert (query["operation"], query["aggregation"]) == ("rank", "average")
     # Regular-season leaders use the NBA's share-of-team-games standard.
@@ -125,6 +132,18 @@ def test_league_leader_is_planned_without_the_model(question, metric, phase):
 @pytest.mark.parametrize(
     "question",
     [
+        "Who is leading the league in 3PT% this season",
+        "Who is leading the league in 3PTs this season at home",
+        "Who leads the league in total 3PTs this season",
+        "Who is leading assists for the Lakers now?",
+        "Who leads assists over the last five games?",
+        "Who is leading assist percentage now?",
+        "Who has the most assists in total?",
+        "Who is leading assists and rebounds now?",
+        "Who is the best scorer on the Lakers right now?",
+        "Who is the best scorer over the last five games?",
+        "Who is the most efficient scorer now?",
+        "Who is the best scorer by total points?",
         "Who led the league in scoring among guards 2025-26",
         "Who led the league in scoring 2024-25",
         "Who led the league in scoring at home 2025-26",
@@ -237,12 +256,30 @@ def test_who_played_better_returns_a_scorecard_without_the_model():
     assert result["semantic_evidence"]["kind"] == "player_comparison"
 
 
-def test_scoring_leader_answers_without_the_model(on_date):
+@pytest.mark.parametrize(
+    "question,metric",
+    [
+        ("Who led the league in scoring in 2024-25?", "pts"),
+        ("who is best scorer now", "pts"),
+        ("who is leading assists now", "ast"),
+        ("Who’s leading in rebounds right now?", "reb"),
+        ("Which player leads blocks in the NBA this season?", "blk"),
+        ("Who's putting up the most points per game this season?", "pts"),
+        ("Who's handing out the most assists per game?", "ast"),
+    ],
+)
+def test_leader_answers_without_the_model(on_date, question, metric):
     on_date(date(2025, 3, 1))
-    result = ask("Who led the league in scoring in 2024-25?")
+    result = ask(question)
     assert result["status"] == "ok", result["answer"]
-    assert result["semantic_plan"]["model_calls"] == 0
-    assert result["semantic_plan"]["queries"][0]["operation"] == "rank"
+    plan = result["semantic_plan"]
+    assert plan["model_calls"] == 0
+    query = plan["queries"][0]
+    assert (query["operation"], query["aggregation"], query["metric"]) == (
+        "rank",
+        "average",
+        metric,
+    )
 
 
 def test_leaderboard_answer_names_the_leader(on_date):

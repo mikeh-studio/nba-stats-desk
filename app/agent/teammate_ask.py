@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.route_labels import route_hint
+from app.agent.scope_policy import absence_cue_text
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -67,7 +68,7 @@ def wants_study(question, path=None):
     if re.search(r"\bteammate (?:study|analysis|impact)\b", question, re.I):
         return True
     if not path or not re.search(
-        r"\b(?:out|absen\w*|significan\w*|caus\w*)\b", question, re.I
+        r"\b(?:out|absen\w*|significan\w*|caus\w*)\b", absence_cue_text(question), re.I
     ):
         return False
     try:

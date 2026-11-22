@@ -1220,6 +1220,14 @@ Shooting percentages, totals, per-game averages, per-36 rates and custom estimat
 retain distinct units. Raw evidence, values, claim bindings and API fields remain
 unchanged, so saved answers can adopt the vocabulary without querying again.
 
+League leader questions can omit “the league” and “in”. For example, “who is
+leading assists now?” ranks qualified players by assists per game. The same
+wording works for other supported counting stats. Explicit rates such as “most
+points a night” also use the per-game ranking. An unqualified “who is best
+scorer now?” uses the selected season’s qualified points-per-game leaderboard. “Now” means season to date through the available
+box scores. A specified team, recent-game window, total, or efficiency measure
+keeps its own scope.
+
 ## Published three-point leaderboard
 
 On a publication-enabled host, a standalone regular-season three-point leader
