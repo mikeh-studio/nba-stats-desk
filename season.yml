@@ -16,3 +16,18 @@ regular_season_starts:
   "2024-25": "2024-10-22"
   "2025-26": "2025-10-21"
   "2026-27": "2026-10-20"
+
+# First round, excluding the Play-In Tournament. Extend when announced.
+# https://www.nba.com/news/2024-nba-playoffs-schedule
+# https://www.nba.com/news/2025-nba-playoffs-standings-and-bracket-updates
+# https://www.nba.com/news/2026-nba-playoffs-standings-and-bracket-updates
+# 2027: April 13–16 Play-In, April 17 first round (2026–27 calendar).
+# https://www.nba.com/news/key-dates
+# https://www.ticketmaster.ca/nba
+# Dated 2026–27 schedule corroboration (Oct 2026):
+# https://as.com/us/baloncesto/cuando-inicia-la-temporada-regular-de-la-nba-2026-equipos-a-seguir-y-principales-fichajes-f202610-n/
+playoff_starts:
+  "2023-24": "2024-04-20"
+  "2024-25": "2025-04-19"
+  "2025-26": "2026-04-18"
+  "2026-27": "2027-04-17"

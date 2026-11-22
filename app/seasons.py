@@ -4,6 +4,7 @@ import re
 from contextvars import ContextVar
 from dataclasses import replace
 from datetime import date
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -51,6 +52,35 @@ def validate_season(season: str) -> str:
 def season_bounds(season: str) -> tuple[date, date]:
     year = int(validate_season(season)[:4])
     return date(year, 7, 1), date(year + 1, 6, 30)
+
+
+@cache
+def _playoff_starts(path: Path) -> dict[str, date]:
+    with path.open(encoding="utf-8") as handle:
+        starts = (yaml.safe_load(handle) or {}).get("playoff_starts")
+    if starts is None:
+        return {}
+    if not isinstance(starts, dict):
+        raise ValueError("playoff_starts must map seasons to first-round dates")
+    openers = {}
+    for season, raw in starts.items():
+        start, end = season_bounds(season)
+        try:
+            opener = date.fromisoformat(str(raw))
+        except ValueError as exc:
+            raise ValueError(f"Invalid playoff opener for {season}: {raw}") from exc
+        if not start <= opener <= end:
+            raise ValueError(f"Playoff opener {opener} is outside {season}")
+        openers[season] = opener
+    return openers
+
+
+def coverage_bounds(season: str, phase: str) -> tuple[date, date]:
+    """Retain the full archive coverage requirement until a playoff opener is known."""
+    start, end = season_bounds(season)
+    if phase == "Playoffs":
+        start = _playoff_starts(SEASON_FILE).get(season, start)
+    return start, end
 
 
 def current_season() -> str:

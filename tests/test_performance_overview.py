@@ -72,6 +72,137 @@ def test_calendar_scope_includes_baseline_seasons_and_both_phases():
     assert s["phases"] == ["Regular Season", "Playoffs"]
 
 
+@pytest.mark.parametrize("calendar", ["", "playoff_starts:", "playoff_starts: {}"])
+def test_unknown_opener_keeps_full_archive_requirement(tmp_path, monkeypatch, calendar):
+    from app import seasons
+
+    path = tmp_path / "season.yml"
+    path.write_text(calendar)
+    monkeypatch.setattr(seasons, "SEASON_FILE", path)
+    assert seasons.coverage_bounds("2026-27", "Playoffs") == seasons.season_bounds(
+        "2026-27"
+    )
+
+
+@pytest.mark.parametrize("value", ["2028-04-17", "bad-date", "null"])
+def test_invalid_opener_cannot_weaken_coverage(tmp_path, value):
+    from app.seasons import _playoff_starts
+
+    path = tmp_path / "season.yml"
+    path.write_text(f"playoff_starts:\n  '2026-27': {value}")
+    with pytest.raises(ValueError, match="opener"):
+        _playoff_starts(path)
+
+
+def test_unquoted_calendar_date(tmp_path):
+    from app.seasons import _playoff_starts
+
+    path = tmp_path / "season.yml"
+    path.write_text("playoff_starts:\n  '2026-27': 2027-04-17")
+    assert _playoff_starts(path) == {"2026-27": date(2027, 4, 17)}
+
+
+def test_rolling_overview_requires_only_playoffs_that_have_started(evidence):
+    from dataclasses import replace
+
+    question = "Player 1 performance the past 12 months"
+    rows = [
+        dict(
+            evidence.rows[0],
+            game_id=day,
+            game_date=day,
+            season=season,
+            season_type=phase,
+            pts=points,
+        )
+        for day, season, phase, points in (
+            ("2025-12-01", "2025-26", "Regular Season", 10),
+            ("2026-04-18", "2025-26", "Playoffs", 30),
+            ("2026-11-17", "2026-27", "Regular Season", 20),
+        )
+    ]
+
+    def report(rows, as_of, prompt=question):
+        covered = frozenset((r["season"], r["season_type"]) for r in rows)
+        snapshot = replace(
+            evidence,
+            rows=rows,
+            covered_scopes=covered,
+            data_through={key: as_of.isoformat() for key in covered},
+        )
+        return build_overview(
+            prompt,
+            snapshot,
+            source_players(snapshot),
+            overview_scope(prompt, "2026-27", as_of),
+        )
+
+    result = report(rows, date(2026, 11, 22))
+    assert result["status"] == "ok"
+    facts = result["semantic_evidence"]
+    assert set(facts["game_ids"]) == {r["game_id"] for r in rows}
+    assert facts["metrics"][0]["value"] == 20
+    assert facts["metrics"][0]["change"] is None
+
+    # Both monthly windows precede this season's unpopulated playoff archive.
+    october = dict(rows[-1], game_id="oct", game_date="2026-10-21", pts=14)
+    monthly = report(
+        rows + [october], date(2026, 11, 22), "Player 1 performance past 1 month"
+    )
+    assert monthly["semantic_evidence"]["metrics"][0]["change"] == 6
+    assert (
+        report(rows, date(2027, 4, 16))["semantic_evidence"]["metrics"][0]["value"]
+        == 25
+    )
+    with pytest.raises(SemanticError, match="Missing 2025-26 Playoffs"):
+        report([rows[0], rows[2]], date(2026, 11, 22))
+    with pytest.raises(SemanticError, match="Missing 2026-27 Playoffs"):
+        report(rows, date(2027, 4, 17))
+
+
+@pytest.mark.parametrize(
+    "has_regular_coverage,expected_change", [(True, 4), (False, None)]
+)
+def test_playoff_report_checks_regular_season_comparison_independently(
+    evidence, has_regular_coverage, expected_change
+):
+    from dataclasses import replace
+
+    question = "Player 1 performance in the 2025-26 playoffs"
+    report_scope = overview_scope(question, "2025-26", date(2026, 4, 18))
+    report_scope["previous_end"] = date(2026, 4, 12)
+    regular = ("2025-26", "Regular Season")
+    playoffs = ("2025-26", "Playoffs")
+    rows = [
+        dict(
+            evidence.rows[0],
+            season=season,
+            season_type=phase,
+            game_date=day,
+            game_id=day,
+            pts=points,
+        )
+        for (season, phase), day, points in (
+            (regular, "2026-04-12", 18),
+            (playoffs, "2026-04-18", 22),
+        )
+    ]
+    covered = {playoffs, regular} if has_regular_coverage else {playoffs}
+    snapshot = replace(
+        evidence,
+        rows=[r for r in rows if (r["season"], r["season_type"]) in covered],
+        covered_scopes=frozenset(covered),
+        data_through={key: "2026-04-18" for key in covered},
+    )
+    result = build_overview(question, snapshot, source_players(snapshot), report_scope)
+    assert result["status"] == "ok"
+    pts = result["semantic_evidence"]["metrics"][0]
+    assert pts["value"] == 22
+    assert pts["change"] == expected_change
+    withheld = any("changes are unavailable" in note for note in result["assumptions"])
+    assert withheld == (not has_regular_coverage)
+
+
 def test_overview_math_table_charts_profile_agree(evidence):
     result = build_overview(
         "Player 1 performance past 12 months",
