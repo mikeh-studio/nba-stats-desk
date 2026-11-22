@@ -70,12 +70,26 @@ def test_certification_checks_all_teams_dates_and_makes():
     "question",
     [
         "Who is leading the league in rebounds this season?",
+        "Who leads 3PT% now?",
+        "Who has the most total 3pts?",
         "Who leads the NBA in 3PM in the playoffs?",
         "Who led the NBA in threes in 2024-25?",
     ],
 )
 def test_other_scopes_do_not_select_the_capability(question):
     assert not asks_for_three_point_leaders(question, "2026-27")
+
+
+@pytest.mark.parametrize(
+    "question", ["Who leads 3pm now?", "Who has the most 3pm per game?"]
+)
+def test_published_shortcut_checks_conversation_scope(question):
+    context = {"scope": {"team_abbr": "AAA", "season": "2026-27"}}
+    assert asks_for_three_point_leaders(question, "2026-27")
+    assert not asks_for_three_point_leaders(question, "2026-27", context)
+    assert asks_for_three_point_leaders(
+        "Who leads the NBA in 3pm now?", "2026-27", context
+    )
 
 
 def test_general_ask_uses_published_totals_and_refuses_lost_authority(monkeypatch):

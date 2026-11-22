@@ -24,6 +24,11 @@ from app.seasons import DEFAULT_SEASON, SEASONS, season_bounds, validate_season
 
 def has_time_scope(question: str) -> bool:
     """A stated period must never be replaced by an older season."""
+    if re.search(r"\b(?:now|currently)\b", question, re.I):
+        from app.agent.reference_planner import league_leader_plan
+
+        if league_leader_plan(question, DEFAULT_SEASON):
+            return True
     return bool(
         re.search(
             r"\b(?:20\d{2}|19\d{2})\b|\b(?:20\d{2})[-–/]\d{2,4}\b|"

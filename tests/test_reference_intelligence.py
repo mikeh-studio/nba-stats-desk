@@ -31,6 +31,19 @@ def config():
     )
 
 
+def test_governed_planner_preserves_provider_outage(monkeypatch):
+    from app.agent.execution import ExecutionFailure
+
+    service = agent()
+
+    def unavailable(*args, **kwargs):
+        raise ExecutionFailure("provider_unavailable")
+
+    monkeypatch.setattr(service.semantic_agent, "answer", unavailable)
+    with pytest.raises(ExecutionFailure, match="provider_unavailable"):
+        service.answer("Who leads the league in scoring in 2024-25?")
+
+
 def agent(warehouse=None):
     return StatsAgent(
         config(),

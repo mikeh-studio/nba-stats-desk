@@ -142,6 +142,12 @@ def test_regular_stat_request_keeps_existing_route():
     assert not wants_study("How many assists did Jalen Johnson average?")
 
 
+def test_handling_absence_cues_with_missing_study(tmp_path):
+    path = tmp_path / "missing.json"
+    assert not wants_study("Who's handing out the most assists per game?", path)
+    assert wants_study("Who's handing out assists when his teammate is out?", path)
+
+
 def test_named_pair_natural_question_routes_to_study(tmp_path):
     agent, client = setup(tmp_path)
     result = agent.answer(

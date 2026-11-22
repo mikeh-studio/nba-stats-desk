@@ -6,18 +6,23 @@ import yaml
 
 from app.agent.payload import answer_payload
 from app.agent.plan_execution import leader_game_floor
-from app.agent.reference_planner import LEADER_GAME_SHARE, league_leader_plan
+from app.agent.reference_planner import LEADER_GAME_SHARE, conversation_leader_plan
 from app.agent.semantic_answer import leader_statement
 from app.agent.semantics import Query, run_query
 from app.seasons import SEASON_FILE
 
 
-def asks_for_three_point_leaders(question, season):
-    plan = league_leader_plan(question, season)
+def asks_for_three_point_leaders(question, season, context=None):
+    plan = conversation_leader_plan(question, context or {}, season)
     if not plan or plan.get("leader_game_share") != LEADER_GAME_SHARE:
         return False
     query = plan["queries"][0]
-    return query["metric"] == "fg3m" and query["season_type"] == "Regular Season"
+    return (
+        query["season"] == season
+        and not query.get("team_abbr")
+        and query["metric"] == "fg3m"
+        and query["season_type"] == "Regular Season"
+    )
 
 
 def validate_leader_source(scope, accepted, models):

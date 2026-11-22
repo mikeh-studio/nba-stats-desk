@@ -383,8 +383,9 @@ def leader_statement(section, metric, scope, names):
 
     per = " per game" if scope["aggregation"] == "average" else ""
     who = " and ".join(names.get(r["player_id"], str(r["player_id"])) for r in leaders)
+    population = f" for {scope['team_abbr']}" if scope.get("team_abbr") else ""
     lead = (
-        f"{who} ranked first with {shown(leaders[0])} {metric['label']}{per}"
+        f"{who} ranked first{population} with {shown(leaders[0])} {metric['label']}{per}"
         + (
             f" across {leaders[0]['valid_games']} games"
             if len(leaders) == 1 and scope["aggregation"] == "average"
@@ -735,6 +736,19 @@ class SemanticAsk:
                     question = pending.question
             pending = None
         leader_plan = contextual_leader_plan(original, context, self.settings.season)
+        ranked = None
+        if context and not selected_player and not resumed_overview:
+            from app.agent.reference_planner import conversation_leader_plan
+
+            ranked = conversation_leader_plan(original, context, self.settings.season)
+            if ranked:
+                leader_plan = ranked
+                context = {}
+                if ranked["queries"]:
+                    # Load exactly the archive the inherited population refers to.
+                    question = (
+                        f"{original.rstrip('?.! ')} ({ranked['queries'][0]['season']})"
+                    )
         if leader_plan:
             # A fully restated supported request supersedes an earlier mistaken
             # request for a count; do not feed that clarification back in.
@@ -967,6 +981,8 @@ class SemanticAsk:
                 if overview
                 else requested_seasons(question, self.settings.season)
             )
+            if ranked and ranked["queries"]:
+                seasons = [ranked["queries"][0]["season"]]
             source_policy = get_source_policy(
                 getattr(getattr(self.warehouse, "source", None), "source_policy", None)
             )
@@ -1048,7 +1064,10 @@ class SemanticAsk:
                         metric_window["start_date"], metric_window["as_of"]
                     )
             allow_fallback = (
-                not has_time_scope(question) and not inherited and not pending
+                not has_time_scope(question)
+                and not inherited
+                and not pending
+                and not ranked
             )
             prepared_attempt = None
             if (
@@ -1060,6 +1079,7 @@ class SemanticAsk:
                 and not inherited
                 and not selected_player
                 and not context
+                and not leader_plan
                 and not re.search(r"\b(?:rolling|cumulative|trend)\b", question, re.I)
                 and not allow_fallback
                 and all(
