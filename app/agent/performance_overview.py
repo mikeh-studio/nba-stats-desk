@@ -27,7 +27,7 @@ from app.agent.overview_positions import (
 from app.agent.overview_summary import game_insights, summary_paragraphs
 from app.agent.scope_policy import has_specific_metric
 from app.agent.semantics import SemanticError, aggregate, load_contract
-from app.seasons import SEASONS, season_bounds
+from app.seasons import SEASONS, coverage_bounds, season_bounds
 
 METRICS = (
     ("pts", "Points"),
@@ -535,8 +535,8 @@ def build_overview(question, evidence, players, scope, selected=None):
     contract = load_contract()
     baseline_covered = scope["previous_start"] >= season_bounds(SEASONS[-1])[0]
     for season in scope["seasons"]:
-        bounds = season_bounds(season)
         for phase in scope["phases"]:
+            bounds = coverage_bounds(season, phase)
             if (
                 bounds[0] <= end
                 and bounds[1] >= start
@@ -546,6 +546,7 @@ def build_overview(question, evidence, players, scope, selected=None):
                     "unsupported_coverage", f"Missing {season} {phase} source coverage."
                 )
         for phase in previous_phases:
+            bounds = coverage_bounds(season, phase)
             if (
                 bounds[0] <= scope["previous_end"]
                 and bounds[1] >= scope["previous_start"]

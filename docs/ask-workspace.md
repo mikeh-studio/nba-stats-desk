@@ -410,6 +410,9 @@ rebounding and defensive questions remain focused.
 Full playoff overviews compare with the same season's regular season. Season
 overviews compare with the corresponding prior-season dates; calendar windows
 compare with the preceding window (calendar months for month requests).
+Each window requires playoff coverage for a season only if it overlaps the dates
+from the first round through the archive end. Until an opening date is recorded
+in `season.yml`, the full season coverage check applies.
 Explicit split questions retain their user-selected groups. Both current and
 comparison phases are recorded and displayed; missing baseline coverage
 withholds changes. Finals, championship series and individual playoff rounds

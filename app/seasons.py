@@ -4,6 +4,7 @@ import re
 from contextvars import ContextVar
 from dataclasses import replace
 from datetime import date
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -51,6 +52,21 @@ def validate_season(season: str) -> str:
 def season_bounds(season: str) -> tuple[date, date]:
     year = int(validate_season(season)[:4])
     return date(year, 7, 1), date(year + 1, 6, 30)
+
+
+@cache
+def _playoff_starts() -> dict[str, date]:
+    with SEASON_FILE.open(encoding="utf-8") as handle:
+        starts = yaml.safe_load(handle).get("playoff_starts", {})
+    return {season: date.fromisoformat(day) for season, day in starts.items()}
+
+
+def coverage_bounds(season: str, phase: str) -> tuple[date, date]:
+    """Retain the full archive coverage requirement until a playoff opener is known."""
+    start, end = season_bounds(season)
+    if phase == "Playoffs":
+        start = _playoff_starts().get(season, start)
+    return start, end
 
 
 def current_season() -> str:

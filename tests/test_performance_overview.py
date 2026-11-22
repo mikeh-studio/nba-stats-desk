@@ -72,6 +72,55 @@ def test_calendar_scope_includes_baseline_seasons_and_both_phases():
     assert s["phases"] == ["Regular Season", "Playoffs"]
 
 
+def test_rolling_overview_requires_only_playoffs_that_have_started(evidence):
+    from dataclasses import replace
+
+    question = "Player 1 performance the past 12 months"
+    rows = [
+        dict(
+            evidence.rows[0],
+            game_id=day,
+            game_date=day,
+            season=season,
+            season_type=phase,
+            pts=points,
+        )
+        for day, season, phase, points in (
+            ("2025-12-01", "2025-26", "Regular Season", 10),
+            ("2026-04-18", "2025-26", "Playoffs", 30),
+            ("2026-11-17", "2026-27", "Regular Season", 20),
+        )
+    ]
+
+    def report(rows, as_of):
+        covered = frozenset((r["season"], r["season_type"]) for r in rows)
+        snapshot = replace(
+            evidence,
+            rows=rows,
+            covered_scopes=covered,
+            data_through={key: as_of.isoformat() for key in covered},
+        )
+        return build_overview(
+            question,
+            snapshot,
+            source_players(snapshot),
+            overview_scope(question, "2026-27", as_of),
+        )
+
+    assert (
+        report(rows, date(2026, 11, 22))["semantic_evidence"]["metrics"][0]["value"]
+        == 20
+    )
+    assert (
+        report(rows, date(2027, 4, 16))["semantic_evidence"]["metrics"][0]["value"]
+        == 25
+    )
+    with pytest.raises(SemanticError, match="Missing 2025-26 Playoffs"):
+        report([rows[0], rows[2]], date(2026, 11, 22))
+    with pytest.raises(SemanticError, match="Missing 2026-27 Playoffs"):
+        report(rows, date(2027, 4, 17))
+
+
 def test_overview_math_table_charts_profile_agree(evidence):
     result = build_overview(
         "Player 1 performance past 12 months",
