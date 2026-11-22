@@ -782,6 +782,11 @@ bronze raw tests accept supported historical rows, while silver/gold builds stay
 scoped through `warehouse_season()`. The scheduled pipeline ends on 2027-07-01.
 The deployment checkout must include root `season.yml` alongside app and DAG code.
 
+Extend the opening-night calendar at rollover. Add the first-round date to
+`playoff_starts` when confirmed, with its source. Until then Ask requires coverage
+for the full archive interval. Play-In games (005) do not count as first-round
+games. The CDN loader maps only the 004 prefix to Playoffs.
+
 ### Preserve 2025-26 by warehouse copy
 
 These are operator steps pending review. Stop **all** writers (scheduled DAGs,

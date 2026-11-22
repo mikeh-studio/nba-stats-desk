@@ -92,7 +92,7 @@ def test_rolling_overview_requires_only_playoffs_that_have_started(evidence):
         )
     ]
 
-    def report(rows, as_of):
+    def report(rows, as_of, prompt=question):
         covered = frozenset((r["season"], r["season_type"]) for r in rows)
         snapshot = replace(
             evidence,
@@ -101,16 +101,25 @@ def test_rolling_overview_requires_only_playoffs_that_have_started(evidence):
             data_through={key: as_of.isoformat() for key in covered},
         )
         return build_overview(
-            question,
+            prompt,
             snapshot,
             source_players(snapshot),
-            overview_scope(question, "2026-27", as_of),
+            overview_scope(prompt, "2026-27", as_of),
         )
 
-    assert (
-        report(rows, date(2026, 11, 22))["semantic_evidence"]["metrics"][0]["value"]
-        == 20
+    result = report(rows, date(2026, 11, 22))
+    assert result["status"] == "ok"
+    facts = result["semantic_evidence"]
+    assert set(facts["game_ids"]) == {r["game_id"] for r in rows}
+    assert facts["metrics"][0]["value"] == 20
+    assert facts["metrics"][0]["change"] is None
+
+    # Both monthly windows precede this season's unpopulated playoff archive.
+    october = dict(rows[-1], game_id="oct", game_date="2026-10-21", pts=14)
+    monthly = report(
+        rows + [october], date(2026, 11, 22), "Player 1 performance past 1 month"
     )
+    assert monthly["semantic_evidence"]["metrics"][0]["change"] == 6
     assert (
         report(rows, date(2027, 4, 16))["semantic_evidence"]["metrics"][0]["value"]
         == 25

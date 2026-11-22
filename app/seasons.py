@@ -55,17 +55,31 @@ def season_bounds(season: str) -> tuple[date, date]:
 
 
 @cache
-def _playoff_starts() -> dict[str, date]:
-    with SEASON_FILE.open(encoding="utf-8") as handle:
-        starts = yaml.safe_load(handle).get("playoff_starts", {})
-    return {season: date.fromisoformat(day) for season, day in starts.items()}
+def _playoff_starts(path: Path) -> dict[str, date]:
+    with path.open(encoding="utf-8") as handle:
+        starts = (yaml.safe_load(handle) or {}).get("playoff_starts")
+    if starts is None:
+        return {}
+    if not isinstance(starts, dict):
+        raise ValueError("playoff_starts must map seasons to first-round dates")
+    openers = {}
+    for season, raw in starts.items():
+        start, end = season_bounds(season)
+        try:
+            opener = date.fromisoformat(str(raw))
+        except ValueError as exc:
+            raise ValueError(f"Invalid playoff opener for {season}: {raw}") from exc
+        if not start <= opener <= end:
+            raise ValueError(f"Playoff opener {opener} is outside {season}")
+        openers[season] = opener
+    return openers
 
 
 def coverage_bounds(season: str, phase: str) -> tuple[date, date]:
     """Retain the full archive coverage requirement until a playoff opener is known."""
     start, end = season_bounds(season)
     if phase == "Playoffs":
-        start = _playoff_starts().get(season, start)
+        start = _playoff_starts(SEASON_FILE).get(season, start)
     return start, end
 
 

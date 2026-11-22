@@ -2,6 +2,7 @@
 
 import json
 import re
+from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -20,6 +21,36 @@ from scripts.archive_season_copy import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("calendar", ["", "playoff_starts:", "playoff_starts: {}"])
+def test_unknown_opener_keeps_full_archive_requirement(tmp_path, monkeypatch, calendar):
+    from app import seasons
+
+    path = tmp_path / "season.yml"
+    path.write_text(calendar)
+    monkeypatch.setattr(seasons, "SEASON_FILE", path)
+    assert seasons.coverage_bounds("2026-27", "Playoffs") == seasons.season_bounds(
+        "2026-27"
+    )
+
+
+@pytest.mark.parametrize("value", ["2028-04-17", "bad-date", "null"])
+def test_invalid_opener_cannot_weaken_coverage(tmp_path, value):
+    from app.seasons import _playoff_starts
+
+    path = tmp_path / "season.yml"
+    path.write_text(f"playoff_starts:\n  '2026-27': {value}")
+    with pytest.raises(ValueError, match="opener"):
+        _playoff_starts(path)
+
+
+def test_unquoted_calendar_date(tmp_path):
+    from app.seasons import _playoff_starts
+
+    path = tmp_path / "season.yml"
+    path.write_text("playoff_starts:\n  '2026-27': 2027-04-17")
+    assert _playoff_starts(path) == {"2026-27": date(2027, 4, 17)}
 
 
 def test_configuration_and_archive_routing_agree():
