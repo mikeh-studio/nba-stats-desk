@@ -489,3 +489,75 @@ def test_governed_failure_at_endpoint(monkeypatch, transport, code):
     finally:
         main.app.dependency_overrides.clear()
         main.app.dependency_overrides.update(previous)
+
+
+def test_leader_followup_clarifies_filtered_sample_and_retains_playoff_phase():
+    cfg = settings()
+    agent = StatsAgent(
+        cfg,
+        SimpleNamespace(),
+        semantic_warehouse=frozen_repository(
+            cfg, SOURCE, "complete"
+        )._governed_warehouse,
+        conversation_store=InMemoryConversationStore(),
+    )
+    assert (
+        agent.answer(
+            "Avery Example total points in 2024-25 at home", conversation_id="filtered"
+        )["status"]
+        == "ok"
+    )
+    limited = agent.answer("Who leads assists?", conversation_id="filtered")
+    assert limited["status"] == "clarification_required"
+    assert not limited["tables"]
+    reset = agent.answer(
+        "Who leads the league in assists this season?", conversation_id="filtered"
+    )
+    assert reset["status"] == "ok"
+    assert (
+        agent.answer(
+            "Avery Example total points in 2024-25 playoffs for AAA",
+            conversation_id="playoffs",
+        )["status"]
+        == "ok"
+    )
+    playoffs = agent.answer("Who leads assists?", conversation_id="playoffs")
+    assert playoffs["status"] == "empty_cohort"
+    scope = playoffs["semantic_evidence"]["scope"]
+    assert (scope["season_type"], scope["team_abbr"]) == ("Playoffs", "AAA")
+
+
+def test_published_service_keeps_team_context_and_current_season():
+    from unittest.mock import Mock
+
+    from app.seasons import DEFAULT_SEASON
+
+    cfg = settings(season=DEFAULT_SEASON)
+    repo = frozen_repository(cfg, SOURCE, "complete")
+    repo.active_three_point_leaders = Mock(
+        side_effect=AssertionError("unexpected league-wide read")
+    )
+    agent = StatsAgent(
+        cfg,
+        repo,
+        semantic_warehouse=repo._governed_warehouse,
+        conversation_store=InMemoryConversationStore(),
+    )
+    prior = agent.answer(
+        "Avery Example total points in 2024-25 for AAA", conversation_id="publication"
+    )
+    assert prior["status"] == "ok"
+    historical = agent.answer("Who leads 3pm?", conversation_id="publication")
+    assert historical["status"] == "ok"
+    scope = historical["semantic_evidence"]["scope"]
+    assert (scope["season"], scope["team_abbr"]) == ("2024-25", "AAA")
+    current = agent.answer("Who leads 3pm now?", conversation_id="publication")
+    assert current["status"] == "unsupported_coverage"
+    repo.active_three_point_leaders.assert_not_called()
+
+
+def test_now_as_conversational_transition_is_not_a_season_selection():
+    from app.agent.semantic_serving import has_time_scope
+
+    assert has_time_scope("Who leads assists now?")
+    assert not has_time_scope("Now do his assists")

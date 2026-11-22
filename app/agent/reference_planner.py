@@ -277,6 +277,7 @@ LEADER_METRICS = {
     "threes": "fg3m",
     "three pointers": "fg3m",
     "3 pointers": "fg3m",
+    "three pointers made": "fg3m",
     "3pts": "fg3m",
     "3pm": "fg3m",
     "turnovers": "tov",
@@ -411,7 +412,7 @@ def conversation_leader_plan(question, context, selected_season):
             "status": "clarification_required",
             "queries": [],
             "model_calls": 0,
-            "message": "The previous answer used a narrower sample. To start a season-wide ranking, ask who leads the league in this stat this season.",
+            "message": f"The previous answer used a narrower sample. For the full league, ask “Who leads the league in {LEADER_LABELS[plan['queries'][0]['metric']]} this season?”",
         }
     if (
         not period

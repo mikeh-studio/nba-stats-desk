@@ -1224,8 +1224,9 @@ League leader questions can omit “the league” and “in”. For example, “
 leading assists now?” ranks qualified players by assists per game. The same
 wording works for other supported counting stats. Explicit rates such as “most
 points a night” also use the per-game ranking. An unqualified “who is best
-scorer now?” uses the selected season’s qualified points-per-game leaderboard. “Now” means season to date through the available
-box scores. A specified team, recent-game window, total, or efficiency measure
+scorer now?” ranks players by points per game. “Now” and “currently” use the
+season selected in Ask, including a historical selection. The ranking uses
+regular-season box scores through the source cutoff unless playoffs are requested. A specified team, recent-game window, total, or efficiency measure
 keeps its own scope. A shorthand leaderboard after a team-filtered answer ranks
 players for that team. Naming the league or NBA starts a league-wide ranking.
 The published three-point shortcut serves only league-wide results.
