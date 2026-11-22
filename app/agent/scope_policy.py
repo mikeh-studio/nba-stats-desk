@@ -29,7 +29,7 @@ _METRIC = re.compile(
 def absence_cue_text(question: str) -> str:
     # Ignore idiomatic uses of "out" while preserving any separate absence condition.
     return re.sub(
-        r"\b(?:find|figure|check|work|point|turns?|handing)\s+out\b",
+        r"\b(?:find|figure|check|work|point|turns?|hand(?:s|ed|ing)?)\s+out\b",
         "",
         question,
         flags=re.I,

@@ -316,7 +316,7 @@ _LEADER_FORMS = (
     rf"(?:(?:the (?:league|nba) (?:in|is)|in) )?(?P<metric>{_LEADER_METRIC})"
     rf"(?: {_LEADER_RATE})?{_LEADER_LEAGUE}",
     # “Most” is unambiguously a per-game ranking only with a stated rate.
-    rf"{_LEADER_SUBJECT}(?: has|(?: is|'s) (?:averaging|putting up|handing out)) "
+    rf"{_LEADER_SUBJECT}(?: has| hands out|(?: is|'s) (?:averaging|putting up|handing out)) "
     rf"(?:the )?most (?P<metric>{_LEADER_METRIC}) {_LEADER_RATE}{_LEADER_LEAGUE}",
     rf"{_LEADER_SUBJECT}(?: is|'s) (?:the )?(?:nba(?:'s)? )?"
     rf"(?:(?:best|top|leading) scorer|highest[ -]scoring player|scoring leader){_LEADER_LEAGUE}",
@@ -377,3 +377,49 @@ def league_leader_plan(question: str, selected_season: str) -> dict[str, Any] | 
             }
         ],
     }
+
+
+def conversation_leader_plan(question, context, selected_season):
+    """Resolve a complete leaderboard intent against the last successful population."""
+    from app.agent.game_filters import filter_scope
+    from app.seasons import SEASONS
+
+    scope = context.get("scope") or {}
+    league = re.search(r"\b(?:league|nba)\b", question, re.I)
+    period = re.search(
+        r"\b(?:now|currently|this season|20\d{2}-\d{2})\b", question, re.I
+    )
+    named = re.search(r"\b20\d{2}-\d{2}\b", question)
+    season = named[0] if named else selected_season
+    if scope and not league and not period:
+        season = scope.get("season") or season
+    plan = league_leader_plan(question, season)
+    if not plan or season not in SEASONS or league or not scope:
+        return plan if season in SEASONS else None
+
+    filters = filter_scope(scope)
+    team = filters.pop("team_abbr", None)
+    previous_phases = scope.get("phases") or [scope.get("season_type")]
+    has_window = scope.get("window") not in (None, "season_to_date") or scope.get(
+        "start"
+    )
+    if filters or (
+        not period
+        and (has_window or len(previous_phases) > 1 or "Both" in previous_phases)
+    ):
+        return {
+            "status": "clarification_required",
+            "queries": [],
+            "model_calls": 0,
+            "message": "The previous answer used a narrower sample. To start a season-wide ranking, ask who leads the league in this stat this season.",
+        }
+    if (
+        not period
+        and previous_phases == ["Playoffs"]
+        and not re.search(r"\b(?:playoffs|regular season)\b", question, re.I)
+    ):
+        plan = league_leader_plan(question.rstrip("?.! ") + " in the playoffs", season)
+    if team:
+        plan["queries"][0]["team_abbr"] = team
+        plan["message"] = f"Ranking qualifying players for {team}."
+    return plan

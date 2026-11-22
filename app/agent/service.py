@@ -1686,8 +1686,9 @@ class StatsAgent:
                         self.settings.season == DEFAULT_SEASON
                         and get_source_policy(getattr(self.repo, "source_policy", None))
                         is None
+                        and not keep_pending
                         and asks_for_three_point_leaders(
-                            cleaned_question, DEFAULT_SEASON
+                            cleaned_question, DEFAULT_SEASON, context
                         )
                     ):
                         try:
@@ -1733,9 +1734,14 @@ class StatsAgent:
                     progress_callback=progress_callback,
                 )
                 return payload
-            except (ValueError, PlayerNameError, ExecutionFailure):
+            except (ValueError, PlayerNameError):
                 raise
             except Exception as exc:
+                if (
+                    isinstance(exc, ExecutionFailure)
+                    and exc.code == "provider_unavailable"
+                ):
+                    raise
                 raise AgentExecutionError("Governed analytics request failed") from exc
 
         if not legacy_available():

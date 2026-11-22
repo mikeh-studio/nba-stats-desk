@@ -27,7 +27,7 @@ def has_time_scope(question: str) -> bool:
     return bool(
         re.search(
             r"\b(?:20\d{2}|19\d{2})\b|\b(?:20\d{2})[-–/]\d{2,4}\b|"
-            r"\b(?:last|past|prior|previous|current|latest|this|today|yesterday|"
+            r"\b(?:last|past|prior|previous|current|currently|now|latest|this|today|yesterday|"
             r"tonight|recent|since|before|after|between|as.of|all.time|career|"
             r"january|february|march|april|may|june|july|august|september|"
             r"october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec)\b",

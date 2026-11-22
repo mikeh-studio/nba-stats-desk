@@ -137,6 +137,7 @@ def leader_game_floor(appearances, args, share):
         if (
             row["season"] == args["season"]
             and row["season_type"] == args["season_type"]
+            and (not args.get("team_abbr") or row.get("team_abbr") == args["team_abbr"])
         ):
             games.setdefault(str(row.get("team_abbr")), set()).add(row["game_id"])
     most = max((len(ids) for ids in games.values()), default=0)

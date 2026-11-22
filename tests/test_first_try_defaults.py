@@ -261,6 +261,10 @@ def test_who_played_better_returns_a_scorecard_without_the_model():
     [
         ("Who led the league in scoring in 2024-25?", "pts"),
         ("who is best scorer now", "pts"),
+        ("Who’s the top scorer in the NBA right now?", "pts"),
+        ("Which player is the scoring leader this season?", "pts"),
+        ("Who hands out the most assists per game?", "ast"),
+        ("Who leads assists currently?", "ast"),
         ("who is leading assists now", "ast"),
         ("Who’s leading in rebounds right now?", "reb"),
         ("Which player leads blocks in the NBA this season?", "blk"),

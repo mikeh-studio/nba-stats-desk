@@ -1226,7 +1226,9 @@ wording works for other supported counting stats. Explicit rates such as “most
 points a night” also use the per-game ranking. An unqualified “who is best
 scorer now?” uses the selected season’s qualified points-per-game leaderboard. “Now” means season to date through the available
 box scores. A specified team, recent-game window, total, or efficiency measure
-keeps its own scope.
+keeps its own scope. A shorthand leaderboard after a team-filtered answer ranks
+players for that team. Naming the league or NBA starts a league-wide ranking.
+The published three-point shortcut serves only league-wide results.
 
 ## Published three-point leaderboard
 
