@@ -160,6 +160,49 @@ def test_rolling_overview_requires_only_playoffs_that_have_started(evidence):
         report(rows, date(2027, 4, 17))
 
 
+@pytest.mark.parametrize(
+    "has_regular_coverage,expected_change", [(True, 4), (False, None)]
+)
+def test_playoff_report_checks_regular_season_comparison_independently(
+    evidence, has_regular_coverage, expected_change
+):
+    from dataclasses import replace
+
+    question = "Player 1 performance in the 2025-26 playoffs"
+    report_scope = overview_scope(question, "2025-26", date(2026, 4, 18))
+    report_scope["previous_end"] = date(2026, 4, 12)
+    regular = ("2025-26", "Regular Season")
+    playoffs = ("2025-26", "Playoffs")
+    rows = [
+        dict(
+            evidence.rows[0],
+            season=season,
+            season_type=phase,
+            game_date=day,
+            game_id=day,
+            pts=points,
+        )
+        for (season, phase), day, points in (
+            (regular, "2026-04-12", 18),
+            (playoffs, "2026-04-18", 22),
+        )
+    ]
+    covered = {playoffs, regular} if has_regular_coverage else {playoffs}
+    snapshot = replace(
+        evidence,
+        rows=[r for r in rows if (r["season"], r["season_type"]) in covered],
+        covered_scopes=frozenset(covered),
+        data_through={key: "2026-04-18" for key in covered},
+    )
+    result = build_overview(question, snapshot, source_players(snapshot), report_scope)
+    assert result["status"] == "ok"
+    pts = result["semantic_evidence"]["metrics"][0]
+    assert pts["value"] == 22
+    assert pts["change"] == expected_change
+    withheld = any("changes are unavailable" in note for note in result["assumptions"])
+    assert withheld == (not has_regular_coverage)
+
+
 def test_overview_math_table_charts_profile_agree(evidence):
     result = build_overview(
         "Player 1 performance past 12 months",
