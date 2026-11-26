@@ -280,12 +280,22 @@ def validate_cases(document, schema):
         raise ValueError("A human-reviewed set requires approval of every case")
 
 
+def schema_path_for(root: Path, document, input_dir: Path | None = None) -> Path:
+    if input_dir is not None:
+        input_schema = input_dir / "schema.json"
+        if input_schema.is_file():
+            return input_schema
+    filename = (
+        "schema.v1.json" if document.get("schema_version") == 1 else "schema.json"
+    )
+    return root / "tests/fixtures/ask" / filename
+
+
 def load_inputs(root: Path, input_dir: Path | None = None):
     folder = input_dir or root / "tests/fixtures/ask"
     document = json.loads((folder / "cases.json").read_text())
-    validate_cases(
-        document, json.loads((root / "tests/fixtures/ask/schema.json").read_text())
-    )
+    schema_path = schema_path_for(root, document, input_dir)
+    validate_cases(document, json.loads(schema_path.read_text()))
     source = json.loads((folder / "source.json").read_text())
     if source.get("source_kind") == "production_snapshot":
         from scripts.ask_eval.production import validate_production_source

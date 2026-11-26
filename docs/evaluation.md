@@ -368,7 +368,8 @@ answers, tables, complete responses, source inputs, hashes and limitations. It
 supports filtering, review decisions and a JSON export. Decisions are stored
 in browser storage under the source/case/candidate hashes. Serve locally for stable
 storage, and retain the exported file privately. Saving requires an explicit
-approval or revision decision. Approval requires a reviewer name. Notes are optional. Each case lists
+approval or revision decision. Approval requires a reviewer name when the page
+includes expectation digests. Notes are optional. Each case lists
 what needs human judgment: question/identity/scope alignment, the expected
 calculation or justified refusal, and evidence-grounded wording. Follow-ups,
 league populations, and published similarity scores have specific guidance.
@@ -810,6 +811,10 @@ Version 2 recordings bind each independent case/turn/JSON-or-SSE call sequence t
 its provider, model, complete semantic request hash, fixture settings, selected
 case contract, source, schema and fixed date. Version 2 binds the manifest hash
 in the terminal record and validates stored request/match hashes and record shape.
+The runner uses `schema.json` from `--input-dir` when supplied. Otherwise, it
+selects the bundled `schema.v1.json` for v1 case documents and `schema.json` for
+current cases. Replay requires the SHA-256 of the exact schema bytes used for
+recording, including whitespace.
 The sole supported v1 bundle is the original reviewed capture, pinned by raw-file
 hashes and canonical cassette hash; arbitrary unverified v1 bundles are rejected.
 Transport timeouts/retries are saved
