@@ -1271,6 +1271,15 @@ class SemanticAsk:
                         "unsupported_coverage",
                         "This publication supports box-score summaries, game logs, and player comparisons. This additional analysis is unavailable.",
                     )
+                if re.search(
+                    r"\b(?:entire|whole|completed|full)\s+(?:regular[- ]season|season)\b",
+                    turn.original,
+                    re.I,
+                ):
+                    raise SemanticError(
+                        "unsupported_coverage",
+                        "This publication covers part of the season. Ask for a period within its verified dates.",
+                    )
                 if turn.overview:
                     explicit_phases = bool(
                         re.search(
@@ -1304,19 +1313,30 @@ class SemanticAsk:
                         if (turn.overview["end"] - turn.overview["start"]).days < 31
                         else "monthly"
                     )
+                    explicit_baseline = bool(
+                        turn.requested_comparison.get("baseline_period")
+                        or turn.requested_comparison.get("baseline_phases")
+                    )
                     previous = (
                         turn.overview.get("previous_phases") or turn.overview["phases"]
                     )
+                    if not explicit_phases and not explicit_baseline:
+                        turn.overview["previous_phases"] = [turn.publication.phase]
+                        previous = turn.overview["previous_phases"]
+                        turn.overview["comparison_label"] = (
+                            f"{turn.publication.phase} from {turn.overview['previous_start']} through {turn.overview['previous_end']}"
+                        )
                     has_baseline = turn.publication.first <= turn.overview[
                         "previous_start"
                     ] <= turn.overview["previous_end"] <= turn.publication.last and set(
                         previous
                     ) == {turn.publication.phase}
+                    if explicit_baseline and not has_baseline:
+                        raise SemanticError(
+                            "unsupported_coverage",
+                            "The requested baseline is outside this publication. Start a separate analysis for another source.",
+                        )
                     turn.overview["baseline_coverage_available"] = has_baseline
-                    explicit_baseline = bool(
-                        turn.requested_comparison.get("baseline_period")
-                        or turn.requested_comparison.get("baseline_phases")
-                    )
                     turn.overview["allow_recent_comparison"] = (
                         not has_baseline
                         and not turn.comparison
@@ -1740,6 +1760,8 @@ class SemanticAsk:
 
         load_evidence = turn.load_evidence
         assert load_evidence is not None and turn.evidence is not None
+        if turn.publication is not None:
+            turn.publication.check_plan({"queries": [series_plan.query]})
         if series_plan.query.get("window") == "date_range":
             series_plan.query["seasons"] = seasons_in_dates(
                 series_plan.query["start_date"], series_plan.query["as_of"]
