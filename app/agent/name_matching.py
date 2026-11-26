@@ -8,6 +8,7 @@ import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from functools import wraps
+from typing import Any, NamedTuple
 
 from app.agent.player_resolver import normalize_player_text
 from app.agent.player_suggestions import (
@@ -515,7 +516,9 @@ def run_name_matching(
             )
             if time_scope is not None:
                 time_scope.update(pending.query_plan.get("time_scope") or {})
-            selected_player = None
+            from app.agent.player_comparison import comparison_sides
+
+            selected_player = choice if comparison_sides(pending.question) else None
         store.clear_pending_clarification(conversation_id)
     token = _session.set(session)
     try:
@@ -575,3 +578,92 @@ def run_name_matching(
         return payload
     finally:
         _session.reset(token)
+
+
+_CLARIFY_REPLY_FILLER = re.compile(
+    r"^(?:i\s+meant|i\s+mean|no[,!]?|yes[,!]?|it'?s|the\s+player|player)\s+",
+    re.IGNORECASE,
+)
+
+
+def _clarify_reply_name(text: str) -> str | None:
+    """Extract a player-name guess from a reply to 'Which player did you mean?'.
+
+    Returns the stripped name for short replies (with leading fillers like
+    "I meant ..." removed), or None when the reply reads like a brand-new
+    question that should drop the pending clarification.
+    """
+    stripped = _CLARIFY_REPLY_FILLER.sub("", text.strip()).strip(" .!?")
+    words = stripped.split()
+    if 0 < len(words) <= 4:
+        return stripped
+    return None
+
+
+class PlayerSpan(NamedTuple):
+    start: int
+    end: int
+    name: str
+    player: dict[str, Any]
+
+
+def longest_player_spans(
+    text, players, *, nonoverlapping=False, normalize_spaces=False
+) -> list[PlayerSpan]:
+    """Match literal source names, keeping equal-span candidates for ambiguity checks.
+
+    Provider authorization consumes overlapping spans longest-first. The scope
+    parsers only suppress names contained in a longer name.
+    """
+    hits: list[PlayerSpan] = []
+    for player in players:
+        for name in (player["player_name"], *player.get("aliases", [])):
+            if normalize_spaces:
+                name = " ".join(name.split())
+                if not name:
+                    continue
+            hits.extend(
+                PlayerSpan(match.start(), match.end(), name, player)
+                for match in re.finditer(
+                    r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I
+                )
+            )
+    if nonoverlapping:
+        selected: list[PlayerSpan] = []
+        for hit in sorted(hits, key=lambda h: (-(h.end - h.start), h.start)):
+            if not any(
+                hit.start < span.end and span.start < hit.end for span in selected
+            ):
+                selected.append(hit)
+        return selected
+    return [
+        h
+        for h in hits
+        if not any(
+            x.start <= h.start and h.end <= x.end and x.end - x.start > h.end - h.start
+            for x in hits
+        )
+    ]
+
+
+def mask_player_tokens(text, players):
+    """Resolve source names and replace them with player-ID tokens for scope parsing."""
+    from app.agent.semantics import SemanticError
+
+    question, players = prepare_names(text, players)
+    hits = longest_player_spans(question, players)
+    spans = {}
+    for start, end, _, player in hits:
+        spans.setdefault((start, end), {})[player["player_id"]] = player
+    if any(len(matches) != 1 for matches in spans.values()):
+        raise SemanticError(
+            "clarification_required",
+            "Please give both players’ full names; an alias matches more than one player.",
+        )
+    selected = {}
+    for (start, end), matches in sorted(spans.items(), reverse=True):
+        player = next(iter(matches.values()))
+        selected[player["player_id"]] = player
+        question = question[:start] + f" PLAYER{player['player_id']} " + question[end:]
+    question = re.sub(r"(PLAYER\d+)(?:\s+\1)+", r"\1", question)
+    return " ".join(question.lower().split()), selected

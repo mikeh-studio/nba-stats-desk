@@ -10,7 +10,6 @@ from dataclasses import replace
 from time import monotonic
 from typing import Any
 
-from app.agent.availability_ask import METRICS, _identities
 from app.agent.execution import timed
 from app.agent.game_filters import (
     COMPONENTS as FILTER_COMPONENTS,
@@ -27,9 +26,15 @@ from app.agent.independent_baseline import (
     parse_independent_baseline,
     period_label,
 )
+from app.agent.name_matching import longest_player_spans, mask_player_tokens
 from app.agent.payload import answer_payload
 from app.agent.performance_overview import identity_profile
-from app.agent.scope_policy import screen_assists_message
+from app.agent.scope_policy import (
+    METRICS,
+    extract_metrics,
+    longest_metric_spans,
+    screen_assists_message,
+)
 from app.agent.semantic_serving import requested_seasons, source_players
 from app.agent.semantics import (
     Query,
@@ -150,16 +155,14 @@ def reference_followup(question: str, context: dict[str, Any]) -> str | None:
     ):
         # Replace only the requested measure, retaining its grammatical slot.
         # Names and numeric predicate components are independent scope fields.
-        protected: list[tuple[int, int]] = []
         names = [p["player_name"] for p in context.get("players", [])]
         names.extend(context.get("reference_identity_names", []))
-        for name in names:
-            protected.extend(
-                match.span()
-                for match in re.finditer(
-                    r"(?<!\w)" + re.escape(name) + r"(?!\w)", previous, re.I
-                )
+        protected = [
+            (span.start, span.end)
+            for span in longest_player_spans(
+                previous, [{"player_name": name} for name in names]
             )
+        ]
         components = "|".join(
             re.escape(name) for name in sorted(FILTER_COMPONENTS, key=len, reverse=True)
         )
@@ -171,24 +174,7 @@ def reference_followup(question: str, context: dict[str, Any]) -> str | None:
                 re.I,
             )
         )
-        spans = {
-            match.span()
-            for pattern in METRICS.values()
-            for match in re.finditer(
-                r"(?<!\w)(?:" + pattern + r")(?!\w)", previous, re.I
-            )
-            if not any(
-                start <= match.start() and match.end() <= end
-                for start, end in protected
-            )
-        }
-        ordered_spans = sorted(
-            (start, end)
-            for start, end in spans
-            if not any(
-                a <= start and end <= b and (a < start or end < b) for a, b in spans
-            )
-        )
+        ordered_spans = longest_metric_spans(previous, protected=protected)
         if not ordered_spans:
             return (
                 previous + " " + metric
@@ -368,7 +354,7 @@ def parse_reference(
 ):
     filters = {}
     if kind == "league_baseline":
-        tracking_text, _ = _identities(question, players)
+        tracking_text, _ = mask_player_tokens(question, players)
         if message := screen_assists_message(tracking_text):
             raise SemanticError("unsupported_scope", message)
         extracted = extract_game_filters(question, players)
@@ -383,7 +369,7 @@ def parse_reference(
         question = resolved_question
     if re.search(r"\bplayer\d+\b", question, re.I):
         raise SemanticError("clarification_required", "Use a player's full name.")
-    text, named = _identities(question, players)
+    text, named = mask_player_tokens(question, players)
     if len(named) != 1:
         raise SemanticError(
             "clarification_required",
@@ -395,7 +381,7 @@ def parse_reference(
         raise SemanticError("unsupported_scope", message)
     if kind == "league_baseline":
         original_shape = (
-            _identities(period_question, players)[0] if period_question else text
+            mask_player_tokens(period_question, players)[0] if period_question else text
         )
         independent = parse_independent_baseline(
             text, player, season, filters=filters, original_shape=original_shape
@@ -417,7 +403,7 @@ def parse_reference(
     if kind == "league_baseline":
         resolved_text = resolve_baseline_relative_seasons(text, season)
         period_text = (
-            _identities(period_question, players)[0] if period_question else text
+            mask_player_tokens(period_question, players)[0] if period_question else text
         )
         validate_baseline_period_shape(period_text)
         text = resolved_text
@@ -460,13 +446,7 @@ def parse_reference(
                     "Recent statistical comparisons support 2 to 20 recorded appearances.",
                 )
             text = text[: games.start()] + " " + text[games.end() :]
-            metrics = []
-            for key, pattern in METRICS.items():
-                text, found = re.subn(
-                    r"(?<!\w)(?:" + pattern + r")(?!\w)", " ", text, flags=re.I
-                )
-                if found:
-                    metrics.append(key)
+            text, metrics = extract_metrics(text)
             if any(m not in {"pts", "reb", "ast"} for m in metrics):
                 raise SemanticError(
                     "clarification_required",
@@ -515,13 +495,7 @@ def parse_reference(
         return player, seasons[0], dict(recent, limit=limit) if recent else limit
 
     text = re.sub(BASELINE, " ", text)
-    metrics = []
-    for key, pattern in METRICS.items():
-        text, count = re.subn(
-            r"(?<!\w)(?:" + pattern + r")(?!\w)", " ", text, flags=re.I
-        )
-        if count:
-            metrics.append(key)
+    text, metrics = extract_metrics(text)
     if len(metrics) != 1:
         raise SemanticError(
             "clarification_required",

@@ -16,10 +16,20 @@ from app.agent.metric_presentation import (
     game_coverage,
     game_coverage_label,
 )
+from app.agent.name_matching import mask_player_tokens as _identities
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.research_ask import refusal
 from app.agent.route_labels import route_hint
-from app.agent.scope_policy import absence_cue_text
+from app.agent.scope_policy import (
+    METRICS as METRICS,
+)
+from app.agent.scope_policy import (
+    PLAYOFFS_CUE,
+    REGULAR_SEASON_CUE,
+    absence_cue_text,
+    explicit_phase,
+    extract_metrics,
+)
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -30,31 +40,6 @@ from app.agent.semantic_serving import (
 from app.agent.semantics import SemanticError
 from app.availability import compare_availability, load_availability
 from app.research import CORE_METRICS
-
-METRICS = {
-    "pts_per36": r"points per 36(?: minutes)?",
-    "ast_per36": r"assists per 36(?: minutes)?",
-    "ts_pct": r"true shooting(?: percentage| percent|%)?|ts%",
-    "efg_pct": r"effective field goal(?: percentage| percent|%)?|efg%",
-    "fg3_pct": r"(?:three.point|3.point|3pt) (?:percentage|percent)|3p%|fg3%",
-    "fg_pct": r"field goal (?:percentage|percent)|fg%",
-    "ft_pct": r"free throw (?:percentage|percent)|ft%",
-    "fg3a": r"(?:three.point|3.point) attempts|fg3a",
-    "fg3m": r"(?:three.point|3.point) (?:makes|made)|threes|3pm|fg3m",
-    "fga": r"field goal attempts|fga",
-    "fta": r"free throw attempts|fta",
-    "pts": r"points|scoring|pts",
-    "oreb": r"offensive rebounds?|oreb",
-    "dreb": r"defensive rebounds?|dreb",
-    "pf": r"personal fouls?|fouls?|pf",
-    "reb": r"rebounds|rebounding|reb",
-    "ast": r"assists|ast",
-    "stl": r"steals|stl",
-    "blk": r"blocks|blk",
-    "tov": r"turnovers|tov",
-    "min": r"minutes|min",
-    "plus_minus": r"plus.minus|\+/-",
-}
 
 
 def wants_availability(question):
@@ -78,45 +63,6 @@ def availability_followup(question):
             re.I,
         )
     )
-
-
-def _identities(question, players):
-    from app.agent.name_matching import prepare_names
-
-    question, players = prepare_names(question, players)
-    hits = []
-    for player in players:
-        for alias in {
-            player["player_name"],
-            *player.get("aliases", []),
-        }:
-            for match in re.finditer(
-                r"(?<!\w)" + re.escape(alias) + r"(?!\w)", question, re.I
-            ):
-                hits.append((match.start(), match.end(), player))
-    # Keep longest names rather than resolving a surname inside a full name.
-    hits = [
-        h
-        for h in hits
-        if not any(
-            x[0] <= h[0] and x[1] >= h[1] and x[1] - x[0] > h[1] - h[0] for x in hits
-        )
-    ]
-    spans = {}
-    for start, end, player in hits:
-        spans.setdefault((start, end), {})[player["player_id"]] = player
-    if any(len(matches) != 1 for matches in spans.values()):
-        raise SemanticError(
-            "clarification_required",
-            "Please give both players’ full names; an alias matches more than one player.",
-        )
-    selected = {}
-    for (start, end), matches in sorted(spans.items(), reverse=True):
-        player = next(iter(matches.values()))
-        selected[player["player_id"]] = player
-        question = question[:start] + f" PLAYER{player['player_id']} " + question[end:]
-    question = re.sub(r"(PLAYER\d+)(?:\s+\1)+", r"\1", question)
-    return " ".join(question.lower().split()), selected
 
 
 @timed("identity")
@@ -217,11 +163,9 @@ def parse_request(question, players, season, previous=None, teams=()):
             raise SemanticError("invalid_scope", "Start date must precede end date.")
         request.update(start=start, end=end)
         text = text[: dates.start()] + " " + text[dates.end() :]
-    regular = bool(re.search(r"\bregular[ -]season\b", text))
-    playoffs = bool(re.search(r"\b(?:playoffs?|postseason)\b", text))
+    phase = explicit_phase(text, include_both_cues=False, separated_postseason=False)
     if (
-        regular
-        and playoffs
+        phase == "Both"
         and re.search(r"\b(?:compare|versus|vs)\b", text)
         and not re.search(r"\b(?:both|including|combined)\b", text)
     ):
@@ -229,16 +173,10 @@ def parse_request(question, players, season, previous=None, teams=()):
             "unsupported_scope",
             "A phase-versus-phase comparison requires separate analyses; the phases were not pooled.",
         )
-    if regular or playoffs:
+    if phase:
         request["explicit_phase"] = True
-        request["phase"] = (
-            "Both"
-            if regular and playoffs
-            else "Regular Season"
-            if regular
-            else "Playoffs"
-        )
-        text = re.sub(r"\bregular[ -]season\b|\b(?:playoffs?|postseason)\b", " ", text)
+        request["phase"] = phase
+        text = re.sub(rf"{REGULAR_SEASON_CUE}|{PLAYOFFS_CUE}", " ", text)
     venues = []
     for pattern, venue in [
         (r"\bat home\b|\bhome games\b", "home"),
@@ -263,12 +201,7 @@ def parse_request(question, players, season, previous=None, teams=()):
             )
         request["opponent"] = abbreviation
         text = text[: opponent.start()] + " " + text[opponent.end() :]
-    metrics = []
-    for key, pattern in METRICS.items():
-        pattern = r"(?<!\w)(?:" + pattern + r")(?!\w)"
-        if re.search(pattern, text):
-            metrics.append(key)
-            text = re.sub(pattern, " ", text)
+    text, metrics = extract_metrics(text)
     if metrics:
         request["metrics"] = metrics
     if re.search(r"\btotal\w*\b", text) and re.search(
@@ -549,6 +482,27 @@ def render_answer(result, players):
     )
 
 
+def _invalid_availability_evidence(trace):
+    logging.getLogger(__name__).exception(
+        "Availability evidence or request validation failed"
+    )
+    return refusal(
+        "Availability evidence or scope could not be validated. No overall statistics were substituted.",
+        code="invalid_availability_evidence",
+        trace=trace,
+    )
+
+
+def precheck_availability_route(path, trace=None):
+    # Check the availability attachment before parsing identity and scope.
+    try:
+        return load_availability(path), None
+    except SemanticError as exc:
+        return None, refusal(str(exc), code=exc.code, trace=trace)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, _invalid_availability_evidence(trace)
+
+
 def answer_availability(agent, question, conversation_id=None, trace=None):
     if trace:
         trace.route = "availability"
@@ -562,7 +516,11 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
                 (turn.context for turn in reversed(turns) if turn.context), {}
             )
             previous = context.get("availability_scope")
-        loaded = load_availability(agent.settings.research_availability_path)
+        loaded, precheck_refusal = precheck_availability_route(
+            agent.settings.research_availability_path, trace
+        )
+        if precheck_refusal is not None:
+            return precheck_refusal
         players = source_players(loaded[1])
         selected_season = requested_seasons(
             question, (previous or {}).get("season", agent.settings.season)
@@ -654,11 +612,4 @@ def answer_availability(agent, question, conversation_id=None, trace=None):
     except SemanticError as exc:
         return refusal(str(exc), code=exc.code, trace=trace)
     except (OSError, ValueError, KeyError, TypeError):
-        logging.getLogger(__name__).exception(
-            "Availability evidence or request validation failed"
-        )
-        return refusal(
-            "Availability evidence or scope could not be validated. No overall statistics were substituted.",
-            code="invalid_availability_evidence",
-            trace=trace,
-        )
+        return _invalid_availability_evidence(trace)

@@ -1,7 +1,9 @@
 """Route labels on every Ask path, their persistence, and the routing evaluator."""
 
 import json
+from collections import Counter
 from dataclasses import replace
+from functools import wraps
 from pathlib import Path
 
 import pytest
@@ -490,6 +492,56 @@ def test_evaluator_reports_a_route_for_every_fixture_question(mode):
     m3 = by_id[("m3_teammate_impact_phrase", 0)]
     assert m3["actual"]["ask_route"]["route"] == "teammate_study_v1"
     assert m3["forbidden_hits"] and m3["wrong_path_refusal"]
+
+
+def test_current_evaluator_shares_handler_prechecks_and_matches_ask_labels(monkeypatch):
+    from app.agent import availability_ask, research_ask, teammate_ask
+    from app.agent.semantic_answer import SemanticAsk
+
+    calls = Counter()
+
+    def watch(owner, name):
+        precheck = getattr(owner, name)
+
+        @wraps(precheck)
+        def recorded(*args, **kwargs):
+            calls[name] += 1
+            return precheck(*args, **kwargs)
+
+        monkeypatch.setattr(owner, name, recorded)
+
+    shared_prechecks = (
+        (availability_ask, "precheck_availability_route"),
+        (research_ask, "precheck_research_route"),
+        (teammate_ask, "precheck_teammate_study_route"),
+        (SemanticAsk, "precheck_semantic_route"),
+    )
+    for owner, name in shared_prechecks:
+        watch(owner, name)
+
+    expected_calls = {name for _, name in shared_prechecks}
+    current = routing.evaluate(FIXTURE, mode="current")
+    assert set(calls) == expected_calls
+    assert routing.summarize(current)["model_calls"] == 0
+    calls.clear()
+    ask = routing.evaluate(FIXTURE, mode="ask")
+    assert set(calls) == expected_calls
+
+    for preview, executed in zip(current, ask, strict=True):
+        assert (preview["id"], preview["variant"]) == (
+            executed["id"],
+            executed["variant"],
+        )
+        assert (
+            preview["actual"]["ask_route"]["route"]
+            == executed["actual"]["ask_route"]["route"]
+        ), (preview["id"], preview["variant"])
+        assert preview["route_correct"] == executed["route_correct"]
+        assert not preview["scope_drop"] and not executed["scope_drop"]
+
+    # The fixture's catalog metadata alone cannot establish published study coverage.
+    pair = next(row for row in current if row["id"] == "control_study_pair_absence")
+    assert pair["actual"]["ask_route"]["reason_code"] == "study_coverage_missing"
 
 
 def test_scoring_rules():

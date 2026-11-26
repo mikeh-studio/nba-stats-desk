@@ -581,9 +581,11 @@ drops** (a forbidden route whose outcome is an answer or unknown), forbidden-rou
 hits, wrong-path refusals (a refusal or clarification from the wrong route) and
 misroutes with unknown outcomes. A `research` label matches an expected
 `research_breakdown` or `teammate_study` and is counted separately. `--fail-under`
-and `--max-scope-drops` turn the summary into a gate. The frozen fixture has no v3
-study catalog, so `ask` mode reads every study as coverage pending. Fixture
-results are not live-warehouse or browser evidence.
+and `--max-scope-drops` turn the summary into a gate. Both modes run the same
+handler prechecks against the same attachments. The frozen fixture has no reviewed
+v3 study catalog, so both modes treat v3 study coverage as pending. The focused
+dispatch test compares route labels across all fixture phrasings. These reports
+measure frozen-fixture behavior.
 
 ## Offline execution-policy QA
 
