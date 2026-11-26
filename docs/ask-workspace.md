@@ -56,6 +56,7 @@ before rendering, even when a provider returns output outside the schema.
 | Configuration / route | User-visible factual output |
 | --- | --- |
 | Default `BigQueryWarehouseRepository`, or an explicitly supplied semantic warehouse | `StatsAgent` selects governed metrics, overview, comparisons, splits, reference, availability or research handlers. Their statistics and factual summaries are deterministic; failed governed requests do not enter compatibility narration. |
+| Production composition with an authorized current release | Standard governed Ask reads verified current player facts through the publication reader. The answer identifies the release, dates and phase. Historical-only questions continue through the archive. A follow-up keeps its original release and withholds facts if that release becomes unavailable. |
 | `RESEARCH_STUDIES_PATH` / research snapshots | Published catalog and breakdown handlers validate scope and render from evidence. Optional visualization chooses a verified chart candidate, not new values. |
 | `AGENT_TEAMMATE_STUDY_PATH`, when not replaced by that pair's published catalog entry | `teammate_study_v1` uses the model only to select scope. The server renders the frozen assists study, table and uncertainty notice. |
 | Injected non-BigQuery repository with no semantic warehouse | The final `legacy_repository` route retains `_answer_from_evidence` and the compatibility tool loop in `service.py`. These can publish model-authored prose/tables, including streamed prose. External usage is unknown; this route is not universally fact-governed. |
@@ -292,10 +293,12 @@ Opening a result restores the stored response payload without rerunning queries.
 The latest saved response with an unsuccessful status is labeled as saved and
 offers “Run this question again.” Only clicking that action submits a new request;
 it appends the new result in the same conversation and preserves the old response.
-All questions and responses remain visible in chronological order, with each
-response owning its profile, methodology, tables, and interactive charts.
+All questions and responses remain visible in chronological order. Profiles,
+tables, interactive charts, and known sources stay with their responses, including
+when opening recorded answers.
 Follow-ups are read by scrolling; there is no question-review dropdown.
-Suggestions fill the bottom follow-up composer without submitting.
+Suggestions fill the bottom follow-up composer. **Show scoring game by game**
+submits the scoped game-log request directly.
 
 Each tab, including an empty draft, receives its own conversation UUID at creation.
 Drafts, pending requests, errors, and answers belong to that conversation. Switching
@@ -374,11 +377,14 @@ Saved responses retain their original text; new requests use this presentation.
 Governed player overviews use the same evidence for the overall assessment,
 up to three visible Key Takeaways, eleven primary metrics (six or nine for focused
 profiles) and an adaptive performance chart. The server-written Overall sits
-above icon takeaway cards and the compact metrics table; the performance chart
-is collapsed until opened. The chart starts with the requested
-focus metric, or PTS for general overviews; PTS/REB/AST/STL/BLK
-controls switch the series. Other Ask intents retain their original answer and
-table/chart renderers instead of receiving invented overview insights.
+above icon takeaway cards and the compact metrics table. The performance chart
+opens on demand and starts with the requested focus metric, or PTS for a
+general overview. PTS/REB/AST/STL/BLK controls switch the series. The table shows
+League % and change columns when verified values are available. Average cells
+carry metric samples and distribution controls explain the eligible cohort.
+
+Focused publication reports appear above the standard metrics. The comparison
+period and evidence disclosures sit alongside the metrics they describe.
 
 Broad overviews select up to three evidence-backed findings rather than narrating
 every metric. Scoring links personal-baseline changes with shot volume, true
@@ -456,6 +462,55 @@ ID using the question and answer. It cannot supply values, code, SQL, or new dat
 A single candidate needs no model call. Selection failure logs a safe error type
 and uses the first evidence-ranked candidate without failing the answer.
 
+Player scoring-breakdown requests lead with the largest scoring source or the
+tied leaders. They compare production on fewer makes when the recorded shots
+support that relationship. A single 100% stacked bar shows the share from
+two-pointers, three-pointers and free throws. The ranked table gives each
+source's points, share of total points and points per game. Shares and the bar
+are unavailable when the player scored zero total points.
+Each appearance's made shots must reconcile with the recorded points. Missing
+or conflicting counts withhold the composition and leave verified game-log
+evidence available.
+
+**Show scoring game by game** keeps the prior player, dates and filters unless
+the user changes the scope. The follow-up presents the game high, chronological
+table and line chart. The scoring composition covers the full scope and the log
+shows at most the latest 100 appearances. Game IDs and other source fields
+remain available in the log.
+
+A named matchup and exact date in a question about what stood out in a player's
+rebounding uses the same governed game log. The answer gives the recorded total
+and shows the offensive and defensive split when the counts reconcile. Any
+pregame comparison uses earlier recorded appearances in the same season and
+phase from the same source. A rebound total supplied in the question is
+verified against the box score.
+
+An exact-game question such as “How did Wembanyama play yesterday?” opens the
+single-game report. “Yesterday” and “last night” mean the previous date on the
+NBA Eastern calendar. An explicit date and opponent select that matchup. If
+the authorized source lacks the requested date, Ask reports the coverage gap
+and keeps the original request.
+
+The report leads with a noteworthy category and the verified outcome when
+available. It compares the player's box score with earlier recorded appearances
+in the same season and phase, excluding the game under analysis. Team shares,
+the opponent comparison and both played rosters require complete participant
+membership and exact reconciliation with the published final score. The
+offensive rebound comparison shows the player-credited counts and the formula
+alongside both teams' rates. The roster disclosure opens both teams' played
+box scores, sorted by the stat that leads the analysis. The rebounds view
+includes the offensive and defensive split.
+Game-by-game follow-ups use all opponents from the same source and phase through
+the date of the analyzed game.
+
+A follow-up asking for more of the player's stats opens the standard overview
+with the same publication and date cutoff. If a default full-period baseline
+falls outside a verified release, the overview can show **Recent change**
+separately. It compares the last two nonoverlapping seven-day periods inside
+the report dates and requires at least two appearances in each period. Changes
+are withheld for metrics with missing components or unusable denominators. The
+overall averages, chart and qualified league cohort keep the primary dates.
+
 Charts include their units, scope, a short description, and an explanation of the
 chart choice. Hover, tap, and keyboard focus expose value/sample details. Bar scales
 include zero and preserve negative values; missing values are never zero-filled.
@@ -463,12 +518,15 @@ Long category labels wrap without truncating player names or availability status
 and chart rows grow to keep labels separate at desktop and narrow widths.
 Unsupported answers and evidence without a suitable chart remain text/table-only.
 Existing specialized player overview/comparison charts retain their own rendering.
+Single-game reports use a matchup comparison where the evidence supports it.
+An overview with one chart bucket keeps its metric switcher and reports the
+period's value and sample size as text.
 
-The collapsed header panel **Source & Coverage** combines publication status and
-asset coverage with the selected answer's scope, assumptions, and metric
-definitions. Opening a saved chat shows its latest response details; starting a new
-chat clears them. Answers no longer repeat a Methodology & data disclosure.
-Material interpretation caveats remain in the answer and chart descriptions.
+**Sources** on a publication answer or game log shows recorded provenance and
+links where available. A game report can show the accepted result identifier and
+publication-pinned matchup, raw box-score rows, and player game log. The
+header **Source & Coverage** panel shows publication status, asset coverage and
+the current answer context. Material interpretation caveats stay with the relevant values.
 
 Teammate answers include group averages, absolute differences, and relative changes
 using unrounded averages with the both-played group as baseline. Relative changes

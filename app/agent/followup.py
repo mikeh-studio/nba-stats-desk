@@ -70,6 +70,12 @@ def analysis_context(question: str, payload: dict[str, Any]) -> dict[str, Any]:
     route = (payload.get("ask_route") or {}).get("route")
     if context and route:
         context["route"] = route
+    if (
+        context
+        and successful_analysis(payload)
+        and (pin := payload.get("publication_id"))
+    ):
+        context["publication_id"] = pin
     return context
 
 
@@ -285,6 +291,9 @@ def resolve_followup(
             flags=re.I,
         )
     scope = context.get("scope", {})
+    if context.get("analysis_type") in {"game_log", "game_performance"}:
+        # Canonical date and phase clauses are part of this scoped request.
+        resolved = resolved.rstrip("?.! ")
     from app.agent.game_filters import (
         extract_game_filters,
         filter_question,
@@ -323,6 +332,17 @@ def resolve_followup(
                 and season_bounds(season)[0] <= date.fromisoformat(end)
                 and season_bounds(season)[1] >= date.fromisoformat(start)
             ]
+        elif (
+            continues_analysis
+            and context.get("analysis_type") == "game_log"
+            and scope.get("window") == "season_to_date"
+            and scope.get("season")
+            and end
+        ):
+            from app.agent.performance_overview import wants_overview
+
+            if wants_overview(resolved):
+                resolved += f" {scope['season']} as of {end}"
     if not re.search(r"\b(?:playoffs?|postseason|regular[ -]season)\b", question, re.I):
         phases = scope.get("phases") or (
             [scope["season_type"]] if scope.get("season_type") else []

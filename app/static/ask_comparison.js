@@ -49,7 +49,7 @@ export function comparisonPresentation(payload) {
     payload.player_profiles?.length !== 2
   )
     return null;
-  const profiles = payload.player_profiles;
+  const profiles = payload.player_profiles.map(profile => publicationPlayerProfile(profile, payload));
   const names = profiles.map((p) => p.player.player_name);
   const { tags, surnames } = shortNames(names);
   const metrics = evidence.metrics;
@@ -217,21 +217,78 @@ export function comparisonAnswer(view) {
   return `<div class="result-layout"><div class="result-verdict"><p class="result-label">Comparison summary</p><p class="verdict-text">${esc(view.verdict.text)} <span class="verdict-note">${esc(view.verdict.note)}</span></p></div><p class="meta area-note">Similar rates receive equal emphasis. Small gaps and rounded ties do not support a player-quality judgment.</p><div class="result-areas">${areas}</div>${takeaways}</div>`;
 }
 
+export function publicationPlayerProfile(profile, payload) {
+  if (!payload.publication_id) return profile;
+  const coverage = payload.source_coverage;
+  const evidence = payload.semantic_evidence;
+  const playerId = profile.player?.player_id;
+  const game = playerId != null && evidence?.player?.player_id === playerId ? evidence.game : null;
+  const scope = [evidence?.current?.scope, evidence?.baseline?.scope]
+    .find(section => section?.player_id === playerId) || evidence?.scope;
+  const publication = {
+    ...profile,
+    publication_id: payload.publication_id,
+    profile_season: coverage?.season || game?.season || scope?.season ||
+      (scope?.seasons?.length === 1 ? scope.seasons[0] : profile.profile_season),
+  };
+  if (game?.game_id) return {...publication, game_id: game.game_id};
+
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  let first = profile.first || scope?.start || scope?.window_start || scope?.start_date;
+  let last = profile.last || scope?.end || scope?.window_end || scope?.as_of;
+  if (!first && scope?.window === "season_to_date") first = coverage?.first;
+  if (datePattern.test(first) && datePattern.test(last)) {
+    if (datePattern.test(coverage?.first) && first < coverage.first) first = coverage.first;
+    if (datePattern.test(coverage?.last) && last > coverage.last) last = coverage.last;
+    if (first <= last) return {...publication, first, last};
+  }
+  return publication;
+}
+
+export function askProfileHref(profile) {
+  const url = String(profile.profile_url || "");
+  if (!/^\/players\/\d+$/.test(url)) return "";
+  const seasonPattern = /^20[0-9]{2}-[0-9]{2}$/;
+  if (profile.publication_id == null) return url;
+  if (!/^pub_[0-9a-f]{16}$/.test(profile.publication_id) || !seasonPattern.test(profile.profile_season)) return "";
+  const query = new URLSearchParams({
+    season: profile.profile_season,
+    publication_id: profile.publication_id,
+  });
+  if (profile.game_id != null) {
+    if (!/^[0-9]{10}$/.test(profile.game_id)) return "";
+    query.set("game_id", profile.game_id);
+  } else if (profile.first != null || profile.last != null) {
+    const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+    if (!datePattern.test(profile.first) || !datePattern.test(profile.last) || profile.first > profile.last) return "";
+    query.set("first", profile.first);
+    query.set("last", profile.last);
+  }
+  return `${url}?${query}`;
+}
+
+export function askAvatarMarkup(initials, headshotUrl) {
+  return headshotUrl
+    ? `<img src="${esc(headshotUrl)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback" hidden>${esc(initials)}</span>`
+    : `<span class="player-avatar-fallback">${esc(initials)}</span>`;
+}
+
 function profileCard(profile, side) {
   const player = profile.player || {};
   const name = player.player_name || "Player";
   const initials = name.split(/\s+/).map((p) => p[0] || "").join("").slice(0, 2).toUpperCase();
-  const url = /^\/players\/\d+$/.test(String(profile.profile_url || "")) ? profile.profile_url : "";
+  const url = askProfileHref(profile);
   const meta = [
     player.team_abbr,
     `${player.games_sampled || 0} GP`,
     Number.isFinite(profile.minutes_per_game) ? `${profile.minutes_per_game.toFixed(1)} MPG` : "",
     player.overall_rank ? `Rank #${player.overall_rank}` : "",
   ].filter(Boolean);
-  const avatar = player.headshot_url
-    ? `<img src="${esc(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback" hidden>${esc(initials)}</span>`
-    : `<span class="player-avatar-fallback">${esc(initials)}</span>`;
-  return `<article class="compare-card compare-card-${side}"><div class="player-avatar" aria-hidden="true">${avatar}</div><div class="compare-card-copy"><h3>${esc(name)}</h3><p class="meta">${meta.map(esc).join(" · ")}</p></div>${url ? `<a href="${esc(url)}">Profile</a>` : ""}</article>`;
+  const avatar = askAvatarMarkup(initials, player.headshot_url);
+  const portrait = url
+    ? `<a class="player-avatar ask-profile-avatar" href="${esc(url)}" aria-label="Open ${esc(name)}’s profile">${avatar}</a>`
+    : `<div class="player-avatar" aria-hidden="true">${avatar}</div>`;
+  return `<article class="compare-card compare-card-${side}">${portrait}<div class="compare-card-copy"><h3>${esc(name)}</h3><p class="meta">${meta.map(esc).join(" · ")}</p></div>${url ? `<a href="${esc(url)}">Profile</a>` : ""}</article>`;
 }
 
 export function comparisonProfiles(view) {

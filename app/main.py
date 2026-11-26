@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from collections.abc import MutableMapping
 from contextlib import asynccontextmanager
@@ -81,11 +82,16 @@ from app.seasons import (
 )
 from app.security import is_direct_local, rate_limit_identity, require_local_history
 from app.serving.contract import ServingError
+from app.serving.published_player import (
+    PublishedPlayerGameNotFound,
+    PublishedPlayerScope,
+    player_search_items,
+)
 from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261120-ui-modernization-v1"
+STATIC_VERSION = "20261126-ask-saved-retry"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -220,7 +226,19 @@ class PriorAward(BaseModel):
     performance_phase: Literal["Regular Season", "Playoffs", "Finals"]
 
 
+class PriorPublicationIdentity(PriorPlayer):
+    mention: str = Field(min_length=1, max_length=80)
+
+
 class PriorAnalysis(BaseModel):
+    restore_publication_clarification: Literal[True] | None = None
+    publication_id: str | None = Field(default=None, pattern=r"^pub_[0-9a-f]{16}$")
+    publication_identity_choices: list[PriorPublicationIdentity] | None = Field(
+        default=None, max_length=6
+    )
+    publication_comparison_choices: (
+        dict[Literal["0", "1"], Annotated[int, Field(ge=1)]] | None
+    ) = Field(default=None, max_length=2)
     question: str = Field(min_length=1, max_length=4000)
     players: list[PriorPlayer] = Field(default_factory=list, max_length=2)
     scope: PriorScope = Field(default_factory=PriorScope)
@@ -237,6 +255,8 @@ class PriorAnalysis(BaseModel):
             "appearances",
             "player_split",
             "derived_series",
+            "game_log",
+            "game_performance",
         ]
         | None
     ) = None
@@ -358,6 +378,36 @@ app.mount(
 )
 agent_logger = logging.getLogger(LOGGER_NAME)
 
+_PLAYER_PAGE_PATH = re.compile(r"/players/\d+(?:/content)?$")
+
+
+async def _published_player_request(request: Request, path: str):
+    if (
+        request.method != "GET"
+        or request.scope.get("offline_pts_candidate")
+        or (
+            path not in {"/players", "/api/players/search"}
+            and not _PLAYER_PAGE_PATH.fullmatch(path)
+        )
+    ):
+        return False
+    state = request.app.state
+    if not getattr(state, "production_publication_enabled", False):
+        return False
+    # Explicit publication links stay on the publication path even in legacy mode.
+    pinned = bool(_PLAYER_PAGE_PATH.fullmatch(path)) and (
+        "publication_id" in request.query_params or "game_id" in request.query_params
+    )
+    if (
+        not pinned
+        and request.query_params.get("season", DEFAULT_SEASON) != DEFAULT_SEASON
+    ):
+        return False
+    reader = getattr(state, "publication_player_mode", None)
+    mode = await reader() if reader else None
+    request.scope["published_player_mode"] = mode
+    return pinned or mode != "legacy"
+
 
 class SeasonMiddleware:
     """Keep season context through actual delivery without buffering responses."""
@@ -370,11 +420,16 @@ class SeasonMiddleware:
             await self.app(scope, receive, send)
             return
         request = Request(scope)
+        path = request.url.path.rstrip("/")
+        published_player = await _published_player_request(request, path)
+        if published_player:
+            scope["published_player_read"] = True
         # Historical scope belongs to Ask questions or explicit API reads, not tabs.
         if (
             request.method == "GET"
             and not request.url.path.startswith(("/api/", "/static/"))
             and "season" in request.query_params
+            and not published_player
             and not scope.get("offline_pts_candidate", False)
         ):
             url = request.url.remove_query_params("season")
@@ -518,7 +573,14 @@ def _cached_repository(settings: Settings) -> BigQueryWarehouseRepository:
 
 def get_repository(
     settings: Annotated[Settings, Depends(get_settings)],
-) -> WarehouseRepository:
+    request: Request,
+) -> WarehouseRepository | None:
+    if request.scope.get("published_player_read"):
+        return None
+    return _warehouse_repository(settings)
+
+
+def _warehouse_repository(settings: Settings) -> WarehouseRepository:
     from app.agent.runtime_policy import get_runtime_policy
 
     runtime = get_runtime_policy()
@@ -529,6 +591,11 @@ def get_repository(
     repo = _cached_repository(settings_for_season(settings, current_season()))
     repo.active_three_point_leaders = getattr(
         app.state, "active_three_point_leaders", None
+    )
+    repo.ask_publication_source = (
+        getattr(app.state, "ask_publication_source", None)
+        if getattr(app.state, "production_publication_enabled", False)
+        else None
     )
     return repo
 
@@ -1108,6 +1175,7 @@ def _restore_agent_context(
                         # History saved before route labels has no ask_route.
                         route=(stored_payload.get("ask_route") or {}).get("route"),
                         candidates=stored_payload.get("clarification_options"),
+                        publication_id=stored_payload.get("publication_id"),
                     )
                 elif successful_analysis(stored_payload):
                     next_context = analysis_context(turn["question"], stored_payload)
@@ -1131,11 +1199,61 @@ def _restore_agent_context(
                         max_turns=settings.agent_conversation_max_turns,
                         context=recovered_context,
                     )
+    pending = store.get_pending_clarification(conversation_id)
+    if payload.previous_context and payload.previous_context.publication_id:
+        turns = store.get_turns(conversation_id, max_turns=1)
+        pinned = (turns[0].context.get("publication_id") if turns else None) or (
+            pending.publication_id if pending else None
+        )
+        if pinned and pinned != payload.previous_context.publication_id:
+            raise HTTPException(
+                409,
+                "This conversation uses a different publication. Start a new analysis to change sources.",
+            )
+    previous = payload.previous_context
+    if previous and previous.restore_publication_clarification:
+        if not previous.publication_id or previous.question != payload.question.strip():
+            raise HTTPException(
+                400,
+                "Saved clarification requires the original question and publication.",
+            )
+        same_prompt = (
+            pending
+            if pending
+            and pending.publication_id == previous.publication_id
+            and pending.question == previous.question
+            else None
+        )
+        pending_plan = (same_prompt.query_plan or {}) if same_prompt else {}
+        # Restore the prompt as pending work. Its choices will be checked against
+        # the pinned source before the planner can use them.
+        store.set_pending_clarification(
+            conversation_id,
+            question=previous.question,
+            query_plan={
+                "publication_retry": True,
+                "choices": pending_plan.get(
+                    "choices",
+                    {
+                        choice.mention: choice.model_dump(exclude_none=True)
+                        for choice in previous.publication_identity_choices or ()
+                    },
+                ),
+                "comparison_choices": pending_plan.get(
+                    "comparison_choices", previous.publication_comparison_choices
+                ),
+            },
+            route=same_prompt.route if same_prompt else None,
+            candidates=same_prompt.candidates if same_prompt else (),
+            publication_id=previous.publication_id,
+        )
+        return
     # Older chats exist only in browser storage. Recover bounded conversational
     # hints, never cached numbers, and never overwrite successful server state.
     if (
         payload.conversation_id
         and payload.previous_context
+        and not (pending and pending.publication_id and payload.selected_player_name)
         and not any(
             turn.context
             for turn in store.get_turns(
@@ -1234,19 +1352,39 @@ def api_rankings(
 
 
 @app.get("/api/players/search")
-def api_player_search(
-    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+async def api_player_search(
+    request: Request,
+    repo: Annotated[WarehouseRepository | None, Depends(get_repository)],
     settings: Annotated[Settings, Depends(get_settings)],
     q: str = Query(min_length=1, max_length=64),
-) -> dict:
+) -> Any:
     query = q.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Search query must not be blank")
-    return {
-        "season": current_season(),
-        "query": query,
-        "items": repo.search_players(query, limit=settings.max_search_results),
-    }
+    season = current_season()
+    if request.scope.get("published_player_read"):
+        if request.scope.get("published_player_mode") != "production":
+            raise HTTPException(503, "Published player search is unavailable.")
+        try:
+            release = await request.app.state.publication_search(query, season)
+            items = player_search_items(release, season, settings.max_search_results)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise HTTPException(
+                503, "Published player search is unavailable."
+            ) from None
+        return JSONResponse(
+            {"season": season, "query": query, "items": items},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Publication-ID": release["publication_id"],
+            },
+        )
+
+    assert repo is not None
+    items = await run_in_threadpool(
+        repo.search_players, query, limit=settings.max_search_results
+    )
+    return {"season": season, "query": query, "items": items}
 
 
 @app.get("/api/players/{player_id}")
@@ -1372,6 +1510,14 @@ def player_shell(
         return _CandidateResponse(
             page, candidate, (season,), payload=value, media_type="text/html"
         )
+    published = bool(request.scope.get("published_player_read"))
+    publication_scope = None
+    if published:
+        try:
+            publication_scope = PublishedPlayerScope.from_request(player_id, request)
+        except ValueError:
+            pass
+
     # No repository dependency: navigation never waits for warehouse queries.
     return templates.TemplateResponse(
         request,
@@ -1379,21 +1525,75 @@ def player_shell(
         {
             "request": request,
             "page_title": "Player profile",
-            "season": current_season(),
+            "season": publication_scope.season
+            if publication_scope
+            else current_season(),
             "player_id": player_id,
-            "production_publication_enabled": getattr(
-                request.app.state, "production_publication_enabled", False
-            ),
+            "published_profile": published,
+            "publication_scope": publication_scope,
         },
+        status_code=404 if published and publication_scope is None else 200,
+        headers={"Cache-Control": "no-store"} if published else None,
+    )
+
+
+async def _published_player_page(
+    player_id: int,
+    request: Request,
+) -> Response:
+    status = 200
+    profile = None
+    headers = {"Cache-Control": "no-store"}
+    try:
+        scope = PublishedPlayerScope.from_request(player_id, request)
+    except ValueError:
+        status = 404
+    else:
+        read_player = getattr(request.app.state, "publication_player", None)
+        try:
+            if (
+                read_player is None
+                or request.scope.get("published_player_mode") != "production"
+            ):
+                raise ValueError("Published player reader unavailable")
+            release = await read_player(player_id, scope.season, scope.publication_id)
+            profile = scope.view(release)
+            headers["X-Publication-ID"] = profile["publication_id"]
+        except HTTPException as exc:
+            status = 404 if exc.status_code == 404 else 503
+        except PublishedPlayerGameNotFound:
+            status = 404
+        except Exception:
+            app_logger.warning("Published player release unavailable")
+            status = 503
+    return templates.TemplateResponse(
+        request,
+        "published_player.html",
+        {"profile": profile},
+        status_code=status,
+        headers=headers,
     )
 
 
 @app.get("/players/{player_id}/content", response_class=HTMLResponse)
-def player_page(
+async def player_page(
     player_id: int,
     request: Request,
-    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    repo: Annotated[WarehouseRepository | None, Depends(get_repository)],
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
+) -> Response:
+    if request.scope.get("published_player_read"):
+        return await _published_player_page(player_id, request)
+    return await run_in_threadpool(
+        _standard_player_page, player_id, request, repo, candidate
+    )
+
+
+def _standard_player_page(
+    player_id: int,
+    request: Request,
+    repo: WarehouseRepository | None,
+    candidate: Any | None,
 ) -> Response:
     if candidate is not None:
         season = _candidate_season(request)
@@ -2421,7 +2621,12 @@ def research_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         request,
         "research.html",
-        {"request": request, "page_title": "Players", "season": current_season()},
+        {
+            "request": request,
+            "page_title": "Players",
+            "season": current_season(),
+            "published_player_search": bool(request.scope.get("published_player_read")),
+        },
     )
 
 
@@ -2434,7 +2639,9 @@ def research_players(
 
     _check_research_rate_limit(request, settings)
     try:
-        repo = None if settings.research_snapshot_path else get_repository(settings)
+        repo = (
+            None if settings.research_snapshot_path else _warehouse_repository(settings)
+        )
         evidence, used = available_research(
             settings,
             repo,
@@ -2474,7 +2681,9 @@ def research_breakdown(
         raise HTTPException(400, "Request body and selected season disagree")
     _check_research_rate_limit(request, settings)
     try:
-        repo = None if settings.research_snapshot_path else get_repository(settings)
+        repo = (
+            None if settings.research_snapshot_path else _warehouse_repository(settings)
+        )
         evidence, used = available_research(
             settings,
             repo,

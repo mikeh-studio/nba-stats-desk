@@ -1,4 +1,4 @@
-import { seasonFetch, withSeason } from "./season.js";
+import { playerSearchHref, seasonFetch, withSeason } from "./season.js";
 function escHtml(str) {
   return String(str ?? "")
     .replace(/&/g, "&amp;")
@@ -528,7 +528,7 @@ function renderPlayerSearchResult(player) {
   const team = player.latest_team_abbr || "NBA";
   const games = player.games_sampled ? `${player.games_sampled} games` : "5+ games";
   return `
-    <button class="player-search-result" type="button" data-player-id="${escHtml(player.player_id)}">
+    <button class="player-search-result" type="button" data-player-id="${escHtml(player.player_id)}" data-profile-url="${escHtml(playerSearchHref(player))}">
       ${renderHeadshot(player)}
       <span>
         <strong>${escHtml(player.player_name)}</strong>
@@ -554,7 +554,7 @@ async function runQualifiedPlayerSearch(formNode, query, { navigateFirst = false
     }
     const items = Array.isArray(data.items) ? data.items : [];
     if (navigateFirst && items[0]) {
-      globalThis.location.href = withSeason(`/players/${items[0].player_id}`);
+      globalThis.location.href = playerSearchHref(items[0]);
       return;
     }
     if (items.length === 0) {
@@ -566,7 +566,7 @@ async function runQualifiedPlayerSearch(formNode, query, { navigateFirst = false
     resultsEl.hidden = false;
     resultsEl.querySelectorAll("[data-player-id]").forEach((button) => {
       button.addEventListener("click", () => {
-        globalThis.location.href = withSeason(`/players/${button.dataset.playerId}`);
+        globalThis.location.href = button.dataset.profileUrl;
       });
     });
   } catch {

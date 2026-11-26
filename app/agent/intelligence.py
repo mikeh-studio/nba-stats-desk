@@ -977,12 +977,33 @@ def _plan_question(
     return plan
 
 
-def plan_question(client, *, question, conversation_context=None, **kwargs):
+def plan_question(
+    client, *, question, conversation_context=None, selected_player_name=None, **kwargs
+):
     """Bind host-parsed predicates without changing the optional provider ABI."""
     from app.agent.game_filters import extract_game_filters, filter_scope
+    from app.agent.game_performance import plan_game_performance
+    from app.agent.scoring_report import plan_report
+
+    if report := plan_game_performance(
+        question, kwargs["selected_season"], selected_player_name
+    ):
+        return report
 
     extracted = extract_game_filters(question, kwargs.get("players", ()))
     predicates = dict(extracted.query_fields)
+
+    report = plan_report(
+        extracted.cleaned_question,
+        kwargs["selected_season"],
+        conversation_context or {},
+        kwargs.get("dated_points_question"),
+        selected_player_name,
+    )
+    if report:
+        if not report.get("all_opponents_through_game"):
+            report["queries"][0].update(predicates)
+        return report
     from app.agent.derived_series import period_comparison_plan
 
     period_plan = period_comparison_plan(

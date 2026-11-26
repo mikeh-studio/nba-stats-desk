@@ -47,7 +47,9 @@ export function scopeLabel(scope) {
   const windows = {last_n_games:'games', last_n_days:'days', last_n_months:'calendar months'};
   if (windows[scope.window]) parts.push(`Last ${scope.n} ${windows[scope.window]}`);
   if (scope.window === 'date_range' && (scope.start_date || scope.window_start)) {
-    parts.push(`${displayDate(scope.start_date || scope.window_start)} – ${displayDate(scope.window_end || scope.as_of)}`);
+    const start = displayDate(scope.start_date || scope.window_start);
+    const end = displayDate(scope.window_end || scope.as_of);
+    parts.push(start === end || !end ? start : start + ' – ' + end);
   } else if (scope.as_of) parts.push(`Through ${displayDate(scope.as_of)}`);
   if (scope.team_abbr) parts.push(`Team: ${scope.team_abbr}`);
   if (scope.opponent_abbr) parts.push(`Against ${scope.opponent_abbr}`);

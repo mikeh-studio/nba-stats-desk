@@ -2,6 +2,7 @@ import {comparisonLead, comparisonStatus} from "../app/static/comparison_policy.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  askProfileHref,
   comparisonPresentation,
   comparisonTables,
   comparisonAnswer,
@@ -65,6 +66,48 @@ test("comparison keeps names and scope while hiding unavailable winning metrics"
   assert.match(comparisonProfiles(view), /Data through Jun 30, 2026/);
   assert.doesNotMatch(comparisonAnswer(view), /<b>|<not HTML>/);
   assert.equal(view.insights.length, 3);
+});
+
+test("published comparison portraits preserve question order and the same pinned dates", () => {
+  const payload = fixture();
+  const scope = {
+    publication_id: "pub_0123456789abcdef",
+    first: "2026-11-11",
+    last: "2026-11-17",
+  };
+  payload.publication_id = scope.publication_id;
+  payload.source_coverage = {season: "2026-27", first: "2026-10-20", last: "2026-11-20"};
+  Object.assign(payload.semantic_evidence.scope, {start: scope.first, end: scope.last, phases: ["Regular Season"]});
+  payload.player_profiles = payload.player_profiles.map((profile, index) => {
+    const playerId = index ? 1630178 : 1628973;
+    return {...profile, player: {...profile.player, player_id: playerId}, profile_url: `/players/${playerId}`};
+  });
+  const view = comparisonPresentation(payload);
+  const html = comparisonProfiles(view);
+  const portraits = [...html.matchAll(/ask-profile-avatar" href="([^"]+)"/g)];
+  const urls = portraits.map(match => new URL(match[1].replaceAll("&amp;", "&"), "http://example.test"));
+  assert.deepEqual(urls.map(url => url.pathname), ["/players/1628973", "/players/1630178"]);
+  for (const url of urls)
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      season: "2026-27", publication_id: scope.publication_id, first: scope.first, last: scope.last,
+    });
+  assert.equal(askProfileHref(view.profiles[0]), urls[0].pathname + urls[0].search);
+  assert.equal(askProfileHref({...view.profiles[0], publication_id: "expired"}), "");
+  assert.equal(askProfileHref({...view.profiles[0], last: null}), "");
+  assert.match(askProfileHref({...view.profiles[0], game_id: "0022600255"}), /game_id=0022600255$/);
+});
+
+test("appearance comparisons prefer the individual profile's dates", () => {
+  const payload = fixture();
+  payload.publication_id = "pub_0123456789abcdef";
+  payload.source_coverage = {season: "2026-27", first: "2026-10-20", last: "2026-11-17"};
+  Object.assign(payload.semantic_evidence.scope, {start: "2026-10-20", end: "2026-11-17", phases: ["Regular Season"]});
+  payload.player_profiles = payload.player_profiles.map((profile, index) => ({
+    ...profile, profile_url: `/players/${index + 100}`, first: "2026-11-01", last: `2026-11-0${index + 3}`,
+  }));
+  const links = comparisonPresentation(payload).profiles.map(askProfileHref);
+  assert.match(links[0], /first=2026-11-01&last=2026-11-03$/);
+  assert.match(links[1], /first=2026-11-01&last=2026-11-04$/);
 });
 
 test("summary describes recorded measures without aggregate winner meters", () => {

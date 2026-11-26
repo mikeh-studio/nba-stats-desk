@@ -31,6 +31,7 @@ class PendingClarification:
     # team_abbr). A short name reply resumes the pending question only when it
     # names one of them; empty for non-identity or older clarifications.
     candidates: tuple[dict[str, Any], ...] = ()
+    publication_id: str | None = None
 
 
 def clarification_candidates(options: Any) -> tuple[dict[str, Any], ...]:
@@ -79,6 +80,7 @@ class ConversationStore(Protocol):
         query_plan: dict[str, Any] | None,
         route: str | None = None,
         candidates: Any = (),
+        publication_id: str | None = None,
     ) -> None: ...
 
     def clear_pending_clarification(self, conversation_id: str) -> None: ...
@@ -163,6 +165,7 @@ class InMemoryConversationStore:
         query_plan: dict[str, Any] | None,
         route: str | None = None,
         candidates: Any = (),
+        publication_id: str | None = None,
     ) -> None:
         if not conversation_id:
             return
@@ -171,6 +174,7 @@ class InMemoryConversationStore:
             query_plan=query_plan,
             route=route,
             candidates=clarification_candidates(candidates),
+            publication_id=publication_id,
         )
         if defer_until_success(
             lambda: self.set_pending_clarification(
@@ -179,6 +183,7 @@ class InMemoryConversationStore:
                 query_plan=query_plan,
                 route=route,
                 candidates=pending.candidates,
+                publication_id=pending.publication_id,
             )
         ):
             policy = CURRENT.get()

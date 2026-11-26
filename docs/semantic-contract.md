@@ -107,6 +107,37 @@ playoff coverage. Cache identity includes source mode, relation configuration,
 phase scope and trusted policy, as well as seasons. Retrieval timestamp, count
 checks, checksum, null validation and truncation rejection still apply.
 
+The Cloud Run publication composition supplies the standard conversational Ask
+engine with the verified player facts from the authorized current release.
+Broad current-season summaries use the release's dates and phase. Explicit
+dated requests retain their scope and return an unavailable result when the
+release cannot cover it. Historical-only requests continue to use the ordinary
+archive. A current and historical comparison requires separate source lineage
+for each side and is unavailable through the single-release reader.
+
+Each publication-backed answer identifies the release and its coverage in
+`publication_id` and `source_coverage`. The conversation retains that release
+for subsequent analysis, including a player's selection after a clarification.
+A saved retry revalidates any earlier identity choices against that publication
+and asks for any choice the saved prompt could not recover. Ask validates the
+retained release against active authority before returning facts. A withdrawn, expired, or inaccessible release withholds the answer. An
+overview can summarize recorded games even when the publication
+lacks independent cohort completeness. League ranks and percentiles require a
+manifest-bound coverage certificate. The dedicated verified three-point
+leaderboard retains its separate qualification and release contract.
+
+For exact-game analysis, `game_performance/1` keeps the resolved player, game,
+publication, box-score metrics and pregame sample together. Each baseline uses
+the same player, season and phase before the selected game. Changes are
+computed at full precision and withheld for incomplete metrics. Optional
+both-team context verifies played participant membership and point totals
+against the published final score. Team shares sum player-credited counts.
+The offensive rebound rate is player-credited offensive rebounds divided by
+those rebounds plus the opponent's player-credited defensive rebounds. A
+missing roster, unreconciled rebound split or zero denominator withholds that
+comparison. Rebound component averages require reconciliation in every
+appearance in the pregame sample.
+
 Trusted server composition may install an immutable `SourcePolicy` before app
 lifespan with `configure_source_policy`, or propagate it through
 `source_policy_scope`. It binds season/relation pairs, canonical phases, snapshot

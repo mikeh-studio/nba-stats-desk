@@ -25,7 +25,7 @@ from app.agent.overview_positions import (
     requested_group,
 )
 from app.agent.overview_summary import game_insights, summary_paragraphs
-from app.agent.scope_policy import has_specific_metric
+from app.agent.scope_policy import absence_cue_text, has_specific_metric
 from app.agent.semantics import SemanticError, aggregate, load_contract
 from app.seasons import SEASONS, coverage_bounds, season_bounds
 
@@ -58,12 +58,18 @@ ABSENCE_MESSAGE = (
 
 def wants_overview(question):
     from app.agent.game_filters import extract_game_filters
+    from app.agent.game_performance import wants_game_performance
+    from app.agent.scoring_report import is_scoring_question
 
+    if wants_game_performance(question):
+        return False
     try:
         question = extract_game_filters(question).cleaned_question
     except SemanticError:
         return False  # The semantic scope guard supplies the exact refusal.
     original = peer_question(question.split("\nClarification:", 1)[0])
+    if is_scoring_question(original.partition("\nSelected player: ")[0]):
+        return False
     return (
         bool(
             re.search(
@@ -100,7 +106,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
     comparison = comparison if comparison is not None else comparison_intent(question)
     question = peer_question(question)
     question = question.replace("–", "-")
-    if ABSENCE_CUES.search(question):
+    if ABSENCE_CUES.search(absence_cue_text(question)):
         # Never return a full-period overview with the absence filter dropped.
         raise SemanticError("clarification_required", ABSENCE_MESSAGE)
     first = bool(re.search(r"\bfirst (?:two|2) appearances\b", question, re.I))
@@ -308,6 +314,8 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         first_appearances=2 if first else None,
         start=start,
         end=end,
+        explicit_start=bool(explicit or trailing or calendar_scope),
+        explicit_end=bool(explicit or trailing or calendar_scope or as_of),
         previous_start=previous_start,
         previous_end=previous_end,
         phases=phases,
@@ -415,6 +423,56 @@ def resolve_overview_player(question, players, rows, selected=None):
         if len(by_team_or_id) == 1:
             return by_team_or_id
     return candidates or mentioned(reply)
+
+
+def recent_comparison(rows, start, end, contract):
+    """Compare two covered weeks inside the primary period, never the full average."""
+    current_start = end - timedelta(days=6)
+    previous_start = current_start - timedelta(days=7)
+    previous_end = current_start - timedelta(days=1)
+    if previous_start < start:
+        return None
+    latest = [row for row in rows if str(row["game_date"]) >= str(current_start)]
+    prior = [
+        row
+        for row in rows
+        if str(previous_start) <= str(row["game_date"]) <= str(previous_end)
+    ]
+    if min(len(latest), len(prior)) < 2:
+        return None
+    metrics = []
+    for key, _ in METRICS:
+        metric = contract.metric(key)
+        now, before = (
+            aggregate(sample, metric, "average") for sample in (latest, prior)
+        )
+        metrics.append(
+            {
+                "key": key,
+                **now,
+                "previous": before,
+                "change": (
+                    now["value"] - before["value"]
+                    if now["value"] is not None
+                    and before["value"] is not None
+                    and not now["missing_component_games"]
+                    and not before["missing_component_games"]
+                    else None
+                ),
+                "unit": "per game",
+                "change_unit": "per game",
+            }
+        )
+    return {
+        "label": "Recent change",
+        "start": str(current_start),
+        "end": str(end),
+        "previous_start": str(previous_start),
+        "previous_end": str(previous_end),
+        "observed_games": len(latest),
+        "previous_appearances": len(prior),
+        "metrics": metrics + context_metrics(latest, prior),
+    }
 
 
 @timed("overview")
@@ -533,7 +591,15 @@ def build_overview(question, evidence, players, scope, selected=None):
     own = [r for r in current if r["player_id"] == player["player_id"]]
     prior = [r for r in previous if r["player_id"] == player["player_id"]]
     contract = load_contract()
-    baseline_covered = scope["previous_start"] >= season_bounds(SEASONS[-1])[0]
+    recent = (
+        recent_comparison(own, start, end, contract)
+        if scope.get("allow_recent_comparison")
+        else None
+    )
+    baseline_covered = (
+        scope.get("baseline_coverage_available", True)
+        and scope["previous_start"] >= season_bounds(SEASONS[-1])[0]
+    )
     for season in scope["seasons"]:
         for phase in scope["phases"]:
             bounds = coverage_bounds(season, phase)
@@ -755,11 +821,19 @@ def build_overview(question, evidence, players, scope, selected=None):
             f"Requested dates: {start} through {end}; {phase}. All matching available seasons are combined.",
             f"Comparison: {scope.get('comparison_label', str(scope['previous_start']) + ' through ' + str(scope['previous_end']))}."
             + (
-                " Baseline extends outside available archives; changes are unavailable."
+                (
+                    " The full-period baseline is outside the verified publication."
+                    if scope.get("baseline_coverage_available") is False
+                    else " Baseline extends outside available archives; changes are unavailable."
+                )
                 if not baseline_covered
                 else ""
             ),
-            f"Percentiles compare qualified players in the same dates and phases, with at least {contract.min_games} appearances and complete components. Shooting ranks require 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, or 50 3PA for 3P%. TOV ranks favor fewer turnovers; MIN describes exposure. Ties share the percentage of other qualified players strictly worse. These provisional project rules are not NBA official qualification.",
+            (
+                f"Percentiles compare qualified players in the same dates and phases, with at least {contract.min_games} appearances and complete components. Shooting ranks require 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, or 50 3PA for 3P%. TOV ranks favor fewer turnovers; MIN describes exposure. Ties share the percentage of other qualified players strictly worse. These provisional project rules are not NBA official qualification."
+                if evidence.cohort_complete
+                else "League ranks and percentiles are unavailable for this source."
+            ),
             f"Source: {evidence.source}; data through {max(evidence.data_through.values())}. No games or missing values are fabricated.",
             "Charts show "
             + (
@@ -770,6 +844,15 @@ def build_overview(question, evidence, players, scope, selected=None):
             + "; gaps without appearances are omitted.",
             "Shooting percentages use aggregate makes and attempts; percentage changes are percentage points. TS% uses the 0.44 free-throw approximation. Per-36 rates are descriptive, not causal effects.",
             *([filter_description(scope)] if predicates else []),
+            *(
+                [
+                    f"Recent change compares {recent['start']} through {recent['end']} "
+                    f"({recent['observed_games']} appearances) with {recent['previous_start']} "
+                    f"through {recent['previous_end']} ({recent['previous_appearances']} appearances)."
+                ]
+                if recent
+                else []
+            ),
         ],
         "metric_definitions": [
             {
@@ -796,6 +879,7 @@ def build_overview(question, evidence, players, scope, selected=None):
                 k: str(v) if isinstance(v, date) else v for k, v in scope.items()
             },
             "metrics": metrics + extra,
+            **({"recent_comparison": recent} if recent else {}),
             "game_ids": [r["game_id"] for r in own],
             "player_id": player["player_id"],
             "source": evidence.source,

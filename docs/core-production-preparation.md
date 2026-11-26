@@ -8,8 +8,9 @@ private producer or production state.
 
 ## What it serves
 
-Supported, self-contained Ask questions and selected Player, Compare and
-regular-season Performance views can use a pinned publication. Other questions and
+Supported current-season Ask questions and selected Player, Compare and
+regular-season Performance views can use a pinned publication. The Ask workspace
+uses its standard conversational API for publication and archive questions. Other questions and
 page features continue to use their existing data sources. The reader is not a
 full-app cutover. The current rolling contract covers the 2026–27 regular
 season. The [synthetic demo](core-offline-replay.md) demonstrates the
@@ -32,10 +33,9 @@ authorize a production release.
 
 A release must pass its scope, freshness, authority and integrity checks before
 it can serve. A failed candidate does not replace the current release, which
-remains usable only while its own validity and source authority hold. If a
-publication is unavailable, Ask can use its existing service after a publication
-503; affected publication sections show an unavailable state while existing page
-data remains available. Revoked, missing or expired authority prevents serving;
+remains usable only while its own validity and source authority hold. If the
+required publication is unavailable, Ask withholds the affected answer. Archive
+questions still use their own source. Revoked, missing or expired authority prevents serving;
 changing mode alone does not revoke a release. Authority changes can
 take up to 30 seconds to reach an individual process because of short-lived
 caches; expiry is checked against the current time, and a failed refresh does not
@@ -45,3 +45,13 @@ and does not accept caller-supplied warehouse relations or SQL.
 A fork needs its own permitted data, warehouse and authority configuration. The
 private operator runbook and environment-specific deployment details are not part
 of this public repository. See the [public/private boundary](public-private-boundary.md).
+
+## Publication-scoped player profiles
+
+With the production publication reader active, Player Profile can search players
+in the authorized release. Opening a profile from Ask carries the season and
+publication ID. A game link also carries the game ID, while a date-range link
+carries both dates. In appearance-based comparisons each player's link uses that
+player's selected dates. The profile labels the release-wide averages separately
+from the selected games. If the pinned publication or game is unavailable, the
+profile displays the requested scope and its unavailable state.

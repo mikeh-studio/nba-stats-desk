@@ -258,7 +258,26 @@ def execute_plan(
                     ) from exc
             else:
                 assert evidence is not None
-                result = run_query(evidence, queries[0])
+                result = run_query(
+                    evidence,
+                    queries[0],
+                    include_scoring_sources=bool(plan.get("include_scoring_sources")),
+                )
+            if evidence is not None and plan.get("include_game_performance"):
+                from app.agent.game_performance import build_game_performance
+
+                if len(result["rows"]) > 1:
+                    raise SemanticError(
+                        "clarification_required",
+                        "More than one appearance matches this date. Specify the opponent.",
+                    )
+                if report := build_game_performance(
+                    evidence,
+                    result,
+                    focus="reb" if queries[0].metric == "reb" else None,
+                    stated_rebounds=plan.get("stated_rebounds"),
+                ):
+                    result.update(report)
             if shadow is not None:
                 shadow.compare(queries[0], result)
         elif plan["status"] == "compare" and len(queries) == 2:

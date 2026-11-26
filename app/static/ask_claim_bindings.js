@@ -51,6 +51,37 @@ const suffix = (u) =>
         ? " /36"
         : "";
 const fmt = (v, u) => num(v) + (finite(v) && u === "percent" ? "%" : "");
+const baselineChangeField = metric => metric.sample ? "display_change" : "change";
+export const hasOverviewRank = metric => finite(metric.percentile) && metric.sample?.status !== "limited";
+export const recentOverviewRange = scope =>
+  `Recent comparison · ${date(scope.start)} – ${date(scope.end)} vs ${date(scope.previous_start)} – ${date(scope.previous_end)}`;
+export function overviewColumns(evidence, metrics) {
+  const recent = evidence.recent_comparison;
+  const recentAvailable = Array.isArray(recent?.metrics)
+    && recent.metrics.some(metric => finite(metric.change) && metrics.some(m => m.key === metric.key))
+    && ["start", "end", "previous_start", "previous_end"].every(key =>
+      /^\d{4}-\d{2}-\d{2}$/.test(recent[key]) && finite(Date.parse(recent[key])));
+  return {
+    league: metrics.some(hasOverviewRank),
+    change: metrics.some(metric => finite(metric[baselineChangeField(metric)]))
+      ? "baseline" : recentAvailable ? "recent" : null,
+  };
+}
+export function overviewChange(evidence, metric, mode) {
+  if (mode === "recent") {
+    const index = evidence.recent_comparison.metrics.findIndex(row => row.key === metric.key);
+    const recent = evidence.recent_comparison.metrics[index];
+    return recent
+      ? {value: recent.change, unit: recent.change_unit, path: ["recent_comparison", "metrics", index, "change"]}
+      : {};
+  }
+  const field = baselineChangeField(metric);
+  return {
+    value: metric[field],
+    unit: metric.change_unit || metric.unit,
+    path: Object.hasOwn(metric, field) ? [field] : null,
+  };
+}
 export function claimSource(document, path) {
   let v = document;
   for (const k of path) {
@@ -176,6 +207,8 @@ export function formatClaim(v, f, c = {}) {
       return finite(v)
         ? `${num(v, 1, true)} ${m.change_unit || m.unit || "per game"}`
         : "Comparison unavailable";
+    case "overview-recent-scope":
+      return recentOverviewRange(v);
     case "comparison-value":
       return (
         num(v) +
@@ -388,7 +421,16 @@ export function claimSchema(payload, component, options = {}) {
             .filter((i) => i >= 0)
         : e.metrics.map((_, i) => i),
       extra = e.metrics.map((_, i) => i).filter((i) => !primary.includes(i));
-    [primary, extra].forEach((indices, group) =>
+    const primaryColumns = overviewColumns(e, primary.map(i => e.metrics[i]));
+    [primary, extra].forEach((indices, group) => {
+      const columns = group ? overviewColumns(e, indices.map(i => e.metrics[i])) : primaryColumns;
+      const scopeSelector = group ? "[data-additional-metrics] > .metric-comparison" : ":scope > .metric-comparison";
+      if (!group || columns.change !== primaryColumns.change) {
+        if (columns.change === "baseline")
+          add(scopeSelector, base.concat("scope"), "overview-scope");
+        if (columns.change === "recent")
+          add(scopeSelector, base.concat("recent_comparison"), "overview-recent-scope");
+      }
       indices.forEach((i, ri) => {
         const m = e.metrics[i],
           p = base.concat("metrics", i),
@@ -396,31 +438,35 @@ export function claimSchema(payload, component, options = {}) {
         const s = `${group ? "[data-additional-metrics] " : ":scope > "}.table-scroll:has(> table.compact-metrics) tbody tr:nth-child(${ri + 1})`;
         add(s, p.concat("key"), "text", c, "data-metric-key");
         add(
-          `${s} > th > ${m.key === "ts_pct" ? "button" : "abbr"}`,
+          `${s} > th > ${m.key === "ts_pct" ? "[data-metric-help]" : "abbr"}`,
           p.concat("key"),
           "abbreviation",
           c,
         );
-        add(`${s} > td:nth-child(2)`, p.concat("value"), "overview-value", c);
+        add(`${s} > td[data-overview-average]`, p.concat("value"), "overview-value", c);
         add(
-          `${s} > td:nth-child(2)`,
+          `${s} > td[data-overview-average]`,
           p.concat("value"),
           "overview-value-aria",
           c,
           "aria-label",
         );
-        const change = m.sample ? "display_change" : "change";
-        if (Object.hasOwn(m, change)) {
-          add(`${s} > td:nth-child(4)`, p.concat(change), "change", c);
+        const change = overviewChange(e, m, columns.change);
+        if (columns.change && change.path) {
+          const source = (columns.change === "recent" ? base : p).concat(change.path);
+          const context = columns.change === "recent"
+            ? {...c, metric: e.recent_comparison.metrics[change.path[2]]}
+            : c;
+          add(`${s} > td[data-overview-change]`, source, "change", context);
           add(
-            `${s} > td:nth-child(4)`,
-            p.concat(change),
+            `${s} > td[data-overview-change]`,
+            source,
             "change-aria",
-            c,
+            context,
             "aria-label",
           );
         }
-        if (finite(m.percentile) && m.sample?.status !== "limited") {
+        if (columns.league && hasOverviewRank(m)) {
           add(
             `${s} meter`,
             p.concat("percentile"),
@@ -435,9 +481,8 @@ export function claimSchema(payload, component, options = {}) {
             c,
           );
         }
-      }),
-    );
-    add(":scope > .metric-comparison", base.concat("scope"), "overview-scope");
+      });
+    });
   }
   if (component === "comparison") {
     add(":scope > .metric-comparison", base.concat("scope"), "scope");

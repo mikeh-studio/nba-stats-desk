@@ -68,9 +68,18 @@ class NameSession:
     notices: list = field(default_factory=list)
     resolutions: list = field(default_factory=list)
     selected_ids: set = field(default_factory=set)
+    publication_id: str | None = None
+    restored_publication_clarification: bool = False
 
 
 _session: ContextVar[NameSession | None] = ContextVar("ask_name_matching", default=None)
+
+
+def identity_replay_scope() -> tuple[str | None, bool]:
+    session = _session.get()
+    if session is None:
+        return None, False
+    return session.publication_id, session.restored_publication_clarification
 
 
 def player_display_name(player):
@@ -213,18 +222,30 @@ def _spans(question, players):
     return sorted(set(spans))
 
 
-def prepare_names(question, players, *, strict=True, skip_not_found=False):
+def prepare_names(
+    question,
+    players,
+    *,
+    strict=True,
+    skip_not_found=False,
+    selected=None,
+    restored_choices=(),
+):
     """Resolve name spans against this route's roster, before planning/execution.
 
     strict=False is only for canonicalizing original wording in policy metadata,
     after the effective (possibly contextual) execution question was validated.
     skip_not_found=True lets host preflight inspect later candidate-bearing spans;
-    ordinary identity validation still rejects unknown names by default.
+    ordinary identity validation still rejects unknown names by default. A
+    restored option can resolve one ambiguous span if the source offers it.
     """
     session = _session.get()
     # Legacy selected-player paths pass the choice through their own roster
     # validation. The common request wrapper handles new clarifications.
     replacements = []
+    restored = {
+        normalize_player_text(choice["mention"]): choice for choice in restored_choices
+    }
     from app.agent.player_resolver import load_player_aliases
 
     aliases = load_player_aliases()
@@ -248,6 +269,20 @@ def prepare_names(question, players, *, strict=True, skip_not_found=False):
         key = normalize_player_text(raw)
         result = resolve_player_name(raw, roster)
         choice = session.choices.get(key) if session else None
+        if not choice and key in restored:
+            choice = restored[key]
+            if session:
+                session.choices[key] = choice
+        if not choice and selected and result["status"] == "clarification_required":
+            if any(
+                player["player_id"] == selected["player_id"]
+                and player["player_name"] == selected["player_name"]
+                for player in result["matches"]
+            ):
+                choice = selected
+                selected = None
+                if session:
+                    session.choices[key] = choice
         if choice:
             chosen = next(
                 (
@@ -423,6 +458,7 @@ def run_name_matching(
     )
     pending = store.get_pending_clarification(conversation_id) if store else None
     session = NameSession()
+    replay_choice = None
     from app.agent.routes import supersedes_pending
 
     if (
@@ -466,12 +502,17 @@ def run_name_matching(
                 and p["player_name"] == choice.get("player_name")
                 for p in candidates
             ):
+                replay_choice = choice
                 session.choices[
                     normalize_player_text(pending.query_plan["mention"])
                 ] = choice
                 # Allow a second preflight after the original spelling is replaced.
                 session.choices[normalize_player_text(choice["player_name"])] = choice
             question = pending.question
+            session.publication_id = pending.publication_id
+            session.restored_publication_clarification = bool(
+                pending.query_plan.get("restored_publication_clarification")
+            )
             if time_scope is not None:
                 time_scope.update(pending.query_plan.get("time_scope") or {})
             selected_player = None
@@ -506,7 +547,30 @@ def run_name_matching(
                         ),
                     },
                     candidates=payload["clarification_options"],
+                    publication_id=session.publication_id,
                 )
+        if (
+            pending
+            and session.publication_id
+            and payload["status"] == "publication_unavailable"
+        ):
+            if replay_choice:
+                payload["publication_retry"] = {
+                    "publication_id": session.publication_id,
+                    "question": pending.question,
+                    "player_id": replay_choice["player_id"],
+                    "player_name": replay_choice["player_name"],
+                    "choices": session.choices,
+                }
+            # Retrying an option from this prompt must retry the same release.
+            store.set_pending_clarification(
+                conversation_id,
+                question=pending.question,
+                query_plan=pending.query_plan,
+                route=pending.route,
+                candidates=pending.candidates,
+                publication_id=pending.publication_id,
+            )
         apply_name_notices(payload)
         return payload
     finally:

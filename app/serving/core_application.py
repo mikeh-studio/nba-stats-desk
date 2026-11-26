@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import json
-import re
 from datetime import date
 from functools import partial, wraps
 from inspect import iscoroutinefunction
@@ -217,6 +216,8 @@ def create_core_application(
         data_through={(scope["season"], scope["phase"]): scope["last"]},
         complete=True,
         cohort_complete=False,
+        game_results=models["accepted_game_results"],
+        game_participants=models["participant_manifest"],
     )
     evidence.validate()
 
@@ -236,6 +237,39 @@ def create_core_application(
             raise ValueError("Publication authority or freshness is unavailable")
         return leader_answer(evidence, manifest)
 
+    def require_production_authority():
+        if (
+            production_authority is None
+            or production_authority.check(manifest, binding) is not True
+            or authorized() is not True
+        ):
+            raise ValueError("Publication authority unavailable")
+        current = status()
+        if current["freshness"] not in {"fresh", "stale_usable"}:
+            raise ValueError("Publication freshness unavailable")
+        return current
+
+    def ask_publication_source():
+        from dataclasses import replace
+
+        from app.agent.publication_ask_source import PublicationAskSource
+        from app.serving.weekly_profile import BOUND_THREES_PROFILE
+
+        current = require_production_authority()
+        if "ask_player_stats" not in current["capabilities"]:
+            raise ValueError("Publication does not authorize player statistics for Ask")
+        cohort_proof = (
+            "publication_manifest"
+            if current["profile"] == BOUND_THREES_PROFILE
+            else None
+        )
+        if cohort_proof:
+            current = {**current, "cohort_proof": cohort_proof}
+        return PublicationAskSource(
+            replace(evidence, cohort_complete=bool(cohort_proof)), current
+        )
+
+    app.state.ask_publication_source = ask_publication_source
     app.state.three_point_leaders = published_leaders
 
     @app.middleware("http")
@@ -354,6 +388,23 @@ def create_core_application(
                 ),
             )
         )
+
+    def check_published_player_release(season):
+        # The composition reads this service directly, bypassing HTTP middleware.
+        if season != scope["season"]:
+            raise ValueError("Published player release season differs")
+        require_production_authority()
+
+    def published_player(pid, season):
+        check_published_player_release(season)
+        return player(pid)
+
+    def published_search(q, season):
+        check_published_player_release(season)
+        return search(q)
+
+    app.state.published_player = published_player
+    app.state.published_search = published_search
 
     @app.get("/api/health")
     def health():
@@ -567,52 +618,28 @@ def create_core_application(
                 return wrap(published_leaders())
             except ValueError as exc:
                 raise HTTPException(422, "Verified leaderboard unavailable") from exc
-        # Closed rephrasings retain exact identity and the publication scope.
-        natural_total = re.fullmatch(
-            r"how many points did (.+?) score\??", question.strip(), re.I
-        )
-        natural_average = re.fullmatch(
-            r"(.+?) average (points|rebounds|assists)\??", question.strip(), re.I
-        )
-        if natural_total:
-            question = f"{natural_total.group(1)} total points"
-        elif natural_average:
-            question = f"{natural_average.group(1)} per game {natural_average.group(2)}"
-        # A small, explicit comparison grammar; unsupported intent stays unsupported.
-        comparison = re.fullmatch(
-            r"compare (.+?) vs (.+?) (total|per game|ratio|per 36) (.+?)(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?",
-            question.strip(),
-            re.I,
-        )
-        if comparison:
-            a, b, mode, key, first, last = comparison.groups()
-            names = []
-            for name in [a, b]:
-                found = [
-                    p
-                    for p in identities.values()
-                    if p["player_name"].casefold() == name.casefold()
-                ]
-                if len(found) != 1:
-                    raise HTTPException(422, "player identity requires clarification")
-                names.append(found[0]["player_id"])
-            key = {
-                "points": "pts",
-                "rebounds": "reb",
-                "assists": "ast",
-                "minutes": "min",
-                "fg%": "fg_pct",
-                "3p%": "fg3_pct",
-                "ft%": "ft_pct",
-            }.get(key.casefold(), key.casefold())
-            agg = {
-                "total": "total",
-                "per game": "per_game",
-                "ratio": "ratio",
-                "per 36": "per36",
-            }[mode.casefold()]
-            if agg == "per36" and key in {"pts", "ast"}:
-                key += "_per36"
+        from app.agent.publication_ask_source import parse_publication_stat
+
+        request = parse_publication_stat(question)
+        if request is None:
+            raise HTTPException(
+                422,
+                "Use: Player Name total points, Player Name per game assists, or a structured core query; other intents are unsupported in this replay.",
+            )
+
+        player_ids = []
+        for name in request.names:
+            found = [
+                p
+                for p in identities.values()
+                if p["player_name"].casefold() == name.casefold()
+            ]
+            if len(found) != 1:
+                raise HTTPException(422, "player identity requires clarification")
+            player_ids.append(found[0]["player_id"])
+
+        key, agg = request.metric, request.aggregation
+        if len(player_ids) == 2:
             if (
                 key not in PROFILE["metrics"]
                 or agg not in PROFILE["metrics"][key]["aggregations"]
@@ -620,10 +647,10 @@ def create_core_application(
                 raise HTTPException(422, "unsupported comparison metric")
             try:
                 result = compare(
-                    *names,
+                    *player_ids,
                     "scope",
-                    date.fromisoformat(first) if first else None,
-                    date.fromisoformat(last) if last else None,
+                    date.fromisoformat(request.first) if request.first else None,
+                    date.fromisoformat(request.last) if request.last else None,
                 )
             except ValueError as exc:
                 raise HTTPException(422, "invalid date range") from exc
@@ -639,52 +666,15 @@ def create_core_application(
                     if m["metric"] == key and m["aggregation"] == agg
                 ]
             return result
-        # Exact deterministic grammar, not a permissive keyword fallback.
-        match = re.fullmatch(
-            r"(.+?) (total|per game|ratio|per 36|game log) (.+?)(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?",
-            question.strip(),
-            re.I,
-        )
-        if not match:
-            raise HTTPException(
-                422,
-                "Use: Player Name total points, Player Name per game assists, or a structured core query; other intents are unsupported in this replay.",
-            )
-        name, mode, key, first, last = match.groups()
-        found = [
-            p
-            for p in identities.values()
-            if p["player_name"].casefold() == name.casefold()
-        ]
-        if len(found) != 1:
-            raise HTTPException(422, "player identity requires clarification")
-        aliases = {
-            "points": "pts",
-            "rebounds": "reb",
-            "assists": "ast",
-            "minutes": "min",
-            "fg%": "fg_pct",
-            "3p%": "fg3_pct",
-            "ft%": "ft_pct",
-        }
-        key = aliases.get(key.casefold(), key.casefold())
-        agg = {
-            "total": "total",
-            "per game": "per_game",
-            "ratio": "ratio",
-            "per 36": "per36",
-            "game log": "total",
-        }[mode.casefold()]
-        if agg == "per36" and key in {"pts", "ast"}:
-            key += "_per36"
+
         try:
             q = StatQuery(
-                player_id=found[0]["player_id"],
+                player_id=player_ids[0],
                 metric=key,
                 aggregation=agg,
-                operation="game_log" if mode.casefold() == "game log" else "summary",
-                first=first or scope["first"],
-                last=last or scope["last"],
+                operation=request.operation,
+                first=request.first or scope["first"],
+                last=request.last or scope["last"],
             )
         except ValueError as exc:
             raise HTTPException(422, "invalid date range") from exc

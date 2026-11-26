@@ -204,6 +204,8 @@ def contracts(payload):
             "Current" if side == "current" else "Baseline" if side else "Result"
         ) + ": {0} — {1} {2}; {3}; as of {4}"
         if section["scope"]["operation"] == "game_log":
+            from app.agent.scoring_report import game_log_context_contract
+
             pid = section["scope"]["player_id"]
             ip = ["claim_evidence", "identities", str(pid)]
             name = (
@@ -211,9 +213,21 @@ def contracts(payload):
                 if str(pid) in payload["claim_evidence"]["identities"]
                 else identity
             )
-            sources.append(name)
-            formats.append("identity")
-            template = "{5}: {0} game log — {1} {2}; {3}; as of {4}"
+            if section.get("scope_presentation") == "calendar_dates":
+                fields, date_template = game_log_context_contract(section["scope"])
+                sources = [
+                    seasons,
+                    scope + ["season_type"],
+                    *[scope + [f] for f in fields],
+                    name,
+                    mp + ["label"],
+                ]
+                formats = [formats[1], "identity"] + ["identity"] * (len(fields) + 2)
+                template = f"{{{len(fields) + 2}}}: {{{len(fields) + 3}}} game log — {date_template}"
+            else:
+                sources.append(name)
+                formats.append("identity")
+                template = "{5}: {0} game log — {1} {2}; {3}; as of {4}"
             add(
                 ["tables", ti, "columns", 5, "label"],
                 [mp + ["label"]],

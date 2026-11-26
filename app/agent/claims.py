@@ -220,6 +220,7 @@ def descriptor(payload, sources, context):
         "seasons": ("seasons", "season"),
         "as_of": ("as_of", "date"),
         "window_start": ("window_start", "date"),
+        "window_end": ("window_end", "date"),
         "opponent": ("opponent", "label"),
         "participation": ("participation", "label"),
         "reason": ("reason", "label"),

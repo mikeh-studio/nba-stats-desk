@@ -45,6 +45,7 @@ def attach_publication(app, core, mode):
     """Expose verified publication data alongside the existing app's own data."""
     from anyio.from_thread import BlockingPortal
     from app.serving.production_workers import PublicationWorkers
+    from fastapi import HTTPException
     from starlette.responses import JSONResponse
 
     workers = PublicationWorkers()
@@ -88,13 +89,45 @@ def attach_publication(app, core, mode):
             raise ValueError("Production release authority unavailable")
         return answer
 
-    async def bounded_leaders():
+    def read_ask_publication(publication_id):
+        from app.seasons import DEFAULT_SEASON
+
+        current_mode = mode()
+        if current_mode == "legacy" and publication_id is None:
+            return None
+        if current_mode != "production":
+            raise ValueError("Production publication unavailable")
+        source = core.application(publication_id).state.ask_publication_source()
+        if source.season != DEFAULT_SEASON:
+            raise ValueError("Publication does not cover the active season")
+        # A pinned read also serves as the final check before delivering Ask facts.
+        if publication_id is not None and mode() != "production":
+            raise ValueError("Production publication disabled during the request")
+        return source
+
+    def read_published_player(player_id, season, publication_id):
+        player = core.application(publication_id).state.published_player(
+            player_id, season
+        )
+        if mode() != "production" or (
+            publication_id is not None and player["publication_id"] != publication_id
+        ):
+            raise ValueError("Production publication changed during the request")
+        return player
+
+    def read_published_search(query, season):
+        result = core.application(None).state.published_search(query, season)
+        if mode() != "production":
+            raise ValueError("Production publication changed during the request")
+        return result
+
+    async def bounded_read(reader, *args):
         # JSON and streaming Ask both call from synchronous workers. Cold loads
         # share the publication core's admission and offload limits with HTTP.
         budget = core.workers
         budget.requests.acquire_nowait()
         try:
-            return await budget.run(read_leaders)
+            return await budget.run(reader, *args)
         finally:
             budget.requests.release()
 
@@ -116,12 +149,51 @@ def attach_publication(app, core, mode):
         if active is None:
             raise ValueError("Publication reader unavailable")
         try:
-            return active.call(bounded_leaders)
+            return active.call(bounded_read, read_leaders)
         except Exception as exc:
             raise ValueError("Publication reader unavailable") from exc
 
+    def read_bounded(reader, *args):
+        active = portal
+        if active is None:
+            raise ValueError("Publication reader unavailable")
+        try:
+            return active.call(bounded_read, reader, *args)
+        except Exception as exc:
+            raise ValueError("Publication reader unavailable") from exc
+
+    async def publication_player(player_id, season, publication_id):
+        return await publication_read(
+            read_published_player, player_id, season, publication_id
+        )
+
+    async def publication_read(reader, *args):
+        try:
+            return await bounded_read(reader, *args)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                raise
+            raise ValueError("Publication reader unavailable") from exc
+        except Exception as exc:
+            raise ValueError("Publication reader unavailable") from exc
+
+    async def publication_search(query, season):
+        return await publication_read(read_published_search, query, season)
+
+    async def publication_player_mode():
+        try:
+            return await bounded_read(mode)
+        except Exception:
+            return None
+
     app.router.lifespan_context = publication_lifespan
+    app.state.publication_player = publication_player
+    app.state.publication_search = publication_search
+    app.state.publication_player_mode = publication_player_mode
     app.state.active_three_point_leaders = active_leaders
+    app.state.ask_publication_source = lambda publication_id: read_bounded(
+        read_ask_publication, publication_id
+    )
     app.mount("/publication-core", publication)
     app.state.production_publication_enabled = True
 
@@ -175,7 +247,9 @@ def create_config(config):
         cache_ttl=30,
     )
     attach_publication(
-        legacy, core, lambda: mode_reader.read_document(mode_reader.policy_path)["mode"]
+        legacy,
+        core,
+        lambda: mode_reader.read_document(mode_reader.policy_path)["mode"],
     )
     return compose_legacy(legacy, config)
 

@@ -203,6 +203,90 @@ test("study cards retain their scoped identity and clear on a refusal", async ()
   assert.equal(profile.innerHTML, "");
 });
 
+test("published profiles retain their release and each answer's dates", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-table-card]", "[data-agent-tables]", "[data-agent-chart-card]",
+    "[data-agent-charts]", "[data-agent-profile]",
+  ].map(selector => [selector, new FakeElement()]));
+  const agent = await loadAgentModule({elements});
+  const coverage = {season: "2026-27", first: "2026-10-20", last: "2026-11-17"};
+  const publication_id = "pub_0123456789abcdef";
+  const profile = (id, name) => ({player: {player_id: id, player_name: name}, profile_url: `/players/${id}`});
+  const a = profile(101, "Taylor Example");
+  const b = profile(202, "Riley Example");
+  const links = payload => {
+    agent.renderAuxiliaryPayload({publication_id, source_coverage: coverage, ...payload}, globalThis.document, false);
+    const html = elements["[data-agent-profile]"].innerHTML;
+    return [...new Set([...html.matchAll(/href="([^"]+)"/g)].map(match => match[1].replaceAll("&amp;", "&")))];
+  };
+  const expected = (id, scope) => `/players/${id}?${new URLSearchParams({season: coverage.season, publication_id, ...scope})}`;
+  assert.deepEqual(links({
+    player_profile: a,
+    semantic_evidence: {scope: {seasons: [coverage.season], start: "2026-11-01", end: "2026-11-16"}},
+  }), [expected(101, {first: "2026-11-01", last: "2026-11-16"})]);
+  assert.deepEqual(links({
+    player_profile: a,
+    semantic_evidence: {scope: {season: coverage.season, window: "season_to_date", window_end: "2026-11-16"}},
+  }), [expected(101, {first: coverage.first, last: "2026-11-16"})]);
+  assert.deepEqual(links({
+    player_profiles: [a, b],
+    semantic_evidence: {
+      current: {scope: {player_id: 101, window_start: "2026-11-02", window_end: "2026-11-07"}},
+      baseline: {scope: {player_id: 202, window_start: "2026-11-08", window_end: "2026-11-09"}},
+    },
+  }), [
+    expected(101, {first: "2026-11-02", last: "2026-11-07"}),
+    expected(202, {first: "2026-11-08", last: "2026-11-09"}),
+  ]);
+  assert.deepEqual(links({
+    player_profile: a,
+    semantic_evidence: {
+      kind: "game_performance", player: {player_id: 101},
+      game: {game_id: "0022600255", season: coverage.season, team_abbr: "SAS", opponent_abbr: "DET"},
+    },
+  }), [expected(101, {game_id: "0022600255"})]);
+});
+
+test("published clarification selections send the release even before the first answer", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const question = "Example total points";
+  const publicationId = "pub_0123456789abcdef";
+  const selected = agent.buildAskBody(question, {playerId: 202, playerName: "Riley Example", publicationId});
+  assert.deepEqual(selected.previous_context, {question, publication_id: publicationId});
+  assert.equal(selected.selected_player_id, 202);
+  assert.equal(selected.selected_player_name, "Riley Example");
+  assert.equal(agent.buildAskBody(question).previous_context, undefined);
+});
+
+test("game-report identity shows scoped observed appearances and omits unknown counts", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-agent-profile]",
+  ].map(selector => [selector, new FakeElement()]));
+  const agent = await loadAgentModule({elements});
+  const profile = elements["[data-agent-profile]"];
+  const gameLogScope = {
+    operation: "game_log", season: "2026-27", season_type: "Regular Season",
+    window: "date_range", start_date: "2026-11-17", as_of: "2026-11-17",
+  };
+  const render = (observed, displayed) => agent.renderAuxiliaryPayload({
+    status: "ok",
+    player_profile: {player: {player_name: "Example Player", team_abbr: "SAS", games_sampled: 15}},
+    semantic_evidence: {scope: gameLogScope, observed_games: observed, displayed_games: displayed},
+  }, globalThis.document, false);
+
+  render(1, 1);
+  assert.match(profile.innerHTML, /SAS · 1 appearance · 2026–27 regular season · Nov 17, 2026/);
+  render(13, 10);
+  assert.match(profile.innerHTML, /SAS · 13 appearances ·/);
+  render(0, 0);
+  assert.match(profile.innerHTML, /SAS · 0 appearances ·/);
+  render(undefined, 1);
+  assert.doesNotMatch(profile.innerHTML, /appearances?/);
+  assert.match(profile.innerHTML, /SAS · 2026–27 regular season · Nov 17, 2026/);
+});
+
 test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure", async () => {
   const agent = await loadAgentModule();
 
@@ -343,6 +427,75 @@ test("saved failures require an explicit retry and preserve their original evide
   const turns=agent.loadHistoryState().conversations[0].turns;
   assert.deepEqual(turns[0].payload,payload);
   assert.equal(turns[1].payload.answer,"Fresh answer");
+});
+
+test("a saved publication retry replays the original question and both identity hints", async () => {
+  const thread = new FakeElement();
+  const agent = await loadAgentModule({elements:{
+    "[data-agent-answer]": thread, "[data-agent-empty]": new FakeElement(),
+  }});
+  const question = "Compare Example vs Mason this season";
+  const publicationId = "pub_0123456789abcdef";
+  const payload = {
+    status: "publication_unavailable", answer: "Source unavailable",
+    publication_retry: {
+      question, publication_id: publicationId, player_id: 202, player_name: "Kyle Mason",
+      comparison_choices: {"0": 101},
+    },
+  };
+  agent.saveHistoryState({conversations:[{id:"saved-failure",turns:[{
+    question:"Kyle Mason", payload, request_id:"failed-request",timestamp:"2026-10-22T12:00:00Z",
+  }]}]});
+  const posts = [];
+  globalThis.fetch = async (url, options) => {
+    posts.push(JSON.parse(options.body));
+    return {ok:false, status:503, json:async () => ({detail:"Still unavailable."})};
+  };
+  await agent.restoreConversation("saved-failure");
+  await thread.children[0].children[2].listeners.get("click")[0]();
+  assert.equal(posts.length,1);
+  assert.equal(posts[0].question, question);
+  assert.equal(posts[0].selected_player_id, 202);
+  assert.deepEqual(posts[0].previous_context, {
+    question, publication_id: publicationId, publication_comparison_choices: {"0": 101},
+  });
+});
+
+test("a legacy saved retry restores the pinned question and choices from its clarification", async () => {
+  const thread = new FakeElement();
+  const agent = await loadAgentModule({elements:{
+    "[data-agent-answer]": thread, "[data-agent-empty]": new FakeElement(),
+  }});
+  const original = "How did Example play yesterday?";
+  const question = "How did Example play on 2026-11-17?";
+  const publicationId = "pub_0123456789abcdef";
+  agent.saveHistoryState({conversations:[{id:"legacy-retry",turns:[
+    {question:original, request_id:"prompt", timestamp:"2026-11-18T12:00:00Z", payload:{
+      status:"clarification_required", publication_id:publicationId,
+      clarification_question:question,
+      semantic_plan:{
+        choices:{example:{player_id:101, player_name:"Riley Example"}},
+        comparison_choices:{"0":101},
+      },
+    }},
+    {question:original, request_id:"failure", timestamp:"2026-11-18T12:01:00Z", payload:{
+      status:"publication_unavailable", answer:"The original publication is unavailable.",
+    }},
+  ]}]});
+  const posts = [];
+  globalThis.fetch = async (url, options) => {
+    posts.push(JSON.parse(options.body));
+    return {ok:false, status:503, json:async () => ({detail:"Still unavailable."})};
+  };
+  await agent.restoreConversation("legacy-retry");
+  await thread.children.at(-1).children[2].listeners.get("click")[0]();
+  assert.equal(posts[0].question, question);
+  assert.equal(posts[0].selected_player_id, undefined);
+  assert.deepEqual(posts[0].previous_context, {
+    question, publication_id:publicationId, restore_publication_clarification:true,
+    publication_identity_choices:[{mention:"example", player_id:101, player_name:"Riley Example"}],
+    publication_comparison_choices:{"0":101},
+  });
 });
 
 test("browser history write failures do not break Ask", async () => {
@@ -597,26 +750,16 @@ test("wrapped bar labels stay within their own rows and preserve accessible attr
   assert.doesNotMatch(html, /<unsafe>/);
 });
 
-test("Source & Coverage follows the selected answer and clears on reset", async () => {
-  const panel = new FakeElement();
-  const context = new FakeElement();
-  const label = new FakeElement();
+test("game-log answers receive their own Sources footer only when evidence is known", async () => {
+  const footer = new FakeElement();
   const agent = await loadAgentModule({ elements: {
-    "[data-answer-coverage]": panel,
-    "[data-answer-context]": context,
-    "[data-coverage-question]": label,
+    "[data-agent-sources]": footer,
   } });
-  agent.updateSourceCoverage({ assumptions: ["First source"], research_scope: { season: "2025-26", phase: "Both" } }, "First question");
-  assert.equal(panel.hidden, false);
-  assert.match(context.innerHTML, /Regular season and playoffs/);
-  assert.equal(label.textContent, "First question");
-  agent.updateSourceCoverage({ assumptions: ["Second source"] }, "Older question");
-  assert.doesNotMatch(context.innerHTML, /First source/);
-  assert.match(context.innerHTML, /Second source/);
-  assert.equal(label.textContent, "Older question");
-  agent.updateSourceCoverage(null);
-  assert.equal(panel.hidden, true);
-  assert.equal(context.innerHTML, "");
+  agent.renderAuxiliaryPayload({semantic_evidence: {scope: {operation: "game_log"}, source:"Recorded archive", data_through:"2025-06-30"}}, globalThis.document, false);
+  assert.match(footer.innerHTML, /Sources.*Recorded archive.*Data through Jun 30, 2025/s);
+  agent.renderAuxiliaryPayload({answer:"Legacy answer without source fields."}, globalThis.document, false);
+  assert.equal(footer.innerHTML, "");
+  assert.match(agent.turnEvidenceMarkup(), /data-agent-chart-card[^]*data-agent-sources/);
   assert.doesNotMatch(agent.turnEvidenceMarkup(), /Methodology|data-agent-context/);
 });
 
@@ -695,85 +838,149 @@ test("late stream results stay in their originating tab and mismatched IDs are r
   assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b),undefined);
 });
 
-test("main Ask routes publication answers and falls back for unsupported or unavailable publication", async () => {
-  const elements = {"[data-agent-form][data-publication-routing]": new FakeElement("form")};
-  const agent = await loadAgentModule({elements});
+test("simple current-season questions keep the server's structured Ask response", async () => {
+  const agent = await loadAgentModule();
   agent.startNewChat();
   const owner = agent.getNavigation().activeConversationId;
-  agent.startNewChat(); // Keep the answer offscreen while checking persisted output.
-  const urls = [];
-  globalThis.fetch = async (url) => {
-    urls.push(url);
-    return {ok: true, status: 200, json: async () => ({publication_id:"pub_0123456789abcdef", scope:{season:"2026-27", phase:"Regular Season", first:"2026-10-20", last:"2026-10-30"}, data:{metric:{label:'PTS'},scope:{aggregation:'total'},rows:[{value:10,valid_games:2,observed_games:2}]}})};
+  agent.startNewChat();
+  const requests = [];
+  const publicationId = "pub_0123456789abcdef";
+  const question = "Test Player A total points";
+  const payload = {
+    status: "ok", answer: "Test Player A scored 10 points.",
+    conversation_id: owner, publication_id: publicationId,
+    player_profile: {player: {player_name: "Test Player A"}},
+    conversation_context: {publication_id: publicationId, analysis_type: "semantic"},
   };
-  const request = {conversationId:owner, question:"Test Player A total points", body:{provider:"openai", model:"fixture"}, finished:false};
-  await agent.askQuestionStream(request);
-  assert.deepEqual(urls, ["/publication-core/api/agent/ask"]);
-  const saved = agent.loadHistoryState().conversations.find(c => c.id === owner);
-  assert.match(saved.turns[0].payload.answer, /pub_0123456789abcdef/);
-  assert.match(saved.turns[0].payload.answer, /10/);
-  await agent.askQuestionStream({...request, question:'How many points did Test Player A score?', finished:false});
-  assert.equal(urls.at(-1), '/publication-core/api/agent/ask');
-  await agent.askQuestionStream({...request, question:'Test Player A average points', finished:false});
-  assert.equal(urls.at(-1), '/publication-core/api/agent/ask');
-
-  globalThis.fetch = async (url) => {
-    urls.push(url);
-    if (url.startsWith('/publication-core')) return {ok:false, status:422};
-    return {ok:false, status:503, json:async () => ({detail:'legacy unavailable'})};
-  };
-  await agent.askQuestionStream({...request, finished:false});
-  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
-  globalThis.fetch = async (url) => {
-    urls.push(url);
-    if (url.startsWith('/publication-core')) return {ok:false, status:409};
-    return {ok:false, status:503, json:async () => ({detail:'legacy unavailable'})};
-  };
-  await agent.askQuestionStream({...request, finished:false});
-  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
   globalThis.fetch = async (url, options) => {
-    urls.push(url);
-    if (url.startsWith('/publication-core')) return {ok:false, status:503};
-    assert.deepEqual(JSON.parse(options.body), request.body);
-    return {ok:true, body:new ReadableStream({start(controller) {
-      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', conversation_id:owner}})}\n\n`));
+    requests.push({url, body: JSON.parse(options.body)});
+    return {ok: true, body: new ReadableStream({start(controller) {
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload})}\n\n`));
       controller.close();
     }})};
   };
-  await agent.askQuestionStream({...request, finished:false});
-  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
-  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.at(-1);
-  assert.equal(fallback.payload.answer, 'Legacy source answer');
-  assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
+  const body = {question, conversation_id: owner};
+  await agent.askQuestionStream({conversationId: owner, question, body});
+  assert.deepEqual(requests, [{url: "/api/agent/ask/stream", body}]);
+  const saved = agent.loadHistoryState().conversations.find(c => c.id === owner).turns[0].payload;
+  assert.equal(saved.publication_id, publicationId);
+  assert.deepEqual(saved.player_profile, payload.player_profile);
+  assert.deepEqual(saved.conversation_context, payload.conversation_context);
 });
 
-test("publication Ask labels scaled shooting values as percentages and raw fallbacks as ratios", async () => {
-  const agent = await loadAgentModule({elements:{
-    '[data-agent-form][data-publication-routing]':new FakeElement(),
-  }});
+test("the scoring opener shows a ranked table and the log keeps separate record details", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-focus-evidence]", "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-table-heading]", "[data-agent-sources]",
+  ].map(selector => [selector, new FakeElement()]));
+  const focus = elements["[data-agent-focus-evidence]"];
+  focus.classList = {remove() {}, toggle() {}};
+  const agent = await loadAgentModule({elements});
+  const points = {key: "pts", label: "PTS", unit: "count"};
+  const period = {operation: "game_log", season: "2026-27", season_type: "Regular Season",
+    window: "date_range", window_start: "2026-11-17", window_end: "2026-11-17"};
+  const logTable = {
+    title: "Points game log",
+    columns: ["date", "game_id", "phase", "team", "opponent", "value"].map(k => ({key: k, label: k})),
+    rows: [["2026-11-17", "0000000425", "Regular Season", "SAS", "DET", "25.0"]],
+  };
+  const line = {type: "line", title: "Points by appearance", series: [{key: "pts", points: [{x: "2026-11-17", y: 25}]}]};
+  const scoringReport = {
+    status: "ok",
+    semantic_evidence: {metric: points, scope: period, scope_presentation: "calendar_dates",
+      scoring_sources: {
+        status: "ok", total: 504, rows: [
+          {label: "Two-pointers", points: 174, per_game: 174 / 13},
+          {label: "Three-pointers", points: 210, share: 210 / 504, per_game: 210 / 13},
+          {label: "Free throws", points: 120, per_game: 120 / 13},
+        ],
+      },
+    },
+    followups: ["Show scoring game by game"],
+    tables: [
+      logTable,
+      {title: "Scoring sources", columns: [{key: "points", label: "Points"}], rows: [[25]]},
+    ],
+    charts: [
+      line,
+      {type: "bar", title: "Points by scoring source", series: [{key: "pts", points: [{x: "Two-pointers", y: 10}]}]},
+    ],
+  };
+  agent.renderAuxiliaryPayload(scoringReport, globalThis.document, true);
+  assert.match(focus.innerHTML, /<caption>Scoring sources<\/caption>/);
+  assert.match(focus.innerHTML, /Three-pointers.*210.*41\.7%.*16\.2.*Two-pointers.*174.*34\.5%.*13\.4.*Free throws.*120.*23\.8%.*9\.2/s);
+  assert.match(focus.innerHTML, /<\/table>\s*<button[^>]*data-scoring-game-log[^>]*>Show scoring game by game/);
+  assert.equal((focus.innerHTML.match(/class="scoring-strip"/g) || []).length, 1);
+  assert.equal((focus.innerHTML.match(/class="scoring-segment"/g) || []).length, 3);
+  assert.match(focus.innerHTML, /title="Three-pointers · 41\.7%"/);
+  assert.doesNotMatch(focus.innerHTML, /<meter/);
+  assert.doesNotMatch(focus.innerHTML, /Points by appearance|Points by scoring source|<svg/);
+  assert.equal(elements["[data-agent-chart-card]"].hidden, true);
+  assert.equal(elements["[data-agent-table-card]"].hidden, true);
+
+  const {scoring_sources, ...semanticEvidence} = scoringReport.semantic_evidence;
+  agent.renderAuxiliaryPayload({
+    status: "ok", semantic_evidence: semanticEvidence, tables: [logTable], charts: [line],
+  }, globalThis.document, false);
+  assert.equal(focus.hidden, true);
+  assert.equal(elements["[data-agent-chart-card]"].hidden, true);
+  const main = elements["[data-agent-tables]"].innerHTML;
+  const details = elements["[data-agent-sources]"].innerHTML;
+  assert.match(main, /Nov 17, 2026.*DET.*25\.0/s);
+  assert.doesNotMatch(main, /0000000425|Nov 17, 2026 – Nov 17, 2026|date_range/);
+  assert.match(details, /Sources.*Game IDs and source fields.*0000000425/s);
+  assert.equal(elements["[data-table-heading]"].textContent, "Game log");
+});
+
+test("the scoring-table button submits one normal log request with report scope", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-focus-evidence]", "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-table-heading]",
+    "[data-followup-suggestions]",
+  ].map(selector => [selector, new FakeElement()]));
+  const focus = elements["[data-agent-focus-evidence]"];
+  focus.classList = {remove() {}, toggle() {}};
+  const button = new FakeElement("button");
+  focus.querySelector = selector => selector === "[data-scoring-game-log]" ? button : null;
+  const agent = await loadAgentModule({elements});
   agent.startNewChat();
-  const owner = agent.getNavigation().activeConversationId;
-  agent.startNewChat();
-  const rows = [
-    {value:0.5, display_value:50, valid_games:2, observed_games:2},
-    {value:0, display_value:0, valid_games:2, observed_games:2},
-    {value:0.5, valid_games:2, observed_games:2},
-    {value:null, display_value:null, valid_games:0, observed_games:2},
-  ];
-  const data = {metric:{label:'FG%',unit:'ratio'},scope:{aggregation:'ratio'},rows};
-  globalThis.fetch = async () => ({ok:true,json:async()=>({
-    publication_id:'pub_0123456789abcdef',
-    scope:{season:'2026-27',phase:'Regular Season',first:'2026-10-20',last:'2026-10-30'},data,
-  })});
-  const before = JSON.stringify(data);
-  await agent.askQuestionStream({conversationId:owner,question:'Test Player A ratio FG%',body:{},finished:false});
-  const answer = agent.loadHistoryState().conversations.find(c=>c.id===owner).turns[0].payload.answer;
-  assert.match(answer, /FG% \(ratio\): 50%\./);
-  assert.match(answer, /FG% \(ratio\): 0%\./);
-  assert.match(answer, /FG% \(ratio\): 0\.5 \(ratio\)\./);
-  assert.match(answer, /FG% \(ratio\): unavailable\./);
-  assert.doesNotMatch(answer, /50 \(ratio\)|unavailable%/);
-  assert.equal(JSON.stringify(data), before);
+  const conversation_id = agent.getNavigation().activeConversationId;
+  const question = "Show scoring game by game";
+  const publication_id = "pub_0123456789abcdef";
+  const scope = {season: "2026-27", season_type: "Regular Season", window: "date_range",
+    start_date: "2026-11-01", as_of: "2026-11-17"};
+  const players = [{player_id: 1629029, player_name: "Luka Doncic"}];
+  const report = {
+    status: "ok", answer: "A scoring report.", conversation_id, request_id: "scoring-1",
+    followups: [question],
+    semantic_evidence: {scoring_sources: {
+      status: "ok", total: 0, rows: [{label: "Free throws", points: 0, per_game: 0}],
+    }},
+    conversation_context: {analysis_type: "game_log", publication_id, players, scope, metrics: ["pts"]},
+  };
+  agent.persistHistoryTurn("Where did Luka Doncic's points come from?", report);
+  agent.renderAuxiliaryPayload(report, globalThis.document);
+  assert.doesNotMatch(elements["[data-followup-suggestions]"].innerHTML, /Show scoring game by game/);
+  assert.doesNotMatch(focus.innerHTML, /scoring-strip|<meter|NaN/);
+  assert.match(focus.innerHTML, /<td>—<\/td>/);
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({url, body: JSON.parse(options.body)});
+    return {ok: true, body: new ReadableStream({start(controller) {
+      const payload = {status:"ok", answer:"A game log.", conversation_id, request_id:"log-1"};
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload})}\n\n`));
+      controller.close();
+    }})};
+  };
+  await button.listeners.get("click")[0]();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/agent/ask/stream");
+  assert.equal(requests[0].body.question, question);
+  assert.equal(requests[0].body.conversation_id, conversation_id);
+  assert.equal(requests[0].body.previous_context.publication_id, publication_id);
+  assert.deepEqual(requests[0].body.previous_context.players, players);
+  assert.equal(requests[0].body.previous_context.scope.start_date, scope.start_date);
+  assert.equal(requests[0].body.previous_context.scope.as_of, scope.as_of);
 });
 
 test("two tab requests finish out of order without changing each other's state", async () => {

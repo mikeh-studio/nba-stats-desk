@@ -626,6 +626,20 @@ def production(tmp_path):
     )
 
 
+def test_rolling_publication_ask_preserves_player_facts_without_a_league_certificate(
+    production,
+):
+    from scripts.serve_production_candidate import attach_publication
+
+    legacy = FastAPI()
+    attach_publication(legacy, production.app, lambda: "production")
+    with TestClient(legacy):
+        source = legacy.state.ask_publication_source(None)
+        assert source.evidence.rows
+        assert not source.evidence.cohort_complete
+        assert "cohort_proof" not in source.provenance
+
+
 def test_rolling_production_routes_and_pinned_rollback(production):
     p = production
     legacy = FastAPI()
@@ -683,7 +697,12 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
 ):
     from app import main
     from app.config import Settings
+    from app.seasons import current_season
     from scripts.serve_production_candidate import attach_publication
+
+    class LegacyRepository:
+        def search_players(self, query, *, limit):
+            return [{"name": query, "season": current_season(), "limit": limit}]
 
     settings = Settings(
         project_id="synthetic",
@@ -696,6 +715,13 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
         agent_history_path=str(tmp_path / "history.jsonl"),
     )
     main.app.dependency_overrides[main.get_settings] = lambda: settings
+    warehouse_reads = []
+
+    def legacy_repository(settings):
+        warehouse_reads.append(settings.season)
+        return LegacyRepository()
+
+    monkeypatch.setattr(main, "_cached_repository", legacy_repository)
     monkeypatch.setattr(main, "_configure_weekly_snapshot", lambda *_: None)
     monkeypatch.setattr(main, "_start_cache_prewarm", lambda: None)
     state = ["production"]
@@ -707,12 +733,53 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
         ) as c:
             ask = c.get("/ask")
             assert ask.status_code == 200 and "Ask NBA Stats" in ask.text
-            assert "data-publication-routing" in ask.text
-            assert "production_publication.js" in c.get("/players/101").text
             r = c.get("/publication-core/api/players/101")
             assert r.status_code == 200, r.text
             pid = r.json()["publication_id"]
             assert pid == production.envelope["manifest"]["publication_id"]
+            finder = c.get("/players")
+            assert "data-publication-search" in finder.text
+            assert "PERFORMANCE" in finder.text
+            found = c.get("/api/players/search", params={"q": "Test Player A"})
+            assert found.status_code == 200
+            assert found.headers["X-Publication-ID"] == pid
+            profile_url = found.json()["items"][0]["profile_url"]
+            assert profile_url == f"/players/101?season=2026-27&publication_id={pid}"
+            game_scope = {
+                "season": "2026-27",
+                "publication_id": pid,
+                "game_id": "0022600001",
+            }
+            shell = c.get("/players/101", params=game_scope, follow_redirects=False)
+            assert shell.status_code == 200
+            assert "PERFORMANCE" in shell.text
+            assert "data-publication-player" not in shell.text
+            assert (
+                f'data-content-url="/players/101/content?season=2026-27&amp;publication_id={pid}&amp;game_id=0022600001"'
+                in shell.text
+            )
+            fragment = c.get("/players/101/content", params=game_scope)
+            assert fragment.status_code == 200
+            assert fragment.headers["X-Publication-ID"] == pid
+            assert "Test Player A" in fragment.text and "2026-10-20" in fragment.text
+            assert "How+did+Test+Player+A+play+against+" in fragment.text
+            assert "+on+2026-10-20+%28Regular+Season%29%3F" in fragment.text
+            assert (
+                c.get(
+                    "/players/101/content",
+                    params={**game_scope, "game_id": "0022600000"},
+                ).status_code
+                == 404
+            )
+            assert warehouse_reads == []
+            archived = c.get(
+                "/api/players/search", params={"q": "Archive", "season": "2025-26"}
+            )
+            assert archived.status_code == 200
+            assert warehouse_reads == ["2025-26"]
+            assert archived.json()["items"] == [
+                {"name": "Archive", "season": "2025-26", "limit": 5}
+            ]
             answer = c.post(
                 "/publication-core/api/agent/ask",
                 json={"question": "Test Player A total points"},
@@ -766,6 +833,14 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
             state[0] = "legacy"
             assert c.get("/publication-core/api/players/101").status_code == 409
             assert c.get("/ask").status_code == 200
+            assert "data-publication-search" not in c.get("/players").text
+            assert (
+                c.get("/api/players/search", params={"q": "Archive"}).json()["items"][
+                    0
+                ]["season"]
+                == "2026-27"
+            )
+            assert c.get("/players/101/content", params=game_scope).status_code == 503
             state[0] = "production"
             production.registry["revoked_publications"].append(pid)
             production.registry_path.write_text(json.dumps(production.registry))

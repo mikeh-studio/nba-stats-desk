@@ -120,7 +120,7 @@ def resolve_time_defaults(question, today=None, context=None):
         r"\b(?:since|before|after|until|through|weeks?)\b", question, re.I
     ):
         m = months[0]
-        if not re.match(r"\.?\s+20\d{2}\b", question[m.end() :]):
+        if not re.match(r"\.?\s+(?:\d{1,2},?\s+)?20\d{2}\b", question[m.end() :]):
             month = MONTHS[m[1].lower()]
             explicit_seasons = {
                 f"{m[1]}-{m[2][-2:]}"

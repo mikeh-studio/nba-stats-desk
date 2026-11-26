@@ -1589,6 +1589,21 @@ class StatsAgent:
             )
         if trace:
             trace.set_plan(route=route.key, confidence=1.0)
+        publication_id = context.get("publication_id")
+        if (
+            keep_pending
+            and pending_route
+            and (pending_route.query_plan or {}).get("publication_retry")
+        ):
+            publication_id = publication_id or pending_route.publication_id
+        if publication_id and route.handler != "semantic":
+            if trace:
+                trace.outcome = "unsupported_scope"
+            return answer_payload(
+                "Start a separate analysis for a question that uses a different source.",
+                status="unsupported_scope",
+                conversation_id=conversation_id,
+            )
         if route.handler == "scope_refusal":
             from app.agent.participation import answer_known_nonparticipation
 
@@ -1697,6 +1712,19 @@ class StatsAgent:
                             answer = answer_payload(
                                 "The current publication has no verified three-point leaderboard available.",
                                 status="unsupported_coverage",
+                            )
+                        if (
+                            publication_id
+                            and answer is not None
+                            and (
+                                answer.get("status") == "ok"
+                                or answer.get("publication_id")
+                            )
+                            and answer.get("publication_id") != publication_id
+                        ):
+                            answer = answer_payload(
+                                "This conversation uses a different publication. Start a separate analysis for the current leaderboard.",
+                                status="publication_unavailable",
                             )
                         if answer is not None:
                             answer["conversation_id"] = conversation_id

@@ -8,7 +8,7 @@ const words = new Set(("rebounding passing rating ratings plus minus pattern pat
 + "time workload sample size games game appearances appearance count counts distribution trend trends consistent consistency variation variability volatile volatility percentile rank ranked ranking league baseline peers peer group groups teammates teammate team teams impact contribution "
 + "season seasons regular playoffs playoff postseason pre all entire last past previous prior current year years month months week weeks day days date dates window period periods range recent recently since before after during between until over under every first second third fourth half quarter "
 + "january february march april may june july august september october november december jan feb mar apr jun jul aug sep sept oct nov dec today yesterday tonight "
-+ "explanation detail details meaning means value values numbers number statistic statistics stat stats evidence source sources coverage available missing qualify qualified qualification enough "
++ "explanation detail details meaning means value values numbers number statistic statistics stat stats evidence source sources log logs coverage available missing qualify qualified qualification enough "
 + "up out off floor court win wins loss losses winning losing home away split splits include including exclude excluding besides except change use keep narrow focus highlight highest lowest best worst peak low high top bottom single start end per36 per100 true effective difference differences gap").split(/\s+/));
 const tokens = text => String(text || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
 
@@ -24,8 +24,9 @@ export function followupFitsReport(question, payload, reportQuestion = "", sugge
   // Exact suggestions are already scoped by the report, including vocabulary
   // outside this conservative navigation aid. Edits still use the normal gate.
   if (proposed && [...(payload.followups || []), ...suggestions].some(text => normalize(text) === proposed)) return true;
-  const profiles = payload.player_profiles || [payload.player_profile || payload.reference_player];
-  const players = payload.conversation_context?.players || profiles.map(p => p?.player).filter(Boolean);
+  const profiles = payload.player_profiles?.length ? payload.player_profiles : [payload.player_profile || payload.reference_player];
+  const scopedPlayers = payload.conversation_context?.players;
+  const players = scopedPlayers?.length ? scopedPlayers : profiles.map(p => p?.player).filter(Boolean);
   const allowed = new Set([...words, ...tokens(reportQuestion), ...players.flatMap(p => tokens(p.player_name))]);
   const parts = tokens(question);
   return parts.length > 0 && parts.every(word => allowed.has(word) || /^\d+$/.test(word));

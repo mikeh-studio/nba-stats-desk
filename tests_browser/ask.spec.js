@@ -24,6 +24,124 @@ async function submit(page, question) {
   await expect(page.locator('[data-agent-submit]')).toBeEnabled();
 }
 
+test('publication clarification, saved retry and dated profile keep one release', async ({page}) => {
+  const publicationId = 'pub_0123456789abcdef';
+  const question = 'Example total points from 2026-11-01 to 2026-11-01';
+  const scope = {
+    season: '2026-27', season_type: 'Regular Season', operation: 'summary',
+    window: 'date_range', window_start: '2026-11-01', window_end: '2026-11-01',
+    player_id: 202,
+  };
+  const requests = [];
+  await page.route('**/api/agent/ask/stream**', async route => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    const chosen = Boolean(request.selected_player_id);
+    const common = {
+      conversation_id: request.conversation_id,
+      request_id: `request-${requests.length}`,
+      publication_id: publicationId,
+      source_coverage: {season: '2026-27', first: '2026-10-20', last: '2026-11-17'},
+    };
+    const payload = chosen && requests.length === 2 ? {
+      conversation_id: common.conversation_id,
+      request_id: common.request_id,
+      status: 'publication_unavailable',
+      answer: 'The original publication is unavailable.',
+      publication_retry: {
+        publication_id: publicationId, player_id: 202, player_name: 'Riley Example',
+      },
+    } : chosen ? {
+      ...common, status: 'ok', answer: 'Riley Example scored 5 points.',
+      player_profile: {
+        player: {player_id: 202, player_name: 'Riley Example'}, profile_url: '/players/202',
+      },
+      semantic_evidence: {scope},
+    } : {
+      ...common, status: 'clarification_required', answer: 'Choose the intended player.',
+      clarification_question: question,
+      clarification_options: [
+        {player_id: 101, player_name: 'Taylor Example'},
+        {player_id: 202, player_name: 'Riley Example'},
+      ],
+    };
+    await route.fulfill({
+      contentType: 'text/event-stream',
+      body: `event: final\ndata: ${JSON.stringify({payload})}\n\n`,
+    });
+  });
+
+  await page.goto('/ask');
+  await submit(page, question);
+  await page.reload();
+  await page.getByRole('button', {name: 'Riley Example'}).click();
+  await expect(page.getByText('The original publication is unavailable.')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', {name: 'Run this question again'}).click();
+  const profile = page.getByRole('link', {name: 'Open profile', exact: true});
+  const expected = `/players/202?season=2026-27&publication_id=${publicationId}&first=2026-11-01&last=2026-11-01`;
+  await expect(profile).toHaveAttribute('href', expected);
+  for (const request of requests.slice(1)) {
+    expect(request).toMatchObject({
+      question,
+      selected_player_id: 202,
+      previous_context: {question, publication_id: publicationId},
+    });
+  }
+  expect(requests).toHaveLength(3);
+  await page.reload();
+  await expect(profile).toHaveAttribute('href', expected);
+});
+
+test('older saved retries recover choices from the clarification after reload', async ({page}) => {
+  const publicationId = 'pub_0123456789abcdef';
+  const question = 'Compare Example vs Mason total points';
+  const requests = [];
+  await page.route('**/api/agent/ask/stream**', async route => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    const recovering = Boolean(request.previous_context?.restore_publication_clarification);
+    const payload = {
+      conversation_id: request.conversation_id,
+      request_id: `legacy-${requests.length}`,
+      ...(requests.length === 2 ? {
+        status: 'publication_unavailable',
+        answer: 'The original publication is unavailable.',
+      } : {
+        status: 'clarification_required',
+        answer: recovering ? 'Which Mason did you mean?' : 'Please select a player.',
+        publication_id: publicationId,
+        clarification_question: question,
+        semantic_plan: {
+          choices: {example: {player_id: 101, player_name: 'Riley Example'}},
+        },
+        clarification_options: [
+          {player_id: 202, player_name: 'Kyle Mason'},
+          {player_id: 303, player_name: 'Drew Mason'},
+        ],
+      }),
+    };
+    await route.fulfill({
+      contentType: 'text/event-stream',
+      body: `event: final\ndata: ${JSON.stringify({payload})}\n\n`,
+    });
+  });
+  await page.goto('/ask');
+  await submit(page, question);
+  await page.getByRole('button', {name: 'Kyle Mason'}).click();
+  await expect(page.getByText('The original publication is unavailable.')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', {name: 'Run this question again'}).click();
+  await expect(page.getByText('Which Mason did you mean?')).toBeVisible();
+  expect(requests[2].previous_context).toEqual({
+    question,
+    publication_id: publicationId,
+    restore_publication_clarification: true,
+    publication_identity_choices: [{mention: 'example', player_id: 101, player_name: 'Riley Example'}],
+  });
+  expect(requests[2].selected_player_id).toBeUndefined();
+});
+
 for (const width of [1280, 390]) {
   test(`insight overview connects peer context and non-scoring production at ${width}px`, async ({page}, testInfo) => {
     await page.setViewportSize({width, height:900});
@@ -95,7 +213,7 @@ test('comparison hides unavailable impact in fresh and legacy saved analyses', a
   await expect(page.locator('[data-agent-tables] .h2h-boxplot')).toHaveCount(10);
   await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
   await expect(page.locator('.comparison-impact')).toHaveCount(0);
-  await expect(page.locator('[data-answer-context]')).not.toContainText(/Win Shares|possession/i);
+  await expect(page.locator('[data-agent-sources]')).not.toContainText(/Win Shares|possession/i);
   // The saved result uses its original game summaries without replaying a request.
   await page.locator('.h2h-plot-trigger').first().hover();
   await expect(page.locator('.h2h-plot-tooltip').first()).toBeVisible();
@@ -382,10 +500,12 @@ test('overview shows eleven metrics, sample evidence, balanced takeaways and exp
   await expect(samples).toContainText('attempts');
   await expect(samples).toContainText('valid appearances');
   await samples.locator('summary').click();
+  await expect(table.locator('[data-overview-average]').first()).toHaveAttribute('title', /appearance|valid/i);
   const details=page.locator('[data-additional-metrics]');
   await expect(details).not.toHaveAttribute('open','');
   await details.locator('summary').click();
   await expect(details.locator('table')).toBeVisible();
+  expect(Math.abs((await table.boundingBox()).x - (await details.locator('table').boundingBox()).x)).toBeLessThanOrEqual(1);
   await expect(details).toContainText('PTS/36');
   await expect(details.locator('td[aria-label*="per 36 minutes"]').first()).toBeVisible();
   await page.reload();
@@ -404,6 +524,7 @@ test('focused scoring retains 3PM and nine metrics at a narrow viewport', async 
   await samples.locator('summary').click();
   await expect(samples).toContainText('Shooting ranks use provisional minimums');
   await samples.locator('summary').click();
+  await expect(table.locator('[data-overview-average]').first()).toHaveAttribute('title', /appearance|valid/i);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
 
@@ -415,7 +536,7 @@ test('compact overview has visible Key Takeaways and a short eleven-row table', 
   await expect(table.locator('tbody tr')).toHaveCount(11);
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   expect((await table.boundingBox()).height).toBeLessThan(500);
-  await expect(table.locator('thead th')).toHaveCount(4);
+  await expect(table.locator('thead th')).toHaveText(['Stat','Average','League %']);
   await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
   const items=page.locator('.result-takeaways .takeaway-card');
   expect(await items.count()).toBeGreaterThan(0);expect(await items.count()).toBeLessThanOrEqual(3);
@@ -434,8 +555,7 @@ for (const width of [1280,390]) {
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
     expect((await table.boundingBox()).height).toBeLessThan(500);
     await expect(table.locator('tbody th abbr').first()).toHaveText('PTS');
-    // The time series is collapsed under the metrics table until opened.
-    const chart=page.locator('.chart-disclosure');
+    const chart=page.locator('[data-overview-chart]');
     await expect(chart).not.toHaveAttribute('open','');
     await chart.locator('summary').click();
     await expect(chart.locator('summary')).toContainText('Performance over time');
@@ -463,19 +583,29 @@ for (const width of [1280,390]) {
     await help.click();await expect(tooltip).not.toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
     await page.reload();
-    await expect(page.locator('.chart-header')).toContainText('Game-by-game');
+    await expect(chart.locator('summary')).toContainText('Performance over time');
+    await expect(chart).not.toHaveAttribute('open','');
+    await chart.locator('summary').click();
+    await expect(page.locator('.chart-header')).toBeVisible();
   });
 }
 
 test('dated week remains daily while a season remains monthly',async ({page})=>{
   await prepare(page,'baseline_points');
   await submit(page,'How did Avery Example perform week of 2025-04-14?');
+  await page.locator('[data-overview-chart] summary').click();
   await expect(page.locator('.chart-header')).toContainText('Game-by-game');
   await expect(page.locator('[data-agent-charts] .agent-point').first()).toHaveAttribute('aria-label',/^2025-04-14/);
   await page.reload();
   await page.getByRole('button',{name:'New chat',exact:true}).click();
   await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
+  await page.locator('[data-overview-chart] summary').click();
   await expect(page.locator('.chart-header')).toContainText('Monthly average');
+  await expect(page.locator('.overview-period-result')).toContainText(/2025-04 · 6 \/ 6 games/i);
+  await expect(page.locator('.overview-chart svg')).toHaveCount(0);
+  await page.locator('[data-chart-key="ast"]').click();
+  await expect(page.locator('.chart-header')).toContainText('AST · Monthly average');
+  await expect(page.locator('.overview-period-result')).toContainText(/assists per game/i);
 });
 
 
@@ -539,8 +669,10 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example perform in April 2025?');
     let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
-    await page.locator('.chart-disclosure > summary').first().click();
-    await page.locator('[data-chart-key="ast"]').first().click();
+    const chart = page.locator('[data-overview-chart]').first();
+    await expect(chart).not.toHaveAttribute('open','');
+    await chart.locator('summary').click();
+    await chart.locator('[data-chart-key="ast"]').click();
     const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
     const trigger=page.getByRole('button',{name:/^PTS distribution:/}).first();
     await expect(trigger).toHaveAccessibleName(/PTS distribution: \d+(?:st|nd|rd|th) percentile/);
