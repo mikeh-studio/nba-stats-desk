@@ -24,7 +24,7 @@ async function submit(page, question) {
   await expect(page.locator('[data-agent-submit]')).toBeEnabled();
 }
 
-test('publication clarification and dated profile keep the same release after reload', async ({page}) => {
+test('publication clarification, saved retry and dated profile keep one release', async ({page}) => {
   const publicationId = 'pub_0123456789abcdef';
   const question = 'Example total points from 2026-11-01 to 2026-11-01';
   const scope = {
@@ -39,11 +39,19 @@ test('publication clarification and dated profile keep the same release after re
     const chosen = Boolean(request.selected_player_id);
     const common = {
       conversation_id: request.conversation_id,
-      request_id: chosen ? 'chosen' : 'clarification',
+      request_id: `request-${requests.length}`,
       publication_id: publicationId,
       source_coverage: {season: '2026-27', first: '2026-10-20', last: '2026-11-17'},
     };
-    const payload = chosen ? {
+    const payload = chosen && requests.length === 2 ? {
+      conversation_id: common.conversation_id,
+      request_id: common.request_id,
+      status: 'publication_unavailable',
+      answer: 'The original publication is unavailable.',
+      publication_retry: {
+        publication_id: publicationId, player_id: 202, player_name: 'Riley Example',
+      },
+    } : chosen ? {
       ...common, status: 'ok', answer: 'Riley Example scored 5 points.',
       player_profile: {
         player: {player_id: 202, player_name: 'Riley Example'}, profile_url: '/players/202',
@@ -67,14 +75,20 @@ test('publication clarification and dated profile keep the same release after re
   await submit(page, question);
   await page.reload();
   await page.getByRole('button', {name: 'Riley Example'}).click();
+  await expect(page.getByText('The original publication is unavailable.')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', {name: 'Run this question again'}).click();
   const profile = page.getByRole('link', {name: 'Open profile', exact: true});
   const expected = `/players/202?season=2026-27&publication_id=${publicationId}&first=2026-11-01&last=2026-11-01`;
   await expect(profile).toHaveAttribute('href', expected);
-  expect(requests[1]).toMatchObject({
-    question,
-    selected_player_id: 202,
-    previous_context: {question, publication_id: publicationId},
-  });
+  for (const request of requests.slice(1)) {
+    expect(request).toMatchObject({
+      question,
+      selected_player_id: 202,
+      previous_context: {question, publication_id: publicationId},
+    });
+  }
+  expect(requests).toHaveLength(3);
   await page.reload();
   await expect(profile).toHaveAttribute('href', expected);
 });

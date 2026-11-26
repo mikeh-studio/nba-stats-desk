@@ -1098,13 +1098,20 @@ class SemanticAsk:
                 return covered
 
             if not overview and not split:
-                from app.agent.game_performance import parse_game_question
+                from app.agent.game_performance import (
+                    anchor_game_question,
+                    parse_game_question,
+                )
 
                 game_question = parse_game_question(question)
                 metric_window = (
                     game_question.dates if game_question else explicit_scope(question)
                 )
                 if game_question and game_question.relative:
+                    question = anchor_game_question(question, game_question.day)
+                    identity_replay_question = question.partition(
+                        "\nSelected player: "
+                    )[0]
                     time_assumptions.append(
                         f"Using {game_question.day} on the NBA Eastern calendar."
                     )
@@ -1508,7 +1515,14 @@ class SemanticAsk:
                         else None
                     )
                     question, players = prepare_names(
-                        question, players, selected=restored_selection
+                        question,
+                        players,
+                        selected=restored_selection,
+                        restored_choices=(
+                            context.get("publication_identity_choices", ())
+                            if restored_selection
+                            else ()
+                        ),
                     )
                 from app.agent.derived_series import (
                     derived_series_plan,
@@ -1939,6 +1953,17 @@ class SemanticAsk:
             else:
                 payload["publication_id"] = publication.publication_id
                 payload["source_coverage"] = publication.provenance
+        if payload["status"] == "publication_unavailable" and publication_pin:
+            payload["publication_retry"] = {
+                "publication_id": publication_pin,
+                **(selected_player or {}),
+                "choices": {
+                    choice["mention"]: choice
+                    for choice in context.get("publication_identity_choices", ())
+                }
+                if selected_player
+                else {},
+            }
         if trace:
             trace.add_tool(
                 name="governed_metrics",

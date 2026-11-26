@@ -14,7 +14,7 @@ const report = {
   player: {player_id: 1641705, player_name: "Victor Wembanyama"},
   metrics: [
     {key:"reb", value:18, baseline:13.8, change:4.2},
-    {key:"oreb", value:5}, {key:"dreb", value:13}, {key:"min", value:28.8},
+    {key:"oreb", value:5, baseline:2, change:3}, {key:"dreb", value:13}, {key:"min", value:28.8},
     {key:"pts", value:25}, {key:"ast", value:4},
     {key:"fg_pct", value:58.8, baseline:49.5, change:9.3, unit:"%", change_unit:"percentage points"},
   ],
@@ -75,10 +75,18 @@ test("an unreconciled focal rebound split stays out of the player box and team s
   };
   const html = renderGamePerformance(mismatched);
   assert.match(html, /<th scope="row">REB<\/th><td>18<\/td>/);
+  assert.doesNotMatch(html, /Offensive rebound rate|20\.0%/);
   assert.doesNotMatch(html, /scope="row">(?:OREB|DREB)<|\+7<\/td>/);
   assert.match(html, /Victor Wembanyama<\/th><td>18<\/td><td>—<\/td><td>—<\/td>/);
   assert.match(html, /Example Guard<\/th><td>3<\/td><td>0<\/td><td>3<\/td>/);
   assert.match(renderGamePerformance({...report, lead_metric: "reb"}), /<th scope="row">DREB<\/th><td>13<\/td>/);
+});
+
+test("saved game reports show rebound component averages only with verified baseline membership", () => {
+  const rebounding = {...report, lead_metric: "reb"};
+  assert.match(renderGamePerformance(rebounding), /OREB<\/th><td>5<\/td><td>—<\/td><td>—<\/td>/);
+  assert.match(renderGamePerformance({...rebounding, rebound_baseline_verified: true}),
+    /OREB<\/th><td>5<\/td><td>2<\/td><td>\+3<\/td>/);
 });
 
 test("trends need two dated observations while discrete charts retain single marks", () => {

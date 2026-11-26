@@ -133,7 +133,9 @@ both-team context verifies played participant membership and point totals
 against the published final score. Team shares sum player-credited counts.
 The offensive rebound rate is player-credited offensive rebounds divided by
 those rebounds plus the opponent's player-credited defensive rebounds. A
-missing roster, missing count or zero denominator withholds that comparison.
+missing roster, unreconciled rebound split or zero denominator withholds that
+comparison. Rebound component averages require reconciliation in every
+appearance in the pregame sample.
 
 Trusted server composition may install an immutable `SourcePolicy` before app
 lifespan with `configure_source_policy`, or propagate it through

@@ -97,6 +97,19 @@ test("published comparison portraits preserve question order and the same pinned
   assert.match(askProfileHref({...view.profiles[0], game_id: "0022600255"}), /game_id=0022600255$/);
 });
 
+test("appearance comparisons prefer the individual profile's dates", () => {
+  const payload = fixture();
+  payload.publication_id = "pub_0123456789abcdef";
+  payload.source_coverage = {season: "2026-27", first: "2026-10-20", last: "2026-11-17"};
+  Object.assign(payload.semantic_evidence.scope, {start: "2026-10-20", end: "2026-11-17", phases: ["Regular Season"]});
+  payload.player_profiles = payload.player_profiles.map((profile, index) => ({
+    ...profile, profile_url: `/players/${index + 100}`, first: "2026-11-01", last: `2026-11-0${index + 3}`,
+  }));
+  const links = comparisonPresentation(payload).profiles.map(askProfileHref);
+  assert.match(links[0], /first=2026-11-01&last=2026-11-03$/);
+  assert.match(links[1], /first=2026-11-01&last=2026-11-04$/);
+});
+
 test("summary describes recorded measures without aggregate winner meters", () => {
   const view = comparisonPresentation(fixture());
   assert.deepEqual(view.areas.map((a) => a.title), ["Scoring & assists", "Rebounds, steals & blocks", "Playing time"]);

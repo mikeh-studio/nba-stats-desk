@@ -234,8 +234,8 @@ export function publicationPlayerProfile(profile, payload) {
   if (game?.game_id) return {...publication, game_id: game.game_id};
 
   const datePattern = /^\d{4}-\d{2}-\d{2}$/;
-  let first = scope?.start || scope?.window_start || scope?.start_date;
-  let last = scope?.end || scope?.window_end || scope?.as_of;
+  let first = profile.first || scope?.start || scope?.window_start || scope?.start_date;
+  let last = profile.last || scope?.end || scope?.window_end || scope?.as_of;
   if (!first && scope?.window === "season_to_date") first = coverage?.first;
   if (datePattern.test(first) && datePattern.test(last)) {
     if (datePattern.test(coverage?.first) && first < coverage.first) first = coverage.first;

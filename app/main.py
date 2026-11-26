@@ -91,7 +91,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261126-ask-report-scope"
+STATIC_VERSION = "20261126-ask-report-scope-retry"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -226,8 +226,15 @@ class PriorAward(BaseModel):
     performance_phase: Literal["Regular Season", "Playoffs", "Finals"]
 
 
+class PriorPublicationIdentity(PriorPlayer):
+    mention: str = Field(min_length=1, max_length=80)
+
+
 class PriorAnalysis(BaseModel):
     publication_id: str | None = Field(default=None, pattern=r"^pub_[0-9a-f]{16}$")
+    publication_identity_choices: list[PriorPublicationIdentity] | None = Field(
+        default=None, max_length=6
+    )
     question: str = Field(min_length=1, max_length=4000)
     players: list[PriorPlayer] = Field(default_factory=list, max_length=2)
     scope: PriorScope = Field(default_factory=PriorScope)

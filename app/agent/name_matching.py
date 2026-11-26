@@ -220,7 +220,13 @@ def _spans(question, players):
 
 
 def prepare_names(
-    question, players, *, strict=True, skip_not_found=False, selected=None
+    question,
+    players,
+    *,
+    strict=True,
+    skip_not_found=False,
+    selected=None,
+    restored_choices=(),
 ):
     """Resolve name spans against this route's roster, before planning/execution.
 
@@ -234,6 +240,9 @@ def prepare_names(
     # Legacy selected-player paths pass the choice through their own roster
     # validation. The common request wrapper handles new clarifications.
     replacements = []
+    restored = {
+        normalize_player_text(choice["mention"]): choice for choice in restored_choices
+    }
     from app.agent.player_resolver import load_player_aliases
 
     aliases = load_player_aliases()
@@ -257,6 +266,10 @@ def prepare_names(
         key = normalize_player_text(raw)
         result = resolve_player_name(raw, roster)
         choice = session.choices.get(key) if session else None
+        if not choice and key in restored:
+            choice = restored[key]
+            if session:
+                session.choices[key] = choice
         if not choice and selected and result["status"] == "clarification_required":
             if any(
                 player["player_id"] == selected["player_id"]
@@ -442,6 +455,7 @@ def run_name_matching(
     )
     pending = store.get_pending_clarification(conversation_id) if store else None
     session = NameSession()
+    replay_choice = None
     from app.agent.routes import supersedes_pending
 
     if (
@@ -485,6 +499,7 @@ def run_name_matching(
                 and p["player_name"] == choice.get("player_name")
                 for p in candidates
             ):
+                replay_choice = choice
                 session.choices[
                     normalize_player_text(pending.query_plan["mention"])
                 ] = choice
@@ -533,6 +548,13 @@ def run_name_matching(
             and session.publication_id
             and payload["status"] == "publication_unavailable"
         ):
+            if replay_choice:
+                payload["publication_retry"] = {
+                    "publication_id": session.publication_id,
+                    "player_id": replay_choice["player_id"],
+                    "player_name": replay_choice["player_name"],
+                    "choices": session.choices,
+                }
             # Retrying an option from this prompt must retry the same release.
             store.set_pending_clarification(
                 conversation_id,

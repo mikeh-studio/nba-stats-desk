@@ -30,6 +30,7 @@ _REBOUNDING_QUESTION = re.compile(
     re.I,
 )
 _METRICS = ("pts", "reb", "ast", "stl", "blk", "tov", "min", "oreb", "dreb", "fg_pct")
+_REBOUND_COMPONENTS = frozenset({"oreb", "dreb"})
 _ROSTER_METRICS = tuple(key for key in _METRICS if key != "fg_pct")
 _CONTRIBUTION = ("pts", "reb", "ast", "oreb", "dreb", "stl", "blk")
 _LABELS = {
@@ -118,6 +119,17 @@ def parse_game_question(question: str) -> GameQuestion | None:
     )
 
 
+def anchor_game_question(question: str, day: str) -> str:
+    """Freeze the matched calendar phrase while keeping the identity and filters."""
+    wording, separator, selection = question.partition("\nSelected player: ")
+    wording = " ".join(wording.split())
+    match = _QUESTION.fullmatch(wording)
+    if match is None:
+        return question
+    start, end = match.span("day")
+    return wording[:start] + day + wording[end:] + separator + selection
+
+
 def resolve_opponent_abbr(opponent: str) -> str:
     # The packaged directory resolves aliases. The source facts verify the game.
     from nba_api.stats.static.teams import get_teams
@@ -174,6 +186,7 @@ class GamePerformance(TypedDict):
     rosters: dict[str, Any]
     warnings: list[str]
     rebounding_context: dict[str, Any] | None
+    rebound_baseline_verified: bool
 
 
 def _official_result(
@@ -236,6 +249,20 @@ def _count(rows, key):
     )
 
 
+def _rebound_split(row: Mapping[str, Any]) -> dict[str, int] | None:
+    counts: list[Any] = [row.get(key) for key in ("reb", "oreb", "dreb")]
+    if not all(
+        (type(value) is int or (type(value) is float and value.is_integer()))
+        and value >= 0
+        for value in counts
+    ):
+        return None
+    total, offensive, defensive = map(int, counts)
+    if total != offensive + defensive:
+        return None
+    return {"offensive": offensive, "defensive": defensive}
+
+
 def _credited_rebounding(sides, team, opponent):
     def side_rate(own, other):
         oreb, allowed = _count(sides[own], "oreb"), _count(sides[other], "dreb")
@@ -287,6 +314,9 @@ def build_game_performance(
         and entry["season_type"] == row["season_type"]
         and str(entry["game_date"]) < str(row["game_date"])
     ]
+    split = _rebound_split(row)
+    prior_split_games = sum(_rebound_split(entry) is not None for entry in before)
+    rebound_baseline_verified = bool(before) and prior_split_games == len(before)
     contract = load_contract()
     keys = (
         (
@@ -305,10 +335,17 @@ def build_game_performance(
         raw_value = aggregate([row], metric, "ratio" if ratio else "total")["value"]
         prior = aggregate(before, metric, "ratio" if ratio else "average")
         scale = 100 if ratio else 1
-        value = raw_value * scale if raw_value is not None else None
+        is_rebound_component = key in _REBOUND_COMPONENTS
+        value = (
+            raw_value * scale
+            if raw_value is not None and (not is_rebound_component or split is not None)
+            else None
+        )
         baseline = (
             prior["value"] * scale
-            if prior["value"] is not None and not prior["missing_component_games"]
+            if prior["value"] is not None
+            and not prior["missing_component_games"]
+            and (not is_rebound_component or rebound_baseline_verified)
             else None
         )
         metrics.append(
@@ -322,7 +359,9 @@ def build_game_performance(
                 else None,
                 "unit": "%" if ratio else metric.unit,
                 "change_unit": "percentage points" if ratio else metric.unit,
-                "baseline_games": prior["valid_games"],
+                "baseline_games": prior_split_games
+                if is_rebound_component
+                else prior["valid_games"],
             }
         )
 
@@ -350,9 +389,16 @@ def build_game_performance(
         },
     }
     sides = _complete_rosters(evidence, official, team, opponent)
+    rebound_teams = {
+        abbr
+        for abbr, roster in (sides or {}).items()
+        if all(_rebound_split(entry) is not None for entry in roster)
+    }
     contribution = []
     if sides:
         for key in _CONTRIBUTION:
+            if key in _REBOUND_COMPONENTS and team not in rebound_teams:
+                continue
             total = _count(sides[team], key)
             value = row.get(key)
             if total and value is not None:
@@ -366,7 +412,9 @@ def build_game_performance(
                         "unit": contract.metric(key).unit,
                     }
                 )
-    rates = _credited_rebounding(sides, team, opponent)
+    rates = _credited_rebounding(
+        sides if {team, opponent} <= rebound_teams else None, team, opponent
+    )
     warnings = []
     if not before:
         warnings.append(
@@ -425,20 +473,8 @@ def build_game_performance(
     )
     rebounding: dict[str, Any] | None = None
     if focus == "reb":
-        total, offensive, defensive = (row.get(key) for key in ("reb", "oreb", "dreb"))
+        total = row.get("reb")
         rebound_metric = next(entry for entry in metrics if entry["key"] == "reb")
-        split = (
-            {"offensive": int(offensive), "defensive": int(defensive)}
-            if total is not None
-            and offensive is not None
-            and defensive is not None
-            and all(
-                value >= 0 and int(value) == value
-                for value in (total, offensive, defensive)
-            )
-            and total == offensive + defensive
-            else None
-        )
         rebounding = {
             "split": split,
             "previous": (
@@ -471,6 +507,7 @@ def build_game_performance(
         "metrics": metrics,
         "baseline": baseline,
         "rebounding_context": rebounding,
+        "rebound_baseline_verified": rebound_baseline_verified,
         "contribution": contribution,
         "team_rebounding": rates,
         "rosters": {

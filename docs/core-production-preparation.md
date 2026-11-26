@@ -51,6 +51,7 @@ of this public repository. See the [public/private boundary](public-private-boun
 With the production publication reader active, Player Profile can search players
 in the authorized release. Opening a profile from Ask carries the season and
 publication ID. A game link also carries the game ID, while a date-range link
-carries both dates. The profile labels the release-wide averages separately
+carries both dates. In appearance-based comparisons each player's link uses that
+player's selected dates. The profile labels the release-wide averages separately
 from the selected games. If the pinned publication or game is unavailable, the
 profile displays the requested scope and its unavailable state.

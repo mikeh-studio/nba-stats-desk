@@ -1041,6 +1041,7 @@ function bindClarifyOptions(root, payload) {
         runtimeFor().lastQuestion || button.dataset.playerName || "";
       askQuestion(question, {
         publicationId: payload.publication_id,
+        identityChoices: payload.semantic_plan?.choices,
         playerId: Number.isFinite(playerId) && playerId > 0 ? playerId : null,
         playerName: button.dataset.playerName || "",
       });
@@ -1699,7 +1700,7 @@ function persistHistoryTurn(question, payload, ownerId = null, requestBody = nul
   renderHistoryList();
 }
 
-function appendRestoredTurn(turn, isLatest) {
+function appendRestoredTurn(turn, isLatest, preceding) {
   const thread = document.querySelector("[data-agent-answer]");
   if (!thread) return null;
   const article = document.createElement("article");
@@ -1729,7 +1730,20 @@ function appendRestoredTurn(turn, isLatest) {
     retry.className = "button subtle";
     retry.dataset.savedQuestionRetry = "true";
     retry.textContent = "Run this question again";
-    retry.addEventListener("click", () => askQuestion(turn.question));
+    retry.addEventListener("click", () => {
+      const priorPrompt = turn.payload.status === "publication_unavailable" && [...preceding].reverse().find(
+        previous => previous.payload.status === "clarification_required" &&
+          previous.payload.publication_id &&
+          [previous.question, previous.payload.clarification_question].includes(turn.question)
+      );
+      const replay = turn.payload.publication_retry || priorPrompt?.payload;
+      return askQuestion(turn.question, replay ? {
+        publicationId: replay.publication_id,
+        identityChoices: replay.choices,
+        playerId: replay.player_id,
+        playerName: replay.player_name,
+      } : null);
+    });
     article.appendChild(notice);
     article.appendChild(retry);
   }
@@ -1778,7 +1792,7 @@ async function restoreConversation(conversationId) {
   empty.hidden = conversation.turns.length > 0;
   thread.hidden = !conversation.turns.length;
   conversation.turns.forEach((turn, index) =>
-    appendRestoredTurn(turn, index === conversation.turns.length - 1),
+    appendRestoredTurn(turn, index === conversation.turns.length - 1, conversation.turns.slice(0, index)),
   );
   const pending = runtimeFor().pending;
   if (runtimeFor().inFlight && pending) {
@@ -2193,12 +2207,19 @@ function buildAskBody(question, selection, conversationId = activeConversationId
   if (selection && selection.playerName) {
     body.selected_player_id = selection.playerId || null;
     body.selected_player_name = selection.playerName;
-    if (/^pub_[a-f0-9]{16}$/.test(selection.publicationId)) {
-      body.previous_context = {
-        ...(body.previous_context || {question: question.slice(0, 4000)}),
-        publication_id: selection.publicationId,
-      };
-    }
+  }
+  if (/^pub_[a-f0-9]{16}$/.test(selection?.publicationId)) {
+    const choices = Object.entries(selection.identityChoices || {})
+      .filter(([mention, player]) => mention.length > 0 && mention.length <= 80 &&
+        Number.isSafeInteger(player?.player_id) && player.player_id > 0 &&
+        typeof player.player_name === "string" && player.player_name.length > 0 && player.player_name.length <= 80)
+      .slice(0, 6)
+      .map(([mention, {player_id, player_name}]) => ({mention, player_id, player_name}));
+    body.previous_context = {
+      ...(body.previous_context || {question: question.slice(0, 4000)}),
+      publication_id: selection.publicationId,
+      ...(choices.length ? {publication_identity_choices: choices} : {}),
+    };
   }
   return body;
 }

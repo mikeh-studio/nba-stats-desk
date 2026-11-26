@@ -252,6 +252,58 @@ def test_single_game_analysis_uses_verified_rosters_and_pregame_baseline(
     assert payload["charts"] == []
 
 
+@pytest.mark.parametrize("affected_id", [1641705, 100, 201])
+def test_match_rosters_do_not_authorize_unreconciled_team_rebounds(
+    game_publication, affected_id
+):
+    (client, captured, _, _, _), game = game_publication
+    release = captured[ACTIVE]
+    rows = [
+        dict(row, dreb=row["dreb"] - 1)
+        if row["game_id"] == game["game_id"] and row["player_id"] == affected_id
+        else row
+        for row in release.evidence.rows
+    ]
+    captured[ACTIVE] = replace(release, evidence=replace(release.evidence, rows=rows))
+    payload = ask(
+        client,
+        f"What stood out about Victor Wembanyama's rebounding against Detroit on {game['game_date']}?",
+    )
+    assert payload["status"] == "ok", payload["answer"]
+    report = payload["semantic_evidence"]
+    assert report["rosters"]["status"] == "ok"
+    assert "SAS beat DET 80–75" in payload["answer"]
+    assert report["team_rebounding"]["status"] == "unavailable"
+    assert "offensive rebound rate was" not in payload["answer"]
+    contribution = {row["key"] for row in report["contribution"]}
+    assert {"pts", "reb", "ast"} <= contribution
+    assert ({"oreb", "dreb"} <= contribution) == (affected_id == 201)
+    metrics = {row["key"]: row["value"] for row in report["metrics"]}
+    assert metrics["reb"] == 18
+    assert (metrics["dreb"] is None) == (affected_id == 1641705)
+
+
+def test_pregame_component_average_requires_each_split_to_reconcile(game_publication):
+    (client, captured, _, _, _), game = game_publication
+    release = captured[ACTIVE]
+    rows = [
+        dict(row, dreb=row["dreb"] - 1)
+        if row["player_id"] == 1641705 and row["game_date"].endswith("-11-02")
+        else row
+        for row in release.evidence.rows
+    ]
+    captured[ACTIVE] = replace(release, evidence=replace(release.evidence, rows=rows))
+    result = ask(client, f"How did Wembanyama play on {game['game_date']}?")
+    report = result["semantic_evidence"]
+    metrics = {row["key"]: row for row in report["metrics"]}
+    assert metrics["reb"]["baseline"] == pytest.approx(31 / 3)
+    assert report["rebound_baseline_verified"] is False
+    for key in ("oreb", "dreb"):
+        assert metrics[key]["value"] is not None
+        assert metrics[key]["baseline"] is None and metrics[key]["change"] is None
+        assert metrics[key]["baseline_games"] == 2
+
+
 def test_single_game_followup_expands_opponents_but_keeps_original_cutoff(
     game_publication,
 ):
@@ -748,6 +800,9 @@ def test_player_clarification_stays_on_original_release(production, withdrawn):
     if withdrawn:
         assert result["status"] == "publication_unavailable"
         assert result["semantic_evidence"] is None
+        replay = result["publication_retry"]
+        assert replay["publication_id"] == ACTIVE and replay["player_id"] == 2000
+        assert replay["player_name"] == "Riley Example"
         assert pick()["status"] == "publication_unavailable"
     else:
         assert result["status"] == "ok", result["answer"]
@@ -778,6 +833,118 @@ def test_restored_publication_choice_validates_original_release(production):
     assert result["semantic_evidence"]["rows"][0]["value"] == 5
     assert reads == [PRIOR, PRIOR]
     assert not legacy.calls
+
+
+def test_relative_game_clarification_keeps_its_eastern_date(production, monkeypatch):
+    client, captured, _, _, _ = production
+    add_riley(captured, ACTIVE, points=12)
+    publication = captured[ACTIVE]
+    riley = publication.evidence.rows[-1]
+    tomorrow = date.fromisoformat(EARLY) + timedelta(days=1)
+    captured[ACTIVE] = replace(
+        publication,
+        evidence=replace(
+            publication.evidence,
+            rows=[
+                *publication.evidence.rows,
+                dict(riley, game_id="0000000099", game_date=str(tomorrow), pts=42),
+            ],
+        ),
+    )
+    eastern_today = [tomorrow]
+    monkeypatch.setattr(
+        "app.agent.game_performance.today_in", lambda _: eastern_today[0]
+    )
+    question = "How did Example play yesterday?"
+    first = ask(client, question)
+    assert first["status"] == "clarification_required"
+    assert first["clarification_question"] == f"How did Example play {EARLY}?"
+    eastern_today[0] += timedelta(days=1)
+    resolved = ask(
+        client,
+        question,
+        conversation_id=first["conversation_id"],
+        selected_player_id=2000,
+        selected_player_name="Riley Example",
+    )
+    assert resolved["status"] == "ok", resolved["answer"]
+    report = resolved["semantic_evidence"]
+    assert report["game"]["game_date"] == EARLY
+    assert (
+        next(metric["value"] for metric in report["metrics"] if metric["key"] == "pts")
+        == 12
+    )
+
+
+def test_multi_player_browser_recovery_revalidates_prior_choice_on_publication(
+    production,
+):
+    client, captured, reads, legacy, _ = production
+    add_riley(captured, PRIOR, points=5)
+    publication = captured[PRIOR]
+    row = publication.evidence.rows[0]
+    captured[PRIOR] = replace(
+        publication,
+        evidence=replace(
+            publication.evidence,
+            rows=[
+                *publication.evidence.rows,
+                dict(row, player_id=3000, player_name="Kyle Mason", pts=11),
+                dict(row, player_id=4000, player_name="Drew Mason", pts=17),
+            ],
+        ),
+    )
+    question = "Compare Example vs Mason total points"
+    result = ask(
+        client,
+        question,
+        conversation_id=str(uuid4()),
+        selected_player_id=3000,
+        selected_player_name="Kyle Mason",
+        previous_context={
+            "question": question,
+            "publication_id": PRIOR,
+            "publication_identity_choices": [
+                {
+                    "mention": "Example",
+                    "player_id": 2000,
+                    "player_name": "Riley Example",
+                }
+            ],
+        },
+    )
+    assert result["status"] == "ok", result["answer"]
+    assert result["publication_id"] == PRIOR
+    assert result["semantic_evidence"]["difference"] == -6
+    assert reads == [PRIOR, PRIOR] and not legacy.calls
+
+
+def test_appearance_comparison_exposes_each_players_dates(production):
+    client, captured, _, _, _ = production
+    add_riley(captured, ACTIVE, points=5)
+    publication = captured[ACTIVE]
+    taylor, _, riley = publication.evidence.rows
+    second = date.fromisoformat(EARLY) + timedelta(days=2)
+    third = second + timedelta(days=1)
+    rows = [
+        *publication.evidence.rows,
+        dict(taylor, game_id="0000000050", game_date=str(second), pts=9),
+        dict(riley, game_id="0000000051", game_date=str(third), pts=7),
+    ]
+    captured[ACTIVE] = replace(
+        publication, evidence=replace(publication.evidence, rows=rows)
+    )
+    answer = ask(
+        client,
+        "Compare Taylor Example and Riley Example in their first two appearances",
+    )
+    assert answer["status"] == "ok", answer["answer"]
+    assert [
+        (profile["first"], profile["last"]) for profile in answer["player_profiles"]
+    ] == [
+        (EARLY, str(second)),
+        (EARLY, str(third)),
+    ]
 
 
 def test_cold_followup_keeps_original_publication_or_withholds(production):

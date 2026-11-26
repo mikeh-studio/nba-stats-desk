@@ -292,7 +292,8 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
     contract = load_contract()
     profiles = []
     for player, summary in zip(resolved, summaries):
-        selected_games = set(summary["semantic_evidence"]["game_ids"])
+        player_evidence = summary["semantic_evidence"]
+        selected_games = set(player_evidence["game_ids"])
         rows = [
             r
             for r in evidence.rows
@@ -308,6 +309,8 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
         profiles.append(
             {
                 **summary["player_profile"],
+                "first": player_evidence["scope"]["start"],
+                "last": player_evidence["scope"]["end"],
                 "minutes": minutes["value"] if complete else None,
                 "minutes_per_game": minutes["value"] / len(rows) if complete else None,
             }

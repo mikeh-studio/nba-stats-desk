@@ -137,13 +137,23 @@ export function renderGamePerformance(report) {
   const recordedMetrics = rowsOf(report.metrics);
   const hasSplit = report.rebounding_context?.split !== null &&
     reconciledRebounds(Object.fromEntries(recordedMetrics.map(metric => [metric.key, metric.value])));
-  const exhibits = {reb: rebounding(report), pts: scoring(report), contribution: contribution(report, hasSplit)};
+  const verifiedReboundRoster = players => rowsOf(players).length > 0 &&
+    rowsOf(players).every(reconciledRebounds);
+  const teamSplit = hasSplit && verifiedReboundRoster(report.rosters?.team);
+  const exhibits = {
+    reb: teamSplit && verifiedReboundRoster(report.rosters?.opponent) ? rebounding(report) : "",
+    pts: scoring(report),
+    contribution: contribution(report, teamSplit),
+  };
   const lead = report.lead_metric || report.focus_metric;
   const preferred = lead === "reb" || lead === "pts" ? lead : "contribution";
   const primary = [preferred, "contribution", "pts", "reb"].find(key => exhibits[key]);
   const other = Object.entries(exhibits).filter(([key, html]) => key !== primary && html).map(([, html]) => html);
   const metrics = recordedMetrics.filter(metric =>
-    finite(metric.value) && (hasSplit || !reboundComponents.has(metric.key)));
+    finite(metric.value) && (hasSplit || !reboundComponents.has(metric.key)))
+    .map(metric => reboundComponents.has(metric.key) && report.rebound_baseline_verified !== true
+      ? {...metric, baseline: null, change: null}
+      : metric);
   const keys = lead === "reb" ? ["reb", "oreb", "dreb", "min"]
     : [lead, "pts", "reb", "ast", "fg_pct"];
   const selected = [...new Set(keys)].map(key => metrics.find(metric => metric.key === key)).filter(Boolean).slice(0, 4);
