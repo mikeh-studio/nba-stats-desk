@@ -1,7 +1,9 @@
 import json
 import signal
 import subprocess
+import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, Mock
 
 import pytest
@@ -15,6 +17,7 @@ from scripts.ask_eval.cassettes import (
 )
 from scripts.ask_eval.codex_client import CodexCLIResponsesClient
 
+ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = {
     "type": "object",
     "properties": {"scope": {"type": ["string", "null"]}},
@@ -239,3 +242,73 @@ def test_cassette_round_trip_through_budget(cli, tmp_path):
     assert terminal["consumed"] == terminal["calls"] == 1
     assert terminal["errors"] == []
     popen.assert_called_once()
+
+
+def run_evaluator(output, *args):
+    return subprocess.run(
+        [sys.executable, "scripts/evaluate_ask.py", "--output", str(output), *args],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+
+
+@pytest.fixture
+def empty_codex_capture(tmp_path, monkeypatch):
+    monkeypatch.setenv("ASK_EVAL_INTELLIGENCE", "reference")
+    private_root = ROOT / "reports/ask-harness"
+    private_root.mkdir(parents=True, exist_ok=True)
+    with TemporaryDirectory(dir=private_root) as workspace:
+        cassette = Path(workspace) / "cassettes"
+        output = tmp_path / "capture"
+        result = run_evaluator(
+            output,
+            "--live",
+            "--codex-cli",
+            "--model",
+            "intentionally-unused-test-model",
+            "--case",
+            "rich_qualified_leader",
+            "--max-model-calls",
+            "2",
+            "--clock",
+            "2026-11-26",
+            "--record-cassettes",
+            str(cassette),
+        )
+        yield result, output, cassette
+
+
+def test_live_codex_capture_fails_when_cases_skip_model(empty_codex_capture):
+    result, output, cassette = empty_codex_capture
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads((output / "results.json").read_text())
+    assert report["passed"] == report["total"] == 1
+    assert report["transport"] == "codex_cli"
+    assert report["runtime"]["model_calls"] == 0
+    assert report["runtime"]["transport_errors"] == [
+        "No successful Codex CLI calls were executed"
+    ]
+    assert report["harness_passed"] is False
+    terminal = json.loads((cassette / "terminal.json").read_text())
+    assert terminal["calls"] == 0
+    assert "codex_cli_no_recorded_calls" in terminal["errors"]
+
+
+def test_replay_rejects_previous_empty_codex_capture(empty_codex_capture, tmp_path):
+    _, _, cassette = empty_codex_capture
+    terminal_path = cassette / "terminal.json"
+    terminal = json.loads(terminal_path.read_text())
+    assert terminal["files"] == {}
+    # Reproduce a capture from before the writer marked empty CLI evidence as failed.
+    terminal_path.write_text(json.dumps({**terminal, "errors": []}))
+
+    output = tmp_path / "replay"
+    result = run_evaluator(output, "--replay-cassettes", str(cassette))
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads((output / "results.json").read_text())
+    assert report["passed"] == report["total"] == 1
+    assert report["transport"] == "codex_cli"
+    assert report["harness_passed"] is False
+    assert "codex_cli_no_recorded_calls" in report["cassette"]["errors"]

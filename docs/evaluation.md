@@ -823,8 +823,10 @@ Semantic planning uses the deterministic `reference` provider by default.
 Calls using the `semantic_intent_v3` schema require an installed model-backed
 [intelligence provider](intelligence-contract.md) selected with
 `ASK_EVAL_INTELLIGENCE`. Codex CLI replay restores the recorded intelligence
-provider selection without invoking the CLI. Check recorded and consumed call
-counts to confirm the selected cases exercised the model transport.
+provider selection without invoking the CLI. A live Codex CLI run requires
+at least one successful CLI call, and an empty Codex CLI cassette fails the
+harness gate. Review comparisons require matching model transports. The review
+page shows the transport alongside the model and in the run provenance.
 
 Replay resolves provider, model, selected cases and clock from the manifest;
 explicit conflicting arguments fail before server startup. It creates no provider

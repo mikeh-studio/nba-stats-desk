@@ -47,8 +47,16 @@ def canonical(payload):
     return payload
 
 
+def _transport(run):
+    if "transport" in run:
+        return run["transport"]
+    if run.get("execution_mode") == "controlled" or run.get("provider") == "controlled":
+        return "controlled"
+    return "provider_api"
+
+
 def comparable(a, b):
-    return all(
+    return _transport(a) == _transport(b) and all(
         a.get(k) == b.get(k)
         for k in (
             "case_sha256",

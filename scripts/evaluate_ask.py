@@ -41,6 +41,7 @@ def harness_passed(runtime, cassette_status):
         (
             cassette_status.get("errors"),
             cassette_status.get("failed_attempts"),
+            runtime.get("transport_errors"),
             runtime.get("fixture_capability_failures"),
             runtime.get("uncaptured_reads"),
         )
@@ -479,6 +480,19 @@ def main():
         with httpx.Client(base_url=url) as client:
             runtime = client.get("/__eval/metadata").json()
             cassette_status = client.post("/__eval/finalize").json()
+        if (
+            codex_transport
+            and args.live
+            and (
+                runtime.get("model_calls", 0) < 1
+                or not any(
+                    call.get("response_id") for call in runtime.get("model_usage", [])
+                )
+            )
+        ):
+            runtime["transport_errors"] = [
+                "No successful Codex CLI calls were executed"
+            ]
         revision = (
             subprocess.run(
                 ["git", "rev-parse", "HEAD"],
