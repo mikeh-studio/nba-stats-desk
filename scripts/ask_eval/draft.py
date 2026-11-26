@@ -50,6 +50,7 @@ REVIEW_FIELDS = {
     "reconstruction_note",
     "separately_authored_fictional_inputs",
 }
+SYNTHETIC_RICH_FIELDS = {"rich_league_rows", "rich_availability"}
 
 
 class DraftError(ValueError):
@@ -150,13 +151,17 @@ def check_authored_content(value):
 
 
 def validate_source(source):
-    if set(source) - SOURCE_FIELDS:
+    production = source.get("source_kind") == "production_snapshot"
+    allowed_fields = (
+        SOURCE_FIELDS if production else SOURCE_FIELDS | SYNTHETIC_RICH_FIELDS
+    )
+    if set(source) - allowed_fields:
         raise DraftError("Unsupported frozen source metadata")
-    if source.get("source_kind") == "production_snapshot":
+    if production:
         from scripts.ask_eval.production import validate_production_source
 
         validate_production_source(source)
-        return source["snapshot"]["rows"]
+        return {"complete": source["snapshot"]["rows"]}
     if source.get("kind") != "synthetic" or not isinstance(
         source.get("neighbors"), dict
     ):
@@ -170,9 +175,18 @@ def validate_source(source):
                 row["player_name"], str
             ):
                 raise ValueError()
+        variants = {"complete": evidence.rows}
+        if "rich_league_rows" in source:
+            warehouse = FrozenWarehouse(source, "rich_league")
+            seasons = sorted({row["season"] for row in warehouse.rows})
+            _, rich = warehouse.load(seasons)
+            rich.validate()
+            if not all(isinstance(row["player_name"], str) for row in rich.rows):
+                raise ValueError()
+            variants["rich_league"] = rich.rows
     except (KeyError, TypeError, ValueError) as exc:
         raise DraftError("Malformed frozen source rows or coverage") from exc
-    return evidence.rows
+    return variants
 
 
 def validate_plan_scope(plan, identities, seasons, names):
@@ -302,7 +316,7 @@ def draft(*, trace, source, cases, review, output, original_source=None):
         trace_value.get("code", {}),
     ):
         check_authored_content(value)
-    rows = validate_source(source_value)
+    variants = validate_source(source_value)
     document = copy.deepcopy(document)
     document["human_reviewed"] = False
     for case in (
@@ -317,12 +331,18 @@ def draft(*, trace, source, cases, review, output, original_source=None):
         "trace_projection_is_not_complete_replay",
         "oracle_independence_is_author_attestation_not_machine_verified",
     ]
-    identities = {r["player_id"] for r in rows}
-    seasons = {r["season"] for r in rows}
-    names = {r["player_name"] for r in rows} | {
-        f"resolved_player_{identity}" for identity in identities
-    }
     for case in document["cases"]:
+        row_variant = (
+            "rich_league" if case["source_variant"] == "rich_league" else "complete"
+        )
+        if row_variant not in variants:
+            raise DraftError("Case source variant is absent from frozen source")
+        rows = variants[row_variant]
+        identities = {r["player_id"] for r in rows}
+        seasons = {r["season"] for r in rows}
+        names = {r["player_name"] for r in rows} | {
+            f"resolved_player_{identity}" for identity in identities
+        }
         study_ids, study_seasons, study_names = (
             study_scope(source_value)
             if "study" in case.get("attachments", [])

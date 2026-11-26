@@ -7,6 +7,8 @@ import math
 from collections import Counter
 from pathlib import Path
 
+from scripts.ask_eval.fixtures import approval_issue
+
 # Turn numbers are one-based. These named assertions establish the precise
 # recovery contract; arbitrary assertion presence is insufficient.
 RECOVERY_INVARIANTS = {
@@ -24,6 +26,12 @@ RECOVERY_INVARIANTS = {
         (2, "semantic_evidence.player_id", 101),
         (2, "semantic_evidence.kind", "league_baseline"),
         (2, "semantic_evidence.player.value", 2.5),
+    ],
+    "rich_availability_recovery": [
+        (3, "availability_scope.player_id", 1101),
+        (3, "availability_scope.teammate_id", 1102),
+        (3, "availability_evidence.policy.include_limited_minutes", False),
+        (3, "availability_evidence.metrics.0.groups.both_played.value", 106 / 6),
     ],
 }
 
@@ -143,6 +151,46 @@ CRITICAL = {
             (1, "semantic_evidence.rows.0.similarity_score", 0.8),
         ],
     },
+    "rich_league": {
+        "rich_archive_dates": [
+            (1, "semantic_evidence.scope.seasons", ["2024-25", "2023-24"]),
+            (1, "semantic_evidence.rows.0.value", 17.5),
+            (2, "semantic_evidence.scope.season", "2023-24"),
+            (2, "semantic_evidence.rows.0.value", 13.5),
+        ],
+        "rich_traded_player": [
+            (1, "semantic_evidence.scope.team_abbr", "AAA"),
+            (1, "semantic_evidence.rows.0.value", 12),
+            (2, "semantic_evidence.scope.team_abbr", "CCC"),
+            (2, "semantic_evidence.rows.0.value", 22),
+        ],
+        "rich_boxscore_results": [
+            (1, "semantic_evidence.scope.game_result", "W"),
+            (1, "semantic_evidence.rows.0.value", 17 / 5),
+            (2, "semantic_evidence.scope.game_result", "L"),
+            (2, "semantic_evidence.rows.0.value", 36 / 5),
+            (3, "semantic_evidence.rows.0.value", 14 / 5),
+        ],
+        "rich_qualified_leader": [
+            (1, "semantic_plan.model_calls", 0),
+            (1, "semantic_evidence.cohort.min_games", 7),
+            (1, "semantic_evidence.cohort.excluded_players", 1),
+            (1, "semantic_evidence.rows.0.player_id", 1105),
+        ],
+        "rich_efficiency": [
+            (1, "semantic_evidence.rows.0.value", 26 / 64),
+            (2, "semantic_evidence.rows.0.value", 36 / 48),
+            (3, "semantic_evidence.rows.0.value", 204 / (2 * (151 + 0.44 * 48))),
+            (4, "semantic_evidence.rows.0.value", 36 * 204 / 325),
+        ],
+        "rich_availability_recovery": [
+            (1, "availability_evidence.policy_version", "availability/2"),
+            (1, "availability_evidence.excluded.limited_minutes", 1),
+            (1, "availability_evidence.groups.both_played.2.report_status", "Out"),
+            (2, "availability_evidence.policy.include_limited_minutes", True),
+            (2, "availability_evidence.metrics.0.groups.both_played.value", 132 / 7),
+        ],
+    },
 }
 
 
@@ -192,6 +240,19 @@ def invariant_results(inventory, cid, invariants):
 
 def summarize(source, document):
     cases = document["cases"]
+    schema_version = document["schema_version"]
+    approved = [case for case in cases if case["review"]["status"] == "approved"]
+    verified_approved = sum(
+        schema_version == 2 and approval_issue(case) is None for case in approved
+    )
+    unverified_approved = len(approved) - verified_approved
+    approval_verification = (
+        "Unverified declarations: schema v1 permits optional reviewer identity and does not bind approval to expectation content. No human-reviewed rubric credit is established."
+        if schema_version == 1
+        else f"Hash-bound verification: {verified_approved} approvals match the current expectations and include reviewer and timestamp provenance."
+    )
+    if schema_version == 2 and unverified_approved:
+        approval_verification += f" Unverified declarations: {unverified_approved} approvals lack valid provenance."
     by_id = {case["id"]: case for case in cases}
     rows = source.get("rows", source.get("snapshot", {}).get("rows", []))
     inventory = {}
@@ -204,6 +265,8 @@ def summarize(source, document):
         inventory[case["id"]] = {
             "family": case["family"],
             "variant_of": case.get("variant_of"),
+            "source_variant": case["source_variant"],
+            "attachments": copy.deepcopy(case.get("attachments", [])),
             "review": copy.deepcopy(case["review"]),
             "assertions": checks,
             "asserted_routes": sorted(
@@ -228,7 +291,7 @@ def summarize(source, document):
             ),
         }
     return {
-        "schema_version": 1,
+        "schema_version": schema_version,
         "interpretation": "Assertion presence and manually selected risk tags only; execution and human approval are separate evidence.",
         "counts": {
             "cases": len(cases),
@@ -241,8 +304,10 @@ def summarize(source, document):
         "review_states": dict(
             sorted(Counter(c["review"]["status"] for c in cases).items())
         ),
+        "verified_approved": verified_approved,
+        "unverified_approved": unverified_approved,
         "declared_human_reviewed": document["human_reviewed"],
-        "approval_verification": "Unverified declarations: schema v1 permits optional reviewer identity and does not bind approval to expectation content. No human-reviewed rubric credit is established.",
+        "approval_verification": approval_verification,
         "critical_risks": {
             risk: {
                 "present": [cid for cid in selections if cid in by_id],

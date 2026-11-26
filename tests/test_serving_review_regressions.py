@@ -96,6 +96,8 @@ def test_cross_season_date_scope_matches_fact_endpoint(multi, suffix):
             dict(
                 metric="pts",
                 aggregation="average",
+                aggregation_source="explicit",
+                operation="summary",
                 player_name="resolved_player_1",
                 season="2024-25",
                 season_type="Regular Season",
@@ -143,6 +145,8 @@ def test_rolling_asof_scope_matches_fact_endpoint(multi, suffix):
             dict(
                 metric="pts",
                 aggregation="average",
+                aggregation_source="explicit",
+                operation="summary",
                 player_name="resolved_player_1",
                 season="2024-25",
                 season_type="Regular Season",
@@ -560,8 +564,11 @@ def test_current_season_identity_avoids_unrelated_reference(
             dict(
                 metric="pts",
                 aggregation="average",
+                aggregation_source="explicit",
+                operation="summary",
                 season=season,
                 season_type="Regular Season",
+                window="season_to_date",
                 player_name="resolved_player_1",
             )
         ],

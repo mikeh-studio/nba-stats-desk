@@ -9,7 +9,10 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {
-      "const": 1
+      "enum": [
+        1,
+        2
+      ]
     },
     "human_reviewed": {
       "type": "boolean"
@@ -45,7 +48,8 @@
               "duplicate",
               "ambiguous",
               "invalid_similarity",
-              "missing_similarity"
+              "missing_similarity",
+              "rich_league"
             ]
           },
           "review": {
@@ -62,6 +66,19 @@
                 ]
               },
               "reviewer": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expectation_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "reviewed_at": {
                 "type": [
                   "string",
                   "null"
@@ -155,7 +172,8 @@
             "items": {
               "enum": [
                 "availability",
-                "study"
+                "study",
+                "rich_availability"
               ]
             }
           },

@@ -271,7 +271,9 @@ def test_game_log_control_and_exact_chart_mutations():
     p = StatsAgent(
         settings(),
         SimpleNamespace(),
-        client=Model("Fantasy Score", operation="game_log", window="last_n_games", n=2),
+        client=Model(
+            "fantasy_proxy_weighted", operation="game_log", window="last_n_games", n=2
+        ),
         semantic_warehouse=Warehouse(),
     ).answer("Regular Player Fantasy Score game log for the last 2 appearances")
     assert validate(p)["errors"] == []

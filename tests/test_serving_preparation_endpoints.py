@@ -20,6 +20,7 @@ def test_duplicate_rank_contract_at_endpoint(monkeypatch, suffix, different):
         operation="rank",
         season="2024-25",
         season_type="Regular Season",
+        window="season_to_date",
         min_games=1,
         limit=10,
     )

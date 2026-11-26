@@ -1,6 +1,8 @@
 """Independent contract and evaluator mutation tests, with synthetic evidence."""
 
+import asyncio
 import copy
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,6 +16,7 @@ from app.agent.service import StatsAgent
 from scripts.ask_eval.fixtures import (
     ControlledModel,
     FrozenWarehouse,
+    expectation_digest,
     frozen_repository,
     load_inputs,
 )
@@ -36,11 +39,10 @@ def agent(variant="complete"):
 
 
 def test_review_approval_allows_optional_identity_but_requires_all_cases_approved():
-    import json
-
     from scripts.ask_eval.fixtures import validate_cases
 
     document = copy.deepcopy(CASES)
+    document["schema_version"] = 1
     schema = json.loads((ROOT / "tests/fixtures/ask/schema.json").read_text())
     document["human_reviewed"] = True
     for case in document["cases"]:
@@ -236,6 +238,61 @@ def test_review_cannot_compare_incompatible_sources_or_inject_scripts():
     html = build_review(doc, doc, {"description": "</script><script>alert(1)</script>"})
     assert "</script><script>alert(1)</script>" not in html
     assert "\\u003c/script>" in html
+
+
+def test_review_embeds_current_expectation_digest():
+    case = CASES["cases"][0]
+    run = {"cases": [case], "results": [{"id": case["id"]}]}
+    html = build_review(run, run, {})
+    data = json.loads(html.split("const DATA=", 1)[1].split(";\n", 1)[0])
+    assert data["expectation_sha256"] == {case["id"]: expectation_digest(case)}
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        "season",
+        "season_type",
+        "operation",
+        "metric",
+        "aggregation",
+        "aggregation_source",
+        "window",
+    ],
+)
+def test_controlled_intelligence_rejects_incomplete_fixture_queries(missing):
+    from app.agent import intelligence_contract as api
+    from app.agent.intelligence import planning_context
+    from scripts.ask_eval.intelligence_fixture import ControlledIntelligence
+
+    provider = ControlledIntelligence()
+    turn = copy.deepcopy(CASES["cases"][0]["turns"][0])
+    turn["planner_response"]["queries"][0].pop(missing)
+    context = planning_context(
+        turn["question"],
+        "2024-25",
+        [{"player_id": 101, "player_name": "Avery Example"}],
+        ("AAA",),
+    )
+
+    class Gateway:
+        async def generate_plan(self, **kwargs):
+            return (
+                ControlledModel(turn)
+                .create(text={"format": {"name": "semantic_intent_v3"}})
+                .output_text
+            )
+
+    result = asyncio.run(
+        provider.plan(
+            context,
+            provider.classify(context),
+            prompts=provider.prompts(),
+            budget=api.PlanningBudget(1, 1, 100),
+            model=Gateway(),
+        )
+    )
+    assert result == api.ProviderFailure("invalid_provider_output")
 
 
 def test_model_budget_is_shared_across_timeout_clones():

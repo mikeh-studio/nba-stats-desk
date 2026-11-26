@@ -179,6 +179,7 @@ def rank(season):
     return dict(
         metric="pts",
         season=season,
+        window="season_to_date",
         aggregation="average",
         operation="rank",
         season_type="Regular Season",
@@ -230,6 +231,7 @@ def test_relative_season_reaches_the_planner_once(on_date):
                         {
                             **rank("2024-25"),
                             "metric": "ast",
+                            "aggregation_source": "explicit",
                             "direction": "higher",
                             "window": "season_to_date",
                             "limit": 10,
