@@ -464,11 +464,18 @@ def test_catalog_covers_governed_metrics_and_preserves_legacy_tool_scope():
         "pts_per36",
         "fg_pct",
     }
-    result = StatsToolRunner(ToolFakeRepository()).search_rankings(
-        "weighted fantasy points"
-    )
+    runner = StatsToolRunner(ToolFakeRepository())
+    tier5_keys = set(catalog.tier_keys(5))
+    assert runner.list_metrics("weighted fantasy points")["metrics"] == []
+    assert not ({m["key"] for m in runner.list_metrics()["metrics"]} & tier5_keys)
+    result = runner.search_rankings("weighted fantasy points")
     assert result["status"] == "error"
     assert result["invalid_metrics"] == ["weighted fantasy points"]
+    assert not ({m["key"] for m in result["valid_metrics"]} & tier5_keys)
+    percentile_result = runner.calculate_player_percentile(1, "weighted fantasy points")
+    assert percentile_result["status"] == "error"
+    assert percentile_result["invalid_metrics"] == ["weighted fantasy points"]
+    assert not ({m["key"] for m in percentile_result["valid_metrics"]} & tier5_keys)
 
 
 def test_catalog_accepts_legacy_metadata_override(tmp_path):

@@ -953,7 +953,7 @@ class StatsToolRunner:
         cached = _list_metrics_cache.get(cache_key, self.cache_ttl_seconds)
         if cached is not None:
             return cached
-        metrics = self.catalog.list_metrics()
+        metrics = self.catalog.list_metrics(tool_only=True)
         if query:
             query_norm = str(query).lower()
             metrics = [
@@ -1511,7 +1511,7 @@ class StatsToolRunner:
                 "status": "error",
                 "message": "Unsupported metric.",
                 "invalid_metrics": [metric],
-                "valid_metrics": self.catalog.list_metrics(),
+                "valid_metrics": self.catalog.list_metrics(tool_only=True),
             }
         min_games_int = _coerce_limit(min_games, default=5, minimum=1, maximum=200)
         result = self.repo.get_player_metric_percentile(
@@ -1554,7 +1554,7 @@ class StatsToolRunner:
                 "status": "error",
                 "message": "Unsupported metric.",
                 "invalid_metrics": [metric],
-                "valid_metrics": self.catalog.list_metrics(),
+                "valid_metrics": self.catalog.list_metrics(tool_only=True),
             }
         max_rows = _coerce_limit(limit, default=10, minimum=1, maximum=25)
         rows = self.repo.get_metric_leaders(metric_def.key, limit=max_rows)

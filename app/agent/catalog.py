@@ -120,8 +120,12 @@ class SemanticCatalog:
             for alias in metric.aliases:
                 self._aliases[_normalize_key(alias)] = key
 
-    def list_metrics(self) -> list[dict[str, Any]]:
-        return [metric.to_public_dict() for metric in self.metrics.values()]
+    def list_metrics(self, *, tool_only: bool = False) -> list[dict[str, Any]]:
+        return [
+            metric.to_public_dict()
+            for metric in self.metrics.values()
+            if not (tool_only and metric.tier == GOVERNED_ONLY_TIER)
+        ]
 
     def tier_keys(self, tier: int) -> tuple[str, ...]:
         """Metric keys belonging to exactly ``tier``, in catalog order."""
