@@ -57,10 +57,11 @@ def evaluate(
     replay=False,
     progress=None,
     season="2024-25",
+    request_timeout=60,
 ):
     results = []
     previous_calls = 0
-    with httpx.Client(base_url=url, timeout=60) as client:
+    with httpx.Client(base_url=url, timeout=request_timeout) as client:
         for case in document["cases"]:
             modes = {}
             for mode in ("json", "sse"):
@@ -201,7 +202,12 @@ def main():
     p.add_argument(
         "--live",
         action="store_true",
-        help="Explicit opt-in to paid/provider model calls against frozen sources",
+        help="Explicit opt-in to model calls against frozen sources",
+    )
+    p.add_argument(
+        "--codex-cli",
+        action="store_true",
+        help="Use authenticated Codex CLI for --live OpenAI evaluation calls",
     )
     p.add_argument(
         "--max-model-calls",
@@ -233,6 +239,8 @@ def main():
     p.add_argument("--formula-cache", action="store_true")
     p.add_argument("--cohort-cache", action="store_true")
     args = p.parse_args()
+    if args.codex_cli and (not args.live or args.provider not in (None, "openai")):
+        p.error("--codex-cli requires --live and the openai provider")
     replay_manifest = None
     if args.replay_cassettes:
         if args.live:
@@ -255,6 +263,13 @@ def main():
         if not args.case:
             args.case = list(replay_manifest["cases"])
     args.provider = args.provider or "openai"
+    codex_transport = args.codex_cli or bool(
+        replay_manifest and replay_manifest.get("transport") == "codex_cli"
+    )
+    if codex_transport and (
+        args.provider != "openai" or not args.model or args.model != args.model.strip()
+    ):
+        p.error("Codex CLI transport requires openai and an explicit model ID")
     if args.clock:
         try:
             if date.fromisoformat(args.clock).isoformat() != args.clock:
@@ -342,6 +357,16 @@ def main():
             )
         },
     }
+    if codex_transport:
+        binding["transport"] = "codex_cli"
+        binding["intelligence_provider"] = (
+            replay_manifest["intelligence_provider"]
+            if replay_manifest
+            else os.getenv(
+                "ASK_EVAL_INTELLIGENCE",
+                os.getenv("ASK_INTELLIGENCE_PROVIDER", "reference"),
+            )
+        )
     if replay_manifest:
         from scripts.ask_eval.cassettes import normalized_phase2_flags
 
@@ -371,6 +396,7 @@ def main():
             "ASK_EVAL_CODE_ROOT": str(args.code_root.resolve()),
             "PYTHONPATH": str(ROOT),
             "ASK_EVAL_LIVE": "1" if args.live else "0",
+            "ASK_EVAL_CODEX_CLI": "1" if codex_transport else "0",
             "ASK_EVAL_FORMULA_CACHE": "1" if args.formula_cache else "0",
             "ASK_EVAL_COHORT_CACHE": "1" if args.cohort_cache else "0",
             "ASK_EVAL_SERVING_FIXTURE": "1" if args.serving_fixture else "0",
@@ -381,6 +407,12 @@ def main():
         env.pop("ASK_EVAL_INPUT_DIR", None)
         if args.input_dir is not None:
             env["ASK_EVAL_INPUT_DIR"] = str(input_dir.resolve())
+        env.pop("ASK_EVAL_CODEX_MODEL", None)
+        if codex_transport:
+            env.update(
+                ASK_EVAL_CODEX_MODEL=args.model,
+                ASK_EVAL_INTELLIGENCE=binding["intelligence_provider"],
+            )
         env.pop("ASK_EVAL_CLOCK", None)
         if args.clock:
             env["ASK_EVAL_CLOCK"] = args.clock
@@ -436,11 +468,13 @@ def main():
                 url,
                 document,
                 args.provider,
-                args.model,
+                # CLI-only model IDs are configured as the fixture server's default.
+                None if codex_transport else args.model,
                 live=args.live,
                 replay=bool(args.replay_cassettes),
                 progress=progress,
                 season=source.get("season", "2024-25"),
+                request_timeout=250 if codex_transport else 60,
             )
         with httpx.Client(base_url=url) as client:
             runtime = client.get("/__eval/metadata").json()
@@ -490,6 +524,7 @@ def main():
             "provider": args.provider
             if args.live or args.replay_cassettes
             else "controlled",
+            "transport": runtime["transport"],
             "model": args.model
             if args.live or args.replay_cassettes
             else "predeclared-plan",
@@ -509,6 +544,7 @@ def main():
                         "server.py",
                         "budget.py",
                         "cassettes.py",
+                        "codex_client.py",
                         "private_io.py",
                         "source_guard.py",
                         "environment.py",

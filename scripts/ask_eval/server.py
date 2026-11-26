@@ -18,7 +18,12 @@ from scripts.ask_eval.environment import (  # noqa: E402
 
 ROOT, CODE_ROOT = select_code_root(__file__)
 sys.path.insert(0, str(CODE_ROOT))
-if os.environ.get("ASK_EVAL_LIVE") == "1":
+live_mode = os.environ.get("ASK_EVAL_LIVE") == "1"
+codex_mode = os.environ.get("ASK_EVAL_CODEX_CLI") == "1"
+if codex_mode:
+    for credential in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        os.environ.pop(credential, None)
+elif live_mode:
     load_provider_credentials(ROOT / ".env")
 
 # This evaluation-only import scope prevents app.config's automatic .env load
@@ -48,7 +53,7 @@ lookup = {c["id"]: c for c in document["cases"]}
 # Offline harness plans are explicitly controlled. The production loader never
 # registers this provider and public reference checks can opt out per fixture run.
 _has_intelligence_hook = "ask_intelligence_provider" in Settings.__dataclass_fields__
-if _has_intelligence_hook and os.environ.get("ASK_EVAL_LIVE") != "1":
+if _has_intelligence_hook and not (live_mode or codex_mode):
     from scripts.ask_eval.intelligence_fixture import install_controlled_provider
 
     install_controlled_provider()
@@ -74,7 +79,9 @@ def settings(request: Request = None):
         freshness_threshold_hours=36,
         max_search_results=12,
         season=source.get("season", "2024-25"),
-        openai_api_key="offline-fixture",
+        # Only a readiness marker for model-backed intelligence. The client
+        # override below owns the transport and never passes a provider key.
+        openai_api_key="codex-cli-transport" if codex_mode else "offline-fixture",
         agent_rate_limit_per_minute=0,
         agent_rate_limit_daily=0,
         agent_history_enabled=False,
@@ -84,12 +91,12 @@ def settings(request: Request = None):
     if _has_intelligence_hook:
         selection = os.environ.get(
             "ASK_EVAL_INTELLIGENCE",
-            "fixture" if os.environ.get("ASK_EVAL_LIVE") != "1" else "reference",
+            "reference" if live_mode or codex_mode else "fixture",
         )
         if (
             request
             and request.headers.get("X-Evaluation-Intelligence") == "reference"
-            and os.environ.get("ASK_EVAL_LIVE") != "1"
+            and not (live_mode or codex_mode)
         ):
             selection = "reference"
         base = replace(base, ask_intelligence_provider=selection)
@@ -100,7 +107,15 @@ def settings(request: Request = None):
                 anthropic_api_key=None,
                 openrouter_api_key=None,
             )
-    if os.environ.get("ASK_EVAL_LIVE") == "1":
+    if codex_mode:
+        base = replace(
+            base,
+            openai_agent_model=os.environ["ASK_EVAL_CODEX_MODEL"],
+            openai_agent_timeout_seconds=90.0,
+            agent_planner_timeout_seconds=180.0,
+            agent_request_deadline_seconds=240.0,
+        )
+    elif live_mode:
         live = get_settings()
         if _has_intelligence_hook:
             base = replace(
@@ -118,7 +133,7 @@ def settings(request: Request = None):
             anthropic_agent_max_retries=0,
             openrouter_agent_max_retries=0,
         )
-    if os.environ.get("ASK_EVAL_CASSETTE_MODE"):
+    if codex_mode or os.environ.get("ASK_EVAL_CASSETTE_MODE"):
         base = replace(
             base,
             openai_agent_max_retries=0,
@@ -206,7 +221,7 @@ async def evaluation_context(request, call_next):
             semantic_date.reset(clock_token)
 
 
-if os.environ.get("ASK_EVAL_LIVE") == "1" or cassette:
+if live_mode or cassette:
     from app.agent.service import StatsAgent
 
     _get_client = StatsAgent._get_client
@@ -214,9 +229,16 @@ if os.environ.get("ASK_EVAL_LIVE") == "1" or cassette:
     def budgeted_client(self, provider="openai"):
         if cassette and cassette.mode == "replay":
             return CassetteClient(cassette, provider)
-        client = _get_client(self, provider)
-        if provider == "openai":
-            client = client.with_options(max_retries=0, timeout=30)
+        if codex_mode:
+            if provider != "openai":
+                raise RuntimeError("Codex CLI evaluation requires the openai provider")
+            from scripts.ask_eval.codex_client import CodexCLIResponsesClient
+
+            client = CodexCLIResponsesClient()
+        else:
+            client = _get_client(self, provider)
+            if provider == "openai":
+                client = client.with_options(max_retries=0, timeout=30)
         client = BudgetClient(client, budget)
         return CassetteClient(cassette, provider, client) if cassette else client
 
@@ -237,7 +259,12 @@ def evaluation_metadata():
         "model_calls": budget.calls,
         "source_kind": source.get("source_kind", "synthetic"),
         "model_usage": budget.records,
-        "live": os.environ.get("ASK_EVAL_LIVE") == "1",
+        "live": live_mode,
+        "transport": "codex_cli"
+        if codex_mode
+        else "provider_api"
+        if live_mode or cassette
+        else "controlled",
     }
 
 
@@ -289,7 +316,7 @@ def repository(request: Request):
 
 
 def model(request: Request):
-    if os.environ.get("ASK_EVAL_LIVE") == "1" or cassette:
+    if live_mode or cassette:
         return None
     case = case_for(request)
     index = int(request.headers.get("X-Evaluation-Turn", "0"))
