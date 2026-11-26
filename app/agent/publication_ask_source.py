@@ -129,19 +129,15 @@ class PublicationAskSource:
             ],
         }, self.evidence
 
-    def stat_plan(self, request: PublicationStatRequest, selected_player=None):
+    def stat_plan(self, request: PublicationStatRequest):
         aggregation = {"per_game": "average", "per36": "ratio"}.get(
             request.aggregation, request.aggregation
         )
         metric = load_contract().metric(request.metric)
         if request.operation == "game_log" and metric.denominator:
             aggregation = "ratio"
-        comparison = len(request.names) == 2
-        names = (
-            (selected_player,) if selected_player and not comparison else request.names
-        )
         return {
-            "status": "compare" if comparison else "query",
+            "status": "compare" if len(request.names) == 2 else "query",
             "message": "Scoped publication statistics",
             "model_calls": 0,
             "queries": [
@@ -162,7 +158,7 @@ class PublicationAskSource:
                         else {}
                     ),
                 }
-                for name in names
+                for name in request.names
             ],
         }
 

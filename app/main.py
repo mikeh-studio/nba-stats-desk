@@ -91,7 +91,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261126-ask-report-review"
+STATIC_VERSION = "20261126-ask-report-scope"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -1164,6 +1164,7 @@ def _restore_agent_context(
                         # History saved before route labels has no ask_route.
                         route=(stored_payload.get("ask_route") or {}).get("route"),
                         candidates=stored_payload.get("clarification_options"),
+                        publication_id=stored_payload.get("publication_id"),
                     )
                 elif successful_analysis(stored_payload):
                     next_context = analysis_context(turn["question"], stored_payload)
@@ -1187,9 +1188,12 @@ def _restore_agent_context(
                         max_turns=settings.agent_conversation_max_turns,
                         context=recovered_context,
                     )
+    pending = store.get_pending_clarification(conversation_id)
     if payload.previous_context and payload.previous_context.publication_id:
         turns = store.get_turns(conversation_id, max_turns=1)
-        pinned = turns[0].context.get("publication_id") if turns else None
+        pinned = (turns[0].context.get("publication_id") if turns else None) or (
+            pending.publication_id if pending else None
+        )
         if pinned and pinned != payload.previous_context.publication_id:
             raise HTTPException(
                 409,
@@ -1200,6 +1204,7 @@ def _restore_agent_context(
     if (
         payload.conversation_id
         and payload.previous_context
+        and not (pending and pending.publication_id and payload.selected_player_name)
         and not any(
             turn.context
             for turn in store.get_turns(

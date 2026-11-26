@@ -203,6 +203,62 @@ test("study cards retain their scoped identity and clear on a refusal", async ()
   assert.equal(profile.innerHTML, "");
 });
 
+test("published profiles retain their release and each answer's dates", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-table-card]", "[data-agent-tables]", "[data-agent-chart-card]",
+    "[data-agent-charts]", "[data-agent-profile]",
+  ].map(selector => [selector, new FakeElement()]));
+  const agent = await loadAgentModule({elements});
+  const coverage = {season: "2026-27", first: "2026-10-20", last: "2026-11-17"};
+  const publication_id = "pub_0123456789abcdef";
+  const profile = (id, name) => ({player: {player_id: id, player_name: name}, profile_url: `/players/${id}`});
+  const a = profile(101, "Taylor Example");
+  const b = profile(202, "Riley Example");
+  const links = payload => {
+    agent.renderAuxiliaryPayload({publication_id, source_coverage: coverage, ...payload}, globalThis.document, false);
+    const html = elements["[data-agent-profile]"].innerHTML;
+    return [...new Set([...html.matchAll(/href="([^"]+)"/g)].map(match => match[1].replaceAll("&amp;", "&")))];
+  };
+  const expected = (id, scope) => `/players/${id}?${new URLSearchParams({season: coverage.season, publication_id, ...scope})}`;
+  assert.deepEqual(links({
+    player_profile: a,
+    semantic_evidence: {scope: {seasons: [coverage.season], start: "2026-11-01", end: "2026-11-16"}},
+  }), [expected(101, {first: "2026-11-01", last: "2026-11-16"})]);
+  assert.deepEqual(links({
+    player_profile: a,
+    semantic_evidence: {scope: {season: coverage.season, window: "season_to_date", window_end: "2026-11-16"}},
+  }), [expected(101, {first: coverage.first, last: "2026-11-16"})]);
+  assert.deepEqual(links({
+    player_profiles: [a, b],
+    semantic_evidence: {
+      current: {scope: {player_id: 101, window_start: "2026-11-02", window_end: "2026-11-07"}},
+      baseline: {scope: {player_id: 202, window_start: "2026-11-08", window_end: "2026-11-09"}},
+    },
+  }), [
+    expected(101, {first: "2026-11-02", last: "2026-11-07"}),
+    expected(202, {first: "2026-11-08", last: "2026-11-09"}),
+  ]);
+  assert.deepEqual(links({
+    player_profile: a,
+    semantic_evidence: {
+      kind: "game_performance", player: {player_id: 101},
+      game: {game_id: "0022600255", season: coverage.season, team_abbr: "SAS", opponent_abbr: "DET"},
+    },
+  }), [expected(101, {game_id: "0022600255"})]);
+});
+
+test("published clarification selections send the release even before the first answer", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const question = "Example total points";
+  const publicationId = "pub_0123456789abcdef";
+  const selected = agent.buildAskBody(question, {playerId: 202, playerName: "Riley Example", publicationId});
+  assert.deepEqual(selected.previous_context, {question, publication_id: publicationId});
+  assert.equal(selected.selected_player_id, 202);
+  assert.equal(selected.selected_player_name, "Riley Example");
+  assert.equal(agent.buildAskBody(question).previous_context, undefined);
+});
+
 test("game-report identity shows scoped observed appearances and omits unknown counts", async () => {
   const elements = Object.fromEntries([
     "[data-agent-table-card]", "[data-agent-tables]",

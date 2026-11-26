@@ -17,6 +17,7 @@ import {
   comparisonAssumptions,
   comparisonProfiles,
   comparisonTables,
+  publicationPlayerProfile,
 } from "./ask_comparison.js";
 import {
   normalizeTabs,
@@ -1032,11 +1033,14 @@ function renderClarifyOptions(payload) {
   `;
 }
 
-function bindClarifyOptions(root) {
+function bindClarifyOptions(root, payload) {
   root.querySelectorAll("[data-agent-player-option]").forEach((button) => {
     button.addEventListener("click", () => {
       const playerId = Number(button.dataset.playerId);
-      askQuestion(runtimeFor().lastQuestion || button.dataset.playerName || "", {
+      const question = (payload.publication_id && payload.clarification_question) ||
+        runtimeFor().lastQuestion || button.dataset.playerName || "";
+      askQuestion(question, {
+        publicationId: payload.publication_id,
         playerId: Number.isFinite(playerId) && playerId > 0 ? playerId : null,
         playerName: button.dataset.playerName || "",
       });
@@ -1097,7 +1101,7 @@ function renderAnswerPayload(payload, targetEl) {
     targetEl.innerHTML += '<p class="meta">Saved answer uses earlier availability rules. Ask again to apply final participation and the limited-minutes filter.</p>';
   }
   renderScopeAssumptions(payload, targetEl);
-  bindClarifyOptions(targetEl);
+  bindClarifyOptions(targetEl, payload);
 }
 
 function latestFollowupReport() {
@@ -1261,7 +1265,7 @@ function renderAuxiliaryPayload(
 
   const profile = root.querySelector("[data-agent-profile]");
   if (profile && payload.player_profiles?.length === 2) {
-    profile.innerHTML = `<div class="ask-answer-players">${payload.player_profiles.map(p => renderPlayerProfile(p)).join("")}</div>`;
+    profile.innerHTML = `<div class="ask-answer-players">${payload.player_profiles.map(p => renderPlayerProfile(publicationPlayerProfile(p, payload))).join("")}</div>`;
     return;
   }
   const sampleLabel = Number.isSafeInteger(observed) && observed >= 0
@@ -1270,12 +1274,7 @@ function renderAuxiliaryPayload(
     profile.innerHTML = renderPlayerProfile(
       payload.player_profile
         ? {
-            ...payload.player_profile,
-            ...(game && /^pub_[a-f0-9]{16}$/.test(payload.publication_id) ? {
-              publication_id: payload.publication_id,
-              profile_season: game.game.season,
-              game_id: game.game.game_id,
-            } : {}),
+            ...publicationPlayerProfile(payload.player_profile, payload),
             ...(gameLog ? {sampleLabel} : {}),
             scopeLabel: overview
               ? `${overview.scope.phases.join(" + ")} · ${reportRange(payload, overview)}`
@@ -2194,6 +2193,12 @@ function buildAskBody(question, selection, conversationId = activeConversationId
   if (selection && selection.playerName) {
     body.selected_player_id = selection.playerId || null;
     body.selected_player_name = selection.playerName;
+    if (/^pub_[a-f0-9]{16}$/.test(selection.publicationId)) {
+      body.previous_context = {
+        ...(body.previous_context || {question: question.slice(0, 4000)}),
+        publication_id: selection.publicationId,
+      };
+    }
   }
   return body;
 }

@@ -24,6 +24,7 @@ from app.agent.metric_presentation import (
 from app.agent.name_matching import (
     PlayerNameError,
     identity_payload,
+    identity_replay_publication,
     name_matching_entrypoint,
     prepare_names,
 )
@@ -720,7 +721,7 @@ class SemanticAsk:
         context: dict[str, Any] = next(
             (turn.context for turn in reversed(turns) if turn.context), {}
         )
-        publication_pin = context.get("publication_id")
+        publication_pin = context.get("publication_id") or identity_replay_publication()
         if award_request:
             context = {}
             pending = None
@@ -735,6 +736,8 @@ class SemanticAsk:
             # own wording; it must not be folded into the pending question.
             # Typed Overview clarifications resume through resume_overview.
             pending = None
+        pending_publication = pending.publication_id if pending else None
+        publication_pin = publication_pin or pending_publication
         from app.agent.overview_clarification import (
             OverviewClarification,
             resume_overview,
@@ -1496,7 +1499,17 @@ class SemanticAsk:
                         != chosen["player_name"].casefold()
                     ]
                 if not overview:
-                    question, players = prepare_names(question, players)
+                    restored_selection = (
+                        selected_player
+                        if publication is not None
+                        and publication_pin
+                        and context.get("browser_recovered")
+                        and not pending
+                        else None
+                    )
+                    question, players = prepare_names(
+                        question, players, selected=restored_selection
+                    )
                 from app.agent.derived_series import (
                     derived_series_plan,
                     render_derived_series_answer,
@@ -1576,17 +1589,21 @@ class SemanticAsk:
                     }
                     result = {"status": payload["status"]}
                 else:
+                    publication_plan = None
+                    if publication is not None and publication_stat:
+                        resolved_stat = parse_publication_stat(
+                            question.partition("\nSelected player: ")[0]
+                        )
+                        if resolved_stat is None:
+                            raise SemanticError(
+                                "invalid_scope",
+                                "Please restate the player and statistic.",
+                            )
+                        publication_plan = publication.stat_plan(resolved_stat)
                     plan = (
                         leader_plan
                         or (prepared_attempt.plan if prepared_attempt else None)
-                        or (
-                            publication.stat_plan(
-                                publication_stat,
-                                chosen["player_name"] if selected_player else None,
-                            )
-                            if publication is not None and publication_stat
-                            else None
-                        )
+                        or publication_plan
                         or plan_question(
                             client,
                             settings=self.settings,
@@ -1750,6 +1767,31 @@ class SemanticAsk:
                             ):
                                 break
                     payload = render_answer(result, players)
+                    if (
+                        publication_plan
+                        and plan["status"] == "compare"
+                        and result["status"] == "ok"
+                        and not payload.get("player_profile")
+                    ):
+                        profiles = []
+                        for side in ("current", "baseline"):
+                            section = result["evidence"][side]
+                            player_id = section["scope"]["player_id"]
+                            player = next(
+                                p for p in players if p["player_id"] == player_id
+                            )
+                            game_ids = set(section["rows"][0]["game_ids"])
+                            profiles.append(
+                                identity_profile(
+                                    player,
+                                    [
+                                        row
+                                        for row in evidence.rows
+                                        if row["game_id"] in game_ids
+                                    ],
+                                )
+                            )
+                        payload["player_profiles"] = profiles
                     if (
                         plan.get("all_opponents_through_game")
                         and payload["status"] == "ok"
@@ -1959,8 +2001,11 @@ class SemanticAsk:
                     query_plan=overview_pending or payload.get("semantic_plan"),
                     route=route_label,
                     candidates=payload.get("clarification_options"),
+                    publication_id=payload.get("publication_id"),
                 )
-            else:
+            elif not (
+                pending_publication and payload["status"] == "publication_unavailable"
+            ):
                 store.clear_pending_clarification(conversation_id)
             if payload["status"] == "ok":
                 next_context = analysis_context(original, payload)

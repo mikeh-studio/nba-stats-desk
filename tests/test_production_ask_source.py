@@ -100,6 +100,23 @@ def production(monkeypatch):
         semantic_date.reset(token)
 
 
+def add_riley(captured, publication_id, *, points):
+    publication = captured[publication_id]
+    earlier = publication.evidence.rows[0]
+    riley = dict(
+        earlier,
+        player_id=2000,
+        player_name="Riley Example",
+        pts=points,
+    )
+    captured[publication_id] = replace(
+        publication,
+        evidence=replace(
+            publication.evidence, rows=[*publication.evidence.rows, riley]
+        ),
+    )
+
+
 def ask(client, question, *, endpoint="ask", season=DEFAULT_SEASON, **params):
     response = client.post(
         f"/api/agent/{endpoint}?season={season}", json={"question": question, **params}
@@ -654,18 +671,112 @@ def test_simple_questions_keep_structured_publication_evidence(production, quest
 
 def test_exact_publication_comparison_uses_requested_metric_and_aggregation(production):
     client, captured, _, legacy, _ = production
-    publication = captured[ACTIVE]
-    earlier, later = publication.evidence.rows
-    second_player = dict(earlier, player_id=2000, player_name="Riley Example", pts=5)
-    captured[ACTIVE] = replace(
-        publication,
-        evidence=replace(publication.evidence, rows=[earlier, later, second_player]),
-    )
+    add_riley(captured, ACTIVE, points=5)
     payload = ask(client, "Compare Taylor Example vs Riley Example total points")
     assert payload["status"] == "ok", payload["answer"]
     assert payload["publication_id"] == ACTIVE
     assert payload["semantic_evidence"]["difference"] == 40
     assert len(payload["tables"]) == 2
+    assert [p["player"]["player_id"] for p in payload["player_profiles"]] == [
+        1000,
+        2000,
+    ]
+    assert not legacy.calls
+
+
+@pytest.mark.parametrize(
+    ("question", "selected_id", "field", "value"),
+    [
+        ("Example total points", 2000, "rows", 5),
+        ("Compare Example vs Riley Example total points", 1000, "difference", 40),
+    ],
+)
+@pytest.mark.parametrize("endpoint", ["ask", "ask/stream"])
+def test_publication_stat_uses_resolved_name_after_selection(
+    production, question, selected_id, field, value, endpoint
+):
+    client, captured, _, _, _ = production
+    add_riley(captured, ACTIVE, points=5)
+    first = ask(client, question, endpoint=endpoint)
+    assert first["status"] == "clarification_required"
+    choice = next(
+        row for row in first["clarification_options"] if row["player_id"] == selected_id
+    )
+    result = ask(
+        client,
+        question,
+        endpoint=endpoint,
+        conversation_id=first["conversation_id"],
+        selected_player_id=choice["player_id"],
+        selected_player_name=choice["player_name"],
+    )
+    assert result["status"] == "ok", result["answer"]
+    assert result["publication_id"] == ACTIVE
+    assert f"Using {choice['player_name']}" in result["answer"]
+    observed = result["semantic_evidence"][field]
+    assert (observed[0]["value"] if field == "rows" else observed) == value
+
+
+@pytest.mark.parametrize("withdrawn", [False, True])
+def test_player_clarification_stays_on_original_release(production, withdrawn):
+    client, captured, reads, legacy, repo = production
+    add_riley(captured, ACTIVE, points=12)
+    add_riley(captured, PRIOR, points=32)
+    question = f"How did Example play on {EARLY}?"
+    first = ask(client, question)
+    assert first["status"] == "clarification_required"
+    assert first["publication_id"] == ACTIVE
+    choice = next(
+        row for row in first["clarification_options"] if row["player_id"] == 2000
+    )
+
+    read = repo.ask_publication_source
+    repo.ask_publication_source = lambda pin: read(pin or PRIOR)
+    if withdrawn:
+        del captured[ACTIVE]
+
+    def pick():
+        return ask(
+            client,
+            question,
+            conversation_id=first["conversation_id"],
+            selected_player_id=choice["player_id"],
+            selected_player_name=choice["player_name"],
+        )
+
+    result = pick()
+    if withdrawn:
+        assert result["status"] == "publication_unavailable"
+        assert result["semantic_evidence"] is None
+        assert pick()["status"] == "publication_unavailable"
+    else:
+        assert result["status"] == "ok", result["answer"]
+        assert result["publication_id"] == ACTIVE
+        metrics = {
+            metric["key"]: metric["value"]
+            for metric in result["semantic_evidence"]["metrics"]
+        }
+        assert metrics["pts"] == 12
+    assert reads == [None, ACTIVE, ACTIVE, ACTIVE]
+    assert not legacy.calls
+
+
+def test_restored_publication_choice_validates_original_release(production):
+    client, captured, reads, legacy, _ = production
+    add_riley(captured, PRIOR, points=5)
+    question = "Example total points"
+    result = ask(
+        client,
+        question,
+        conversation_id=str(uuid4()),
+        previous_context={"question": question, "publication_id": PRIOR},
+        selected_player_id=2000,
+        selected_player_name="Riley Example",
+    )
+    assert result["status"] == "ok", result["answer"]
+    assert result["publication_id"] == PRIOR
+    assert result["semantic_evidence"]["rows"][0]["value"] == 5
+    assert reads == [PRIOR, PRIOR]
     assert not legacy.calls
 
 

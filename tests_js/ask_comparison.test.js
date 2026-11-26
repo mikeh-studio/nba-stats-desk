@@ -69,18 +69,20 @@ test("comparison keeps names and scope while hiding unavailable winning metrics"
 });
 
 test("published comparison portraits preserve question order and the same pinned dates", () => {
-  const view = comparisonPresentation(fixture());
+  const payload = fixture();
   const scope = {
     publication_id: "pub_0123456789abcdef",
-    profile_season: "2026-27",
     first: "2026-11-11",
     last: "2026-11-17",
   };
-  view.profiles = view.profiles.map((profile, index) => ({
-    ...profile,
-    ...scope,
-    profile_url: `/players/${index ? "1630178" : "1628973"}`,
-  }));
+  payload.publication_id = scope.publication_id;
+  payload.source_coverage = {season: "2026-27", first: "2026-10-20", last: "2026-11-20"};
+  Object.assign(payload.semantic_evidence.scope, {start: scope.first, end: scope.last, phases: ["Regular Season"]});
+  payload.player_profiles = payload.player_profiles.map((profile, index) => {
+    const playerId = index ? 1630178 : 1628973;
+    return {...profile, player: {...profile.player, player_id: playerId}, profile_url: `/players/${playerId}`};
+  });
+  const view = comparisonPresentation(payload);
   const html = comparisonProfiles(view);
   const portraits = [...html.matchAll(/ask-profile-avatar" href="([^"]+)"/g)];
   const urls = portraits.map(match => new URL(match[1].replaceAll("&amp;", "&"), "http://example.test"));

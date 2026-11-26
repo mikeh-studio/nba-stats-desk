@@ -61,6 +61,26 @@ test("a game report chooses the verified lead exhibit and keeps both rosters exp
   assert.match(blocks, /Who recorded the blocks\?.*>BLK<.*>STL<.*>MIN</s);
 });
 
+test("an unreconciled focal rebound split stays out of the player box and team share", () => {
+  const mismatched = {
+    ...report,
+    lead_metric: "reb",
+    rebounding_context: {split: null},
+    metrics: report.metrics.map(metric => metric.key === "dreb" ? {...metric, value: 12, baseline: 5, change: 7} : metric),
+    contribution: [...report.contribution, {key:"dreb", value:12, team_total:24, share:.5}],
+    rosters: {
+      ...report.rosters,
+      team: report.rosters.team.map(player => player.player_id === report.player.player_id ? {...player, dreb: 12} : player),
+    },
+  };
+  const html = renderGamePerformance(mismatched);
+  assert.match(html, /<th scope="row">REB<\/th><td>18<\/td>/);
+  assert.doesNotMatch(html, /scope="row">(?:OREB|DREB)<|\+7<\/td>/);
+  assert.match(html, /Victor Wembanyama<\/th><td>18<\/td><td>—<\/td><td>—<\/td>/);
+  assert.match(html, /Example Guard<\/th><td>3<\/td><td>0<\/td><td>3<\/td>/);
+  assert.match(renderGamePerformance({...report, lead_metric: "reb"}), /<th scope="row">DREB<\/th><td>13<\/td>/);
+});
+
 test("trends need two dated observations while discrete charts retain single marks", () => {
   const line = points => ({type:"line", series:[{points}]});
   assert.equal(hasMeaningfulTrend(line([{x:"2026-11-17",y:0}])), false);

@@ -8,6 +8,12 @@ const number = (value, fraction = false) => finite(value)
 const isShare = value => finite(value) && value >= 0 && value <= 1;
 const percent = value => isShare(value) ? `${(value * 100).toFixed(1)}%` : "—";
 const teamLabel = (name, abbreviation) => name || abbreviation || "";
+const reboundComponents = new Set(["oreb", "dreb"]);
+
+function reconciledRebounds({reb, oreb, dreb}) {
+  return [reb, oreb, dreb].every(value => Number.isSafeInteger(value) && value >= 0) &&
+    reb === oreb + dreb;
+}
 
 function shareMark(value) {
   return isShare(value) ? `<div class="ask-game-rate"><meter min="0" max="1" value="${value}" aria-hidden="true"></meter><span>${percent(value)}</span></div>` : "—";
@@ -38,8 +44,8 @@ function boxScore(report, metrics) {
   </section>`;
 }
 
-function contribution(report) {
-  const records = rowsOf(report.contribution);
+function contribution(report, hasSplit) {
+  const records = rowsOf(report.contribution).filter(row => hasSplit || !reboundComponents.has(row.key));
   if (!records.some(row => isShare(row.share))) return "";
   return `<section class="ask-game-panel ask-game-contribution">
     <h3>Share of ${escape(report.game.team_abbr)} production</h3>
@@ -99,9 +105,17 @@ function rosterBoard(report, lead) {
   const {title, keys} = Object.hasOwn(ROSTER_VIEWS, lead) ? ROSTER_VIEWS[lead] : ROSTER_VIEWS.boxScore;
   const counts = player => finite(player[keys[0]]) ? player[keys[0]] : -1;
   const columns = keys.map(key => `<th scope="col">${escape(metricAbbreviation({key}))}</th>`).join("");
+  const renderRow = player => {
+    const hasSplit = (
+      player.player_id !== report.player?.player_id || report.rebounding_context?.split !== null
+    ) && reconciledRebounds(player);
+    const values = keys.map(key =>
+      `<td>${number(hasSplit || !reboundComponents.has(key) ? player[key] : null, key === "min")}</td>`).join("");
+    return `<tr${player.player_id === report.player?.player_id ? ' class="is-focal"' : ""}><th scope="row">${escape(player.player_name)}</th>${values}</tr>`;
+  };
   const table = (players, label) => `<table class="ask-game-table"><caption>${escape(label)}</caption>
     <thead><tr><th scope="col">Player</th>${columns}</tr></thead>
-    <tbody>${[...players].sort((a, b) => counts(b) - counts(a)).map(player => `<tr${player.player_id === report.player?.player_id ? ' class="is-focal"' : ""}><th scope="row">${escape(player.player_name)}</th>${keys.map(key => `<td>${number(player[key], key === "min")}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    <tbody>${[...players].sort((a, b) => counts(b) - counts(a)).map(renderRow).join("")}</tbody></table>`;
   const {game} = report;
   return `<details class="ask-game-board"><summary>${title}</summary>
     <div class="ask-game-grid">${table(rosters.team, teamLabel(game.team_name, game.team_abbr))}${table(rosters.opponent, teamLabel(game.opponent_name, game.opponent_abbr))}</div>
@@ -120,12 +134,16 @@ export function renderGamePerformance(report) {
   const final = sides.every(Boolean) && scores.every(finite)
     ? `${sides[0]} ${scores[0]} · ${sides[1]} ${scores[1]}` : "";
   const matchup = [teamLabel(game.team_name, game.team_abbr), teamLabel(game.opponent_name, game.opponent_abbr)].join(" vs ");
-  const exhibits = {reb: rebounding(report), pts: scoring(report), contribution: contribution(report)};
+  const recordedMetrics = rowsOf(report.metrics);
+  const hasSplit = report.rebounding_context?.split !== null &&
+    reconciledRebounds(Object.fromEntries(recordedMetrics.map(metric => [metric.key, metric.value])));
+  const exhibits = {reb: rebounding(report), pts: scoring(report), contribution: contribution(report, hasSplit)};
   const lead = report.lead_metric || report.focus_metric;
   const preferred = lead === "reb" || lead === "pts" ? lead : "contribution";
   const primary = [preferred, "contribution", "pts", "reb"].find(key => exhibits[key]);
   const other = Object.entries(exhibits).filter(([key, html]) => key !== primary && html).map(([, html]) => html);
-  const metrics = rowsOf(report.metrics).filter(metric => finite(metric.value));
+  const metrics = recordedMetrics.filter(metric =>
+    finite(metric.value) && (hasSplit || !reboundComponents.has(metric.key)));
   const keys = lead === "reb" ? ["reb", "oreb", "dreb", "min"]
     : [lead, "pts", "reb", "ast", "fg_pct"];
   const selected = [...new Set(keys)].map(key => metrics.find(metric => metric.key === key)).filter(Boolean).slice(0, 4);

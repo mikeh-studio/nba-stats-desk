@@ -117,9 +117,10 @@ for each side and is unavailable through the single-release reader.
 
 Each publication-backed answer identifies the release and its coverage in
 `publication_id` and `source_coverage`. The conversation retains that release
-for subsequent analysis and validates it against active authority before
-returning facts. A withdrawn, expired, or inaccessible release withholds the
-answer. An overview can summarize recorded games even when the publication
+for subsequent analysis, including a player's selection after a clarification.
+Ask validates the retained release against active authority before returning
+facts. A withdrawn, expired, or inaccessible release withholds the answer. An
+overview can summarize recorded games even when the publication
 lacks independent cohort completeness. League ranks and percentiles require a
 manifest-bound coverage certificate. The dedicated verified three-point
 leaderboard retains its separate qualification and release contract.

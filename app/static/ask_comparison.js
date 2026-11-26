@@ -49,7 +49,7 @@ export function comparisonPresentation(payload) {
     payload.player_profiles?.length !== 2
   )
     return null;
-  const profiles = payload.player_profiles;
+  const profiles = payload.player_profiles.map(profile => publicationPlayerProfile(profile, payload));
   const names = profiles.map((p) => p.player.player_name);
   const { tags, surnames } = shortNames(names);
   const metrics = evidence.metrics;
@@ -215,6 +215,34 @@ export function comparisonAnswer(view) {
     ? `<section class="result-takeaways" aria-label="Key takeaways"><h3 class="result-label">Key takeaways</h3><div class="takeaway-grid">${view.insights.map((i) => `<article class="takeaway-card"><h4>${esc(i.title)}</h4><p>${esc(i.text)}</p><p class="takeaway-evidence">${esc(i.evidence)}</p></article>`).join("")}</div></section>`
     : "";
   return `<div class="result-layout"><div class="result-verdict"><p class="result-label">Comparison summary</p><p class="verdict-text">${esc(view.verdict.text)} <span class="verdict-note">${esc(view.verdict.note)}</span></p></div><p class="meta area-note">Similar rates receive equal emphasis. Small gaps and rounded ties do not support a player-quality judgment.</p><div class="result-areas">${areas}</div>${takeaways}</div>`;
+}
+
+export function publicationPlayerProfile(profile, payload) {
+  if (!payload.publication_id) return profile;
+  const coverage = payload.source_coverage;
+  const evidence = payload.semantic_evidence;
+  const playerId = profile.player?.player_id;
+  const game = playerId != null && evidence?.player?.player_id === playerId ? evidence.game : null;
+  const scope = [evidence?.current?.scope, evidence?.baseline?.scope]
+    .find(section => section?.player_id === playerId) || evidence?.scope;
+  const publication = {
+    ...profile,
+    publication_id: payload.publication_id,
+    profile_season: coverage?.season || game?.season || scope?.season ||
+      (scope?.seasons?.length === 1 ? scope.seasons[0] : profile.profile_season),
+  };
+  if (game?.game_id) return {...publication, game_id: game.game_id};
+
+  const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+  let first = scope?.start || scope?.window_start || scope?.start_date;
+  let last = scope?.end || scope?.window_end || scope?.as_of;
+  if (!first && scope?.window === "season_to_date") first = coverage?.first;
+  if (datePattern.test(first) && datePattern.test(last)) {
+    if (datePattern.test(coverage?.first) && first < coverage.first) first = coverage.first;
+    if (datePattern.test(coverage?.last) && last > coverage.last) last = coverage.last;
+    if (first <= last) return {...publication, first, last};
+  }
+  return publication;
 }
 
 export function askProfileHref(profile) {

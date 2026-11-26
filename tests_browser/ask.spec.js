@@ -24,6 +24,61 @@ async function submit(page, question) {
   await expect(page.locator('[data-agent-submit]')).toBeEnabled();
 }
 
+test('publication clarification and dated profile keep the same release after reload', async ({page}) => {
+  const publicationId = 'pub_0123456789abcdef';
+  const question = 'Example total points from 2026-11-01 to 2026-11-01';
+  const scope = {
+    season: '2026-27', season_type: 'Regular Season', operation: 'summary',
+    window: 'date_range', window_start: '2026-11-01', window_end: '2026-11-01',
+    player_id: 202,
+  };
+  const requests = [];
+  await page.route('**/api/agent/ask/stream**', async route => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    const chosen = Boolean(request.selected_player_id);
+    const common = {
+      conversation_id: request.conversation_id,
+      request_id: chosen ? 'chosen' : 'clarification',
+      publication_id: publicationId,
+      source_coverage: {season: '2026-27', first: '2026-10-20', last: '2026-11-17'},
+    };
+    const payload = chosen ? {
+      ...common, status: 'ok', answer: 'Riley Example scored 5 points.',
+      player_profile: {
+        player: {player_id: 202, player_name: 'Riley Example'}, profile_url: '/players/202',
+      },
+      semantic_evidence: {scope},
+    } : {
+      ...common, status: 'clarification_required', answer: 'Choose the intended player.',
+      clarification_question: question,
+      clarification_options: [
+        {player_id: 101, player_name: 'Taylor Example'},
+        {player_id: 202, player_name: 'Riley Example'},
+      ],
+    };
+    await route.fulfill({
+      contentType: 'text/event-stream',
+      body: `event: final\ndata: ${JSON.stringify({payload})}\n\n`,
+    });
+  });
+
+  await page.goto('/ask');
+  await submit(page, question);
+  await page.reload();
+  await page.getByRole('button', {name: 'Riley Example'}).click();
+  const profile = page.getByRole('link', {name: 'Open profile', exact: true});
+  const expected = `/players/202?season=2026-27&publication_id=${publicationId}&first=2026-11-01&last=2026-11-01`;
+  await expect(profile).toHaveAttribute('href', expected);
+  expect(requests[1]).toMatchObject({
+    question,
+    selected_player_id: 202,
+    previous_context: {question, publication_id: publicationId},
+  });
+  await page.reload();
+  await expect(profile).toHaveAttribute('href', expected);
+});
+
 for (const width of [1280, 390]) {
   test(`insight overview connects peer context and non-scoring production at ${width}px`, async ({page}, testInfo) => {
     await page.setViewportSize({width, height:900});
