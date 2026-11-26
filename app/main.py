@@ -91,7 +91,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261126-ask-report-replay"
+STATIC_VERSION = "20261126-ask-saved-retry"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -231,6 +231,7 @@ class PriorPublicationIdentity(PriorPlayer):
 
 
 class PriorAnalysis(BaseModel):
+    restore_publication_clarification: Literal[True] | None = None
     publication_id: str | None = Field(default=None, pattern=r"^pub_[0-9a-f]{16}$")
     publication_identity_choices: list[PriorPublicationIdentity] | None = Field(
         default=None, max_length=6
@@ -1209,6 +1210,44 @@ def _restore_agent_context(
                 409,
                 "This conversation uses a different publication. Start a new analysis to change sources.",
             )
+    previous = payload.previous_context
+    if previous and previous.restore_publication_clarification:
+        if not previous.publication_id or previous.question != payload.question.strip():
+            raise HTTPException(
+                400,
+                "Saved clarification requires the original question and publication.",
+            )
+        same_prompt = (
+            pending
+            if pending
+            and pending.publication_id == previous.publication_id
+            and pending.question == previous.question
+            else None
+        )
+        pending_plan = (same_prompt.query_plan or {}) if same_prompt else {}
+        # Restore the prompt as pending work. Its choices will be checked against
+        # the pinned source before the planner can use them.
+        store.set_pending_clarification(
+            conversation_id,
+            question=previous.question,
+            query_plan={
+                "publication_retry": True,
+                "choices": pending_plan.get(
+                    "choices",
+                    {
+                        choice.mention: choice.model_dump(exclude_none=True)
+                        for choice in previous.publication_identity_choices or ()
+                    },
+                ),
+                "comparison_choices": pending_plan.get(
+                    "comparison_choices", previous.publication_comparison_choices
+                ),
+            },
+            route=same_prompt.route if same_prompt else None,
+            candidates=same_prompt.candidates if same_prompt else (),
+            publication_id=previous.publication_id,
+        )
+        return
     # Older chats exist only in browser storage. Recover bounded conversational
     # hints, never cached numbers, and never overwrite successful server state.
     if (

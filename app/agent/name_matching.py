@@ -69,14 +69,17 @@ class NameSession:
     resolutions: list = field(default_factory=list)
     selected_ids: set = field(default_factory=set)
     publication_id: str | None = None
+    restored_publication_clarification: bool = False
 
 
 _session: ContextVar[NameSession | None] = ContextVar("ask_name_matching", default=None)
 
 
-def identity_replay_publication() -> str | None:
+def identity_replay_scope() -> tuple[str | None, bool]:
     session = _session.get()
-    return session.publication_id if session else None
+    if session is None:
+        return None, False
+    return session.publication_id, session.restored_publication_clarification
 
 
 def player_display_name(player):
@@ -507,6 +510,9 @@ def run_name_matching(
                 session.choices[normalize_player_text(choice["player_name"])] = choice
             question = pending.question
             session.publication_id = pending.publication_id
+            session.restored_publication_clarification = bool(
+                pending.query_plan.get("restored_publication_clarification")
+            )
             if time_scope is not None:
                 time_scope.update(pending.query_plan.get("time_scope") or {})
             selected_player = None

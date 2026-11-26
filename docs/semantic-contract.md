@@ -118,8 +118,9 @@ for each side and is unavailable through the single-release reader.
 Each publication-backed answer identifies the release and its coverage in
 `publication_id` and `source_coverage`. The conversation retains that release
 for subsequent analysis, including a player's selection after a clarification.
-Ask validates the retained release against active authority before returning
-facts. A withdrawn, expired, or inaccessible release withholds the answer. An
+A saved retry revalidates any earlier identity choices against that publication
+and asks for any choice the saved prompt could not recover. Ask validates the
+retained release against active authority before returning facts. A withdrawn, expired, or inaccessible release withholds the answer. An
 overview can summarize recorded games even when the publication
 lacks independent cohort completeness. League ranks and percentiles require a
 manifest-bound coverage certificate. The dedicated verified three-point

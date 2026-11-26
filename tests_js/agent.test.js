@@ -461,6 +461,43 @@ test("a saved publication retry replays the original question and both identity 
   });
 });
 
+test("a legacy saved retry restores the pinned question and choices from its clarification", async () => {
+  const thread = new FakeElement();
+  const agent = await loadAgentModule({elements:{
+    "[data-agent-answer]": thread, "[data-agent-empty]": new FakeElement(),
+  }});
+  const original = "How did Example play yesterday?";
+  const question = "How did Example play on 2026-11-17?";
+  const publicationId = "pub_0123456789abcdef";
+  agent.saveHistoryState({conversations:[{id:"legacy-retry",turns:[
+    {question:original, request_id:"prompt", timestamp:"2026-11-18T12:00:00Z", payload:{
+      status:"clarification_required", publication_id:publicationId,
+      clarification_question:question,
+      semantic_plan:{
+        choices:{example:{player_id:101, player_name:"Riley Example"}},
+        comparison_choices:{"0":101},
+      },
+    }},
+    {question:original, request_id:"failure", timestamp:"2026-11-18T12:01:00Z", payload:{
+      status:"publication_unavailable", answer:"The original publication is unavailable.",
+    }},
+  ]}]});
+  const posts = [];
+  globalThis.fetch = async (url, options) => {
+    posts.push(JSON.parse(options.body));
+    return {ok:false, status:503, json:async () => ({detail:"Still unavailable."})};
+  };
+  await agent.restoreConversation("legacy-retry");
+  await thread.children.at(-1).children[2].listeners.get("click")[0]();
+  assert.equal(posts[0].question, question);
+  assert.equal(posts[0].selected_player_id, undefined);
+  assert.deepEqual(posts[0].previous_context, {
+    question, publication_id:publicationId, restore_publication_clarification:true,
+    publication_identity_choices:[{mention:"example", player_id:101, player_name:"Riley Example"}],
+    publication_comparison_choices:{"0":101},
+  });
+});
+
 test("browser history write failures do not break Ask", async () => {
   const storage = createStorage({ failWrites: true });
   const agent = await loadAgentModule({ storage });

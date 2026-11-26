@@ -1589,8 +1589,14 @@ class StatsAgent:
             )
         if trace:
             trace.set_plan(route=route.key, confidence=1.0)
-        pinned = bool(context.get("publication_id"))
-        if pinned and route.handler != "semantic":
+        publication_id = context.get("publication_id")
+        if (
+            keep_pending
+            and pending_route
+            and (pending_route.query_plan or {}).get("publication_retry")
+        ):
+            publication_id = publication_id or pending_route.publication_id
+        if publication_id and route.handler != "semantic":
             if trace:
                 trace.outcome = "unsupported_scope"
             return answer_payload(
@@ -1708,14 +1714,13 @@ class StatsAgent:
                                 status="unsupported_coverage",
                             )
                         if (
-                            pinned
+                            publication_id
                             and answer is not None
                             and (
                                 answer.get("status") == "ok"
                                 or answer.get("publication_id")
                             )
-                            and answer.get("publication_id")
-                            != context["publication_id"]
+                            and answer.get("publication_id") != publication_id
                         ):
                             answer = answer_payload(
                                 "This conversation uses a different publication. Start a separate analysis for the current leaderboard.",

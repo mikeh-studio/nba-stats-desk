@@ -1737,11 +1737,20 @@ function appendRestoredTurn(turn, isLatest, preceding) {
           previous.payload.publication_id &&
           [previous.question, previous.payload.clarification_question].includes(turn.question)
       );
-      const replay = turn.payload.publication_retry || priorPrompt?.payload;
-      return askQuestion(turn.payload.publication_retry?.question || turn.question, replay ? {
+      const retry = turn.payload.publication_retry;
+      const prompt = priorPrompt?.payload;
+      const replay = retry || (prompt && {
+        publication_id: prompt.publication_id,
+        question: prompt.clarification_question || priorPrompt.question,
+        choices: prompt.semantic_plan?.choices,
+        comparison_choices: prompt.semantic_plan?.comparison_choices,
+        restore_clarification: true,
+      });
+      return askQuestion(replay?.question || turn.question, replay ? {
         publicationId: replay.publication_id,
         identityChoices: replay.choices,
         comparisonChoices: replay.comparison_choices,
+        restoreClarification: replay.restore_clarification,
         playerId: replay.player_id,
         playerName: replay.player_name,
       } : null);
@@ -2222,6 +2231,10 @@ function buildAskBody(question, selection, conversationId = activeConversationId
     body.previous_context = {
       ...(body.previous_context || {question: question.slice(0, 4000)}),
       publication_id: selection.publicationId,
+      ...(selection.restoreClarification ? {
+        question: question.slice(0, 4000),
+        restore_publication_clarification: true,
+      } : {}),
       ...(choices.length ? {publication_identity_choices: choices} : {}),
       ...(comparisonChoices.length ? {publication_comparison_choices: Object.fromEntries(comparisonChoices)} : {}),
     };

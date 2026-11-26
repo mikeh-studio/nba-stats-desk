@@ -24,7 +24,7 @@ from app.agent.metric_presentation import (
 from app.agent.name_matching import (
     PlayerNameError,
     identity_payload,
-    identity_replay_publication,
+    identity_replay_scope,
     name_matching_entrypoint,
     prepare_names,
 )
@@ -721,7 +721,8 @@ class SemanticAsk:
         context: dict[str, Any] = next(
             (turn.context for turn in reversed(turns) if turn.context), {}
         )
-        publication_pin = context.get("publication_id") or identity_replay_publication()
+        replay_publication, restored_clarification = identity_replay_scope()
+        publication_pin = context.get("publication_id") or replay_publication
         if award_request:
             context = {}
             pending = None
@@ -738,6 +739,22 @@ class SemanticAsk:
             pending = None
         pending_publication = pending.publication_id if pending else None
         publication_pin = publication_pin or pending_publication
+        retry_plan = None
+        if (
+            pending is not None
+            and pending_publication
+            and pending.question == original
+            and (pending.query_plan or {}).get("publication_retry")
+        ):
+            retry_plan = pending.query_plan
+            pending = None
+            restored_clarification = True
+        elif pending and pending_publication:
+            restored_clarification = bool(
+                (pending.query_plan or {}).get("restored_publication_clarification")
+            )
+        if restored_clarification:
+            context = {}
         from app.agent.overview_clarification import (
             OverviewClarification,
             resume_overview,
@@ -1519,7 +1536,12 @@ class SemanticAsk:
                         players,
                         selected=restored_selection,
                         restored_choices=(
-                            context.get("publication_identity_choices", ())
+                            [
+                                {**choice, "mention": mention}
+                                for mention, choice in retry_plan["choices"].items()
+                            ]
+                            if retry_plan is not None and publication is not None
+                            else context.get("publication_identity_choices", ())
                             if restored_selection
                             else ()
                         ),
@@ -1586,6 +1608,8 @@ class SemanticAsk:
                             selected_player,
                             (pending.query_plan or {}).get("comparison_choices")
                             if pending
+                            else retry_plan.get("comparison_choices")
+                            if retry_plan is not None and publication is not None
                             else context.get("publication_comparison_choices")
                             if publication
                             and publication_pin
@@ -1975,6 +1999,12 @@ class SemanticAsk:
                 if selected_player
                 else {},
             }
+            if retry_plan is not None:
+                payload["publication_retry"].update(
+                    restore_clarification=True,
+                    choices=retry_plan["choices"],
+                    comparison_choices=retry_plan.get("comparison_choices"),
+                )
         if trace:
             trace.add_tool(
                 name="governed_metrics",
@@ -2031,10 +2061,16 @@ class SemanticAsk:
             )
         if store:
             if payload["status"] == "clarification_required":
+                pending_plan = overview_pending or payload.get("semantic_plan")
+                if restored_clarification:
+                    pending_plan = {
+                        **(pending_plan or {}),
+                        "restored_publication_clarification": True,
+                    }
                 store.set_pending_clarification(
                     conversation_id,
                     question=question,
-                    query_plan=overview_pending or payload.get("semantic_plan"),
+                    query_plan=pending_plan,
                     route=route_label,
                     candidates=payload.get("clarification_options"),
                     publication_id=payload.get("publication_id"),

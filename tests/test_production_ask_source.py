@@ -906,8 +906,9 @@ def test_relative_game_clarification_keeps_its_eastern_date(production, monkeypa
 
 
 @pytest.mark.parametrize("scalar", [True, False])
+@pytest.mark.parametrize("recovery", ["selection", "saved_retry", "warm_saved_retry"])
 def test_multi_player_browser_recovery_revalidates_prior_choice_on_publication(
-    production, scalar
+    production, scalar, recovery
 ):
     client, captured, reads, legacy, _ = production
     add_riley(captured, PRIOR, points=5)
@@ -942,13 +943,39 @@ def test_multi_player_browser_recovery_revalidates_prior_choice_on_publication(
         if scalar
         else {"publication_comparison_choices": {"0": 2000}}
     )
+    conversation_id = str(uuid4())
+    prior = {"question": question, "publication_id": PRIOR, **hints}
+    if recovery == "warm_saved_retry":
+        earlier = "Taylor Example total points"
+        assert (
+            ask(
+                client,
+                earlier,
+                conversation_id=conversation_id,
+                previous_context={"question": earlier, "publication_id": PRIOR},
+            )["status"]
+            == "ok"
+        )
+    if recovery != "selection":
+        pending = ask(
+            client,
+            question,
+            conversation_id=conversation_id,
+            previous_context={**prior, "restore_publication_clarification": True},
+        )
+        assert pending["status"] == "clarification_required", pending["answer"]
+        assert pending["publication_id"] == PRIOR
+        assert {option["player_id"] for option in pending["clarification_options"]} == {
+            3000,
+            4000,
+        }
     result = ask(
         client,
         question,
-        conversation_id=str(uuid4()),
+        conversation_id=conversation_id,
         selected_player_id=3000,
         selected_player_name="Kyle Mason",
-        previous_context={"question": question, "publication_id": PRIOR, **hints},
+        previous_context=prior,
     )
     assert result["status"] == "ok", result["answer"]
     assert result["publication_id"] == PRIOR
@@ -959,7 +986,52 @@ def test_multi_player_browser_recovery_revalidates_prior_choice_on_publication(
         else next(row["delta"] for row in report["metrics"] if row["key"] == "pts")
     )
     assert value == -6
-    assert reads == [PRIOR, PRIOR] and not legacy.calls
+    assert reads == [PRIOR] * (
+        2 + 2 * (recovery != "selection") + 2 * (recovery == "warm_saved_retry")
+    )
+    assert not legacy.calls
+
+
+def test_saved_retry_hints_cannot_be_reused_for_another_question(production):
+    client, _, reads, _, _ = production
+    response = client.post(
+        "/api/agent/ask",
+        json={
+            "question": "Taylor Example average points",
+            "conversation_id": str(uuid4()),
+            "previous_context": {
+                "question": "Taylor Example total points",
+                "publication_id": PRIOR,
+                "restore_publication_clarification": True,
+            },
+        },
+    )
+    assert response.status_code == 400 and not reads
+
+
+def test_saved_retry_keeps_choices_if_the_original_release_is_still_unavailable(
+    production,
+):
+    client, captured, reads, legacy, _ = production
+    original = captured.pop(PRIOR)
+    question = "Compare Example vs Mason total points"
+    prior = {
+        "question": question,
+        "publication_id": PRIOR,
+        "restore_publication_clarification": True,
+        "publication_identity_choices": [
+            {"mention": "Example", "player_id": 2000, "player_name": "Riley Example"}
+        ],
+    }
+    result = ask(client, question, conversation_id=str(uuid4()), previous_context=prior)
+    assert result["status"] == "publication_unavailable"
+    assert result["semantic_evidence"] is None
+    retry = result["publication_retry"]
+    assert retry["question"] == question and retry["publication_id"] == PRIOR
+    assert retry["restore_clarification"] is True
+    assert retry["choices"]["Example"]["player_id"] == 2000
+    assert reads == [PRIOR] and not legacy.calls
+    captured[PRIOR] = original
 
 
 def test_appearance_comparison_exposes_each_players_dates(production):

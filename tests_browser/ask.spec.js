@@ -93,6 +93,55 @@ test('publication clarification, saved retry and dated profile keep one release'
   await expect(profile).toHaveAttribute('href', expected);
 });
 
+test('older saved retries recover choices from the clarification after reload', async ({page}) => {
+  const publicationId = 'pub_0123456789abcdef';
+  const question = 'Compare Example vs Mason total points';
+  const requests = [];
+  await page.route('**/api/agent/ask/stream**', async route => {
+    const request = route.request().postDataJSON();
+    requests.push(request);
+    const recovering = Boolean(request.previous_context?.restore_publication_clarification);
+    const payload = {
+      conversation_id: request.conversation_id,
+      request_id: `legacy-${requests.length}`,
+      ...(requests.length === 2 ? {
+        status: 'publication_unavailable',
+        answer: 'The original publication is unavailable.',
+      } : {
+        status: 'clarification_required',
+        answer: recovering ? 'Which Mason did you mean?' : 'Please select a player.',
+        publication_id: publicationId,
+        clarification_question: question,
+        semantic_plan: {
+          choices: {example: {player_id: 101, player_name: 'Riley Example'}},
+        },
+        clarification_options: [
+          {player_id: 202, player_name: 'Kyle Mason'},
+          {player_id: 303, player_name: 'Drew Mason'},
+        ],
+      }),
+    };
+    await route.fulfill({
+      contentType: 'text/event-stream',
+      body: `event: final\ndata: ${JSON.stringify({payload})}\n\n`,
+    });
+  });
+  await page.goto('/ask');
+  await submit(page, question);
+  await page.getByRole('button', {name: 'Kyle Mason'}).click();
+  await expect(page.getByText('The original publication is unavailable.')).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', {name: 'Run this question again'}).click();
+  await expect(page.getByText('Which Mason did you mean?')).toBeVisible();
+  expect(requests[2].previous_context).toEqual({
+    question,
+    publication_id: publicationId,
+    restore_publication_clarification: true,
+    publication_identity_choices: [{mention: 'example', player_id: 101, player_name: 'Riley Example'}],
+  });
+  expect(requests[2].selected_player_id).toBeUndefined();
+});
+
 for (const width of [1280, 390]) {
   test(`insight overview connects peer context and non-scoring production at ${width}px`, async ({page}, testInfo) => {
     await page.setViewportSize({width, height:900});
