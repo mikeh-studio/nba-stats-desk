@@ -1,5 +1,5 @@
 import {bindComparisonPlots} from "./comparison_plot_ui.js";
-import {semanticTable, semanticText, semanticChart, scopeLabel, displayDate} from "./semantic_presentation.js";
+import {semanticTable, semanticText, semanticChart, metricName, metricHelp, scopeLabel, displayDate} from "./semantic_presentation.js";
 import {
   followupFitsReport,
   isFollowupReport,
@@ -14,6 +14,7 @@ import {
   askProfileHref,
   comparisonPresentation,
   comparisonAnswer,
+  comparisonAssumptions,
   comparisonProfiles,
   comparisonTables,
 } from "./ask_comparison.js";
@@ -518,7 +519,7 @@ function renderLineChart(chart) {
       return `
         <g class="agent-point" tabindex="0" aria-label="${escHtml(point.xLabel)} ${escHtml(label)}">
           <circle class="agent-dot" cx="${point.x.toFixed(1)}" cy="${point.y.toFixed(1)}" r="5" />
-          ${chart.overview && points.length <= (compact ? 8 : 16) ? `<text class="agent-bar-value" text-anchor="middle" x="${point.x}" y="${point.y - 12}">${point.yValue.toFixed(1)}</text>` : ""}
+          ${chart.overview && points.length <= 16 ? `<text class="agent-bar-value" text-anchor="middle" x="${point.x}" y="${point.y - 12}">${point.yValue.toFixed(1)}</text>` : ""}
           ${tooltipMarkup({ x: point.x, y: point.y, label, meta: point.meta || point.xLabel }, width)}
         </g>
       `;
@@ -588,27 +589,21 @@ function chartLabelMarkup(lines, x, centerY, lineHeight) {
   return `<text class="agent-point-label" text-anchor="end">${lines.map((line, i) => `<tspan x="${x}" y="${firstY + i * lineHeight}">${escHtml(line)}</tspan>`).join(" ")}</text>`;
 }
 
-function countTickStep(maximum) {
-  const target = maximum / 5;
-  const magnitude = Math.max(1, 10 ** Math.floor(Math.log10(target)));
-  return [1, 2, 5, 10].map(step => step * magnitude).find(step => step >= target);
-}
-
-function renderBarChart(chart, compact = false) {
-  const width = compact ? 440 : 760;
+function renderBarChart(chart) {
+  const width = 760;
   const points = asArray(chart.series?.[0]?.points)
     .filter((p) => typeof p.y === "number" && Number.isFinite(p.y));
   if (!points.length) return '<div class="empty-state">No chart data.</div>';
-  const left = compact ? 122 : 190;
-  const right = compact ? 390 : 690;
-  const top = compact ? 8 : 28;
-  const lineHeight = compact ? 17 : 22;
-  const barHeight = compact ? 14 : 28;
-  const axisHeight = compact ? 25 : 38;
+  const left = 190;
+  const right = 690;
+  const top = 28;
+  const lineHeight = 22;
+  const barHeight = 28;
+  const axisHeight = 38;
   let bottom = top;
   const rows = points.map((point) => {
-    const lines = wrapChartLabel(point.x, compact ? left - 16 : 160, undefined, compact ? 14 : 18);
-    const height = Math.max(compact ? 32 : 58, lines.length * lineHeight + (compact ? 8 : 16));
+    const lines = wrapChartLabel(point.x, 160, undefined, 18);
+    const height = Math.max(58, lines.length * lineHeight + 16);
     const row = { point, lines, y: bottom, height };
     bottom += height;
     return row;
@@ -617,32 +612,27 @@ function renderBarChart(chart, compact = false) {
   const minimum = Math.min(0, ...points.map((p) => p.y));
   const maximum = Math.max(0, ...points.map((p) => p.y));
   const span = maximum - minimum || 1;
-  const step = compact && minimum === 0 && points.every(point => Number.isInteger(point.y))
-    ? countTickStep(maximum) : null;
   const low = minimum < 0 ? minimum - span * 0.1 : 0;
-  const high = step ? Math.max(step, Math.ceil(maximum / step) * step)
-    : maximum > 0 ? maximum + span * 0.1 : (minimum < 0 ? 0 : 1);
+  const high = maximum > 0 ? maximum + span * 0.1 : (minimum < 0 ? 0 : 1);
   const scale = (value) => left + ((value - low) / (high - low)) * (right - left);
   const zero = scale(0);
-  const ticks = step
-    ? Array.from({ length: Math.round(high / step) + 1 }, (_, i) => i * step)
-    : Array.from({ length: 5 }, (_, i) => low + (high - low) * i / 4);
+  const ticks = Array.from({ length: 5 }, (_, i) => low + (high - low) * i / 4);
   return `<svg class="agent-bar-chart" role="img" aria-label="${escHtml(chart.title || "Bar chart")}" viewBox="0 0 ${width} ${height}">
-    ${compact ? "" : `<text class="agent-axis-title" x="${left}" y="14">${escHtml(chart.y_label || "Value")}</text>`}
-    ${ticks.map((v) => `<line class="agent-grid" x1="${scale(v)}" x2="${scale(v)}" y1="${top}" y2="${bottom}" /><text class="agent-axis" text-anchor="middle" x="${scale(v)}" y="${bottom + (compact ? 16 : 20)}">${escHtml(formatNumber(v))}</text>`).join("")}
+    <text class="agent-axis-title" x="${left}" y="14">${escHtml(chart.y_label || "Value")}</text>
+    ${ticks.map((v) => `<line class="agent-grid" x1="${scale(v)}" x2="${scale(v)}" y1="${top}" y2="${bottom}" /><text class="agent-axis" text-anchor="middle" x="${scale(v)}" y="${bottom + 20}">${escHtml(formatNumber(v))}</text>`).join("")}
     <line class="agent-reference" x1="${zero}" x2="${zero}" y1="${top}" y2="${bottom}" />
     ${rows.map(({ point, lines, y, height: rowHeight }) => {
       const centerY = y + rowHeight / 2;
       const x = scale(point.y);
       const value = formatNumber(point.y);
       const detail = [`${point.x}: ${value} ${chart.y_label || ""}`.trim(), point.meta].filter(Boolean).join(" · ");
-      return `<g class="agent-point" tabindex="0" aria-label="${escHtml(detail)}"${compact ? ` data-chart-value="${escHtml(detail)}"` : ""}>
-        ${compact ? "" : `<title>${escHtml(detail)}</title>`}
+      return `<g class="agent-point" tabindex="0" aria-label="${escHtml(detail)}">
+        <title>${escHtml(detail)}</title>
         <rect x="0" y="${y}" width="${width}" height="${rowHeight}" fill="transparent" />
-        ${chartLabelMarkup(lines, left - (compact ? 10 : 16), centerY, lineHeight)}
+        ${chartLabelMarkup(lines, left - 16, centerY, lineHeight)}
         <rect class="agent-bar" x="${Math.min(x, zero)}" y="${centerY - barHeight / 2}" width="${Math.abs(x - zero)}" height="${barHeight}" rx="3" />
         <text class="agent-bar-value" text-anchor="${point.y < 0 ? "end" : "start"}" x="${x + (point.y < 0 ? -8 : 8)}" y="${centerY + 5}">${escHtml(value)}</text>
-        ${compact ? "" : tooltipMarkup({ x, y: centerY - barHeight / 2, label: `${value} ${chart.y_label || ""}`, meta: point.meta || "" }, width)}
+        ${tooltipMarkup({ x, y: centerY - barHeight / 2, label: `${value} ${chart.y_label || ""}`, meta: point.meta || "" }, width)}
       </g>`;
     }).join("")}
   </svg>`;
@@ -721,26 +711,24 @@ function isPercentileChart(chart) {
   return yLabel.includes("percentile") || title.includes("percentile");
 }
 
-function renderChart(chart, compact = false) {
-  const compactBar = compact && chart.type === "bar" && !isPercentileChart(chart);
+function renderChart(chart) {
   let chartBody;
   if (isPercentileChart(chart)) {
     chartBody = renderPercentileChart(chart);
   } else if (chart.type === "bar") {
-    chartBody = renderBarChart(chart, compactBar);
+    chartBody = renderBarChart(chart);
   } else {
     chartBody = renderLineChart(chart);
   }
   return `
-    <article class="agent-chart${compactBar ? " agent-chart--compact" : ""}">
+    <article class="agent-chart">
       <header class="agent-chart-heading">
         <h3 class="agent-chart-title">${escHtml(chart.title || "Chart")}</h3>
-        ${compactBar ? `<p class="meta chart-units">${escHtml(chart.y_label || "Value")}</p>` : ""}
       </header>
       ${chart.selection_reason ? `<p class="meta">${escHtml(chart.selection_reason)}</p>` : ""}
       ${chartBody}
       ${chart.description ? `<p class="chart-description">${escHtml(chart.description)}</p>` : ""}
-      <p class="meta chart-help"${compactBar ? " data-chart-detail" : ""}>${compactBar ? "Hover, tap or focus a bar for its value." : "Hover, tap or focus a mark for its value and sample details."}</p>
+      <p class="meta chart-help">Hover, tap or focus a mark for its value and sample details.</p>
     </article>
   `;
 }
@@ -931,7 +919,75 @@ function turnEvidenceMarkup() {
     <div data-agent-sources></div>`;
 }
 
+function renderContext(payload) {
+  const assumptions = asArray(payload.assumptions);
+  const definitions = asArray(payload.metric_definitions);
+  const followups = asArray(payload.followups);
+  const toolCalls = asArray(payload.tool_calls);
+  const blocks = [];
+  const playerProfile = renderPlayerProfile(payload.player_profile);
+  if (playerProfile) {
+    blocks.push(playerProfile);
+  }
+  if (assumptions.length) {
+    blocks.push(`
+      <section class="stack-list">
+        <h3>Assumptions</h3>
+        ${assumptions.map((item) => `<span class="chip">${escHtml(item)}</span>`).join("")}
+      </section>
+    `);
+  }
+  if (definitions.length) {
+    blocks.push(`
+      <section class="stack-list">
+        <h3>Metrics</h3>
+        ${definitions
+          .map(
+            (item) =>
+              `<p><strong>${escHtml(metricName(item))}</strong><br /><span class="meta">${escHtml(metricHelp(item) || item.definition)}</span></p>`,
+          )
+          .join("")}
+      </section>
+    `);
+  }
+  if (toolCalls.length) {
+    blocks.push(`
+      <section class="stack-list">
+        <h3>Tool Calls</h3>
+        ${toolCalls.map((item) => `<span class="chip">${escHtml(item.name)} · ${escHtml(item.status)}</span>`).join("")}
+      </section>
+    `);
+  }
+  if (followups.length) {
+    blocks.push(`
+      <section class="stack-list">
+        <h3>Followups</h3>
+        ${followups.map((item) => `<button class="button secondary" type="button" data-agent-example="${escHtml(item)}">${escHtml(item)}</button>`).join("")}
+      </section>
+    `);
+  }
+  return (
+    blocks.join("") ||
+    '<div class="empty-state"><p>No extra context returned.</p></div>'
+  );
+}
+
+function updateSourceCoverage(payload, question = "") {
+  const section = document.querySelector("[data-answer-coverage]");
+  const context = document.querySelector("[data-answer-context]");
+  const label = document.querySelector("[data-coverage-question]");
+  if (!section || !context) return;
+  section.hidden = !payload;
+  if (label) label.textContent = question;
+  if (!payload) { context.innerHTML = ""; return; }
+  const scope = payload.research_scope;
+  const phase = scope?.phase === "Both" ? "Regular season and playoffs" : scope?.phase;
+  const scopeText = scope ? [scope.season, phase, scope.start, scope.end ? `through ${scope.end}` : ""].filter(Boolean).join(" · ") : "";
+  context.innerHTML = (scopeText ? `<p class="meta">${escHtml(scopeText)}</p>` : "") + renderContext({ ...payload, assumptions: comparisonAssumptions(payload), player_profile: null, followups: [] });
+}
+
 function resetAuxiliaryPanels() {
+  updateSourceCoverage(null);
   viewedPayload = null;
   for (const selector of ["[data-agent-profile]"]) {
     const el = document.querySelector(selector);
@@ -1134,8 +1190,10 @@ function renderAuxiliaryPayload(
   const chartCard = root.querySelector("[data-agent-chart-card]");
   const chartEl = root.querySelector("[data-agent-charts]");
   const sources = root.querySelector("[data-agent-sources]");
-  if (sources) sources.innerHTML = renderAskSources(payload, gameRecordSources(payload));
+  const showSources = gamePerformance(payload) || payload.publication_id || payload.semantic_evidence?.scope?.operation === "game_log";
+  if (sources) sources.innerHTML = showSources ? renderAskSources(payload, gameRecordSources(payload)) : "";
   if (updateComposer) {
+    updateSourceCoverage(payload, root.querySelector(".agent-turn-question")?.textContent || "");
     if (isFollowupReport(payload))
       document.querySelectorAll("[data-scoring-game-log]").forEach(button => { button.hidden = true; });
     renderFollowupComposer(payload);
@@ -1260,7 +1318,6 @@ function renderMetricTable(rawTable, payload, index) {
 function renderScoringTable(scoring, followup, container) {
   if (!container) return;
   container.hidden = false;
-  container.classList.remove("report-focus-evidence--paired");
   const rows = [...scoring.rows].sort((a, b) => b.points - a.points);
   const total = scoring.total;
   const pointFormat = new Intl.NumberFormat("en-US");
@@ -1319,10 +1376,7 @@ function renderOverviewCharts(payload, key, root = document) {
     (m) => m.key === chart.series[0].key,
   );
   const daily = chart.grain === "daily";
-  const owner = activeConversationId;
-  const requestId = payload.request_id || root.dataset?.historyRequestId;
-  const closedCharts = () => asArray(tabState.drafts[owner]?.closedOverviewCharts);
-  const open = el.querySelector("[data-overview-chart]")?.open ?? !closedCharts().includes(requestId);
+  const open = el.querySelector("[data-overview-chart]")?.open === true;
   const trend = hasMeaningfulTrend(chart);
   const title = trend ? "Performance over time" : "Performance summary";
   const point = asArray(chart.series[0].points).find(entry => Number.isFinite(entry?.y));
@@ -1339,17 +1393,6 @@ function renderOverviewCharts(payload, key, root = document) {
       <div><h2 class="sr-only">${title}</h2><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div>
       <div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div>
     </div>${content}</details>`;
-  const panel = el.querySelector("[data-overview-chart]");
-  panel?.addEventListener("toggle", () => {
-    if (!owner || !requestId || !panel.isConnected) return;
-    const closed = closedCharts();
-    if (closed.includes(requestId) === !panel.open) return;
-    const draft = tabState.drafts[owner] ||= {};
-    draft.closedOverviewCharts = panel.open
-      ? closed.filter(id => id !== requestId)
-      : [...closed, requestId].slice(-HISTORY_CONVERSATION_CAP);
-    saveTabs();
-  });
   el.querySelectorAll("[data-chart-key]").forEach((button) =>
     button.addEventListener("click", () => {
       renderOverviewCharts(payload, button.dataset.chartKey, root);
@@ -2192,56 +2235,7 @@ function renderAskFailure(message, statusText, request) {
   }
 }
 
-function publicationAnswer(result) {
-  const scope = result.scope;
-  const data = result.data;
-  const lines = [`Publication ${result.publication_id} · ${scope.season} ${scope.phase}, ${scope.first} through ${scope.last}.`];
-  if (Array.isArray(data.rows)) {
-    for (const row of data.rows) {
-      const value = row.display_value ?? row.value;
-      const unit = data.metric?.unit === 'ratio' && value != null
-        ? (row.display_value != null ? '%' : ' (ratio)') : '';
-      lines.push(`${data.metric?.label || 'Value'} (${data.scope?.aggregation || 'result'}): ${value == null ? 'unavailable' : value}${unit}.`);
-      if (row.observed_games != null) lines.push(`${row.valid_games} of ${row.observed_games} observed games have the required data${row.missing_component_games ? `; ${row.missing_component_games} missing` : ''}.`);
-      if (row.game_id) lines.push(`Game ${row.game_id}.`);
-    }
-    if (!data.rows.length) lines.push('No matching observations.');
-  } else if (Array.isArray(data.differences)) {
-    for (const item of data.differences) lines.push(`${item.metric} (${item.aggregation}): ${item.difference == null ? 'unavailable' : item.difference} ${item.unit}; player A minus player B.`);
-  } else {
-    lines.push('The publication returned an unsupported result shape.');
-  }
-  return lines.join('\n\n');
-}
-
 async function askQuestionStream(request) {
-  // Only the publication's exact, self-contained grammar is eligible. Follow-ups
-  // retain their existing conversation semantics in the legacy Ask service.
-  const publicationGrammar = /^(?:(?:compare .+? vs .+? )?.+? (?:total|per game|ratio|per 36) .+?(?: from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2})?|how many points did .+? score\??|.+? average (?:points|rebounds|assists)\??)$/i;
-  if (document.querySelector('[data-agent-form][data-publication-routing]') &&
-      !request.body.previous_context && !request.body.selected_player_id &&
-      publicationGrammar.test(request.question.trim())) {
-    const published = await fetch('/publication-core/api/agent/ask', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({question: request.question}),
-    });
-    if (![422, 409, 503].includes(published.status)) {
-      if (!published.ok) {
-        renderAskFailure('The publication is unavailable. Try again when it is restored.', 'Unavailable', request);
-        request.finished = true;
-        return;
-      }
-      const result = await published.json();
-      if (result.scope?.season === selectedSeason()) {
-        const answer = publicationAnswer(result);
-        handleStreamEvent('final', {payload: {
-          status: 'ok', answer, assumptions: [], tables: [], charts: [], metric_definitions: [], followups: [],
-          publication_id: result.publication_id, source_coverage: result.scope, conversation_id: request.conversationId,
-        }}, request);
-        return;
-      }
-    }
-  }
   const response = await seasonFetch("/api/agent/ask/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

@@ -1,10 +1,76 @@
 """Request-scoped evidence from the authorized production publication."""
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
-from app.agent.semantics import Evidence, SemanticError
+from app.agent.semantics import Evidence, SemanticError, load_contract
+
+_STAT = r"total|per game|ratio|per 36"
+_DATES = r"(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?"
+_COMPARE = re.compile(rf"compare (.+?) vs (.+?) ({_STAT}) (.+?){_DATES}", re.I)
+_SINGLE = re.compile(rf"(.+?) ({_STAT}|game log) (.+?){_DATES}", re.I)
+_ALIASES = {
+    "points": "pts",
+    "rebounds": "reb",
+    "assists": "ast",
+    "minutes": "min",
+    "fg%": "fg_pct",
+    "3p%": "fg3_pct",
+    "ft%": "ft_pct",
+}
+_AGGREGATIONS = {
+    "total": "total",
+    "per game": "per_game",
+    "ratio": "ratio",
+    "per 36": "per36",
+    "game log": "total",
+}
+
+
+@dataclass(frozen=True)
+class PublicationStatRequest:
+    names: tuple[str, ...]
+    metric: str
+    aggregation: str
+    operation: str
+    first: str | None
+    last: str | None
+
+
+def parse_publication_stat(question: str) -> PublicationStatRequest | None:
+    """Share the exact, self-contained stat grammar across publication surfaces."""
+    wording = question.strip()
+    if match := re.fullmatch(r"how many points did (.+?) score\??", wording, re.I):
+        wording = f"{match[1]} total points"
+    elif match := re.fullmatch(
+        r"(.+?) average (points|rebounds|assists)\??", wording, re.I
+    ):
+        wording = f"{match[1]} per game {match[2]}"
+
+    names: tuple[str, ...]
+    if match := _COMPARE.fullmatch(wording):
+        a, b, mode, key, first, last = match.groups()
+        names = (a, b)
+    elif match := _SINGLE.fullmatch(wording):
+        name, mode, key, first, last = match.groups()
+        names = (name,)
+    else:
+        return None
+
+    mode, key = mode.casefold(), key.casefold()
+    metric = _ALIASES.get(key, key)
+    if mode == "per 36" and metric in {"pts", "ast"}:
+        metric += "_per36"
+    return PublicationStatRequest(
+        names,
+        metric,
+        _AGGREGATIONS[mode],
+        "game_log" if mode == "game log" else "summary",
+        first,
+        last,
+    )
 
 
 @dataclass(frozen=True)
@@ -62,6 +128,43 @@ class PublicationAskSource:
                 f"{self.season} {self.phase.lower()} evidence from {self.first} through {self.last} · Publication {self.publication_id}."
             ],
         }, self.evidence
+
+    def stat_plan(self, request: PublicationStatRequest, selected_player=None):
+        aggregation = {"per_game": "average", "per36": "ratio"}.get(
+            request.aggregation, request.aggregation
+        )
+        metric = load_contract().metric(request.metric)
+        if request.operation == "game_log" and metric.denominator:
+            aggregation = "ratio"
+        comparison = len(request.names) == 2
+        names = (
+            (selected_player,) if selected_player and not comparison else request.names
+        )
+        return {
+            "status": "compare" if comparison else "query",
+            "message": "Scoped publication statistics",
+            "model_calls": 0,
+            "queries": [
+                {
+                    "player_name": name,
+                    "metric": metric.key,
+                    "aggregation": aggregation,
+                    "operation": request.operation,
+                    "season": self.season,
+                    "season_type": self.phase,
+                    **(
+                        {
+                            "window": "date_range",
+                            "start_date": request.first,
+                            "as_of": request.last,
+                        }
+                        if request.first
+                        else {}
+                    ),
+                }
+                for name in names
+            ],
+        }
 
     def check_window(self, first: str | date | None, last: str | date | None) -> None:
         if (first and str(first) < str(self.first)) or (

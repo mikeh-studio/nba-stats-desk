@@ -41,7 +41,7 @@ def compose_legacy(app, config):
     return combined
 
 
-def attach_publication(app, core, mode, *, league_coverage=None):
+def attach_publication(app, core, mode):
     """Expose verified publication data alongside the existing app's own data."""
     from anyio.from_thread import BlockingPortal
     from app.serving.production_workers import PublicationWorkers
@@ -97,26 +97,15 @@ def attach_publication(app, core, mode, *, league_coverage=None):
             return None
         if current_mode != "production":
             raise ValueError("Production publication unavailable")
-        envelope = core.release(publication_id)
-        manifest = envelope["manifest"]
-        if manifest["scope"]["season"] != DEFAULT_SEASON:
+        source = core.application(publication_id).state.ask_publication_source()
+        if source.season != DEFAULT_SEASON:
             raise ValueError("Publication does not cover the active season")
-        release_id = manifest["publication_id"]
-        source = core.application(release_id).state.ask_publication_source(
-            league_coverage() if league_coverage else None
-        )
-        if (
-            source.publication_id != release_id
-            or mode() != "production"
-            or core.release(release_id) != envelope
-            or core.authority.check(manifest, envelope["binding"]) is not True
-        ):
-            raise ValueError("Ask publication authority changed during the request")
+        # A pinned read also serves as the final check before delivering Ask facts.
+        if publication_id is not None and mode() != "production":
+            raise ValueError("Production publication disabled during the request")
         return source
 
     def read_published_player(player_id, season, publication_id):
-        if mode() != "production":
-            raise ValueError("Production publication unavailable")
         player = core.application(publication_id).state.published_player(
             player_id, season
         )
@@ -127,12 +116,8 @@ def attach_publication(app, core, mode, *, league_coverage=None):
         return player
 
     def read_published_search(query, season):
+        result = core.application(None).state.published_search(query, season)
         if mode() != "production":
-            raise ValueError("Production publication unavailable")
-        envelope = core.release(None)
-        publication_id = envelope["manifest"]["publication_id"]
-        result = core.application(publication_id).state.published_search(query, season)
-        if mode() != "production" or result["publication_id"] != publication_id:
             raise ValueError("Production publication changed during the request")
         return result
 
@@ -219,7 +204,6 @@ def create(config_path):
 
 def create_config(config):
     from app.main import app as legacy
-    from app.serving.league_coverage import coverage_location, read_pinned_coverage
     from app.serving.production_application import ProductionApplication
     from app.serving.source_authority import ProviderAuthorities, SourceAuthority
     from google.cloud import bigquery
@@ -262,21 +246,10 @@ def create_config(config):
         clock=clock,
         cache_ttl=30,
     )
-    league_coverage = None
-    if "ask_league_coverage" in config:
-        entry = config["ask_league_coverage"]
-        location = coverage_location(entry)
-
-        def league_coverage():
-            return read_pinned_coverage(
-                location, entry["digest"], mode_reader.read_document
-            )
-
     attach_publication(
         legacy,
         core,
         lambda: mode_reader.read_document(mode_reader.policy_path)["mode"],
-        league_coverage=league_coverage,
     )
     return compose_legacy(legacy, config)
 

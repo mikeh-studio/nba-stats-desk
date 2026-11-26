@@ -214,21 +214,6 @@ body:has(.ask-desk) .publication-health {
   height: 100%;
   object-fit: cover;
 }
-.player-avatar [data-ask-headshot] {
-  z-index: 2;
-  opacity: 0;
-}
-.player-avatar [data-ask-headshot][data-loaded] {
-  opacity: 1;
-}
-.player-avatar:has([data-ask-headshot][data-loaded]) .player-avatar-fallback {
-  opacity: 0;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .player-avatar :is([data-ask-headshot], .player-avatar-fallback) {
-    transition: opacity 180ms ease-out;
-  }
-}
 .agent-profile-chips {
   margin-top: 0.6rem;
 }
@@ -1608,39 +1593,10 @@ html:has(.metric-drawer[open]) { overflow:hidden; scrollbar-gutter:stable; }
     padding-inline: 0.2rem;
   }
 }
-.agent-chart--compact .agent-chart-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.2rem 0.75rem;
-}
-.agent-chart--compact svg {
-  margin-top: 0.25rem;
-}
-.agent-chart--compact :is(.agent-axis, .agent-point-label, .agent-bar-value) {
-  font-size: 14px;
-}
-.agent-chart--compact .agent-point:is(:focus, :hover) .agent-bar {
-  stroke: var(--ink);
-  stroke-width: 1.5;
-}
-.chart-units,
 .chart-help {
-  margin: 0;
+  margin: 0.35rem 0 0;
   font-size: 0.8rem;
-}
-.chart-help {
-  margin-top: 0.35rem;
   line-height: 1.25;
-}
-[data-chart-detail] {
-  min-height: 2.5em;
-}
-@media (max-width: 600px) {
-  .agent-chart--compact :is(.agent-axis, .agent-point-label, .agent-bar-value) {
-    font-size: 16px;
-  }
 }
 @media (prefers-reduced-motion: no-preference) {
   .ask-answer-reveal :is([data-agent-profile], [data-agent-focus-evidence], [data-agent-table-card], [data-agent-chart-card]) {

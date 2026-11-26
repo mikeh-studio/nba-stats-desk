@@ -595,31 +595,6 @@ test("bar charts preserve negative values and expose accessible hover details", 
   assert.match(html, /agent-tooltip/);
 });
 
-test("focused report bars retain their values and use a detail row below a compact plot", async () => {
-  const agent = await loadAgentModule();
-  const html = agent.renderChart({
-    type: "bar", title: "Points by scoring source", y_label: "Total points",
-    series: [{ points: [
-      { x: "Two-pointers", y: 174 },
-      { x: "Three-pointers", y: 210 },
-      { x: "Free throws", y: 120 },
-    ] }],
-  }, true);
-  const height = Number(html.match(/viewBox="0 0 440 (\d+)"/)?.[1]);
-  assert.ok(height > 0 && height <= 170);
-  assert.match(html, /<h3 class="agent-chart-title">Points by scoring source/);
-  assert.match(html, /class="meta chart-units">Total points/);
-  assert.match(html, /data-chart-value="Two-pointers: 174 Total points"/);
-  assert.match(html, /data-chart-value="Three-pointers: 210 Total points"/);
-  assert.match(html, /data-chart-value="Free throws: 120 Total points"/);
-  assert.deepEqual(
-    [...html.matchAll(/<text class="agent-axis"[^>]*>([^<]+)<\/text>/g)].map(match => match[1]),
-    ["0", "50", "100", "150", "200", "250"],
-  );
-  assert.match(html, /<\/svg>\s*<p class="meta chart-help" data-chart-detail>/);
-  assert.doesNotMatch(html, /agent-tooltip|agent-axis-title/);
-});
-
 test("chart labels wrap by rendered width without losing names or status", async () => {
   const agent = await loadAgentModule();
   const measure = (text) => Array.from(text).reduce((width, char) => width + (char === "W" ? 18 : 9), 0);
@@ -650,12 +625,12 @@ test("wrapped bar labels stay within their own rows and preserve accessible attr
   assert.doesNotMatch(html, /<unsafe>/);
 });
 
-test("each answer receives its own Sources footer only when evidence is known", async () => {
+test("game-log answers receive their own Sources footer only when evidence is known", async () => {
   const footer = new FakeElement();
   const agent = await loadAgentModule({ elements: {
     "[data-agent-sources]": footer,
   } });
-  agent.renderAuxiliaryPayload({semantic_evidence: {source:"Recorded archive", data_through:"2025-06-30"}}, globalThis.document, false);
+  agent.renderAuxiliaryPayload({semantic_evidence: {scope: {operation: "game_log"}, source:"Recorded archive", data_through:"2025-06-30"}}, globalThis.document, false);
   assert.match(footer.innerHTML, /Sources.*Recorded archive.*Data through Jun 30, 2025/s);
   agent.renderAuxiliaryPayload({answer:"Legacy answer without source fields."}, globalThis.document, false);
   assert.equal(footer.innerHTML, "");
@@ -738,56 +713,34 @@ test("late stream results stay in their originating tab and mismatched IDs are r
   assert.equal(agent.loadHistoryState().conversations.find(c=>c.id===b),undefined);
 });
 
-test("main Ask routes publication answers and falls back for unsupported or unavailable publication", async () => {
-  const elements = {"[data-agent-form][data-publication-routing]": new FakeElement("form")};
-  const agent = await loadAgentModule({elements});
+test("simple current-season questions keep the server's structured Ask response", async () => {
+  const agent = await loadAgentModule();
   agent.startNewChat();
   const owner = agent.getNavigation().activeConversationId;
-  agent.startNewChat(); // Keep the answer offscreen while checking persisted output.
-  const urls = [];
-  globalThis.fetch = async (url) => {
-    urls.push(url);
-    return {ok: true, status: 200, json: async () => ({publication_id:"pub_0123456789abcdef", scope:{season:"2026-27", phase:"Regular Season", first:"2026-10-20", last:"2026-10-30"}, data:{metric:{label:'PTS'},scope:{aggregation:'total'},rows:[{value:10,valid_games:2,observed_games:2}]}})};
+  agent.startNewChat();
+  const requests = [];
+  const publicationId = "pub_0123456789abcdef";
+  const question = "Test Player A total points";
+  const payload = {
+    status: "ok", answer: "Test Player A scored 10 points.",
+    conversation_id: owner, publication_id: publicationId,
+    player_profile: {player: {player_name: "Test Player A"}},
+    conversation_context: {publication_id: publicationId, analysis_type: "semantic"},
   };
-  const request = {conversationId:owner, question:"Test Player A total points", body:{provider:"openai", model:"fixture"}, finished:false};
-  await agent.askQuestionStream(request);
-  assert.deepEqual(urls, ["/publication-core/api/agent/ask"]);
-  const saved = agent.loadHistoryState().conversations.find(c => c.id === owner);
-  assert.match(saved.turns[0].payload.answer, /pub_0123456789abcdef/);
-  assert.match(saved.turns[0].payload.answer, /10/);
-  await agent.askQuestionStream({...request, question:'How many points did Test Player A score?', finished:false});
-  assert.equal(urls.at(-1), '/publication-core/api/agent/ask');
-  await agent.askQuestionStream({...request, question:'Test Player A average points', finished:false});
-  assert.equal(urls.at(-1), '/publication-core/api/agent/ask');
-
-  globalThis.fetch = async (url) => {
-    urls.push(url);
-    if (url.startsWith('/publication-core')) return {ok:false, status:422};
-    return {ok:false, status:503, json:async () => ({detail:'legacy unavailable'})};
-  };
-  await agent.askQuestionStream({...request, finished:false});
-  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
-  globalThis.fetch = async (url) => {
-    urls.push(url);
-    if (url.startsWith('/publication-core')) return {ok:false, status:409};
-    return {ok:false, status:503, json:async () => ({detail:'legacy unavailable'})};
-  };
-  await agent.askQuestionStream({...request, finished:false});
-  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
   globalThis.fetch = async (url, options) => {
-    urls.push(url);
-    if (url.startsWith('/publication-core')) return {ok:false, status:503};
-    assert.deepEqual(JSON.parse(options.body), request.body);
-    return {ok:true, body:new ReadableStream({start(controller) {
-      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload:{status:'ok', answer:'Legacy source answer', conversation_id:owner}})}\n\n`));
+    requests.push({url, body: JSON.parse(options.body)});
+    return {ok: true, body: new ReadableStream({start(controller) {
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload})}\n\n`));
       controller.close();
     }})};
   };
-  await agent.askQuestionStream({...request, finished:false});
-  assert.deepEqual(urls.slice(-2), ['/publication-core/api/agent/ask', '/api/agent/ask/stream']);
-  const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.at(-1);
-  assert.equal(fallback.payload.answer, 'Legacy source answer');
-  assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
+  const body = {question, conversation_id: owner};
+  await agent.askQuestionStream({conversationId: owner, question, body});
+  assert.deepEqual(requests, [{url: "/api/agent/ask/stream", body}]);
+  const saved = agent.loadHistoryState().conversations.find(c => c.id === owner).turns[0].payload;
+  assert.equal(saved.publication_id, publicationId);
+  assert.deepEqual(saved.player_profile, payload.player_profile);
+  assert.deepEqual(saved.conversation_context, payload.conversation_context);
 });
 
 test("the scoring opener shows a ranked table and the log keeps separate record details", async () => {
@@ -903,35 +856,6 @@ test("the scoring-table button submits one normal log request with report scope"
   assert.deepEqual(requests[0].body.previous_context.players, players);
   assert.equal(requests[0].body.previous_context.scope.start_date, scope.start_date);
   assert.equal(requests[0].body.previous_context.scope.as_of, scope.as_of);
-});
-
-test("publication Ask labels scaled shooting values as percentages and raw fallbacks as ratios", async () => {
-  const agent = await loadAgentModule({elements:{
-    '[data-agent-form][data-publication-routing]':new FakeElement(),
-  }});
-  agent.startNewChat();
-  const owner = agent.getNavigation().activeConversationId;
-  agent.startNewChat();
-  const rows = [
-    {value:0.5, display_value:50, valid_games:2, observed_games:2},
-    {value:0, display_value:0, valid_games:2, observed_games:2},
-    {value:0.5, valid_games:2, observed_games:2},
-    {value:null, display_value:null, valid_games:0, observed_games:2},
-  ];
-  const data = {metric:{label:'FG%',unit:'ratio'},scope:{aggregation:'ratio'},rows};
-  globalThis.fetch = async () => ({ok:true,json:async()=>({
-    publication_id:'pub_0123456789abcdef',
-    scope:{season:'2026-27',phase:'Regular Season',first:'2026-10-20',last:'2026-10-30'},data,
-  })});
-  const before = JSON.stringify(data);
-  await agent.askQuestionStream({conversationId:owner,question:'Test Player A ratio FG%',body:{},finished:false});
-  const answer = agent.loadHistoryState().conversations.find(c=>c.id===owner).turns[0].payload.answer;
-  assert.match(answer, /FG% \(ratio\): 50%\./);
-  assert.match(answer, /FG% \(ratio\): 0%\./);
-  assert.match(answer, /FG% \(ratio\): 0\.5 \(ratio\)\./);
-  assert.match(answer, /FG% \(ratio\): unavailable\./);
-  assert.doesNotMatch(answer, /50 \(ratio\)|unavailable%/);
-  assert.equal(JSON.stringify(data), before);
 });
 
 test("two tab requests finish out of order without changing each other's state", async () => {

@@ -4,6 +4,7 @@ const finite = (value) => typeof value === 'number' && Number.isFinite(value);
 const escape = (value) => String(value ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 const metricNames = {
   pts:['PTS','Points'], reb:['REB','Rebounds'], ast:['AST','Assists'],
+  oreb:['OREB','Offensive rebounds'], dreb:['DREB','Defensive rebounds'],
   stl:['STL','Steals'], blk:['BLK','Blocks'], tov:['TOV','Turnovers'],
   min:['MIN','Minutes'], fg3m:['3PM','Three-pointers made'], fg3a:['3PA','Three-point attempts'],
   fg3_pct:['3P%','Three-point percentage'], fga:['FGA','Field-goal attempts'],
@@ -148,7 +149,12 @@ export function overviewMetricsTable(overview) {
     ? '' : comparison(additionalColumns.change);
   const additions = overview.additionalMetrics.length
     ? `<details data-additional-metrics><summary>View all metrics (${overview.additionalMetrics.length} additional)</summary>${additionalComparison}${table(overview.additionalMetrics, 'Additional metrics', additionalColumns)}</details>` : '';
-  const details = peerComparisonDetails(overview) + gameVariationDetails(overview) + additions;
+  const rankMethodology = overview.allMetrics.some(m=>m.percentile_policy)
+    ? 'Shooting ranks use provisional minimums: 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, 50 3PA for 3P%. At least five complete appearances and two qualified players are required. TOV ranks favor fewer turnovers; MIN ranks exposure. These are project rules, not NBA official qualification.'
+    : 'Saved ranking policy: ask again for qualified shooting percentiles and current metric selection.';
+  const sampleRows = overview.allMetrics.map(m => `<tr><th scope="row">${escape(metricAbbreviation(m))}</th><td>${escape(m.sample?.text || `${m.valid_games ?? 'Unknown'}/${m.observed_games ?? 'Unknown'} valid appearances`)}</td></tr>`).join('');
+  const samples = `<details data-sample-details><summary>Samples &amp; methodology</summary>${overview.policy ? `<p class="meta">${escape(overview.policy.scope_note)}</p><p class="meta">${escape(overview.policy.limitation)}</p>` : ''}<div class="table-scroll"><table class="overview-table sample-table"><caption class="sr-only">Sample / opportunity</caption><thead><tr><th scope="col">Stat</th><th scope="col">Sample / opportunity</th></tr></thead><tbody>${sampleRows}</tbody></table></div><p class="meta">Percentiles use complete eligible observations in the same dates and phases. ${rankMethodology}</p></details>`;
+  const details = peerComparisonDetails(overview) + gameVariationDetails(overview) + samples + additions;
   const notes = [];
   if (!primaryColumns.league && !additionalColumns.league && overview.claimPayload.source_coverage?.cohort_complete === false)
     notes.push('League percentiles require verified league-wide coverage.');
@@ -159,7 +165,7 @@ export function overviewMetricsTable(overview) {
   const coverage = notes.length ? `<p class="meta metric-coverage">${escape(notes.join(' '))}</p>` : '';
   const legend = primaryColumns.change || additionalColumns.change
     ? 'Per-game averages · pp = percentage points · TOV colors reversed; MIN neutral.' : 'Per-game averages';
-  return `${comparison(primaryColumns.change)}${table(overview.metrics, 'Key metrics', primaryColumns)}<p class="metric-footnote compact-legend">${legend}</p>${coverage}${details ? `<div class="metric-details">${details}</div>` : ''}`;
+  return `${comparison(primaryColumns.change)}${table(overview.metrics, 'Key metrics', primaryColumns)}<p class="metric-footnote compact-legend">${legend}</p>${coverage}<div class="metric-details">${details}</div>`;
 }
 
 export function peerComparisonDetails(overview) {

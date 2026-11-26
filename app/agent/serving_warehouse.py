@@ -179,7 +179,6 @@ class ServingWarehouse:
         if (
             plan.get("status") == "compare"
             or plan.get("include_scoring_sources")
-            or plan.get("include_rebounding_context")
             or plan.get("include_game_performance")
         ):
             return PreparedAttempt(plan, None, players, appearances, provenance)

@@ -84,15 +84,26 @@ function scoring(report) {
     ${foot}</section>`;
 }
 
-function rosterBoard(report) {
+const ROSTER_VIEWS = {
+  reb: {title: "Who got the rebounds?", keys: ["reb", "oreb", "dreb"]},
+  pts: {title: "Who scored the points?", keys: ["pts", "reb", "ast"]},
+  ast: {title: "Who recorded the assists?", keys: ["ast", "pts", "tov"]},
+  stl: {title: "Who recorded the steals?", keys: ["stl", "blk", "min"]},
+  blk: {title: "Who recorded the blocks?", keys: ["blk", "stl", "min"]},
+  boxScore: {title: "Both team box scores", keys: ["pts", "reb", "ast"]},
+};
+
+function rosterBoard(report, lead) {
   const rosters = report.rosters;
   if (rosters?.status !== "ok" || !rowsOf(rosters.team).length || !rowsOf(rosters.opponent).length) return "";
-  const counts = player => finite(player.reb) ? player.reb : -1;
+  const {title, keys} = Object.hasOwn(ROSTER_VIEWS, lead) ? ROSTER_VIEWS[lead] : ROSTER_VIEWS.boxScore;
+  const counts = player => finite(player[keys[0]]) ? player[keys[0]] : -1;
+  const columns = keys.map(key => `<th scope="col">${escape(metricAbbreviation({key}))}</th>`).join("");
   const table = (players, label) => `<table class="ask-game-table"><caption>${escape(label)}</caption>
-    <thead><tr><th scope="col">Player</th><th scope="col">REB</th><th scope="col">OREB</th><th scope="col">DREB</th></tr></thead>
-    <tbody>${[...players].sort((a, b) => counts(b) - counts(a)).map(player => `<tr${player.player_id === report.player?.player_id ? ' class="is-focal"' : ""}><th scope="row">${escape(player.player_name)}</th><td>${number(player.reb)}</td><td>${number(player.oreb)}</td><td>${number(player.dreb)}</td></tr>`).join("")}</tbody></table>`;
+    <thead><tr><th scope="col">Player</th>${columns}</tr></thead>
+    <tbody>${[...players].sort((a, b) => counts(b) - counts(a)).map(player => `<tr${player.player_id === report.player?.player_id ? ' class="is-focal"' : ""}><th scope="row">${escape(player.player_name)}</th>${keys.map(key => `<td>${number(player[key], key === "min")}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
   const {game} = report;
-  return `<details class="ask-game-board"><summary>Who got the rebounds?</summary>
+  return `<details class="ask-game-board"><summary>${title}</summary>
     <div class="ask-game-grid">${table(rosters.team, teamLabel(game.team_name, game.team_abbr))}${table(rosters.opponent, teamLabel(game.opponent_name, game.opponent_abbr))}</div>
   </details>`;
 }
@@ -125,7 +136,7 @@ export function renderGamePerformance(report) {
       <p class="meta">${[game.game_date && dateLabel(game.game_date), game.phase, final].filter(Boolean).map(escape).join(" · ")}</p>
     </div>
     <div class="ask-game-grid">${primary ? exhibits[primary] : ""}${boxScore(report, featured)}</div>
-    ${rosterBoard(report)}
+    ${rosterBoard(report, lead)}
     ${extra.length ? `<details class="ask-game-board"><summary>More player stats</summary>${boxScore(report, extra)}</details>` : ""}
     ${other.length ? `<details class="ask-game-board"><summary>More team comparisons</summary><div class="ask-game-grid">${other.join("")}</div></details>` : ""}
     ${rowsOf(report.warnings).length ? `<ul class="meta ask-game-notes">${report.warnings.map(warning => `<li>${escape(warning)}</li>`).join("")}</ul>` : ""}

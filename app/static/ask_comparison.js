@@ -240,9 +240,9 @@ export function askProfileHref(profile) {
 }
 
 export function askAvatarMarkup(initials, headshotUrl) {
-  const fallback = `<span class="player-avatar-fallback" aria-hidden="true">${esc(initials)}</span>`;
-  if (!headshotUrl) return fallback;
-  return fallback + `<img data-ask-headshot alt="" loading="lazy" onload="this.dataset.loaded='true';" src="${esc(headshotUrl)}" />`;
+  return headshotUrl
+    ? `<img src="${esc(headshotUrl)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback" hidden>${esc(initials)}</span>`
+    : `<span class="player-avatar-fallback">${esc(initials)}</span>`;
 }
 
 function profileCard(profile, side) {

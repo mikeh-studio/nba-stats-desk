@@ -982,17 +982,10 @@ def plan_question(
 ):
     """Bind host-parsed predicates without changing the optional provider ABI."""
     from app.agent.game_filters import extract_game_filters, filter_scope
-    from app.agent.scoring_report import (
-        plan_game_performance,
-        plan_rebounding_game,
-        plan_report,
-    )
+    from app.agent.game_performance import plan_game_performance
+    from app.agent.scoring_report import plan_report
 
     if report := plan_game_performance(
-        question, kwargs["selected_season"], selected_player_name
-    ):
-        return report
-    if report := plan_rebounding_game(
         question, kwargs["selected_season"], selected_player_name
     ):
         return report

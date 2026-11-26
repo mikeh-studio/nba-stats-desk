@@ -378,14 +378,12 @@ Governed player overviews use the same evidence for the overall assessment,
 up to three visible Key Takeaways, eleven primary metrics (six or nine for focused
 profiles) and an adaptive performance chart. The server-written Overall sits
 above icon takeaway cards and the compact metrics table. The performance chart
-is expanded by default and starts with the requested focus metric, or PTS for a
+opens on demand and starts with the requested focus metric, or PTS for a
 general overview. PTS/REB/AST/STL/BLK controls switch the series. The table shows
 League % and change columns when verified values are available. Average cells
 carry metric samples and distribution controls explain the eligible cohort.
 
-Focused publication evidence has its own space before the standard metrics.
-Its source table and chart sit together on wide screens and stack on phones.
-Inspecting a compact chart mark shows its value below the plot. The comparison
+Focused publication reports appear above the standard metrics. The comparison
 period and evidence disclosures sit alongside the metrics they describe.
 
 Broad overviews select up to three evidence-backed findings rather than narrating
@@ -499,7 +497,9 @@ in the same season and phase, excluding the game under analysis. Team shares,
 the opponent comparison and both played rosters require complete participant
 membership and exact reconciliation with the published final score. The
 offensive rebound comparison shows the player-credited counts and the formula
-alongside both teams' rates. **Who got the rebounds?** opens both player rosters.
+alongside both teams' rates. The roster disclosure opens both teams' played
+box scores, sorted by the stat that leads the analysis. The rebounds view
+includes the offensive and defensive split.
 Game-by-game follow-ups use all opponents from the same source and phase through
 the date of the analyzed game.
 
@@ -522,11 +522,11 @@ Single-game reports use a matchup comparison where the evidence supports it.
 An overview with one chart bucket keeps its metric switcher and reports the
 period's value and sample size as text.
 
-**Sources** at the bottom of each answer shows recorded provenance and links
-where available. A game report can show the accepted result identifier and
+**Sources** on a publication answer or game log shows recorded provenance and
+links where available. A game report can show the accepted result identifier and
 publication-pinned matchup, raw box-score rows, and player game log. The
-header **Source & Coverage** panel continues to show publication status and
-asset coverage. Material interpretation caveats stay with the relevant values.
+header **Source & Coverage** panel shows publication status, asset coverage and
+the current answer context. Material interpretation caveats stay with the relevant values.
 
 Teammate answers include group averages, absolute differences, and relative changes
 using unrounded averages with the both-played group as baseline. Relative changes

@@ -125,8 +125,8 @@ class PublishedPlayerScope:
                 raise ValueError("Published player game scope differs")
 
         draft = (
-            f"{player_name} total rebounds from {played} to {played}"
-            if played
+            f"How did {player_name} play against {game['opponent_abbr']} on {played} ({scope['phase']})?"
+            if game is not None
             else f"{player_name} per game points from {first} to {last}"
         )
         draft_query = urlencode({"season": self.season, "draft": draft})
@@ -146,7 +146,7 @@ class PublishedPlayerScope:
             "team": game["team_abbr"] if game else ", ".join(identity["team_abbrs"]),
             "game": game,
             "game_date_label": f"{played:%b} {played.day}, {played.year}"
-            if played
+            if played is not None
             else None,
             "game_id": self.game_id,
             "first": self.first,

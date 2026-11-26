@@ -89,20 +89,15 @@ def test_scoring_report_shares_scope_with_all_thirteen_appearances(question):
         "18.0",
     ]
     assert len(answer["tables"][0]["rows"]) == 13
-    assert answer["tables"][1]["rows"] == [
-        ["Three-pointers", 81, "6.2", "40.9%", 27],
-        ["Two-pointers", 78, "6.0", "39.4%", 39],
-        ["Free throws", 39, "3.0", "19.7%", 39],
-    ]
+    assert len(answer["tables"]) == 1
     rows = answer["semantic_evidence"]["scoring_sources"]["rows"]
     assert [row["share"] for row in rows] == pytest.approx(
         [81 / 198, 78 / 198, 39 / 198]
     )
-    assert [chart["type"] for chart in answer["charts"]] == ["line", "bar"]
+    assert [chart["type"] for chart in answer["charts"]] == ["line"]
     assert len(answer["charts"][0]["series"][0]["points"]) == 13
-    assert [p["y"] for p in answer["charts"][1]["series"][0]["points"]] == [81, 78, 39]
     assert validate(answer)["errors"] == []
-    answer["charts"][1]["series"][0]["points"][0]["y"] += 1
+    answer["charts"][0]["series"][0]["points"][0]["y"] += 1
     assert validate(answer)["status"] == "invalid"
 
 
@@ -143,7 +138,13 @@ def test_scoring_total_uses_full_period_when_game_log_is_bounded():
     assert "1,518 points across 101 recorded appearances" in answer["answer"]
     assert "display_limit_applied_latest_games" in answer["assumptions"]
     assert len(answer["tables"][0]["rows"]) == 100
-    assert sum(row[1] for row in answer["tables"][1]["rows"]) == 1518
+    assert (
+        sum(
+            row["points"]
+            for row in answer["semantic_evidence"]["scoring_sources"]["rows"]
+        )
+        == 1518
+    )
 
 
 @pytest.mark.parametrize(
@@ -223,12 +224,6 @@ def test_zero_total_has_no_scoring_share_or_largest_source():
     answer = answerer(rows)(QUESTION)
     assert "scored zero points across 1 recorded appearance" in answer["answer"]
     assert "largest source" not in answer["answer"]
-    assert [row[-2:] for row in answer["tables"][1]["rows"]] == [["Unavailable", 0]] * 3
+    sources = answer["semantic_evidence"]["scoring_sources"]["rows"]
+    assert [(row["share"], row["makes"]) for row in sources] == [(None, 0)] * 3
     assert validate(answer)["errors"] == []
-
-
-@pytest.mark.parametrize("column,replacement", [(3, "41.0%"), (4, 29)])
-def test_scoring_share_and_makes_are_bound_to_source_claims(column, replacement):
-    answer = answerer(source())(QUESTION)
-    answer["tables"][1]["rows"][0][column] = replacement
-    assert validate(answer)["status"] == "invalid"

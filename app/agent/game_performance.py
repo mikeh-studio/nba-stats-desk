@@ -12,13 +12,21 @@ from app.agent.clock import today_in
 from app.agent.overview_calendar import MONTHS
 from app.agent.semantics import Evidence, SemanticError, aggregate, load_contract
 
-_DAY = r"yesterday|last night|today|\d{4}-\d{2}-\d{2}|[a-z]+\.? \d{1,2},? 20\d{2}"
+_EXACT_DAY = r"\d{4}-\d{2}-\d{2}|[a-z]+\.? \d{1,2},? 20\d{2}"
+_DAY = rf"yesterday|last night|today|{_EXACT_DAY}"
 _MATCHUP = r"(?:against|versus|vs\.?) (?:the )?"
 _QUESTION = re.compile(
     r"how (?:well )?did (?P<player>.+?) (?:play(?:ed)?|perform(?:ed)?|do) "
     rf"(?:(?:{_MATCHUP}(?P<opponent_before>.+?) )?(?:on )?(?P<day>{_DAY})"
     rf"(?: {_MATCHUP}(?P<opponent_after>.+?))?)"
     r"(?: (?:\(|in (?:the )?)?(?P<phase>regular season|playoffs)\)?)?[?.!]?",
+    re.I,
+)
+_REBOUNDING_QUESTION = re.compile(
+    r"(?:(?:what (?:stands|stood) out about) (?P<player>.+?)['’]s rebounding"
+    r"|how unusual was (?P<other_player>.+?)['’]s (?P<stated>\d{1,3})[- ]rebound game) "
+    rf"{_MATCHUP}(?P<opponent_before>.+?) on (?P<day>{_EXACT_DAY})"
+    r"(?: \((?P<phase>regular season|playoffs)\))?[?.!]?",
     re.I,
 )
 _METRICS = ("pts", "reb", "ast", "stl", "blk", "tov", "min", "oreb", "dreb", "fg_pct")
@@ -48,6 +56,8 @@ class GameQuestion:
     phase: str
     opponent: str | None
     relative: bool
+    focus: str | None
+    stated_rebounds: int | None
 
     @property
     def dates(self) -> dict[str, str]:
@@ -55,9 +65,8 @@ class GameQuestion:
 
 
 def _match(question: str) -> re.Match[str] | None:
-    return _QUESTION.fullmatch(
-        " ".join(question.partition("\nSelected player: ")[0].split())
-    )
+    wording = " ".join(question.partition("\nSelected player: ")[0].split())
+    return _QUESTION.fullmatch(wording) or _REBOUNDING_QUESTION.fullmatch(wording)
 
 
 def wants_game_performance(question: str) -> bool:
@@ -87,7 +96,9 @@ def parse_game_question(question: str) -> GameQuestion | None:
             "unsupported_coverage",
             f"{day} has not occurred on the NBA Eastern calendar.",
         )
-    if match["opponent_before"] and match["opponent_after"]:
+    fields = match.groupdict()
+    before, after = fields.get("opponent_before"), fields.get("opponent_after")
+    if before and after:
         raise SemanticError(
             "clarification_required", "Please specify one opponent for the game."
         )
@@ -97,12 +108,57 @@ def parse_game_question(question: str) -> GameQuestion | None:
         else "Regular Season"
     )
     return GameQuestion(
-        match["player"],
+        fields.get("player") or fields["other_player"],
         day.isoformat(),
         phase,
-        match["opponent_before"] or match["opponent_after"],
+        before or after,
         relative,
+        "reb" if match.re is _REBOUNDING_QUESTION else None,
+        int(stated) if (stated := fields.get("stated")) is not None else None,
     )
+
+
+def resolve_opponent_abbr(opponent: str) -> str:
+    # The packaged directory resolves aliases. The source facts verify the game.
+    from nba_api.stats.static.teams import get_teams
+
+    name = opponent.casefold()
+    teams = [
+        team["abbreviation"]
+        for team in get_teams()
+        if name
+        in {
+            team[key].casefold()
+            for key in ("abbreviation", "city", "full_name", "nickname")
+        }
+    ]
+    if len(teams) != 1:
+        raise SemanticError(
+            "clarification_required",
+            "Please name the opponent with its full NBA team name or abbreviation.",
+        )
+    return teams[0]
+
+
+def plan_game_performance(question, season, selected_player=None):
+    from app.agent.scoring_report import game_log_plan
+
+    request = parse_game_question(question)
+    if request is None:
+        return None
+    scope = dict(request.dates, season=season, season_type=request.phase)
+    if request.opponent:
+        scope["opponent_abbr"] = resolve_opponent_abbr(request.opponent)
+    plan = game_log_plan(
+        selected_player or request.player, request.focus or "pts", scope
+    )
+    plan["include_game_performance"] = True
+    plan["message"] = (
+        "Single-game rebounding" if request.focus else "Single-game player performance"
+    )
+    if request.stated_rebounds is not None:
+        plan["stated_rebounds"] = request.stated_rebounds
+    return plan
 
 
 class GamePerformance(TypedDict):
@@ -117,6 +173,7 @@ class GamePerformance(TypedDict):
     team_rebounding: dict[str, Any]
     rosters: dict[str, Any]
     warnings: list[str]
+    rebounding_context: dict[str, Any] | None
 
 
 def _official_result(
@@ -205,7 +262,11 @@ def _credited_rebounding(sides, team, opponent):
 
 
 def build_game_performance(
-    evidence: Evidence, section: dict[str, Any], *, focus: str | None
+    evidence: Evidence,
+    section: dict[str, Any],
+    *,
+    focus: str | None,
+    stated_rebounds: int | None = None,
 ) -> GamePerformance | None:
     appearances = section["rows"]
     if len(appearances) != 1:
@@ -353,6 +414,54 @@ def build_game_performance(
             else []
         )
 
+    baseline = (
+        {
+            "first": min(str(entry["game_date"]) for entry in before),
+            "last": max(str(entry["game_date"]) for entry in before),
+            "games": len(before),
+        }
+        if before
+        else None
+    )
+    rebounding: dict[str, Any] | None = None
+    if focus == "reb":
+        total, offensive, defensive = (row.get(key) for key in ("reb", "oreb", "dreb"))
+        rebound_metric = next(entry for entry in metrics if entry["key"] == "reb")
+        split = (
+            {"offensive": int(offensive), "defensive": int(defensive)}
+            if total is not None
+            and offensive is not None
+            and defensive is not None
+            and all(
+                value >= 0 and int(value) == value
+                for value in (total, offensive, defensive)
+            )
+            and total == offensive + defensive
+            else None
+        )
+        rebounding = {
+            "split": split,
+            "previous": (
+                {
+                    "average": rebound_metric["baseline"],
+                    "appearances": baseline["games"],
+                    "first": baseline["first"],
+                    "last": baseline["last"],
+                    "at_least_current": (
+                        sum(float(entry["reb"]) >= float(total) for entry in before)
+                        if total is not None
+                        else None
+                    ),
+                }
+                if baseline and rebound_metric["baseline"] is not None
+                else None
+            ),
+        }
+        if stated_rebounds is not None:
+            rebounding["premise_differs"] = (
+                total is not None and total != stated_rebounds
+            )
+
     return {
         "kind": "game_performance",
         "version": "game_performance/1",
@@ -360,13 +469,8 @@ def build_game_performance(
         "player": {key: row[key] for key in ("player_id", "player_name", "team_abbr")},
         "focus_metric": focus,
         "metrics": metrics,
-        "baseline": {
-            "first": min(str(entry["game_date"]) for entry in before),
-            "last": max(str(entry["game_date"]) for entry in before),
-            "games": len(before),
-        }
-        if before
-        else None,
+        "baseline": baseline,
+        "rebounding_context": rebounding,
         "contribution": contribution,
         "team_rebounding": rates,
         "rosters": {
@@ -438,7 +542,37 @@ def _other_stats(section, key):
     return " and ".join(stats)
 
 
-def render_game_performance(section, *, summary=None):
+def _rebounding_summary(section, name):
+    if context := section.get("rebounding_context"):
+        game = section["rows"][0]
+        if game["display_value"] is not None:
+            total = game["display_value"]
+            answer = f"{name} had {total:g} rebounds against {game['opponent_abbr']} on {game['game_date']}."
+            if context.get("premise_differs"):
+                answer = "The box score records a different total. " + answer
+            if split := context["split"]:
+                answer += f" The split was {split['offensive']} offensive and {split['defensive']} defensive."
+            if previous := context["previous"]:
+                gap = total - previous["average"]
+                games = previous["appearances"]
+                phase = (
+                    "playoff" if game["season_type"] == "Playoffs" else "regular-season"
+                )
+                answer += (
+                    f" He averaged {previous['average']:.1f} rebounds across his "
+                    f"{games} earlier {phase} {'appearance' if games == 1 else 'appearances'} in this dataset."
+                )
+                if abs(gap) >= 0.05:
+                    answer += f" This game was {abs(gap):.1f} rebounds {'above' if gap > 0 else 'below'} that average."
+                if games >= 5:
+                    answer += (
+                        f" He had at least {total:g} rebounds in {previous['at_least_current']} "
+                        f"of those {games} previous appearances."
+                    )
+            return answer
+
+
+def render_game_performance(section):
     from app.agent.payload import answer_payload
     from app.agent.performance_overview import scoped_identity_profile
 
@@ -449,10 +583,18 @@ def render_game_performance(section, *, summary=None):
         game["opponent_abbr"],
     )
     matchup = f" against {opponent}" if opponent else ""
-    standout = _standout(section)
+    standout = next(
+        (
+            row
+            for row in section["metrics"]
+            if row["key"] == section["focus_metric"] and row["value"] is not None
+        ),
+        None,
+    ) or _standout(section)
     section["lead_metric"] = section["focus_metric"] or (
         standout["key"] if standout else None
     )
+    summary = _rebounding_summary(section, name)
     paragraphs = [summary] if summary else []
     if not summary:
         if standout:

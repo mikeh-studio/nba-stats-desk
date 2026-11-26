@@ -626,55 +626,18 @@ def production(tmp_path):
     )
 
 
-def test_standard_ask_league_coverage_uses_an_independently_pinned_proof(
-    production, tmp_path
+def test_rolling_publication_ask_preserves_player_facts_without_a_league_certificate(
+    production,
 ):
-    from datetime import date
-
-    from app.serving.league_coverage import read_pinned_coverage
     from scripts.serve_production_candidate import attach_publication
 
-    manifest = production.envelope["manifest"]
-    scope = manifest["scope"]
-    games = next(asset for asset in manifest["assets"] if asset["name"] == "dim_game")
-    document = {
-        "version": "league-coverage/1",
-        "publication_id": manifest["publication_id"],
-        "season": scope["season"],
-        "phase": scope["phase"],
-        "first": scope["first"],
-        "as_of": scope["last"],
-        "receipt_count": (
-            date.fromisoformat(scope["last"]) - date.fromisoformat(scope["first"])
-        ).days
-        + 1,
-        "game_ids": [
-            game["game_id"] for game in production.tables[games["relation"]].rows
-        ],
-    }
-    path = tmp_path / "coverage.json"
-    path.write_text(json.dumps(document))
-    expected_digest = digest(document)
     legacy = FastAPI()
-    attach_publication(
-        legacy,
-        production.app,
-        lambda: "production",
-        league_coverage=lambda: read_pinned_coverage(
-            path, expected_digest, production.authority.read_document
-        ),
-    )
+    attach_publication(legacy, production.app, lambda: "production")
     with TestClient(legacy):
         source = legacy.state.ask_publication_source(None)
-        assert source.evidence.cohort_complete
-        assert source.provenance["cohort_proof"] == "independent_coverage_review"
-        document["game_ids"][0] = "0000009999"
-        path.write_text(json.dumps(document))
-        unmatched = legacy.state.ask_publication_source(None)
-        assert not unmatched.evidence.cohort_complete
-        assert unmatched.evidence.rows == source.evidence.rows
-        expected_digest = digest(document)
-        assert not legacy.state.ask_publication_source(None).evidence.cohort_complete
+        assert source.evidence.rows
+        assert not source.evidence.cohort_complete
+        assert "cohort_proof" not in source.provenance
 
 
 def test_rolling_production_routes_and_pinned_rollback(production):
@@ -735,16 +698,11 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
     from app import main
     from app.config import Settings
     from app.seasons import current_season
-    from fastapi import Request
     from scripts.serve_production_candidate import attach_publication
 
     class LegacyRepository:
         def search_players(self, query, *, limit):
             return [{"name": query, "season": current_season(), "limit": limit}]
-
-    def legacy_repository(request: Request):
-        assert request.url.path == "/api/players/search"
-        return LegacyRepository()
 
     settings = Settings(
         project_id="synthetic",
@@ -757,7 +715,13 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
         agent_history_path=str(tmp_path / "history.jsonl"),
     )
     main.app.dependency_overrides[main.get_settings] = lambda: settings
-    main.app.dependency_overrides[main.get_repository] = legacy_repository
+    warehouse_reads = []
+
+    def legacy_repository(settings):
+        warehouse_reads.append(settings.season)
+        return LegacyRepository()
+
+    monkeypatch.setattr(main, "_cached_repository", legacy_repository)
     monkeypatch.setattr(main, "_configure_weekly_snapshot", lambda *_: None)
     monkeypatch.setattr(main, "_start_cache_prewarm", lambda: None)
     state = ["production"]
@@ -769,7 +733,6 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
         ) as c:
             ask = c.get("/ask")
             assert ask.status_code == 200 and "Ask NBA Stats" in ask.text
-            assert "data-publication-routing" in ask.text
             r = c.get("/publication-core/api/players/101")
             assert r.status_code == 200, r.text
             pid = r.json()["publication_id"]
@@ -799,6 +762,8 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
             assert fragment.status_code == 200
             assert fragment.headers["X-Publication-ID"] == pid
             assert "Test Player A" in fragment.text and "2026-10-20" in fragment.text
+            assert "How+did+Test+Player+A+play+against+" in fragment.text
+            assert "+on+2026-10-20+%28Regular+Season%29%3F" in fragment.text
             assert (
                 c.get(
                     "/players/101/content",
@@ -806,10 +771,12 @@ def test_full_app_publication_overlay_preserves_legacy_and_rechecks_authority(
                 ).status_code
                 == 404
             )
+            assert warehouse_reads == []
             archived = c.get(
                 "/api/players/search", params={"q": "Archive", "season": "2025-26"}
             )
             assert archived.status_code == 200
+            assert warehouse_reads == ["2025-26"]
             assert archived.json()["items"] == [
                 {"name": "Archive", "season": "2025-26", "limit": 5}
             ]

@@ -440,6 +440,23 @@ def test_rebounding_mismatch_withholds_split_and_incomplete_baseline(production)
     }
 
 
+def test_dated_rebounding_rejects_tomorrow_on_the_nba_calendar(production, monkeypatch):
+    client, _, reads, legacy, _ = production
+
+    def eastern_today(timezone):
+        assert timezone == "America/New_York"
+        return date.fromisoformat(EARLY)
+
+    monkeypatch.setattr("app.agent.game_performance.today_in", eastern_today)
+    payload = ask(
+        client,
+        f"What stood out about Taylor Example’s rebounding against Boston on {LAST}?",
+    )
+    assert payload["status"] == "unsupported_coverage"
+    assert "NBA Eastern calendar" in payload["answer"]
+    assert not reads and not legacy.calls
+
+
 def test_rebounding_request_does_not_ignore_different_opponent(production):
     client, _, _, legacy, _ = production
     payload = ask(
@@ -571,7 +588,14 @@ def test_standard_scoring_mix_and_scoped_log_use_same_publication(production, en
     )
     assert "1 more point than two-pointers on 3 fewer makes" in opener["answer"]
     assert "Game high" not in opener["answer"]
-    assert opener["tables"][1]["rows"][0] == ["Three-pointers", 21, "10.5", "46.7%", 7]
+    assert len(opener["tables"]) == 1
+    assert opener["semantic_evidence"]["scoring_sources"]["rows"][0] == {
+        "label": "Three-pointers",
+        "points": 21,
+        "per_game": 10.5,
+        "share": pytest.approx(21 / 45),
+        "makes": 7,
+    }
 
     followup = ask(
         client,
@@ -603,6 +627,46 @@ def test_publication_refuses_unverified_scopes_and_league_ranks(production, ques
     assert payload["status"] == "unsupported_coverage", payload["answer"]
     assert payload["semantic_evidence"] is None
     assert reads and legacy.calls == []
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Taylor Example total points",
+        "How many points did Taylor Example score?",
+        "Taylor Example average points",
+    ],
+)
+def test_simple_questions_keep_structured_publication_evidence(production, question):
+    client, _, _, legacy, _ = production
+    payload = ask(client, question, endpoint="ask/stream")
+    assert payload["status"] == "ok", payload["answer"]
+    assert payload["publication_id"] == ACTIVE
+    expected = 22.5 if "average" in question else 45
+    assert payload["semantic_evidence"]["rows"][0]["value"] == expected
+    assert payload["player_profile"]["player"]["player_name"] == "Taylor Example"
+    assert (
+        payload["tables"]
+        and payload["conversation_context"]["publication_id"] == ACTIVE
+    )
+    assert legacy.calls == []
+
+
+def test_exact_publication_comparison_uses_requested_metric_and_aggregation(production):
+    client, captured, _, legacy, _ = production
+    publication = captured[ACTIVE]
+    earlier, later = publication.evidence.rows
+    second_player = dict(earlier, player_id=2000, player_name="Riley Example", pts=5)
+    captured[ACTIVE] = replace(
+        publication,
+        evidence=replace(publication.evidence, rows=[earlier, later, second_player]),
+    )
+    payload = ask(client, "Compare Taylor Example vs Riley Example total points")
+    assert payload["status"] == "ok", payload["answer"]
+    assert payload["publication_id"] == ACTIVE
+    assert payload["semantic_evidence"]["difference"] == 40
+    assert len(payload["tables"]) == 2
+    assert not legacy.calls
 
 
 def test_cold_followup_keeps_original_publication_or_withholds(production):

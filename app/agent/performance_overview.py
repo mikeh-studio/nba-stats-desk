@@ -59,10 +59,9 @@ ABSENCE_MESSAGE = (
 def wants_overview(question):
     from app.agent.game_filters import extract_game_filters
     from app.agent.game_performance import wants_game_performance
-    from app.agent.game_rebounding import is_rebounding_game
     from app.agent.scoring_report import is_scoring_question
 
-    if is_rebounding_game(question) or wants_game_performance(question):
+    if wants_game_performance(question):
         return False
     try:
         question = extract_game_filters(question).cleaned_question

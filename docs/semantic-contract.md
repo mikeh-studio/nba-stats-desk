@@ -121,13 +121,8 @@ for subsequent analysis and validates it against active authority before
 returning facts. A withdrawn, expired, or inaccessible release withholds the
 answer. An overview can summarize recorded games even when the publication
 lacks independent cohort completeness. League ranks and percentiles require a
-manifest-bound coverage certificate or an independent operator-pinned coverage
-review. The production composition accepts `ask_league_coverage` with a read-only
-`path` and a canonical JSON `digest`. The proof binds the exact publication,
-season, phase, dates, daily receipt count and complete game membership. Hosted
-configuration uses a GCS path. Missing, mismatched or unhashed proof does not
-authorize the cohort. The dedicated verified three-point leaderboard retains
-its separate qualification and release contract.
+manifest-bound coverage certificate. The dedicated verified three-point
+leaderboard retains its separate qualification and release contract.
 
 For exact-game analysis, `game_performance/1` keeps the resolved player, game,
 publication, box-score metrics and pregame sample together. Each baseline uses

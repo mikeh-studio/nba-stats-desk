@@ -27,12 +27,10 @@ from fastapi.responses import (
     Response,
     StreamingResponse,
 )
-from fastapi.routing import APIRoute
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field, StrictInt
 from starlette.concurrency import run_in_threadpool
-from starlette.routing import Match
 
 from app.agent.capacity import CapacityExceeded, Delivery, admission
 from app.agent.conversation import get_conversation_store
@@ -93,7 +91,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261126-production-ask-reports"
+STATIC_VERSION = "20261126-ask-report-review"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -385,40 +383,19 @@ async def _published_player_request(request: Request, path: str):
     state = request.app.state
     if not getattr(state, "production_publication_enabled", False):
         return False
-    # Requests naming a publication or game must never fall back to another source.
-    if _PLAYER_PAGE_PATH.fullmatch(path) and (
+    # Explicit publication links stay on the publication path even in legacy mode.
+    pinned = bool(_PLAYER_PAGE_PATH.fullmatch(path)) and (
         "publication_id" in request.query_params or "game_id" in request.query_params
+    )
+    if (
+        not pinned
+        and request.query_params.get("season", DEFAULT_SEASON) != DEFAULT_SEASON
     ):
-        return True
-    if request.query_params.get("season", DEFAULT_SEASON) != DEFAULT_SEASON:
         return False
     reader = getattr(state, "publication_player_mode", None)
     mode = await reader() if reader else None
-    return mode != "legacy"
-
-
-class PublishedPlayerRoute(APIRoute):
-    """Keep publication reads outside legacy repository dependency resolution."""
-
-    def matches(self, scope):
-        if not scope.get("published_player_read"):
-            return Match.NONE, {}
-        return super().matches(scope)
-
-
-def _published_player_route(path, *, response_class=JSONResponse):
-    def register(endpoint):
-        app.router.add_api_route(
-            path,
-            endpoint,
-            methods=["GET"],
-            response_class=response_class,
-            include_in_schema=False,
-            route_class_override=PublishedPlayerRoute,
-        )
-        return endpoint
-
-    return register
+    request.scope["published_player_mode"] = mode
+    return pinned or mode != "legacy"
 
 
 class SeasonMiddleware:
@@ -585,7 +562,14 @@ def _cached_repository(settings: Settings) -> BigQueryWarehouseRepository:
 
 def get_repository(
     settings: Annotated[Settings, Depends(get_settings)],
-) -> WarehouseRepository:
+    request: Request,
+) -> WarehouseRepository | None:
+    if request.scope.get("published_player_read"):
+        return None
+    return _warehouse_repository(settings)
+
+
+def _warehouse_repository(settings: Settings) -> WarehouseRepository:
     from app.agent.runtime_policy import get_runtime_policy
 
     runtime = get_runtime_policy()
@@ -1313,41 +1297,36 @@ def api_rankings(
     return {"season": current_season(), "items": repo.get_rankings(limit=limit)}
 
 
-@_published_player_route("/api/players/search")
-async def _published_player_search(
-    request: Request,
-    settings: Annotated[Settings, Depends(get_settings)],
-    q: str = Query(min_length=1, max_length=64),
-) -> JSONResponse:
-    query = q.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Search query must not be blank")
-    season = current_season()
-    try:
-        reader = request.app.state.publication_search
-        release = await reader(query, season)
-        items = player_search_items(release, season, settings.max_search_results)
-    except (AttributeError, KeyError, TypeError, ValueError):
-        raise HTTPException(503, "Published player search is unavailable.") from None
-    return JSONResponse(
-        {"season": season, "query": query, "items": items},
-        headers={
-            "Cache-Control": "no-store",
-            "X-Publication-ID": release["publication_id"],
-        },
-    )
-
-
 @app.get("/api/players/search")
 async def api_player_search(
-    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    request: Request,
+    repo: Annotated[WarehouseRepository | None, Depends(get_repository)],
     settings: Annotated[Settings, Depends(get_settings)],
     q: str = Query(min_length=1, max_length=64),
-) -> dict:
+) -> Any:
     query = q.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Search query must not be blank")
     season = current_season()
+    if request.scope.get("published_player_read"):
+        if request.scope.get("published_player_mode") != "production":
+            raise HTTPException(503, "Published player search is unavailable.")
+        try:
+            release = await request.app.state.publication_search(query, season)
+            items = player_search_items(release, season, settings.max_search_results)
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise HTTPException(
+                503, "Published player search is unavailable."
+            ) from None
+        return JSONResponse(
+            {"season": season, "query": query, "items": items},
+            headers={
+                "Cache-Control": "no-store",
+                "X-Publication-ID": release["publication_id"],
+            },
+        )
+
+    assert repo is not None
     items = await run_in_threadpool(
         repo.search_players, query, limit=settings.max_search_results
     )
@@ -1504,7 +1483,6 @@ def player_shell(
     )
 
 
-@_published_player_route("/players/{player_id}/content", response_class=HTMLResponse)
 async def _published_player_page(
     player_id: int,
     request: Request,
@@ -1519,7 +1497,10 @@ async def _published_player_page(
     else:
         read_player = getattr(request.app.state, "publication_player", None)
         try:
-            if read_player is None:
+            if (
+                read_player is None
+                or request.scope.get("published_player_mode") != "production"
+            ):
                 raise ValueError("Published player reader unavailable")
             release = await read_player(player_id, scope.season, scope.publication_id)
             profile = scope.view(release)
@@ -1544,9 +1525,11 @@ async def _published_player_page(
 async def player_page(
     player_id: int,
     request: Request,
-    repo: Annotated[WarehouseRepository, Depends(get_repository)],
+    repo: Annotated[WarehouseRepository | None, Depends(get_repository)],
     candidate: Annotated[Any | None, Depends(get_candidate_service)],
 ) -> Response:
+    if request.scope.get("published_player_read"):
+        return await _published_player_page(player_id, request)
     return await run_in_threadpool(
         _standard_player_page, player_id, request, repo, candidate
     )
@@ -2602,7 +2585,9 @@ def research_players(
 
     _check_research_rate_limit(request, settings)
     try:
-        repo = None if settings.research_snapshot_path else get_repository(settings)
+        repo = (
+            None if settings.research_snapshot_path else _warehouse_repository(settings)
+        )
         evidence, used = available_research(
             settings,
             repo,
@@ -2642,7 +2627,9 @@ def research_breakdown(
         raise HTTPException(400, "Request body and selected season disagree")
     _check_research_rate_limit(request, settings)
     try:
-        repo = None if settings.research_snapshot_path else get_repository(settings)
+        repo = (
+            None if settings.research_snapshot_path else _warehouse_repository(settings)
+        )
         evidence, used = available_research(
             settings,
             repo,

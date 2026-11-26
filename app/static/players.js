@@ -24,19 +24,14 @@ function playerCard(player, searching) {
   const card = node("a", "player-directory-card");
   card.href = playerSearchHref(player);
   const identity = node("div", "player-card-identity");
-  const initials = player.player_initials || player.player_name.split(/\s+/).map(part => part[0]).slice(0, 2).join("");
-  const avatar = node("span", "player-card-avatar", initials);
+  const avatar = node("span", "player-card-avatar", player.player_initials || player.player_name.split(/\s+/).map(part => part[0]).slice(0, 2).join(""));
   if (player.headshot_url) {
     const img = document.createElement("img");
+    img.src = player.headshot_url;
     img.alt = "";
     img.loading = "lazy";
-    img.addEventListener("load", () => {
-      avatar.replaceChildren(img);
-      img.classList.add("is-loaded");
-    });
-    img.addEventListener("error", () => img.remove());
-    img.src = player.headshot_url;
-    avatar.append(img);
+    avatar.replaceChildren(img);
+    img.addEventListener("error", () => { avatar.textContent = player.player_initials || "NBA"; });
   }
   avatar.setAttribute("aria-hidden", "true");
   const names = node("div", "");

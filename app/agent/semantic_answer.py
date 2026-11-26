@@ -53,7 +53,7 @@ from app.agent.semantic_serving import (
     source_players,
 )
 from app.agent.semantic_source import capture_timestamp
-from app.agent.semantics import Query, SemanticError, run_query
+from app.agent.semantics import Query, SemanticError, load_contract, run_query
 from app.agent.source_policy import get_source_policy
 from app.seasons import DEFAULT_SEASON, season_bounds
 
@@ -426,14 +426,8 @@ def render_answer(
     evidence = result["evidence"]
     if evidence.get("kind") == "game_performance":
         from app.agent.game_performance import render_game_performance
-        from app.agent.scoring_report import log_summary
 
-        summary = (
-            log_summary(evidence, evidence["player"]["player_name"])
-            if evidence.get("rebounding_context")
-            else None
-        )
-        return render_game_performance(evidence, summary=summary)
+        return render_game_performance(evidence)
     payload = _payload("", status)
     payload["semantic_evidence"] = evidence
     payload["query_plan"] = {
@@ -452,11 +446,7 @@ def render_answer(
         if "current" in evidence
         else [("Result", evidence)]
     )
-    from app.agent.scoring_report import (
-        add_scoring_evidence,
-        game_log_context,
-        log_summary,
-    )
+    from app.agent.scoring_report import game_log_context, log_summary
 
     statements = []
     definitions = {}
@@ -557,10 +547,6 @@ def render_answer(
                 payload["assumptions"].append(
                     "Chart withheld because some game values are unavailable; see the game log. Missing values are not zero."
                 )
-            if (scoring := section.get("scoring_sources")) and scoring[
-                "status"
-            ] == "ok":
-                add_scoring_evidence(payload, scoring)
             if len(sections) == 1 and section["status"] == "ok":
                 payload["conversation_context"] = {
                     "analysis_type": "game_log",
@@ -572,7 +558,7 @@ def render_answer(
                     "scope": scope,
                     "metrics": [metric["key"]],
                 }
-                if scoring:
+                if section.get("scoring_sources"):
                     payload["followups"] = [
                         "Show scoring game by game",
                         "Show me his assists game by game.",
@@ -948,10 +934,40 @@ class SemanticAsk:
                     "groups",
                     "Choose one comparison group: guards, wings/forwards, or bigs/centers. Multiple groups need separate comparisons.",
                 )
+            from app.agent.publication_ask_source import parse_publication_stat
+
+            open_publication = getattr(self.warehouse, "open_publication", None)
+            publication_stat = (
+                parse_publication_stat(question.partition("\nSelected player: ")[0])
+                if open_publication
+                and not inherited
+                and not award
+                and (not pending or selected_player)
+                else None
+            )
+            publication_opened = False
+            if (
+                open_publication
+                and publication_stat
+                and publication_stat.metric in load_contract().metrics
+            ):
+                stat_seasons = (
+                    seasons_in_dates(publication_stat.first, publication_stat.last)
+                    if publication_stat.first
+                    else requested_seasons(question, self.settings.season)
+                )
+                if publication_pin or DEFAULT_SEASON in stat_seasons:
+                    publication = open_publication(publication_pin)
+                    publication_opened = True
+            if not publication_opened or publication is None:
+                publication_stat = None
+
             intent = question_scope(question)
             if award:
                 intent["kind"] = "award_lookup_then_performance"
-            if intent["status"]:
+            if intent["status"] and not (
+                publication_stat and intent["kind"] == "quantity_aggregation"
+            ):
                 raise SemanticError(
                     intent["status"], intent["message"] or "Unsupported question"
                 )
@@ -1001,9 +1017,7 @@ class SemanticAsk:
                         position_group
                     ]
                 )
-            from app.agent.routes import semantic_shape
-
-            shape = semantic_shape(question)
+            shape = "metrics" if publication_stat else semantic_shape(question)
             route_shape = "award" if award_request else shape
             split = split_kind(question) if shape == "player_split" else None
             comparison = (
@@ -1082,11 +1096,11 @@ class SemanticAsk:
 
             if not overview and not split:
                 from app.agent.game_performance import parse_game_question
-                from app.agent.game_rebounding import parse_rebounding_game
 
                 game_question = parse_game_question(question)
-                matchup = game_question or parse_rebounding_game(question)
-                metric_window = matchup.dates if matchup else explicit_scope(question)
+                metric_window = (
+                    game_question.dates if game_question else explicit_scope(question)
+                )
                 if game_question and game_question.relative:
                     time_assumptions.append(
                         f"Using {game_question.day} on the NBA Eastern calendar."
@@ -1127,14 +1141,14 @@ class SemanticAsk:
                 if overview
                 else list(seasons)
             )
-            open_publication = getattr(self.warehouse, "open_publication", None)
             if publication_pin and not open_publication:
                 raise SemanticError(
                     "publication_unavailable",
                     "This conversation's publication is unavailable on this host.",
                 )
             if open_publication and (publication_pin or DEFAULT_SEASON in primary):
-                publication = open_publication(publication_pin)
+                if not publication_opened:
+                    publication = open_publication(publication_pin)
                 if publication is not None:
                     publication.load(primary)
                     if split or position_group:
@@ -1565,6 +1579,14 @@ class SemanticAsk:
                     plan = (
                         leader_plan
                         or (prepared_attempt.plan if prepared_attempt else None)
+                        or (
+                            publication.stat_plan(
+                                publication_stat,
+                                chosen["player_name"] if selected_player else None,
+                            )
+                            if publication is not None and publication_stat
+                            else None
+                        )
                         or plan_question(
                             client,
                             settings=self.settings,

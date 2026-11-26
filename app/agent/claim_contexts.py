@@ -279,60 +279,6 @@ def contracts(payload):
                     scope,
                     [mp],
                 )
-            scoring = section.get("scoring_sources")
-            if scoring and scoring["status"] == "ok":
-                chart_index = len(selection)
-                scoring_path = base + ["scoring_sources"]
-                definition = scoring_path + ["metric"]
-                for ri, source in enumerate(scoring["rows"]):
-                    row = scoring_path + ["rows", ri]
-                    for ci, field in enumerate(("label", "points", "per_game")):
-                        destination = ["tables", ti + 1, "rows", ri, ci]
-                        if field == "per_game":
-                            result[tuple(destination)] = (
-                                [row + [field]],
-                                identity,
-                                scope,
-                                [scoring_path + ["per_game_metric"]],
-                                {"digits": 1},
-                            )
-                        else:
-                            add(
-                                destination,
-                                [row + [field]],
-                                identity,
-                                scope,
-                                [definition],
-                            )
-                    if "share" in source:
-                        result[("tables", ti + 1, "rows", ri, 3)] = (
-                            [row + ["share"]],
-                            identity,
-                            scope,
-                            [scoring_path + ["share_metric"]],
-                            {
-                                "digits": 1,
-                                "scale": 100,
-                                "suffix": "%",
-                                "null": "Unavailable",
-                            },
-                        )
-                    if "makes" in source:
-                        add(
-                            ["tables", ti + 1, "rows", ri, 4],
-                            [row + ["makes"]],
-                            identity,
-                            scope,
-                            [scoring_path + ["makes_metric"]],
-                        )
-                    for axis, field in (("x", "label"), ("y", "points")):
-                        add(
-                            ["charts", chart_index, "series", 0, "points", ri, axis],
-                            [row + [field]],
-                            identity,
-                            scope,
-                            [definition],
-                        )
         # The reference composition intentionally replaces the ordinary title.
         if not payload.get("reference_evidence"):
             add(

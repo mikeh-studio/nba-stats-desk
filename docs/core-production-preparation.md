@@ -8,8 +8,9 @@ private producer or production state.
 
 ## What it serves
 
-Supported, self-contained Ask questions and selected Player, Compare and
-regular-season Performance views can use a pinned publication. Other questions and
+Supported current-season Ask questions and selected Player, Compare and
+regular-season Performance views can use a pinned publication. The Ask workspace
+uses its standard conversational API for publication and archive questions. Other questions and
 page features continue to use their existing data sources. The reader is not a
 full-app cutover. The current rolling contract covers the 2026–27 regular
 season. The [synthetic demo](core-offline-replay.md) demonstrates the
@@ -32,10 +33,9 @@ authorize a production release.
 
 A release must pass its scope, freshness, authority and integrity checks before
 it can serve. A failed candidate does not replace the current release, which
-remains usable only while its own validity and source authority hold. If a
-publication is unavailable, Ask can use its existing service after a publication
-503; affected publication sections show an unavailable state while existing page
-data remains available. Revoked, missing or expired authority prevents serving;
+remains usable only while its own validity and source authority hold. If the
+required publication is unavailable, Ask withholds the affected answer. Archive
+questions still use their own source. Revoked, missing or expired authority prevents serving;
 changing mode alone does not revoke a release. Authority changes can
 take up to 30 seconds to reach an individual process because of short-lived
 caches; expiry is checked against the current time, and a failed refresh does not

@@ -62,7 +62,7 @@ def is_scoring_question(question):
     )
 
 
-def _game_log_plan(name, metric, scope, *, scoring=False):
+def game_log_plan(name, metric, scope, *, scoring=False):
     """Keep a full NBA season in the bounded chronological table when possible."""
     definition = load_contract().metric(metric)
     return {
@@ -81,55 +81,6 @@ def _game_log_plan(name, metric, scope, *, scoring=False):
             )
         ],
     }
-
-
-def plan_game_performance(question, season, selected_player=None):
-    from app.agent.game_performance import parse_game_question
-    from app.agent.game_rebounding import resolve_opponent_abbr
-
-    request = parse_game_question(question)
-    if request is None:
-        return None
-    plan = _game_log_plan(
-        selected_player or request.player,
-        "pts",
-        dict(
-            request.dates,
-            season=season,
-            season_type=request.phase,
-            **(
-                {"opponent_abbr": resolve_opponent_abbr(request.opponent)}
-                if request.opponent
-                else {}
-            ),
-        ),
-    )
-    plan["include_game_performance"] = True
-    plan["message"] = "Single-game player performance"
-    return plan
-
-
-def plan_rebounding_game(question, season, selected_player=None):
-    from app.agent.game_rebounding import parse_rebounding_game
-
-    request = parse_rebounding_game(question)
-    if request is None:
-        return None
-    plan = _game_log_plan(
-        selected_player or request.player,
-        "reb",
-        dict(
-            request.dates,
-            season=season,
-            season_type=request.phase,
-            opponent_abbr=request.opponent_abbr(),
-        ),
-    )
-    plan["include_rebounding_context"] = True
-    plan["message"] = "Single-game rebounding"
-    if request.stated is not None:
-        plan["stated_rebounds"] = request.stated
-    return plan
 
 
 def plan_report(question, selected_season, context, original, selected=None):
@@ -166,7 +117,7 @@ def plan_report(question, selected_season, context, original, selected=None):
                 scope.pop("start_date", None)
                 scope.pop("n", None)
                 scope.pop("seasons", None)
-                plan = _game_log_plan(
+                plan = game_log_plan(
                     context["players"][0]["player_name"], metric, scope
                 )
                 plan["explicit_period_operands"] = True
@@ -176,7 +127,7 @@ def plan_report(question, selected_season, context, original, selected=None):
                 )
                 return plan
             scope.update(filter_scope(prior))
-            return _game_log_plan(context["players"][0]["player_name"], metric, scope)
+            return game_log_plan(context["players"][0]["player_name"], metric, scope)
 
     for patterns, scoring in ((_SCORING, True), (_LOG, False)):
         if match := _request(patterns, question):
@@ -194,7 +145,7 @@ def plan_report(question, selected_season, context, original, selected=None):
                 **explicit_scope(question),
             }
             name = re.sub(r"['’]s?$", "", match["name"], flags=re.I)
-            return _game_log_plan(selected or name, metric, scope, scoring=scoring)
+            return game_log_plan(selected or name, metric, scope, scoring=scoring)
 
     return None
 
@@ -227,10 +178,6 @@ def scoring_sources(rows):
         source["share"] = source["points"] / total if total else None
     return {
         "status": "ok",
-        "metric": {"key": "pts", "unit": "points"},
-        "per_game_metric": {"key": "pts", "unit": "points per game"},
-        "share_metric": {"key": "scoring_share", "unit": "ratio"},
-        "makes_metric": {"key": "scoring_makes", "unit": "makes"},
         "observed_games": len(rows),
         "total": total,
         "rows": sorted(sources, key=lambda source: -source["points"]),
@@ -300,33 +247,6 @@ def log_summary(section, name):
         return f"No {name} appearances matched the requested scope."
     if scoring:
         return scoring_summary(scoring, name)
-    if context := section.get("rebounding_context"):
-        game = section["rows"][0]
-        if game["display_value"] is not None:
-            total = game["display_value"]
-            answer = f"{name} had {total:g} rebounds against {game['opponent_abbr']} on {game['game_date']}."
-            if context.get("premise_differs"):
-                answer = "The box score records a different total. " + answer
-            if split := context["split"]:
-                answer += f" The split was {split['offensive']} offensive and {split['defensive']} defensive."
-            if previous := context["previous"]:
-                gap = total - previous["average"]
-                games = previous["appearances"]
-                phase = (
-                    "playoff" if game["season_type"] == "Playoffs" else "regular-season"
-                )
-                answer += (
-                    f" He averaged {previous['average']:.1f} rebounds across his "
-                    f"{games} earlier {phase} {'appearance' if games == 1 else 'appearances'} in this dataset."
-                )
-                if abs(gap) >= 0.05:
-                    answer += f" This game was {abs(gap):.1f} rebounds {'above' if gap > 0 else 'below'} that average."
-                if games >= 5:
-                    answer += (
-                        f" He had at least {total:g} rebounds in {previous['at_least_current']} "
-                        f"of those {games} previous appearances."
-                    )
-            return answer
     sample = (
         f"{shown} of {observed} recorded appearances"
         if shown < observed
@@ -361,42 +281,3 @@ def log_summary(section, name):
                 f"The highest shown value was {value}, reached in {len(best)} games."
             )
     return " ".join(lines)
-
-
-def add_scoring_evidence(payload, sources):
-    rows = sources["rows"]
-    payload["tables"].append(
-        {
-            "title": "Scoring sources",
-            "columns": [
-                {"key": "source", "label": "Source"},
-                {"key": "points", "label": "Points"},
-                {"key": "per_game", "label": "Points per game"},
-                {"key": "share", "label": "Share of points"},
-                {"key": "makes", "label": "Makes"},
-            ],
-            "rows": [
-                [
-                    row["label"],
-                    row["points"],
-                    f"{row['per_game']:.1f}",
-                    "Unavailable" if row["share"] is None else f"{row['share']:.1%}",
-                    row["makes"],
-                ]
-                for row in rows
-            ],
-        }
-    )
-    payload["charts"].append(
-        {
-            "type": "bar",
-            "title": "Points by scoring source",
-            "y_label": "Total points",
-            "series": [
-                {
-                    "key": "pts",
-                    "points": [{"x": row["label"], "y": row["points"]} for row in rows],
-                }
-            ],
-        }
-    )

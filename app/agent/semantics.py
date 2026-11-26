@@ -619,7 +619,6 @@ def run_query(
     contract: Contract | None = None,
     *,
     include_scoring_sources: bool = False,
-    include_rebounding_context: bool = False,
 ) -> dict[str, Any]:
     contract = contract or load_contract()
     metric = contract.metric(query.metric)
@@ -697,12 +696,6 @@ def run_query(
             from app.agent.scoring_report import scoring_sources
 
             result["scoring_sources"] = scoring_sources(rows)
-        if include_rebounding_context and query.metric == "reb" and len(rows) == 1:
-            from app.agent.game_rebounding import rebounding_context
-
-            result["rebounding_context"] = rebounding_context(
-                rows[0], evidence.rows, metric
-            )
         return result
     grouped: dict[int, list[Mapping[str, Any]]] = {}
     for row in selected:

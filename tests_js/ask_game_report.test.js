@@ -26,7 +26,10 @@ const report = {
     opponent:{team_abbr:"DET", oreb:9, opponent_dreb:33, rate:9/42},
   },
   rosters: {status:"ok",
-    team:[{player_id:1641705, player_name:"Victor Wembanyama", reb:18, oreb:5, dreb:13}],
+    team:[
+      {player_id:1641705, player_name:"Victor Wembanyama", pts:25, ast:4, reb:18, oreb:5, dreb:13},
+      {player_id:2, player_name:"Example Guard", pts:30, ast:2, reb:3, oreb:0, dreb:3},
+    ],
     opponent:[{player_id:1, player_name:"Example <Forward>", reb:11, oreb:2, dreb:9}],
   },
 };
@@ -40,7 +43,7 @@ test("a game report chooses the verified lead exhibit and keeps both rosters exp
   assert.match(main, /Offensive rebound rate.*36\.4%.*21\.4%/s);
   assert.doesNotMatch(main, /Team scoring/);
   assert.equal((main.match(/scope="row"/g) || []).length, 4);
-  assert.match(rebounds, /Who got the rebounds\?.*Victor Wembanyama.*Example &lt;Forward&gt;/s);
+  assert.match(rebounds, /Who got the rebounds\?.*>REB<.*>OREB<.*>DREB<.*Victor Wembanyama.*Example Guard.*Example &lt;Forward&gt;/s);
   assert.match(rebounds, /More player stats.*58\.8%.*49\.5%.*\+9\.3 pp/s);
   assert.doesNotMatch(rebounds, /<Forward>|<details[^>]* open/);
 
@@ -49,6 +52,13 @@ test("a game report chooses the verified lead exhibit and keeps both rosters exp
   assert.match(featured, /Team scoring.*108 points.*104 points.*25 of 108 SAS points \(23\.1%\)/s);
   assert.doesNotMatch(featured, /Offensive rebound rate/);
   assert.match(scoring, /More team comparisons.*Offensive rebound rate/s);
+  assert.match(scoring, /Who scored the points\?.*>PTS<.*>REB<.*>AST<.*Example Guard.*Victor Wembanyama/s);
+  const assists = renderGamePerformance({...report, lead_metric:"ast"});
+  assert.match(assists, /Who recorded the assists\?.*>AST<.*>PTS<.*>TOV<.*Victor Wembanyama.*Example Guard/s);
+  const steals = renderGamePerformance({...report, lead_metric:"stl"});
+  assert.match(steals, /Who recorded the steals\?.*>STL<.*>BLK<.*>MIN</s);
+  const blocks = renderGamePerformance({...report, lead_metric:"blk"});
+  assert.match(blocks, /Who recorded the blocks\?.*>BLK<.*>STL<.*>MIN</s);
 });
 
 test("trends need two dated observations while discrete charts retain single marks", () => {

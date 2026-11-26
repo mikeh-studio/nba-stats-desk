@@ -13,7 +13,7 @@ os.environ["PYTHON_DOTENV_DISABLED"] = "1"
 
 def config_from_environment():
     config = json.loads(os.environ["NBA_PUBLICATION_CONFIG"])
-    if not isinstance(config, dict) or set(config) - {"ask_league_coverage"} != {
+    if not isinstance(config, dict) or set(config) != {
         "project",
         "namespace",
         "source_authorities",
@@ -41,10 +41,6 @@ def config_from_environment():
             or not re.fullmatch(r"[a-f0-9]{64}", authority["policy_digest"])
         ):
             raise ValueError("cloud source authority configuration differs")
-    if "ask_league_coverage" in config:
-        from app.serving.league_coverage import coverage_location
-
-        coverage_location(config["ask_league_coverage"], cloud_only=True)
     return config
 
 
