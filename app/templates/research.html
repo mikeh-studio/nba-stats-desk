@@ -7,7 +7,7 @@
   <div class="eyebrow">Player directory · {{ season }}</div>
   <h1>Players</h1>
   <p class="subhead">Season profiles, game logs, and detailed statistical breakdowns.</p>
-  <form id="players-search-form" class="players-search" role="search" aria-label="Find a player">
+  <form id="players-search-form" class="players-search" role="search" aria-label="Find a player"{% if published_player_search %} data-publication-search{% endif %}>
     <label for="players-search">Search by player name</label>
     <div class="players-search-row">
       <input id="players-search" class="input" name="q" type="search" placeholder="e.g. LeBron James" autocomplete="off" maxlength="64" />
@@ -15,7 +15,7 @@
     </div>
   </form>
 </section>
-<section class="players-directory" aria-labelledby="players-heading">
+<section class="players-directory" aria-labelledby="players-heading"{% if published_player_search %} hidden{% endif %}>
   <div class="players-directory-heading">
     <div><div class="eyebrow" id="players-context">Season discovery</div><h2 id="players-heading">Browse players</h2></div>
     <button id="players-reset" type="button" class="button secondary" hidden>Clear search</button>

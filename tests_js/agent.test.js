@@ -203,6 +203,34 @@ test("study cards retain their scoped identity and clear on a refusal", async ()
   assert.equal(profile.innerHTML, "");
 });
 
+test("game-report identity shows scoped observed appearances and omits unknown counts", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-agent-profile]",
+  ].map(selector => [selector, new FakeElement()]));
+  const agent = await loadAgentModule({elements});
+  const profile = elements["[data-agent-profile]"];
+  const gameLogScope = {
+    operation: "game_log", season: "2026-27", season_type: "Regular Season",
+    window: "date_range", start_date: "2026-11-17", as_of: "2026-11-17",
+  };
+  const render = (observed, displayed) => agent.renderAuxiliaryPayload({
+    status: "ok",
+    player_profile: {player: {player_name: "Example Player", team_abbr: "SAS", games_sampled: 15}},
+    semantic_evidence: {scope: gameLogScope, observed_games: observed, displayed_games: displayed},
+  }, globalThis.document, false);
+
+  render(1, 1);
+  assert.match(profile.innerHTML, /SAS · 1 appearance · 2026–27 regular season · Nov 17, 2026/);
+  render(13, 10);
+  assert.match(profile.innerHTML, /SAS · 13 appearances ·/);
+  render(0, 0);
+  assert.match(profile.innerHTML, /SAS · 0 appearances ·/);
+  render(undefined, 1);
+  assert.doesNotMatch(profile.innerHTML, /appearances?/);
+  assert.match(profile.innerHTML, /SAS · 2026–27 regular season · Nov 17, 2026/);
+});
+
 test("renderAnswerMarkdown repairs inline headings and keeps Markdown structure", async () => {
   const agent = await loadAgentModule();
 
@@ -567,6 +595,31 @@ test("bar charts preserve negative values and expose accessible hover details", 
   assert.match(html, /agent-tooltip/);
 });
 
+test("focused report bars retain their values and use a detail row below a compact plot", async () => {
+  const agent = await loadAgentModule();
+  const html = agent.renderChart({
+    type: "bar", title: "Points by scoring source", y_label: "Total points",
+    series: [{ points: [
+      { x: "Two-pointers", y: 174 },
+      { x: "Three-pointers", y: 210 },
+      { x: "Free throws", y: 120 },
+    ] }],
+  }, true);
+  const height = Number(html.match(/viewBox="0 0 440 (\d+)"/)?.[1]);
+  assert.ok(height > 0 && height <= 170);
+  assert.match(html, /<h3 class="agent-chart-title">Points by scoring source/);
+  assert.match(html, /class="meta chart-units">Total points/);
+  assert.match(html, /data-chart-value="Two-pointers: 174 Total points"/);
+  assert.match(html, /data-chart-value="Three-pointers: 210 Total points"/);
+  assert.match(html, /data-chart-value="Free throws: 120 Total points"/);
+  assert.deepEqual(
+    [...html.matchAll(/<text class="agent-axis"[^>]*>([^<]+)<\/text>/g)].map(match => match[1]),
+    ["0", "50", "100", "150", "200", "250"],
+  );
+  assert.match(html, /<\/svg>\s*<p class="meta chart-help" data-chart-detail>/);
+  assert.doesNotMatch(html, /agent-tooltip|agent-axis-title/);
+});
+
 test("chart labels wrap by rendered width without losing names or status", async () => {
   const agent = await loadAgentModule();
   const measure = (text) => Array.from(text).reduce((width, char) => width + (char === "W" ? 18 : 9), 0);
@@ -597,26 +650,16 @@ test("wrapped bar labels stay within their own rows and preserve accessible attr
   assert.doesNotMatch(html, /<unsafe>/);
 });
 
-test("Source & Coverage follows the selected answer and clears on reset", async () => {
-  const panel = new FakeElement();
-  const context = new FakeElement();
-  const label = new FakeElement();
+test("each answer receives its own Sources footer only when evidence is known", async () => {
+  const footer = new FakeElement();
   const agent = await loadAgentModule({ elements: {
-    "[data-answer-coverage]": panel,
-    "[data-answer-context]": context,
-    "[data-coverage-question]": label,
+    "[data-agent-sources]": footer,
   } });
-  agent.updateSourceCoverage({ assumptions: ["First source"], research_scope: { season: "2025-26", phase: "Both" } }, "First question");
-  assert.equal(panel.hidden, false);
-  assert.match(context.innerHTML, /Regular season and playoffs/);
-  assert.equal(label.textContent, "First question");
-  agent.updateSourceCoverage({ assumptions: ["Second source"] }, "Older question");
-  assert.doesNotMatch(context.innerHTML, /First source/);
-  assert.match(context.innerHTML, /Second source/);
-  assert.equal(label.textContent, "Older question");
-  agent.updateSourceCoverage(null);
-  assert.equal(panel.hidden, true);
-  assert.equal(context.innerHTML, "");
+  agent.renderAuxiliaryPayload({semantic_evidence: {source:"Recorded archive", data_through:"2025-06-30"}}, globalThis.document, false);
+  assert.match(footer.innerHTML, /Sources.*Recorded archive.*Data through Jun 30, 2025/s);
+  agent.renderAuxiliaryPayload({answer:"Legacy answer without source fields."}, globalThis.document, false);
+  assert.equal(footer.innerHTML, "");
+  assert.match(agent.turnEvidenceMarkup(), /data-agent-chart-card[^]*data-agent-sources/);
   assert.doesNotMatch(agent.turnEvidenceMarkup(), /Methodology|data-agent-context/);
 });
 
@@ -745,6 +788,121 @@ test("main Ask routes publication answers and falls back for unsupported or unav
   const fallback = agent.loadHistoryState().conversations.find(c => c.id === owner).turns.at(-1);
   assert.equal(fallback.payload.answer, 'Legacy source answer');
   assert.doesNotMatch(fallback.payload.answer, /pub_0123456789abcdef/);
+});
+
+test("the scoring opener shows a ranked table and the log keeps separate record details", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-focus-evidence]", "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-table-heading]", "[data-agent-sources]",
+  ].map(selector => [selector, new FakeElement()]));
+  const focus = elements["[data-agent-focus-evidence]"];
+  focus.classList = {remove() {}, toggle() {}};
+  const agent = await loadAgentModule({elements});
+  const points = {key: "pts", label: "PTS", unit: "count"};
+  const period = {operation: "game_log", season: "2026-27", season_type: "Regular Season",
+    window: "date_range", window_start: "2026-11-17", window_end: "2026-11-17"};
+  const logTable = {
+    title: "Points game log",
+    columns: ["date", "game_id", "phase", "team", "opponent", "value"].map(k => ({key: k, label: k})),
+    rows: [["2026-11-17", "0000000425", "Regular Season", "SAS", "DET", "25.0"]],
+  };
+  const line = {type: "line", title: "Points by appearance", series: [{key: "pts", points: [{x: "2026-11-17", y: 25}]}]};
+  const scoringReport = {
+    status: "ok",
+    semantic_evidence: {metric: points, scope: period, scope_presentation: "calendar_dates",
+      scoring_sources: {
+        status: "ok", total: 504, rows: [
+          {label: "Two-pointers", points: 174, per_game: 174 / 13},
+          {label: "Three-pointers", points: 210, share: 210 / 504, per_game: 210 / 13},
+          {label: "Free throws", points: 120, per_game: 120 / 13},
+        ],
+      },
+    },
+    followups: ["Show scoring game by game"],
+    tables: [
+      logTable,
+      {title: "Scoring sources", columns: [{key: "points", label: "Points"}], rows: [[25]]},
+    ],
+    charts: [
+      line,
+      {type: "bar", title: "Points by scoring source", series: [{key: "pts", points: [{x: "Two-pointers", y: 10}]}]},
+    ],
+  };
+  agent.renderAuxiliaryPayload(scoringReport, globalThis.document, true);
+  assert.match(focus.innerHTML, /<caption>Scoring sources<\/caption>/);
+  assert.match(focus.innerHTML, /Three-pointers.*210.*41\.7%.*16\.2.*Two-pointers.*174.*34\.5%.*13\.4.*Free throws.*120.*23\.8%.*9\.2/s);
+  assert.match(focus.innerHTML, /<\/table>\s*<button[^>]*data-scoring-game-log[^>]*>Show scoring game by game/);
+  assert.equal((focus.innerHTML.match(/class="scoring-strip"/g) || []).length, 1);
+  assert.equal((focus.innerHTML.match(/class="scoring-segment"/g) || []).length, 3);
+  assert.match(focus.innerHTML, /title="Three-pointers · 41\.7%"/);
+  assert.doesNotMatch(focus.innerHTML, /<meter/);
+  assert.doesNotMatch(focus.innerHTML, /Points by appearance|Points by scoring source|<svg/);
+  assert.equal(elements["[data-agent-chart-card]"].hidden, true);
+  assert.equal(elements["[data-agent-table-card]"].hidden, true);
+
+  const {scoring_sources, ...semanticEvidence} = scoringReport.semantic_evidence;
+  agent.renderAuxiliaryPayload({
+    status: "ok", semantic_evidence: semanticEvidence, tables: [logTable], charts: [line],
+  }, globalThis.document, false);
+  assert.equal(focus.hidden, true);
+  assert.equal(elements["[data-agent-chart-card]"].hidden, true);
+  const main = elements["[data-agent-tables]"].innerHTML;
+  const details = elements["[data-agent-sources]"].innerHTML;
+  assert.match(main, /Nov 17, 2026.*DET.*25\.0/s);
+  assert.doesNotMatch(main, /0000000425|Nov 17, 2026 – Nov 17, 2026|date_range/);
+  assert.match(details, /Sources.*Game IDs and source fields.*0000000425/s);
+  assert.equal(elements["[data-table-heading]"].textContent, "Game log");
+});
+
+test("the scoring-table button submits one normal log request with report scope", async () => {
+  const elements = Object.fromEntries([
+    "[data-agent-focus-evidence]", "[data-agent-table-card]", "[data-agent-tables]",
+    "[data-agent-chart-card]", "[data-agent-charts]", "[data-table-heading]",
+    "[data-followup-suggestions]",
+  ].map(selector => [selector, new FakeElement()]));
+  const focus = elements["[data-agent-focus-evidence]"];
+  focus.classList = {remove() {}, toggle() {}};
+  const button = new FakeElement("button");
+  focus.querySelector = selector => selector === "[data-scoring-game-log]" ? button : null;
+  const agent = await loadAgentModule({elements});
+  agent.startNewChat();
+  const conversation_id = agent.getNavigation().activeConversationId;
+  const question = "Show scoring game by game";
+  const publication_id = "pub_0123456789abcdef";
+  const scope = {season: "2026-27", season_type: "Regular Season", window: "date_range",
+    start_date: "2026-11-01", as_of: "2026-11-17"};
+  const players = [{player_id: 1629029, player_name: "Luka Doncic"}];
+  const report = {
+    status: "ok", answer: "A scoring report.", conversation_id, request_id: "scoring-1",
+    followups: [question],
+    semantic_evidence: {scoring_sources: {
+      status: "ok", total: 0, rows: [{label: "Free throws", points: 0, per_game: 0}],
+    }},
+    conversation_context: {analysis_type: "game_log", publication_id, players, scope, metrics: ["pts"]},
+  };
+  agent.persistHistoryTurn("Where did Luka Doncic's points come from?", report);
+  agent.renderAuxiliaryPayload(report, globalThis.document);
+  assert.doesNotMatch(elements["[data-followup-suggestions]"].innerHTML, /Show scoring game by game/);
+  assert.doesNotMatch(focus.innerHTML, /scoring-strip|<meter|NaN/);
+  assert.match(focus.innerHTML, /<td>—<\/td>/);
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({url, body: JSON.parse(options.body)});
+    return {ok: true, body: new ReadableStream({start(controller) {
+      const payload = {status:"ok", answer:"A game log.", conversation_id, request_id:"log-1"};
+      controller.enqueue(new TextEncoder().encode(`event: final\ndata: ${JSON.stringify({payload})}\n\n`));
+      controller.close();
+    }})};
+  };
+  await button.listeners.get("click")[0]();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].url, "/api/agent/ask/stream");
+  assert.equal(requests[0].body.question, question);
+  assert.equal(requests[0].body.conversation_id, conversation_id);
+  assert.equal(requests[0].body.previous_context.publication_id, publication_id);
+  assert.deepEqual(requests[0].body.previous_context.players, players);
+  assert.equal(requests[0].body.previous_context.scope.start_date, scope.start_date);
+  assert.equal(requests[0].body.previous_context.scope.as_of, scope.as_of);
 });
 
 test("publication Ask labels scaled shooting values as percentages and raw fallbacks as ratios", async () => {

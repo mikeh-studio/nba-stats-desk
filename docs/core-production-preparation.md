@@ -45,3 +45,12 @@ and does not accept caller-supplied warehouse relations or SQL.
 A fork needs its own permitted data, warehouse and authority configuration. The
 private operator runbook and environment-specific deployment details are not part
 of this public repository. See the [public/private boundary](public-private-boundary.md).
+
+## Publication-scoped player profiles
+
+With the production publication reader active, Player Profile can search players
+in the authorized release. Opening a profile from Ask carries the season and
+publication ID. A game link also carries the game ID, while a date-range link
+carries both dates. The profile labels the release-wide averages separately
+from the selected games. If the pinned publication or game is unavailable, the
+profile displays the requested scope and its unavailable state.

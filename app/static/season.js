@@ -19,3 +19,16 @@ export function withSeason(input, season = selectedSeason()) {
 export function seasonFetch(input, options) {
   return globalThis.fetch(withSeason(input), options);
 }
+
+export function playerSearchHref(player) {
+  const path = `/players/${encodeURIComponent(player.player_id)}`;
+  const supplied = player.profile_url;
+  if (typeof supplied === "string" && supplied.startsWith(`${path}?`)) {
+    const params = new URLSearchParams(supplied.slice(path.length));
+    if (params.size === 2 && /^20\d{2}-\d{2}$/.test(params.get("season"))
+      && /^pub_[a-f0-9]{16}$/.test(params.get("publication_id"))) {
+      return `${path}?${params}`;
+    }
+  }
+  return withSeason(path);
+}

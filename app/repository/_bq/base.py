@@ -7,7 +7,7 @@ from contextvars import copy_context
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from threading import Lock
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from google.api_core.exceptions import GoogleAPIError as BQAPIError
 from google.cloud import bigquery
@@ -44,6 +44,9 @@ from app.repository._helpers import (
     build_season_coverage_payload,
 )
 from app.seasons import DEFAULT_SEASON
+
+if TYPE_CHECKING:
+    from app.agent.publication_ask_source import PublicationAskSource
 
 # Bound concurrent warehouse work across all player requests in this process.
 _PLAYER_QUERY_POOL = ThreadPoolExecutor(
@@ -82,6 +85,9 @@ class BigQueryBaseMixin:
     active_three_point_leaders: Callable[[], dict[str, Any] | None] | None = field(
         default=None, repr=False, compare=False
     )
+    ask_publication_source: (
+        Callable[[str | None], PublicationAskSource | None] | None
+    ) = field(default=None, repr=False, compare=False, init=False)
     _recent_performance_rows_cache: tuple[float, list[dict[str, Any]]] | None = field(
         default=None,
         init=False,

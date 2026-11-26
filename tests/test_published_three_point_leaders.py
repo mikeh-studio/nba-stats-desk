@@ -136,6 +136,13 @@ def test_general_ask_uses_published_totals_and_refuses_lost_authority(monkeypatc
         assert turn.context["metrics"] == ["fg3m"] and turn.context["players"] == []
         assert turn.context["scope"]["as_of"] == scope["last"]
 
+        assert ask()["publication_id"] == pid
+        repo.active_three_point_leaders = lambda: leader_answer(
+            proof, dict(publication_id="pub_1111111111111111", scope=scope)
+        )
+        changed = ask()
+        assert changed["status"] == "publication_unavailable" and not changed["tables"]
+
         def revoked():
             raise ValueError("revoked")
 

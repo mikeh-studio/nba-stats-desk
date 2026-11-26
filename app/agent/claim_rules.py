@@ -455,14 +455,18 @@ def metric_assumption_contracts(payload):
         seasons = scope + (
             ["seasons"] if section["scope"].get("seasons") else ["season"]
         )
+        fields, template = ("window", "as_of"), "{0} {1}; {2}; as of {3}"
+        if section.get("scope_presentation") == "calendar_dates":
+            from app.agent.scoring_report import game_log_context_contract
+
+            fields, template = game_log_context_contract(section["scope"])
         add(
-            [seasons, scope + ["season_type"], scope + ["window"], scope + ["as_of"]],
-            "{0} {1}; {2}; as of {3}",
+            [seasons, scope + ["season_type"], *[scope + [field] for field in fields]],
+            template,
             formats=[
                 "join_comma" if section["scope"].get("seasons") else "identity",
                 "identity",
-                "identity",
-                "identity",
+                *(["identity"] * len(fields)),
             ],
         )
         index += 1  # Contract version is metadata, not a statistical claim.

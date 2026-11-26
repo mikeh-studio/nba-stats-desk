@@ -1,0 +1,96 @@
+{% extends "fragment.html" %}
+{% block content %}
+  {% if profile %}
+    <section class="hero profile-hero published-profile" aria-labelledby="published-player-name">
+      <div class="hero-top">
+        <div class="identity-row">
+          <div class="player-avatar large" aria-hidden="true">
+            {% if profile.headshot_url %}
+            <img src="{{ profile.headshot_url }}" alt="" hidden onload="this.hidden=false;" />
+            {% endif %}
+            <span class="player-avatar-fallback">{{ profile.initials }}</span>
+          </div>
+          <div>
+            <div class="eyebrow">{{ profile.team }} · {{ profile.scope.season }} {{ profile.scope.phase }}</div>
+            <h1 id="published-player-name">{{ profile.name }}</h1>
+          </div>
+        </div>
+        <div class="hero-actions">
+          <a href="{{ profile.draft_url }}" class="button-link">Ask about {{ profile.name }}</a>
+          <button type="button" class="track-button secondary" data-track-button
+            data-player-id="{{ profile.player_id }}" data-player-name="{{ profile.name }}" aria-pressed="false">
+            Track player
+          </button>
+        </div>
+      </div>
+      {% if profile.game %}
+      <div>
+        <h2>{{ profile.game.matchup }}</h2>
+        <p class="meta"><time datetime="{{ profile.game.game_date }}">{{ profile.game_date_label }}</time></p>
+      </div>
+      <dl class="profile-stats" aria-label="Single-game player statistics">
+        {% for key, label in [("pts", "PTS"), ("reb", "REB"), ("oreb", "OREB"), ("dreb", "DREB"), ("min", "MIN")] %}
+          <div class="profile-stat">
+            <dt>{{ label }}</dt>
+            <dd class="profile-stat-value">{{ profile.game[key] if profile.game[key] is not none else "—" }}</dd>
+          </div>
+        {% endfor %}
+      </dl>
+      <a href="{{ profile.release_profile_url }}">See all published games for {{ profile.name }}</a>
+      {% else %}
+      <div>
+        <h2>Published per-game averages</h2>
+        <p class="meta">{{ profile.observed_games }} {{ "appearance" if profile.observed_games == 1 else "appearances" }} · {{ profile.scope.first }} through {{ profile.scope.last }}</p>
+      </div>
+      <dl class="profile-stats" aria-label="Per-game averages in this publication">
+        {% for key, label in [("pts", "PTS"), ("reb", "REB"), ("ast", "AST"), ("stl", "STL"), ("blk", "BLK")] %}
+          {% set stat = profile.summary.get(key) %}
+          <div class="profile-stat">
+            <dt>{{ label }}</dt>
+            <dd class="profile-stat-value">{{ "%.1f"|format(stat.value) if stat and stat.value is not none else "—" }}</dd>
+            {% if stat and stat.valid_games != profile.observed_games %}
+            <dd class="profile-stat-rank">{{ stat.valid_games }} of {{ profile.observed_games }} appearances</dd>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </dl>
+      {% endif %}
+    </section>
+    {% if not profile.game %}
+    <article class="card published-profile" aria-labelledby="published-recent-games">
+      <div class="card-header"><h2 id="published-recent-games">{% if profile.first %}Games in selected dates{% else %}Recent published games{% endif %}</h2></div>
+      {% if profile.first %}<p class="meta">{{ profile.first }} through {{ profile.last }}</p>{% endif %}
+      {% if profile.game_log_count|default(0) > profile.game_log|length %}<p class="meta">Latest {{ profile.game_log|length }} of {{ profile.game_log_count }} appearances</p>{% endif %}
+      {% if profile.game_log %}
+      <div class="published-game-table">
+        <table>
+          <thead><tr><th scope="col">Date</th><th scope="col">Matchup</th><th scope="col">PTS</th><th scope="col">REB</th></tr></thead>
+          <tbody>
+          {% for row in profile.game_log %}
+          <tr>
+            <th scope="row"><a href="{{ row.profile_url }}"><time datetime="{{ row.game_date }}">{{ row.game_date }}</time></a></th>
+            <td>{{ row.matchup }}</td><td>{{ row.pts if row.pts is not none else "—" }}</td><td>{{ row.reb if row.reb is not none else "—" }}</td>
+          </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p>No published appearances in these dates.</p>
+      {% endif %}
+    </article>
+    {% endif %}
+    <details class="card published-profile" aria-labelledby="published-player-evidence">
+      <summary id="published-player-evidence">Published game evidence</summary>
+      <p>{{ profile.scope.season }} {{ profile.scope.phase }} · {{ profile.scope.first }} through {{ profile.scope.last }}</p>
+      <p class="meta">{% if profile.game_id %}Game {{ profile.game_id }} · {% endif %}Publication {{ profile.publication_id }}</p>
+      <a href="{{ profile.evidence_url }}">View published game log</a>
+    </details>
+  {% else %}
+    <section class="hero" aria-labelledby="published-player-unavailable">
+      <h1 id="published-player-unavailable">Profile unavailable for this scope</h1>
+      <p>The requested evidence could not be loaded from this publication.</p>
+      <a href="/ask" class="button-link secondary">Back to Ask</a>
+    </section>
+  {% endif %}
+{% endblock %}

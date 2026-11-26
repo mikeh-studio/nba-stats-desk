@@ -161,6 +161,8 @@ class Evidence:
     complete: bool = False
     position_context: Mapping[str, Any] | None = None
     cohort_complete: bool = True
+    game_results: Sequence[Mapping[str, Any]] = ()
+    game_participants: Sequence[Mapping[str, Any]] = ()
 
     @timed("validation")
     def validate(self) -> None:
@@ -612,7 +614,12 @@ def select_query_rows(
 
 
 def run_query(
-    evidence: Evidence, query: Query, contract: Contract | None = None
+    evidence: Evidence,
+    query: Query,
+    contract: Contract | None = None,
+    *,
+    include_scoring_sources: bool = False,
+    include_rebounding_context: bool = False,
 ) -> dict[str, Any]:
     contract = contract or load_contract()
     metric = contract.metric(query.metric)
@@ -664,7 +671,7 @@ def run_query(
                     "status": "ok" if value["value"] is not None else "unavailable",
                 }
             )
-        return {
+        result = {
             "status": "ok" if games else "no_observations",
             "contract_version": contract.version,
             "metric": metric.public(),
@@ -686,6 +693,17 @@ def run_query(
                 "temporal_semantics": "retrospective_source_snapshot",
             },
         }
+        if include_scoring_sources and query.metric == "pts":
+            from app.agent.scoring_report import scoring_sources
+
+            result["scoring_sources"] = scoring_sources(rows)
+        if include_rebounding_context and query.metric == "reb" and len(rows) == 1:
+            from app.agent.game_rebounding import rebounding_context
+
+            result["rebounding_context"] = rebounding_context(
+                rows[0], evidence.rows, metric
+            )
+        return result
     grouped: dict[int, list[Mapping[str, Any]]] = {}
     for row in selected:
         grouped.setdefault(int(row["player_id"]), []).append(row)

@@ -94,6 +94,29 @@ test("snapshot excludes binding metadata; descriptor size does not multiply full
     assert.equal(r.context.summary, undefined);
   }
 });
+
+test("recent change claims use the recent comparison and skip absent table columns", () => {
+  const p = overviewFixture();
+  const e = p.semantic_evidence;
+  e.metrics.forEach(m => {m.change = null; m.percentile = null;});
+  e.metrics.at(-1).percentile = 0;
+  e.recent_comparison = {
+    start: "2025-01-25", end: "2025-01-31", previous_start: "2025-01-18", previous_end: "2025-01-24",
+    metrics: [{key: "pts", change: 0, change_unit: "per game"}],
+  };
+  const claims = claimSchema(p, "overview");
+  const change = claims.find(record => record.format === "change");
+  const rank = claims.find(record => record.format === "overview-meter");
+  assert.deepEqual(change.source, ["semantic_evidence", "recent_comparison", "metrics", 0, "change"]);
+  assert.equal(expectedClaim(p, change), "0.0");
+  assert.match(change.selector, /data-overview-change/);
+  assert.doesNotMatch(change.selector, /additional-metrics/);
+  assert.match(rank.selector, /additional-metrics/);
+  assert.equal(expectedClaim(p, rank), "0");
+  assert.equal(claims.filter(record => record.format === "change").length, 1);
+  const scope = claims.find(record => record.format === "overview-recent-scope");
+  assert.match(expectedClaim(p, scope), /Jan 25, 2025.*vs Jan 18, 2025/);
+});
 test("original source and review metadata cannot be changed by snapshot creation", () => {
   const p = overviewFixture(),
     before = JSON.stringify(p),

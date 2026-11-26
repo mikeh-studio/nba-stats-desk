@@ -1146,6 +1146,7 @@ ABSENCE_QUESTIONS = [
     "Player 1 stats in Player 2 DNP games",
     "Player 1 stats when Player 2 didn't play",
     "Player 1 stats without his teammate",
+    "What stood out about Player 1’s rebounding when Player 2 was out",
 ]
 
 
@@ -1176,6 +1177,7 @@ def test_comparison_scope_rejects_teammate_absence(question):
         "Player 1 stats in games he outscored his matchup",
         "Player 1 stats out of all 2025-26 games",
         "Find out Player 1 stats",
+        "What stood out about Player 1’s rebounding",
         "Player 1 stats on Saturday nights",
     ],
 )

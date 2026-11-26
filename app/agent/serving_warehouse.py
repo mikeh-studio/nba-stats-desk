@@ -176,7 +176,12 @@ class ServingWarehouse:
             exc.source_query = provenance
             raise
         raw_plan = deepcopy(plan)
-        if plan.get("status") == "compare":
+        if (
+            plan.get("status") == "compare"
+            or plan.get("include_scoring_sources")
+            or plan.get("include_rebounding_context")
+            or plan.get("include_game_performance")
+        ):
             return PreparedAttempt(plan, None, players, appearances, provenance)
         if normalizer is not None:
             plan = normalizer(plan, appearances)

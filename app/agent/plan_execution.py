@@ -258,7 +258,38 @@ def execute_plan(
                     ) from exc
             else:
                 assert evidence is not None
-                result = run_query(evidence, queries[0])
+                result = run_query(
+                    evidence,
+                    queries[0],
+                    include_scoring_sources=bool(plan.get("include_scoring_sources")),
+                    include_rebounding_context=bool(
+                        plan.get("include_rebounding_context")
+                    ),
+                )
+            if (
+                context := result.get("rebounding_context")
+            ) and "stated_rebounds" in plan:
+                observed = result["rows"][0]["value"]
+                context["premise_differs"] = (
+                    observed is not None and observed != plan["stated_rebounds"]
+                )
+            if evidence is not None and (
+                plan.get("include_game_performance")
+                or (plan.get("include_rebounding_context") and evidence.game_results)
+            ):
+                from app.agent.game_performance import build_game_performance
+
+                if len(result["rows"]) > 1:
+                    raise SemanticError(
+                        "clarification_required",
+                        "More than one appearance matches this date. Specify the opponent.",
+                    )
+                if report := build_game_performance(
+                    evidence,
+                    result,
+                    focus="reb" if plan.get("include_rebounding_context") else None,
+                ):
+                    result.update(report)
             if shadow is not None:
                 shadow.compare(queries[0], result)
         elif plan["status"] == "compare" and len(queries) == 2:

@@ -4,16 +4,27 @@ const content = document.querySelector("#player-content");
 const loading = document.querySelector("#player-loading");
 const status = document.querySelector("#player-load-status");
 const retry = document.querySelector("#player-load-retry");
+const scopedContentUrl = content.dataset.contentUrl;
 
 async function load() {
   retry.hidden = true;
   content.setAttribute("aria-busy", "true");
-  status.textContent = "Loading profile, game logs, and statistical context…";
+  status.textContent = scopedContentUrl
+    ? "Loading published player evidence…"
+    : "Loading profile, game logs, and statistical context…";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45000);
   try {
-    const response = await seasonFetch(`/players/${content.dataset.playerId}/content`, { signal: controller.signal });
+    const options = { signal: controller.signal };
+    const response = scopedContentUrl
+      ? await fetch(scopedContentUrl, options)
+      : await seasonFetch(`/players/${content.dataset.playerId}/content`, options);
     if (!response.ok) {
+      if (scopedContentUrl) {
+        status.textContent = "Profile unavailable for this scope. The requested evidence could not be loaded from this publication.";
+        retry.hidden = response.status === 404;
+        return;
+      }
       if (response.status === 404) {
         status.textContent = "Player not found for this season. Search for another player.";
         return;

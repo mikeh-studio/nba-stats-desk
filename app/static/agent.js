@@ -1,12 +1,18 @@
 import {bindComparisonPlots} from "./comparison_plot_ui.js";
-import {semanticTable, semanticText, semanticChart, metricName, metricHelp} from "./semantic_presentation.js";
-import {followupFitsReport, isFollowupReport} from "./ask_followup.js";
+import {semanticTable, semanticText, semanticChart, scopeLabel, displayDate} from "./semantic_presentation.js";
+import {
+  followupFitsReport,
+  isFollowupReport,
+} from "./ask_followup.js";
 import {withholdKnownInvalid, withheldClaimPayload} from "./ask_claim_rollout.js";
 import {bindRenderedClaims} from "./ask_claim_bindings.js";
+import {gamePerformance, hasMeaningfulTrend, renderGamePerformance} from "./ask_game_report.js";
+import {renderAskSources} from "./ask_sources.js";
 import { DEFAULT_SEASON, seasonFetch, selectedSeason } from "./season.js";
 import {
+  askAvatarMarkup,
+  askProfileHref,
   comparisonPresentation,
-  comparisonAssumptions,
   comparisonAnswer,
   comparisonProfiles,
   comparisonTables,
@@ -18,6 +24,7 @@ import {
   matchesSession,
 } from "./ask_sessions.js";
 import {
+  dateLabel,
   overviewPresentation,
   overviewMetricsTable,
   overviewTakeaways,
@@ -543,15 +550,15 @@ function renderLineChart(chart) {
   `;
 }
 
-function wrapChartLabel(label, maxWidth = 160, measureWidth) {
+function wrapChartLabel(label, maxWidth = 160, measureWidth, fontSize = 18) {
   if (!measureWidth) {
     const context = document.createElement("canvas").getContext?.("2d");
     if (context) {
       // Size for the largest axis font, so resizing cannot clip saved charts.
       const family = getComputedStyle(document.body).getPropertyValue("--font-body").trim() || "sans-serif";
-      context.font = `18px ${family}`;
+      context.font = `${fontSize}px ${family}`;
     }
-    measureWidth = context ? (text) => context.measureText(text).width : (text) => Array.from(text).length * 18;
+    measureWidth = context ? (text) => context.measureText(text).width : (text) => Array.from(text).length * fontSize;
   }
   const lines = [];
   let line = "";
@@ -576,50 +583,66 @@ function wrapChartLabel(label, maxWidth = 160, measureWidth) {
   return lines;
 }
 
-function chartLabelMarkup(lines, x, centerY) {
-  const firstY = centerY + 6 - (lines.length - 1) * 11;
-  return `<text class="agent-point-label" text-anchor="end">${lines.map((line, i) => `<tspan x="${x}" y="${firstY + i * 22}">${escHtml(line)}</tspan>`).join(" ")}</text>`;
+function chartLabelMarkup(lines, x, centerY, lineHeight) {
+  const firstY = centerY + lineHeight / 4 - (lines.length - 1) * lineHeight / 2;
+  return `<text class="agent-point-label" text-anchor="end">${lines.map((line, i) => `<tspan x="${x}" y="${firstY + i * lineHeight}">${escHtml(line)}</tspan>`).join(" ")}</text>`;
 }
 
-function renderBarChart(chart) {
-  const width = 760;
+function countTickStep(maximum) {
+  const target = maximum / 5;
+  const magnitude = Math.max(1, 10 ** Math.floor(Math.log10(target)));
+  return [1, 2, 5, 10].map(step => step * magnitude).find(step => step >= target);
+}
+
+function renderBarChart(chart, compact = false) {
+  const width = compact ? 440 : 760;
   const points = asArray(chart.series?.[0]?.points)
     .filter((p) => typeof p.y === "number" && Number.isFinite(p.y));
   if (!points.length) return '<div class="empty-state">No chart data.</div>';
-  const left = 190, right = 690, top = 28;
+  const left = compact ? 122 : 190;
+  const right = compact ? 390 : 690;
+  const top = compact ? 8 : 28;
+  const lineHeight = compact ? 17 : 22;
+  const barHeight = compact ? 14 : 28;
+  const axisHeight = compact ? 25 : 38;
   let bottom = top;
   const rows = points.map((point) => {
-    const lines = wrapChartLabel(point.x);
-    const height = Math.max(58, lines.length * 22 + 16);
+    const lines = wrapChartLabel(point.x, compact ? left - 16 : 160, undefined, compact ? 14 : 18);
+    const height = Math.max(compact ? 32 : 58, lines.length * lineHeight + (compact ? 8 : 16));
     const row = { point, lines, y: bottom, height };
     bottom += height;
     return row;
   });
-  const height = bottom + 38;
+  const height = bottom + axisHeight;
   const minimum = Math.min(0, ...points.map((p) => p.y));
   const maximum = Math.max(0, ...points.map((p) => p.y));
   const span = maximum - minimum || 1;
+  const step = compact && minimum === 0 && points.every(point => Number.isInteger(point.y))
+    ? countTickStep(maximum) : null;
   const low = minimum < 0 ? minimum - span * 0.1 : 0;
-  const high = maximum > 0 ? maximum + span * 0.1 : (minimum < 0 ? 0 : 1);
+  const high = step ? Math.max(step, Math.ceil(maximum / step) * step)
+    : maximum > 0 ? maximum + span * 0.1 : (minimum < 0 ? 0 : 1);
   const scale = (value) => left + ((value - low) / (high - low)) * (right - left);
   const zero = scale(0);
-  const ticks = Array.from({ length: 5 }, (_, i) => low + (high - low) * i / 4);
+  const ticks = step
+    ? Array.from({ length: Math.round(high / step) + 1 }, (_, i) => i * step)
+    : Array.from({ length: 5 }, (_, i) => low + (high - low) * i / 4);
   return `<svg class="agent-bar-chart" role="img" aria-label="${escHtml(chart.title || "Bar chart")}" viewBox="0 0 ${width} ${height}">
-    <text class="agent-axis-title" x="${left}" y="14">${escHtml(chart.y_label || "Value")}</text>
-    ${ticks.map((v) => `<line class="agent-grid" x1="${scale(v)}" x2="${scale(v)}" y1="${top}" y2="${height - 38}" /><text class="agent-axis" text-anchor="middle" x="${scale(v)}" y="${height - 18}">${escHtml(formatNumber(v))}</text>`).join("")}
-    <line class="agent-reference" x1="${zero}" x2="${zero}" y1="${top}" y2="${height - 38}" />
+    ${compact ? "" : `<text class="agent-axis-title" x="${left}" y="14">${escHtml(chart.y_label || "Value")}</text>`}
+    ${ticks.map((v) => `<line class="agent-grid" x1="${scale(v)}" x2="${scale(v)}" y1="${top}" y2="${bottom}" /><text class="agent-axis" text-anchor="middle" x="${scale(v)}" y="${bottom + (compact ? 16 : 20)}">${escHtml(formatNumber(v))}</text>`).join("")}
+    <line class="agent-reference" x1="${zero}" x2="${zero}" y1="${top}" y2="${bottom}" />
     ${rows.map(({ point, lines, y, height: rowHeight }) => {
       const centerY = y + rowHeight / 2;
       const x = scale(point.y);
       const value = formatNumber(point.y);
-      const detail = `${point.x}: ${value} ${chart.y_label || ""}; ${point.meta || ""}`;
-      return `<g class="agent-point" tabindex="0" aria-label="${escHtml(detail)}">
-        <title>${escHtml(detail)}</title>
+      const detail = [`${point.x}: ${value} ${chart.y_label || ""}`.trim(), point.meta].filter(Boolean).join(" · ");
+      return `<g class="agent-point" tabindex="0" aria-label="${escHtml(detail)}"${compact ? ` data-chart-value="${escHtml(detail)}"` : ""}>
+        ${compact ? "" : `<title>${escHtml(detail)}</title>`}
         <rect x="0" y="${y}" width="${width}" height="${rowHeight}" fill="transparent" />
-        ${chartLabelMarkup(lines, left - 16, centerY)}
-        <rect class="agent-bar" x="${Math.min(x, zero)}" y="${centerY - 14}" width="${Math.abs(x - zero)}" height="28" rx="3" />
+        ${chartLabelMarkup(lines, left - (compact ? 10 : 16), centerY, lineHeight)}
+        <rect class="agent-bar" x="${Math.min(x, zero)}" y="${centerY - barHeight / 2}" width="${Math.abs(x - zero)}" height="${barHeight}" rx="3" />
         <text class="agent-bar-value" text-anchor="${point.y < 0 ? "end" : "start"}" x="${x + (point.y < 0 ? -8 : 8)}" y="${centerY + 5}">${escHtml(value)}</text>
-        ${tooltipMarkup({ x, y: centerY - 14, label: `${value} ${chart.y_label || ""}`, meta: point.meta || "" }, width)}
+        ${compact ? "" : tooltipMarkup({ x, y: centerY - barHeight / 2, label: `${value} ${chart.y_label || ""}`, meta: point.meta || "" }, width)}
       </g>`;
     }).join("")}
   </svg>`;
@@ -698,22 +721,26 @@ function isPercentileChart(chart) {
   return yLabel.includes("percentile") || title.includes("percentile");
 }
 
-function renderChart(chart) {
+function renderChart(chart, compact = false) {
+  const compactBar = compact && chart.type === "bar" && !isPercentileChart(chart);
   let chartBody;
   if (isPercentileChart(chart)) {
     chartBody = renderPercentileChart(chart);
   } else if (chart.type === "bar") {
-    chartBody = renderBarChart(chart);
+    chartBody = renderBarChart(chart, compactBar);
   } else {
     chartBody = renderLineChart(chart);
   }
   return `
-    <article class="agent-chart">
-      <div class="agent-chart-title">${escHtml(chart.title || "Chart")}</div>
-      <p class="meta">${escHtml(chart.selection_reason || "")}</p>
+    <article class="agent-chart${compactBar ? " agent-chart--compact" : ""}">
+      <header class="agent-chart-heading">
+        <h3 class="agent-chart-title">${escHtml(chart.title || "Chart")}</h3>
+        ${compactBar ? `<p class="meta chart-units">${escHtml(chart.y_label || "Value")}</p>` : ""}
+      </header>
+      ${chart.selection_reason ? `<p class="meta">${escHtml(chart.selection_reason)}</p>` : ""}
       ${chartBody}
       ${chart.description ? `<p class="chart-description">${escHtml(chart.description)}</p>` : ""}
-      <p class="meta">Hover, tap or focus a mark for its value and sample details.</p>
+      <p class="meta chart-help"${compactBar ? " data-chart-detail" : ""}>${compactBar ? "Hover, tap or focus a bar for its value." : "Hover, tap or focus a mark for its value and sample details."}</p>
     </article>
   `;
 }
@@ -802,7 +829,7 @@ function renderPlayerProfile(profile) {
   const metaParts = [
     player.team_abbr,
     profile.availability_state,
-    profile.sampleLabel || (player.games_sampled ? `${player.games_sampled} appearances` : ""),
+    profile.sampleLabel ?? (player.games_sampled ? `${player.games_sampled} ${player.games_sampled === 1 ? "appearance" : "appearances"}` : ""),
     profile.scopeLabel,
   ].filter(Boolean);
   const trend =
@@ -821,17 +848,18 @@ function renderPlayerProfile(profile) {
     player.category_strengths ? `Strengths ${player.category_strengths}` : "",
     player.category_risks ? `Risks ${player.category_risks}` : "",
   ].filter(Boolean);
-  const profileUrl = String(profile.profile_url || "");
-  const safeProfileUrl = /^\/players\/\d+$/.test(profileUrl) ? profileUrl : "";
-  const avatar = player.headshot_url
-    ? `<img src="${escHtml(player.headshot_url)}" alt="" loading="lazy" onerror="this.hidden=true; this.nextElementSibling.hidden=false;" /><span class="player-avatar-fallback" hidden>${escHtml(initials)}</span>`
-    : `<span class="player-avatar-fallback">${escHtml(initials)}</span>`;
+  const safeProfileUrl = askProfileHref(profile);
+  const avatar = askAvatarMarkup(initials, player.headshot_url);
+
+  const portrait = safeProfileUrl
+    ? `<a class="player-avatar ask-profile-avatar" href="${escHtml(safeProfileUrl)}" aria-label="Open ${escHtml(name)}’s profile">${avatar}</a>`
+    : `<div class="player-avatar" aria-hidden="true">${avatar}</div>`;
 
   return `
     <section class="agent-player-profile">
       <div class="agent-profile-top">
         <div class="identity-row">
-          <div class="player-avatar" aria-hidden="true">${avatar}</div>
+          ${portrait}
           <div class="agent-profile-copy">
             <h3>${escHtml(name)}</h3>
             ${metaParts.length ? `<p class="meta">${metaParts.map(escHtml).join(" · ")}</p>` : ""}
@@ -843,59 +871,6 @@ function renderPlayerProfile(profile) {
       ${profile.availability_reason ? `<p class="meta">${escHtml(profile.availability_reason)}</p>` : ""}
     </section>
   `;
-}
-
-function renderContext(payload) {
-  const assumptions = asArray(payload.assumptions);
-  const definitions = asArray(payload.metric_definitions);
-  const followups = asArray(payload.followups);
-  const toolCalls = asArray(payload.tool_calls);
-  const blocks = [];
-  const playerProfile = renderPlayerProfile(payload.player_profile);
-  if (playerProfile) {
-    blocks.push(playerProfile);
-  }
-  if (assumptions.length) {
-    blocks.push(`
-      <section class="stack-list">
-        <h3>Assumptions</h3>
-        ${assumptions.map((item) => `<span class="chip">${escHtml(item)}</span>`).join("")}
-      </section>
-    `);
-  }
-  if (definitions.length) {
-    blocks.push(`
-      <section class="stack-list">
-        <h3>Metrics</h3>
-        ${definitions
-          .map(
-            (item) =>
-              `<p><strong>${escHtml(metricName(item))}</strong><br /><span class="meta">${escHtml(metricHelp(item) || item.definition)}</span></p>`,
-          )
-          .join("")}
-      </section>
-    `);
-  }
-  if (toolCalls.length) {
-    blocks.push(`
-      <section class="stack-list">
-        <h3>Tool Calls</h3>
-        ${toolCalls.map((item) => `<span class="chip">${escHtml(item.name)} · ${escHtml(item.status)}</span>`).join("")}
-      </section>
-    `);
-  }
-  if (followups.length) {
-    blocks.push(`
-      <section class="stack-list">
-        <h3>Followups</h3>
-        ${followups.map((item) => `<button class="button secondary" type="button" data-agent-example="${escHtml(item)}">${escHtml(item)}</button>`).join("")}
-      </section>
-    `);
-  }
-  return (
-    blocks.join("") ||
-    '<div class="empty-state"><p>No extra context returned.</p></div>'
-  );
 }
 
 function bindExampleButtons(root = document) {
@@ -950,31 +925,24 @@ function startTurn(label) {
 }
 
 function turnEvidenceMarkup() {
-  return `<section class="evidence-section" data-agent-table-card hidden><h2 data-table-heading>Key metrics</h2><div data-agent-tables></div></section><section class="evidence-section" data-agent-chart-card hidden><div data-agent-charts></div></section>`;
-}
-
-function updateSourceCoverage(payload, question = "") {
-  const section = document.querySelector("[data-answer-coverage]");
-  const context = document.querySelector("[data-answer-context]");
-  const label = document.querySelector("[data-coverage-question]");
-  if (!section || !context) return;
-  section.hidden = !payload;
-  if (label) label.textContent = question;
-  if (!payload) { context.innerHTML = ""; return; }
-  const scope = payload.research_scope;
-  const phase = scope?.phase === "Both" ? "Regular season and playoffs" : scope?.phase;
-  const scopeText = scope ? [scope.season, phase, scope.start, scope.end ? `through ${scope.end}` : ""].filter(Boolean).join(" · ") : "";
-  context.innerHTML = (scopeText ? `<p class="meta">${escHtml(scopeText)}</p>` : "") + renderContext({ ...payload, assumptions: comparisonAssumptions(payload), player_profile: null, followups: [] });
+  return `<div class="report-focus-evidence" data-agent-focus-evidence hidden></div>
+    <section class="evidence-section" data-agent-table-card hidden><h2 data-table-heading>Key metrics</h2><div data-agent-tables></div></section>
+    <section class="evidence-section" data-agent-chart-card hidden><div data-agent-charts></div></section>
+    <div data-agent-sources></div>`;
 }
 
 function resetAuxiliaryPanels() {
-  updateSourceCoverage(null);
   viewedPayload = null;
   for (const selector of ["[data-agent-profile]"]) {
     const el = document.querySelector(selector);
     if (el) el.innerHTML = "";
   }
   syncComposerMode(null);
+  const focus = document.querySelector("[data-agent-focus-evidence]");
+  if (focus) {
+    focus.hidden = true;
+    focus.innerHTML = "";
+  }
   const tableCard = document.querySelector("[data-agent-table-card]");
   const tableEl = document.querySelector("[data-agent-tables]");
   const chartCard = document.querySelector("[data-agent-chart-card]");
@@ -1020,12 +988,14 @@ function bindClarifyOptions(root) {
   });
 }
 
-function renderPayload(payload) {
+function renderPayload(payload, reveal = false) {
   if (!runtimeFor().currentAnswerEl) startTurn(runtimeFor().lastQuestion || "Question");
   if (!runtimeFor().currentAnswerEl) return;
 
   renderAnswerPayload(payload, runtimeFor().currentAnswerEl);
-  renderAuxiliaryPayload(payload, runtimeFor().currentAnswerEl.parentElement || document);
+  const turn = runtimeFor().currentAnswerEl.parentElement;
+  renderAuxiliaryPayload(payload, turn || document);
+  if (reveal && payload.status === "ok") turn?.classList.add("ask-answer-reveal");
 }
 
 function renderScopeAssumptions(payload, targetEl) {
@@ -1063,7 +1033,7 @@ function renderAnswerPayload(payload, targetEl) {
     renderScopeAssumptions(payload, targetEl);
     return;
   }
-  const overview = payload.award_evidence ? null : overviewPresentation(payload);
+  const overview = payload.award_evidence || gamePerformance(payload) ? null : overviewPresentation(payload);
   targetEl.innerHTML = overview
     ? `<div class="result-layout overview-layout"><div class="overall-copy"><h2>Overall</h2>${overview.paragraphs.map((p) => `<p${p === overview.summaryContext ? ' class="meta overview-scope"' : ""}>${escHtml(p)}</p>`).join("")}</div>${overviewTakeaways(overview)}</div>`
     : `<div class="agent-answer-text agent-answer-markdown">${renderAnswerMarkdown(semanticText(answerWithoutScopeNotes(payload), payload) || "No answer returned.")}</div>${renderClarifyOptions(payload)}`;
@@ -1077,6 +1047,23 @@ function renderAnswerPayload(payload, targetEl) {
 function latestFollowupReport() {
   const conversation = historyState.conversations.find(c => c.id === activeConversationId);
   return [...(conversation?.turns || [])].reverse().find(turn => isFollowupReport(turn.payload));
+}
+
+function scoringSources(payload) {
+  const sources = payload.semantic_evidence?.scoring_sources;
+  return sources?.status === "ok" && Array.isArray(sources.rows) && sources.rows.length ? sources : null;
+}
+
+function scoringGameLogPrompt(payload) {
+  if (!scoringSources(payload)) return null;
+  return asArray(payload.followups).find(question =>
+    question === "Show scoring game by game" || question === "Show me the points game log."
+  ) || null;
+}
+
+function reportRange(payload, overview) {
+  const singleGame = overview.scope.start && overview.scope.start === overview.scope.end;
+  return singleGame ? dateLabel(overview.scope.start) : overview.range;
 }
 
 function syncComposerMode(report) {
@@ -1112,17 +1099,19 @@ function renderFollowupComposer(payload) {
   syncComposerMode(report);
   if (!report) return;
   const comparison = comparisonPresentation(report);
-  const overview = comparison ? null : overviewPresentation(report);
+  const overview = comparison || gamePerformance(report) ? null : overviewPresentation(report);
   const name = report.conversation_context?.players?.map(p => p.player_name).join(" and ") || report.player_profile?.player?.player_name;
   const scopeLabel = document.querySelector("[data-followup-context]");
   if (scopeLabel) scopeLabel.textContent = comparison
     ? `${comparison.names.join(" and ")} · ${comparison.scopeLabel}`
     : overview
-      ? `${name ? name + " · " : ""}${overview.range} · ${overview.scope.phases.join(" + ")}`
+      ? `${name ? name + " · " : ""}${reportRange(report, overview)} · ${overview.scope.phases.join(" + ")}`
       : [name, report.conversation_context?.scope?.season || report.semantic_evidence?.scope?.season || report.availability_scope?.season].filter(Boolean).join(" · ") || "Current report";
   const suggestions = document.querySelector("[data-followup-suggestions]");
   if (suggestions) {
-    const prompts = overview?.followups || asArray(report.followups).slice(0, 2);
+    const gameLogPrompt = scoringGameLogPrompt(report);
+    const supplied = asArray(report.followups).filter(question => question !== gameLogPrompt);
+    const prompts = overview ? asArray(overview.followups) : supplied.slice(0, 2);
     const labels = comparison ? ["Review scoring", "Review playmaking"]
       : overview ? ["Review scoring in these dates", "Review regular season only"] : prompts;
     suggestions.innerHTML = prompts.map((text, i) =>
@@ -1144,16 +1133,42 @@ function renderAuxiliaryPayload(
   const tableEl = root.querySelector("[data-agent-tables]");
   const chartCard = root.querySelector("[data-agent-chart-card]");
   const chartEl = root.querySelector("[data-agent-charts]");
+  const sources = root.querySelector("[data-agent-sources]");
+  if (sources) sources.innerHTML = renderAskSources(payload, gameRecordSources(payload));
   if (updateComposer) {
-    updateSourceCoverage(payload, root.querySelector(".agent-turn-question")?.textContent || "");
+    if (isFollowupReport(payload))
+      document.querySelectorAll("[data-scoring-game-log]").forEach(button => { button.hidden = true; });
     renderFollowupComposer(payload);
   }
   if (!tableCard || !tableEl || !chartCard || !chartEl) return;
-  const tables = asArray(payload.tables);
+  const scoring = scoringSources(payload);
+  const game = gamePerformance(payload);
+  const allTables = asArray(payload.tables);
+  const allCharts = asArray(payload.charts);
+  const evidence = payload.semantic_evidence;
+  const gameLog = evidence?.scope?.operation === "game_log";
+  const observed = evidence?.observed_games;
+  const exactDate = evidence?.scope?.window_start;
+  const oneGameLog = gameLog && (observed === 1 || (exactDate && exactDate === evidence.scope.window_end));
+  const tables = scoring || game ? [] : allTables;
+  const charts = scoring || game ? [] : oneGameLog ? allCharts.filter(hasMeaningfulTrend) : allCharts;
   const comparison = comparisonPresentation(payload);
+  const focus = root.querySelector("[data-agent-focus-evidence]");
+  if (scoring) {
+    const latestRequest = latestFollowupReport()?.payload.request_id;
+    const active = updateComposer || Boolean(payload.request_id && payload.request_id === latestRequest);
+    renderScoringTable(scoring, active ? scoringGameLogPrompt(payload) : null, focus);
+  } else if (game && focus) {
+    focus.hidden = false;
+    focus.innerHTML = renderGamePerformance(game);
+  } else if (focus) {
+    focus.hidden = true;
+    focus.innerHTML = "";
+  }
   const tableHeading = root.querySelector("[data-table-heading]");
   if (tableHeading)
-    tableHeading.textContent = comparison ? "Per-game head-to-head" : "Key metrics";
+    tableHeading.textContent = comparison ? "Per-game head-to-head"
+      : payload.semantic_evidence?.scope?.operation === "game_log" ? "Game log" : "Key metrics";
   if (comparison) {
     tableCard.hidden = false;
     tableEl.innerHTML = comparisonTables(comparison);
@@ -1166,47 +1181,136 @@ function renderAuxiliaryPayload(
     if (profile) profile.innerHTML = comparisonProfiles(comparison);
     return;
   }
-  const overview = overviewPresentation(payload);
+  const overview = game ? null : overviewPresentation(payload);
   tableCard.hidden = tables.length === 0;
   tableEl.innerHTML = overview
     ? renderOverviewTable(overview)
     : tables
         .map((table, index) => payload.study_id
           ? `<details><summary>See the stat comparison</summary>${renderTable(referenceTable(table, payload))}</details>`
-          : renderTable(semanticTable(referenceTable(table, payload), payload, index)))
+          : renderMetricTable(table, payload, index))
         .join("");
 
-  const charts = asArray(payload.charts);
   chartCard.hidden = charts.length === 0;
   if (overview) { bindRenderedClaims(tableEl, payload, "overview", {}, overview.claimEvidence); bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }
   if (overview && charts.length)
-    renderOverviewCharts(payload, overview.preferredMetric, root);
-  else chartEl.innerHTML = charts.map((chart, index) => renderChart(semanticChart(chart, payload, index))).join("") + renderComparisonExplorer(payload);
+    renderOverviewCharts({...payload, charts}, overview.preferredMetric, root);
+  else chartEl.innerHTML = charts.map(chart => renderChart(semanticChart(chart, payload, allCharts.indexOf(chart)))).join("") + renderComparisonExplorer(payload);
   if (payload.comparison_explorer?.detail) {
     chartCard.hidden = false;
     bindComparisonExplorer(chartEl, payload);
   }
 
   const profile = root.querySelector("[data-agent-profile]");
+  if (profile && payload.player_profiles?.length === 2) {
+    profile.innerHTML = `<div class="ask-answer-players">${payload.player_profiles.map(p => renderPlayerProfile(p)).join("")}</div>`;
+    return;
+  }
+  const sampleLabel = Number.isSafeInteger(observed) && observed >= 0
+    ? `${observed} ${observed === 1 ? "appearance" : "appearances"}` : "";
   if (profile)
     profile.innerHTML = renderPlayerProfile(
       payload.player_profile
         ? {
             ...payload.player_profile,
+            ...(game && /^pub_[a-f0-9]{16}$/.test(payload.publication_id) ? {
+              publication_id: payload.publication_id,
+              profile_season: game.game.season,
+              game_id: game.game.game_id,
+            } : {}),
+            ...(gameLog ? {sampleLabel} : {}),
             scopeLabel: overview
-              ? `${overview.scope.phases.join(" + ")} · ${overview.range}`
-              : payload.player_profile.scopeLabel,
+              ? `${overview.scope.phases.join(" + ")} · ${reportRange(payload, overview)}`
+              : gameLog ? scopeLabel(evidence.scope) : payload.player_profile.scopeLabel,
           }
         : null,
     );
 
 }
 
+function isScopedGameTable(table, payload) {
+  return payload.semantic_evidence?.scope?.operation === "game_log"
+    && payload.semantic_evidence.scope_presentation === "calendar_dates"
+    && asArray(table.columns).some(column => column.key === "game_id");
+}
+
+function gameRecordSources(payload) {
+  if (gamePerformance(payload) || scoringSources(payload)) return "";
+  const tables = asArray(payload.tables)
+    .map((table, index) => isScopedGameTable(table, payload)
+      ? renderTable({...semanticTable(table, payload, index), title: "Game records"}) : "")
+    .join("");
+  return tables ? `<details class="chart-disclosure"><summary>Game IDs and source fields</summary>${tables}</details>` : "";
+}
+
+function renderMetricTable(rawTable, payload, index) {
+  const table = semanticTable(referenceTable(rawTable, payload), payload, index);
+  if (!isScopedGameTable(table, payload)) return renderTable(table);
+  const coreColumns = new Set(["date", "opponent", "value"]);
+  const indices = table.columns.map((column, i) => coreColumns.has(column.key) ? i : -1)
+    .filter(i => i >= 0);
+  const compact = {
+    ...table,
+    columns: indices.map(i => table.columns[i]),
+    rows: table.rows.map(row => indices.map(i => table.columns[i].key === "date" ? displayDate(row[i]) : row[i])),
+  };
+  return renderTable(compact);
+}
+
+function renderScoringTable(scoring, followup, container) {
+  if (!container) return;
+  container.hidden = false;
+  container.classList.remove("report-focus-evidence--paired");
+  const rows = [...scoring.rows].sort((a, b) => b.points - a.points);
+  const total = scoring.total;
+  const pointFormat = new Intl.NumberFormat("en-US");
+  const shareFor = ({points, share}) => {
+    const ratio = share ?? (total > 0 ? points / total : null);
+    return Number.isFinite(ratio) && ratio >= 0 && ratio <= 1 ? ratio : null;
+  };
+  const percent = ratio => ratio === null ? "—" : `${(ratio * 100).toFixed(1)}%`;
+  const shortLabels = {"Three-pointers": "3PT", "Two-pointers": "2PT", "Free throws": "FT"};
+  const segments = rows.map(row => {
+    const ratio = shareFor(row);
+    if (!(ratio > 0)) return "";
+    const label = escHtml(row.label);
+    const share = percent(ratio);
+    return `<div class="scoring-segment" style="--share:${ratio}" title="${label} · ${share}">
+      <div class="scoring-segment-label">
+        <span class="scoring-segment-full">${label}</span>
+        <span class="scoring-segment-short">${escHtml(shortLabels[row.label] || row.label)}</span>
+        <span>${share}</span>
+      </div>
+    </div>`;
+  }).join("");
+  const renderRow = ({label, points, share, per_game}) => {
+    return `
+      <tr>
+        <th scope="row">${escHtml(label)}</th>
+        <td>${pointFormat.format(points)}</td>
+        <td>${percent(shareFor({points, share}))}</td>
+        <td>${per_game.toFixed(1)}</td>
+      </tr>`;
+  };
+  container.innerHTML = `
+    ${segments ? `<div class="scoring-strip" aria-hidden="true">${segments}</div>` : ""}
+    <table class="scoring-table">
+      <caption>Scoring sources</caption>
+      <thead><tr><th scope="col">Source</th><th scope="col">Points</th><th scope="col">Share</th><th scope="col">Per game</th></tr></thead>
+      <tbody>${rows.map(renderRow).join("")}</tbody>
+    </table>
+    ${followup ? '<button type="button" class="button secondary scoring-game-log" data-scoring-game-log>Show scoring game by game</button>' : ""}`;
+  const button = container.querySelector("[data-scoring-game-log]");
+  button?.addEventListener("click", () => {
+    if (!button.hidden) return askQuestion(followup);
+  });
+}
+
 function renderOverviewTable(overview) {
   return overviewMetricsTable(overview);
 }
 
-function renderOverviewCharts(payload, key, root = document, open = false) {
+function renderOverviewCharts(payload, key, root = document) {
   const charts = asArray(payload.charts);
   const chart = charts.find((c) => c.series?.[0]?.key === key) || charts[0];
   const el = root.querySelector("[data-agent-charts]");
@@ -1215,11 +1319,40 @@ function renderOverviewCharts(payload, key, root = document, open = false) {
     (m) => m.key === chart.series[0].key,
   );
   const daily = chart.grain === "daily";
-  // The metrics table leads; the full time series opens on demand.
-  el.innerHTML = `<details class="chart-disclosure"${open ? " open" : ""}><summary>Performance over time · ${escHtml(metricAbbreviation(metric))}</summary><div class="chart-header"><div><h2 class="sr-only">Performance over time</h2><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div><div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div></div><div class="agent-chart overview-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div><p class="meta">Hover or focus a point for date and sample size. ${daily ? "Days" : "Months"} without appearances are omitted; lines do not imply games were played between observations.</p></details>`;
+  const owner = activeConversationId;
+  const requestId = payload.request_id || root.dataset?.historyRequestId;
+  const closedCharts = () => asArray(tabState.drafts[owner]?.closedOverviewCharts);
+  const open = el.querySelector("[data-overview-chart]")?.open ?? !closedCharts().includes(requestId);
+  const trend = hasMeaningfulTrend(chart);
+  const title = trend ? "Performance over time" : "Performance summary";
+  const point = asArray(chart.series[0].points).find(entry => Number.isFinite(entry?.y));
+  const content = trend
+    ? `<div class="agent-chart overview-chart">${renderLineChart({ ...chart, overview: true, average: metric.value })}</div>
+       <p class="meta">Hover or focus a point for date and sample size. ${daily ? "Days" : "Months"} without appearances are omitted. Refer to the markers for observed dates.</p>`
+    : point ? `<div class="overview-period-result">
+         <strong>${escHtml(formatNumber(point.y))} ${escHtml(chart.y_label || metricAbbreviation(metric))}</strong>
+         <span class="meta">${escHtml(point.meta || point.x)}</span>
+       </div>` : "";
+  el.innerHTML = `<details class="chart-disclosure" data-overview-chart${open ? " open" : ""}>
+    <summary>${title} · ${escHtml(metricAbbreviation(metric))}</summary>
+    <div class="chart-header">
+      <div><h2 class="sr-only">${title}</h2><p class="meta">${escHtml(metricAbbreviation(metric))} · ${daily ? "Game-by-game" : "Monthly average"}</p></div>
+      <div class="chart-switcher" aria-label="Chart metric">${charts.map((c) => `<button type="button" data-chart-key="${escHtml(c.series[0].key)}" aria-pressed="${c === chart}">${escHtml(metricAbbreviation(c.series[0]))}</button>`).join("")}</div>
+    </div>${content}</details>`;
+  const panel = el.querySelector("[data-overview-chart]");
+  panel?.addEventListener("toggle", () => {
+    if (!owner || !requestId || !panel.isConnected) return;
+    const closed = closedCharts();
+    if (closed.includes(requestId) === !panel.open) return;
+    const draft = tabState.drafts[owner] ||= {};
+    draft.closedOverviewCharts = panel.open
+      ? closed.filter(id => id !== requestId)
+      : [...closed, requestId].slice(-HISTORY_CONVERSATION_CAP);
+    saveTabs();
+  });
   el.querySelectorAll("[data-chart-key]").forEach((button) =>
     button.addEventListener("click", () => {
-      renderOverviewCharts(payload, button.dataset.chartKey, root, true);
+      renderOverviewCharts(payload, button.dataset.chartKey, root);
       root
         .querySelector(`[data-chart-key="${button.dataset.chartKey}"]`)
         ?.focus();
@@ -1497,7 +1630,7 @@ function persistHistoryTurn(question, payload, ownerId = null, requestBody = nul
     model = "";
   }
   const turn = normalizeHistoryTurn({
-    request_id: payloadObject.request_id,
+    request_id: payloadObject.request_id || crypto.randomUUID(),
     question,
     provider,
     model,
@@ -1811,7 +1944,7 @@ function handleStreamEvent(eventName, payload, state) {
       ) {
         input.value = "";
       }
-      renderPayload(payload.payload || {});
+      renderPayload(payload.payload || {}, true);
       if (statusEl) statusEl.textContent = "Answered";
     }
     state.finished = true;
@@ -1978,6 +2111,7 @@ function buildAskBody(question, selection, conversationId = activeConversationId
           player_name: p.player.player_name.slice(0, 80),
         })),
       analysis_type: canonical?.analysis_type || (availability ? "availability" : null),
+      ...(canonical?.publication_id ? {publication_id: canonical.publication_id} : {}),
       availability_scope: availability || null,
       split_question: canonical?.split_question?.slice(0, 4000) || null,
       reference_question: canonical?.reference_question?.slice(0, 4000) || null,
@@ -2039,7 +2173,9 @@ function parseSseChunk(buffer, onEvent) {
 }
 
 function renderAskFailure(message, statusText, request) {
-  if (request) runtimeFor(request.conversationId).error = {message, statusText, question: request.question};
+  if (request) runtimeFor(request.conversationId).error = {
+    message, statusText, question: request.question,
+  };
   if (request && !requestIsVisible(request)) return;
   const statusEl = document.querySelector("[data-agent-status]");
   renderPayload({
@@ -2081,7 +2217,7 @@ function publicationAnswer(result) {
 async function askQuestionStream(request) {
   // Only the publication's exact, self-contained grammar is eligible. Follow-ups
   // retain their existing conversation semantics in the legacy Ask service.
-  const publicationGrammar = /^(?:(?:compare .+? vs .+? )?.+? (?:total|per game|ratio|per 36|game log) .+?(?: from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2})?|how many points did .+? score\??|.+? average (?:points|rebounds|assists)\??)$/i;
+  const publicationGrammar = /^(?:(?:compare .+? vs .+? )?.+? (?:total|per game|ratio|per 36) .+?(?: from \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2})?|how many points did .+? score\??|.+? average (?:points|rebounds|assists)\??)$/i;
   if (document.querySelector('[data-agent-form][data-publication-routing]') &&
       !request.body.previous_context && !request.body.selected_player_id &&
       publicationGrammar.test(request.question.trim())) {
@@ -2098,7 +2234,10 @@ async function askQuestionStream(request) {
       const result = await published.json();
       if (result.scope?.season === selectedSeason()) {
         const answer = publicationAnswer(result);
-        handleStreamEvent('final', {payload: {status: 'ok', answer, assumptions: [], tables: [], charts: [], metric_definitions: [], followups: [], conversation_id: request.conversationId}}, request);
+        handleStreamEvent('final', {payload: {
+          status: 'ok', answer, assumptions: [], tables: [], charts: [], metric_definitions: [], followups: [],
+          publication_id: result.publication_id, source_coverage: result.scope, conversation_id: request.conversationId,
+        }}, request);
         return;
       }
     }
@@ -2196,8 +2335,9 @@ async function askQuestion(question, selection = null) {
   rememberDraft();
   if (!activeConversationId) startNewChat();
   const owner = runtimeFor();
-  const request = {conversationId: activeConversationId, question,
-    body: buildAskBody(question, selection), answerText: "", finished: false, eventCount: 0};
+  const body = buildAskBody(question, selection);
+  const request = {conversationId: activeConversationId, question, body,
+    answerText: "", finished: false, eventCount: 0};
   owner.pending = request;
   owner.error = null;
   owner.inFlight = true;
@@ -2257,7 +2397,7 @@ function setBusy(busy) {
   if (status) status.dataset.thinking = String(busy);
   document
     .querySelectorAll(
-      "[data-agent-submit], [data-saved-question-retry], [data-agent-provider], [data-agent-model]",
+      "[data-agent-submit], [data-saved-question-retry], [data-scoring-game-log], [data-agent-provider], [data-agent-model]",
     )
     .forEach((el) => {
       el.disabled = busy;
@@ -2276,6 +2416,16 @@ function initAgentPage() {
     !(input instanceof HTMLTextAreaElement)
   ) {
     return;
+  }
+  const url = new URL(window.location.href);
+  const profileDraft = url.searchParams.get("draft")?.trim();
+  if (profileDraft) {
+    startNewChat();
+    input.value = profileDraft.slice(0, input.maxLength);
+    rememberDraft();
+    url.searchParams.delete("draft");
+    url.searchParams.delete("publication_id");
+    window.history.replaceState(null, "", url);
   }
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2343,7 +2493,6 @@ if (typeof window === "undefined" || window.__NBA_ASK_TEST_HOOKS__) {
     renderAuxiliaryPayload,
     renderFollowupComposer,
     syncComposerMode,
-    updateSourceCoverage,
     turnEvidenceMarkup,
     buildAskBody,
     askQuestion,

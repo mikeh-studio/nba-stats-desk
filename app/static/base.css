@@ -1082,3 +1082,31 @@ details.explain p {
     border-left: 0;
   }
 }
+
+.published-profile + .published-profile {
+  margin-top: 1rem;
+}
+.published-profile summary {
+  cursor: pointer;
+}
+.published-profile .profile-stat {
+  padding-inline: clamp(0.4rem, 2vw, 1rem);
+}
+.published-game-table {
+  overflow-x: auto;
+}
+.published-game-table table {
+  border-collapse: collapse;
+  width: 100%;
+}
+.published-game-table th,
+.published-game-table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.published-game-table th:nth-child(n + 3),
+.published-game-table td:nth-child(n + 3) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

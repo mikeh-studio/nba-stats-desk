@@ -55,7 +55,7 @@ from app.agent.semantic_serving import (
 from app.agent.semantic_source import capture_timestamp
 from app.agent.semantics import Query, SemanticError, run_query
 from app.agent.source_policy import get_source_policy
-from app.seasons import season_bounds
+from app.seasons import DEFAULT_SEASON, season_bounds
 
 # Semantic shapes (app.agent.routes) and the payload labels that tell them apart.
 SEMANTIC_LABELS = {
@@ -424,6 +424,16 @@ def render_answer(
         ]
         return payload
     evidence = result["evidence"]
+    if evidence.get("kind") == "game_performance":
+        from app.agent.game_performance import render_game_performance
+        from app.agent.scoring_report import log_summary
+
+        summary = (
+            log_summary(evidence, evidence["player"]["player_name"])
+            if evidence.get("rebounding_context")
+            else None
+        )
+        return render_game_performance(evidence, summary=summary)
     payload = _payload("", status)
     payload["semantic_evidence"] = evidence
     payload["query_plan"] = {
@@ -442,6 +452,12 @@ def render_answer(
         if "current" in evidence
         else [("Result", evidence)]
     )
+    from app.agent.scoring_report import (
+        add_scoring_evidence,
+        game_log_context,
+        log_summary,
+    )
+
     statements = []
     definitions = {}
     for title, section in sections:
@@ -455,6 +471,9 @@ def render_answer(
             "unit": metric["unit"],
         }
         context = f"{', '.join(scope.get('seasons') or [scope['season']])} {scope['season_type']}; {scope['window']}; as of {scope['as_of']}"
+        if scope["operation"] == "game_log":
+            context = game_log_context(scope)
+            section["scope_presentation"] = "calendar_dates"
         if scope["window"] == "last_n_months":
             statements.append(
                 f"Past {scope['n']} calendar months: {scope['window_start']} through "
@@ -477,9 +496,7 @@ def render_answer(
             )
             payload["assumptions"].extend(section["warnings"])
             name = names.get(scope["player_id"], str(scope["player_id"]))
-            statements.append(
-                f"{name} — {metric['label']} by game: showing {section['displayed_games']} of {section['observed_games']} observed appearances, oldest to newest."
-            )
+            statements.append(log_summary(section, name))
             game_rows, points = [], []
             for row in section["rows"]:
                 display = row["display_value"]
@@ -540,6 +557,26 @@ def render_answer(
                 payload["assumptions"].append(
                     "Chart withheld because some game values are unavailable; see the game log. Missing values are not zero."
                 )
+            if (scoring := section.get("scoring_sources")) and scoring[
+                "status"
+            ] == "ok":
+                add_scoring_evidence(payload, scoring)
+            if len(sections) == 1 and section["status"] == "ok":
+                payload["conversation_context"] = {
+                    "analysis_type": "game_log",
+                    "players": [
+                        {k: player[k] for k in ("player_id", "player_name")}
+                        for player in players
+                        if player["player_id"] == scope["player_id"]
+                    ],
+                    "scope": scope,
+                    "metrics": [metric["key"]],
+                }
+                if scoring:
+                    payload["followups"] = [
+                        "Show scoring game by game",
+                        "Show me his assists game by game.",
+                    ]
             continue
         cohort = section["cohort"]
         payload["assumptions"].append(
@@ -697,6 +734,7 @@ class SemanticAsk:
         context: dict[str, Any] = next(
             (turn.context for turn in reversed(turns) if turn.context), {}
         )
+        publication_pin = context.get("publication_id")
         if award_request:
             context = {}
             pending = None
@@ -810,6 +848,7 @@ class SemanticAsk:
         ) == "derived_series" and inherits_analysis(original)
         overview_pending = None
         snapshot, plan = {}, {}
+        publication = None
         retained_series_plan = None
         try:
             if series_followup:
@@ -845,6 +884,11 @@ class SemanticAsk:
                 raise SemanticError(
                     "unsupported_scope",
                     "Finals-only performance is not connected. Specify regular-season or full-playoff performance to use game-level statistics.",
+                )
+            if award_request and publication_pin:
+                raise SemanticError(
+                    "unsupported_scope",
+                    "Start a separate analysis to look up an award or use a different source.",
                 )
             if award_request:
                 award = resolve_award_question(original, self.settings.season)
@@ -1013,7 +1057,8 @@ class SemanticAsk:
                 seasons = split_seasons(question, self.settings.season)
             if inherited.get("seasons") and not overview:
                 seasons = [s for s in inherited["seasons"] if s]
-            metric_window = {}
+            metric_window: dict[str, Any] = {}
+            game_question = None
             named_seasons = bool(
                 re.search(r"\b20\d{2}[-–/](?:20\d{2}|\d{2})\b(?![-/–]\d)", question)
             )
@@ -1036,7 +1081,16 @@ class SemanticAsk:
                 return covered
 
             if not overview and not split:
-                metric_window = explicit_scope(question)
+                from app.agent.game_performance import parse_game_question
+                from app.agent.game_rebounding import parse_rebounding_game
+
+                game_question = parse_game_question(question)
+                matchup = game_question or parse_rebounding_game(question)
+                metric_window = matchup.dates if matchup else explicit_scope(question)
+                if game_question and game_question.relative:
+                    time_assumptions.append(
+                        f"Using {game_question.day} on the NBA Eastern calendar."
+                    )
                 if metric_window.get("window") == "last_n_months" and any(
                     "rolling" in note for note in time_assumptions
                 ):
@@ -1063,15 +1117,130 @@ class SemanticAsk:
                     seasons = window_seasons(
                         metric_window["start_date"], metric_window["as_of"]
                     )
+            primary = (
+                [
+                    s
+                    for s in seasons
+                    if season_bounds(s)[0] <= overview["end"]
+                    and season_bounds(s)[1] >= overview["start"]
+                ]
+                if overview
+                else list(seasons)
+            )
+            open_publication = getattr(self.warehouse, "open_publication", None)
+            if publication_pin and not open_publication:
+                raise SemanticError(
+                    "publication_unavailable",
+                    "This conversation's publication is unavailable on this host.",
+                )
+            if open_publication and (publication_pin or DEFAULT_SEASON in primary):
+                publication = open_publication(publication_pin)
+                if publication is not None:
+                    publication.load(primary)
+                    if split or position_group:
+                        raise SemanticError(
+                            "unsupported_coverage",
+                            "This publication supports box-score summaries, game logs, and player comparisons. This additional analysis is unavailable.",
+                        )
+                    if re.search(
+                        r"\b(?:entire|whole|completed|full)\s+(?:regular[- ]season|season)\b",
+                        original,
+                        re.I,
+                    ):
+                        raise SemanticError(
+                            "unsupported_coverage",
+                            "This publication covers part of the season. Ask for a period within its verified dates.",
+                        )
+                    if overview:
+                        explicit_phases = bool(
+                            re.search(
+                                r"\b(?:regular[ -]season|playoffs?|postseason|both phases|all phases)\b",
+                                question,
+                                re.I,
+                            )
+                        )
+                        if explicit_phases:
+                            publication.check_phase(overview["phases"])
+                        else:
+                            overview["phases"] = [publication.phase]
+                        if not (overview["explicit_start"] or inherited):
+                            overview["start"] = max(
+                                overview["start"], publication.first
+                            )
+                        if not (overview["explicit_end"] or inherited):
+                            overview["end"] = min(overview["end"], publication.last)
+                        publication.check_window(overview["start"], overview["end"])
+                        if overview["start"] > overview["end"]:
+                            raise SemanticError(
+                                "unsupported_coverage",
+                                "The requested period is outside the verified publication.",
+                            )
+                        overview["chart_grain"] = (
+                            "daily"
+                            if (overview["end"] - overview["start"]).days < 31
+                            else "monthly"
+                        )
+                        explicit_baseline = bool(
+                            requested_comparison.get("baseline_period")
+                            or requested_comparison.get("baseline_phases")
+                        )
+                        previous = overview.get("previous_phases") or overview["phases"]
+                        if not explicit_phases and not explicit_baseline:
+                            overview["previous_phases"] = [publication.phase]
+                            previous = overview["previous_phases"]
+                            overview["comparison_label"] = (
+                                f"{publication.phase} from {overview['previous_start']} through {overview['previous_end']}"
+                            )
+                        has_baseline = publication.first <= overview[
+                            "previous_start"
+                        ] <= overview["previous_end"] <= publication.last and set(
+                            previous
+                        ) == {publication.phase}
+                        if explicit_baseline and not has_baseline:
+                            raise SemanticError(
+                                "unsupported_coverage",
+                                "The requested baseline is outside this publication. Start a separate analysis for another source.",
+                            )
+                        overview["baseline_coverage_available"] = has_baseline
+                        overview["allow_recent_comparison"] = (
+                            not has_baseline
+                            and not comparison
+                            and not explicit_baseline
+                            and not re.search(
+                                r"\b(?:baseline|usual|normal|compared? (?:with|to|against)|versus)\b",
+                                original,
+                                re.I,
+                            )
+                            and not overview.get("recent_appearances")
+                            and not overview.get("first_appearances")
+                        )
+                    else:
+                        if (
+                            game_question
+                            and not publication.first
+                            <= date.fromisoformat(game_question.day)
+                            <= publication.last
+                        ):
+                            raise SemanticError(
+                                "unsupported_coverage",
+                                f"No verified publication coverage for {game_question.day}. "
+                                f"The authorized release covers {publication.first} through {publication.last}.",
+                            )
+                        publication.check_window(
+                            metric_window.get("start_date"), metric_window.get("as_of")
+                        )
+                    seasons = primary
             allow_fallback = (
-                not has_time_scope(question)
+                publication is None
+                and not has_time_scope(question)
                 and not inherited
                 and not pending
                 and not ranked
             )
             prepared_attempt = None
             if (
-                hasattr(self.warehouse, "prepare")
+                publication is None
+                and hasattr(self.warehouse, "prepare")
                 and not overview
                 and not split
                 and not award
@@ -1128,7 +1297,9 @@ class SemanticAsk:
                     ),
                 )
             load_evidence = (
-                self.warehouse.facts.load
+                publication.load
+                if publication is not None
+                else self.warehouse.facts.load
                 if prepared_attempt is not None and prepared_attempt.result is None
                 else (
                     lambda requested: self.warehouse.load_for_request(
@@ -1209,7 +1380,8 @@ class SemanticAsk:
                 )
                 dev_phase_notice = None
                 if (
-                    not evidence.cohort_complete
+                    publication is None
+                    and not evidence.cohort_complete
                     and overview
                     and not re.search(
                         r"\b(playoffs?|postseason|both|all phases)\b", question, re.I
@@ -1221,14 +1393,18 @@ class SemanticAsk:
                         "previous_phases": ["Regular Season"],
                     }
                     dev_phase_notice = "This preview covers regular-season box scores only; this overview uses the regular season."
-                if not evidence.cohort_complete and (
-                    comparison
-                    or split
-                    or position_group
-                    or re.search(
-                        r"\b(rank|rankings|percentiles?|baseline|cohort|peers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
-                        question,
-                        re.I,
+                if (
+                    publication is None
+                    and not evidence.cohort_complete
+                    and (
+                        comparison
+                        or split
+                        or position_group
+                        or re.search(
+                            r"\b(rank|rankings|percentiles?|baseline|cohort|peers|compar(?:e[sd]?|ing|isons?)|versus|vs|other players)\b",
+                            question,
+                            re.I,
+                        )
                     )
                 ):
                     raise SemanticError(
@@ -1325,6 +1501,8 @@ class SemanticAsk:
                     else None
                 )
                 if series_plan:
+                    if publication is not None:
+                        publication.check_plan({"queries": [series_plan.query]})
                     if series_plan.query.get("window") == "date_range":
                         series_plan.query["seasons"] = seasons_in_dates(
                             series_plan.query["start_date"], series_plan.query["as_of"]
@@ -1392,6 +1570,9 @@ class SemanticAsk:
                             settings=self.settings,
                             model=model,
                             question=question,
+                            selected_player_name=chosen["player_name"]
+                            if selected_player
+                            else None,
                             dated_points_eligible=dated_points_eligible,
                             deterministic=getattr(
                                 self.settings,
@@ -1450,6 +1631,8 @@ class SemanticAsk:
                         window_seasons=window_seasons,
                         inherited=inherited,
                     )
+                    if publication is not None:
+                        publication.check_plan(plan)
                     required_seasons = sorted(
                         set(seasons).union(
                             s
@@ -1482,7 +1665,8 @@ class SemanticAsk:
                         players,
                         **(
                             {"shadow": self.warehouse.serving_shadow}
-                            if getattr(self.warehouse, "serving_shadow", None)
+                            if publication is None
+                            and getattr(self.warehouse, "serving_shadow", None)
                             is not None
                             else {}
                         ),
@@ -1545,6 +1729,13 @@ class SemanticAsk:
                                 break
                     payload = render_answer(result, players)
                     if (
+                        plan.get("all_opponents_through_game")
+                        and payload["status"] == "ok"
+                    ):
+                        payload["assumptions"].append(
+                            "All recorded opponents through the date of the analyzed game."
+                        )
+                    if (
                         payload["status"] == "ok"
                         and len(inherited.get("excluded_player_ids", [])) == 1
                     ):
@@ -1560,7 +1751,11 @@ class SemanticAsk:
                         payload["answer"] = (
                             inherited["assumption"] + "\n\n" + payload["answer"]
                         )
-                    if payload.get("player_profile"):
+                    if (
+                        payload.get("player_profile")
+                        and (payload.get("semantic_evidence") or {}).get("kind")
+                        != "game_performance"
+                    ):
                         player = payload["player_profile"]["player"]
                         payload["player_profile"] = identity_profile(
                             player, evidence.rows
@@ -1612,7 +1807,7 @@ class SemanticAsk:
                     or payload["status"] == "not_found"
                     or payload.get("semantic_plan", {}).get("name_matching")
                 )
-                if not identity_clarification:
+                if not identity_clarification and publication is None:
                     payload["answer"] = note + "\n\n" + payload["answer"]
                     payload.setdefault("scope_assumptions", []).extend(
                         snapshot.get("scope_assumptions", [])
@@ -1672,6 +1867,14 @@ class SemanticAsk:
                 )
                 payload["award_evidence"] = award
                 payload["answerability"] = "partial"
+        if publication is not None:
+            try:
+                self.warehouse.recheck_publication(publication)
+            except SemanticError as exc:
+                payload = _payload(str(exc), exc.code)
+            else:
+                payload["publication_id"] = publication.publication_id
+                payload["source_coverage"] = publication.provenance
         if trace:
             trace.add_tool(
                 name="governed_metrics",
@@ -1741,6 +1944,10 @@ class SemanticAsk:
                 next_context = analysis_context(original, payload)
                 if not next_context.get("players"):
                     next_context["players"] = context.get("players", [])
+                if publication is not None:
+                    next_context["publication_id"] = publication.publication_id
+                    if isinstance(next_context.get("scope"), dict):
+                        next_context["scope"].setdefault("season", publication.season)
                 payload["conversation_context"] = next_context
                 store.append_turn(
                     conversation_id,

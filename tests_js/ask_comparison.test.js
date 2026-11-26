@@ -2,6 +2,7 @@ import {comparisonLead, comparisonStatus} from "../app/static/comparison_policy.
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  askProfileHref,
   comparisonPresentation,
   comparisonTables,
   comparisonAnswer,
@@ -65,6 +66,33 @@ test("comparison keeps names and scope while hiding unavailable winning metrics"
   assert.match(comparisonProfiles(view), /Data through Jun 30, 2026/);
   assert.doesNotMatch(comparisonAnswer(view), /<b>|<not HTML>/);
   assert.equal(view.insights.length, 3);
+});
+
+test("published comparison portraits preserve question order and the same pinned dates", () => {
+  const view = comparisonPresentation(fixture());
+  const scope = {
+    publication_id: "pub_0123456789abcdef",
+    profile_season: "2026-27",
+    first: "2026-11-11",
+    last: "2026-11-17",
+  };
+  view.profiles = view.profiles.map((profile, index) => ({
+    ...profile,
+    ...scope,
+    profile_url: `/players/${index ? "1630178" : "1628973"}`,
+  }));
+  const html = comparisonProfiles(view);
+  const portraits = [...html.matchAll(/ask-profile-avatar" href="([^"]+)"/g)];
+  const urls = portraits.map(match => new URL(match[1].replaceAll("&amp;", "&"), "http://example.test"));
+  assert.deepEqual(urls.map(url => url.pathname), ["/players/1628973", "/players/1630178"]);
+  for (const url of urls)
+    assert.deepEqual(Object.fromEntries(url.searchParams), {
+      season: "2026-27", publication_id: scope.publication_id, first: scope.first, last: scope.last,
+    });
+  assert.equal(askProfileHref(view.profiles[0]), urls[0].pathname + urls[0].search);
+  assert.equal(askProfileHref({...view.profiles[0], publication_id: "expired"}), "");
+  assert.equal(askProfileHref({...view.profiles[0], last: null}), "");
+  assert.match(askProfileHref({...view.profiles[0], game_id: "0022600255"}), /game_id=0022600255$/);
 });
 
 test("summary describes recorded measures without aggregate winner meters", () => {

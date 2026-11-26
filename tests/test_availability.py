@@ -776,12 +776,19 @@ def test_participation_snapshot_rejects_conflicting_minutes(bundle):
         "Find out Nikola Jokic's points per game this season",
         "Figure out Avery Finch's assists",
         "Check out Blake Reed's rebounds",
+        "What stood out about Blake Reed’s rebounding against Detroit on November 17, 2026?",
         "Avery Finch points in games where Blake Reed missed shots",
         "How many games missed by Avery Finch this season?",
     ],
 )
 def test_informational_out_idioms_are_not_availability(question):
     assert not wants_availability(question)
+
+
+def test_stood_out_with_a_separate_absence_still_requires_availability():
+    assert wants_availability(
+        "What stood out about Avery Finch’s rebounding when Blake Reed was out?"
+    )
 
 
 def test_count_detector_preserves_rankings_and_minimum_games():

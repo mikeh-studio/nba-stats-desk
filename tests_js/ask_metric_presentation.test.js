@@ -8,7 +8,7 @@ test('policy renders ten primary rows, collapses details and keeps canonical tak
  assert.equal(overview.metrics.length,10);assert.equal(overview.additionalMetrics.length,1);
  assert.equal(overview.preferredMetric,'pts');assert.deepEqual(overview.insights,p.semantic_evidence.presentation.takeaways);
  assert.equal((html.split('<details')[0].match(/data-metric-key=/g)||[]).length,10);
- assert.match(html,/View all metrics/);assert.match(html,/Sample \/ opportunity/);
+ assert.match(html,/View all metrics/);assert.doesNotMatch(html,/Samples &amp; methodology|Sample \/ opportunity/);
  assert.match(html,/percent/);assert.match(html,/8\/8 valid appearances/);
 });
 test('focused policy follows provided keys and sample warnings survive escaping',()=>{
@@ -27,7 +27,7 @@ test('compact table has four columns with inline units and closed detail control
  assert.equal((primary.match(/scope="col"/g)||[]).length,4);
  assert.doesNotMatch(primary.replace(/<span[^>]*class="metric-tooltip"[^>]*>.*?<\/span>/g,''),/<br>|per game<|Sample \/ opportunity/);
  assert.match(primary,/-0.6 pp/);assert.doesNotMatch(primary,/-0.0/);
- assert.match(html,/data-sample-details/);assert.doesNotMatch(html,/<details[^>]* open/);
+ assert.doesNotMatch(html,/data-sample-details|<details[^>]* open/);
  const contribution=overviewTakeaways(o);
  assert.match(contribution,/>Key takeaways<\/h2>/);assert.match(contribution,/<h3>Creation<\/h3>/);assert.doesNotMatch(contribution,/<details|<summary/);
 });
@@ -73,7 +73,7 @@ test('qualified ranks and compact reasons are accessible and escaped',()=>{
  assert.match(html,/Low attempts/);assert.match(html,/tabindex="0"/);
  assert.match(html,/Requires 100 FGA &lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
  assert.match(html,/percentile-neutral/);assert.match(html,/75th/);
- assert.match(html,/50 FTA for FT%/);
+ assert.doesNotMatch(html,/Samples &amp; methodology/);
 });
 
 
@@ -84,8 +84,7 @@ test('new general policy renders eleven rows with percentages last, saved policy
  const o=overviewPresentation(p), html=overviewMetricsTable(o);
  assert.equal(o.metrics.length,11);
  assert.deepEqual(o.metrics.slice(-3).map(metricAbbreviation),['FG%','FT%','TS%']);
- assert.match(html,/50 FTA for FT%/);
- assert.match(overviewMetricsTable(overviewPresentation(payload())),/Saved ranking policy/);
+ assert.doesNotMatch(html,/Samples &amp; methodology|Saved ranking policy/);
 });
 
 
@@ -146,4 +145,47 @@ test('league-only peer details omit historical-position methodology',()=>{
  const html=overviewMetricsTable(overviewPresentation(p));
  assert.match(html,/League-wide/);
  assert.doesNotMatch(html,/Historical listed positions|Hybrids belong/);
+});
+
+test('column eligibility follows the rows of each table and counts zero values',()=>{
+ const p=payload();
+ for (const m of p.semantic_evidence.metrics) {
+   m.percentile=null;
+   m.display_change=null;
+ }
+ const points=p.semantic_evidence.metrics[0];
+ points.display_change=0;
+ p.semantic_evidence.metrics.at(-1).percentile=0;
+ const [main,extra]=overviewMetricsTable(overviewPresentation(p)).split('<details data-additional-metrics>');
+ assert.match(main,/data-columns="3".*>Change<\/th>/s);
+ assert.match(main,/data-overview-change[^>]*>0\.0/);
+ assert.doesNotMatch(main,/League %/);
+ assert.match(extra,/data-columns="3".*League %/s);
+ assert.match(extra,/value="0"/);
+ assert.doesNotMatch(extra,/>Change<\/th>/);
+});
+
+test('verification gaps omit both columns and leave metric distributions reachable',()=>{
+ const p=payload();
+ p.source_coverage={cohort_complete:false};
+ p.semantic_evidence.scope.baseline_coverage_available=false;
+ p.semantic_evidence.data_through='2025-02-01';
+ p.semantic_evidence.metrics.forEach(m=>{m.percentile=null;m.display_change=null;});
+ p.semantic_evidence.metrics[0].distribution={};
+ const html=overviewMetricsTable(overviewPresentation(p));
+ assert.doesNotMatch(html,/League %|>Change<\/th>|Source and coverage|Samples &amp; methodology/);
+ assert.match(html,/metric-distribution--inline.*data-metric-distribution="pts"/);
+ assert.match(html,/League percentiles require verified league-wide coverage. The comparison period is outside this publication. Source data through Feb 1, 2025./);
+});
+
+test('recent changes use explicit dates and stay separate from full-period averaging',()=>{
+ const p=payload(),e=p.semantic_evidence;
+ e.metrics.forEach(m=>{m.percentile=null;m.display_change=null;});
+ e.recent_comparison={start:'2025-01-25',end:'2025-01-31',previous_start:'2025-01-18',previous_end:'2025-01-24',
+   metrics:[{key:'ts_pct',change:0,change_unit:'percentage points'}]};
+ const html=overviewMetricsTable(overviewPresentation(p));
+ assert.match(html,/Recent comparison · Jan 25, 2025 – Jan 31, 2025 vs Jan 18, 2025 – Jan 24, 2025/);
+ assert.match(html,/>Recent change<\/th>/);
+ assert.match(html,/data-overview-change.*0\.0 pp/);
+ assert.doesNotMatch(html,/Versus|League %/);
 });

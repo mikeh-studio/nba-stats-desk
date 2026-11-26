@@ -204,6 +204,8 @@ def contracts(payload):
             "Current" if side == "current" else "Baseline" if side else "Result"
         ) + ": {0} — {1} {2}; {3}; as of {4}"
         if section["scope"]["operation"] == "game_log":
+            from app.agent.scoring_report import game_log_context_contract
+
             pid = section["scope"]["player_id"]
             ip = ["claim_evidence", "identities", str(pid)]
             name = (
@@ -211,9 +213,21 @@ def contracts(payload):
                 if str(pid) in payload["claim_evidence"]["identities"]
                 else identity
             )
-            sources.append(name)
-            formats.append("identity")
-            template = "{5}: {0} game log — {1} {2}; {3}; as of {4}"
+            if section.get("scope_presentation") == "calendar_dates":
+                fields, date_template = game_log_context_contract(section["scope"])
+                sources = [
+                    seasons,
+                    scope + ["season_type"],
+                    *[scope + [f] for f in fields],
+                    name,
+                    mp + ["label"],
+                ]
+                formats = [formats[1], "identity"] + ["identity"] * (len(fields) + 2)
+                template = f"{{{len(fields) + 2}}}: {{{len(fields) + 3}}} game log — {date_template}"
+            else:
+                sources.append(name)
+                formats.append("identity")
+                template = "{5}: {0} game log — {1} {2}; {3}; as of {4}"
             add(
                 ["tables", ti, "columns", 5, "label"],
                 [mp + ["label"]],
@@ -265,6 +279,60 @@ def contracts(payload):
                     scope,
                     [mp],
                 )
+            scoring = section.get("scoring_sources")
+            if scoring and scoring["status"] == "ok":
+                chart_index = len(selection)
+                scoring_path = base + ["scoring_sources"]
+                definition = scoring_path + ["metric"]
+                for ri, source in enumerate(scoring["rows"]):
+                    row = scoring_path + ["rows", ri]
+                    for ci, field in enumerate(("label", "points", "per_game")):
+                        destination = ["tables", ti + 1, "rows", ri, ci]
+                        if field == "per_game":
+                            result[tuple(destination)] = (
+                                [row + [field]],
+                                identity,
+                                scope,
+                                [scoring_path + ["per_game_metric"]],
+                                {"digits": 1},
+                            )
+                        else:
+                            add(
+                                destination,
+                                [row + [field]],
+                                identity,
+                                scope,
+                                [definition],
+                            )
+                    if "share" in source:
+                        result[("tables", ti + 1, "rows", ri, 3)] = (
+                            [row + ["share"]],
+                            identity,
+                            scope,
+                            [scoring_path + ["share_metric"]],
+                            {
+                                "digits": 1,
+                                "scale": 100,
+                                "suffix": "%",
+                                "null": "Unavailable",
+                            },
+                        )
+                    if "makes" in source:
+                        add(
+                            ["tables", ti + 1, "rows", ri, 4],
+                            [row + ["makes"]],
+                            identity,
+                            scope,
+                            [scoring_path + ["makes_metric"]],
+                        )
+                    for axis, field in (("x", "label"), ("y", "points")):
+                        add(
+                            ["charts", chart_index, "series", 0, "points", ri, axis],
+                            [row + [field]],
+                            identity,
+                            scope,
+                            [definition],
+                        )
         # The reference composition intentionally replaces the ordinary title.
         if not payload.get("reference_evidence"):
             add(

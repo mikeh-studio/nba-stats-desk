@@ -155,6 +155,10 @@ class VisualizationAgent:
         evidence = payload.get("semantic_evidence") or {}
         if payload.get("visualization") is not None:
             return payload
+        if (evidence.get("scoring_sources") or {}).get("status") == "ok":
+            # Composition and credited points by appearance answer separate
+            # parts of the report. Keep both verified charts together.
+            return payload
         if (
             evidence.get("player_id")
             and evidence.get("metrics")

@@ -72,6 +72,41 @@ test('non-scoring wording selects creation chart and omits generic limitations',
   await expect(page.locator('[data-chart-key="ast"]')).toHaveAttribute('aria-pressed', 'true');
 });
 
+for (const outcome of ['loaded', 'failed']) {
+  test(`Ask portrait shows initials until a headshot has ${outcome}`, async ({page}) => {
+    await page.setViewportSize({width:390,height:844});
+    await page.emulateMedia({reducedMotion:outcome === 'loaded' ? 'no-preference' : 'reduce'});
+    let headshotRoute;
+    await page.route('https://cdn.nba.com/headshots/**', route => {headshotRoute = route;});
+    await prepare(page, 'baseline_points');
+    await submit(page, 'How did Avery Example perform in the 2024-25 regular season?');
+    const avatar = page.locator('.agent-player-profile .player-avatar');
+    const image = avatar.locator('[data-ask-headshot]');
+    const initials = avatar.locator('.player-avatar-fallback');
+    await avatar.scrollIntoViewIfNeeded();
+    await expect.poll(() => !!headshotRoute).toBe(true);
+    await expect(initials).toHaveText('AE');
+    await expect(initials).toHaveCSS('opacity', '1');
+    await expect(initials).toHaveAttribute('aria-hidden', 'true');
+    await expect(image).toHaveAttribute('alt', '');
+    await expect(image).toHaveCSS('opacity', '0');
+    if (outcome === 'loaded') {
+      await headshotRoute.fulfill({status:200,contentType:'image/svg+xml',
+        body:'<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="blue"/></svg>'});
+      await expect(image).toHaveAttribute('data-loaded', 'true');
+      await expect(image).toHaveCSS('opacity', '1');
+      await expect(initials).toHaveCSS('opacity', '0');
+      await expect(image).toHaveCSS('transition-duration', '0.18s');
+    } else {
+      await headshotRoute.abort();
+      await expect.poll(() => image.evaluate(img => img.complete && !img.naturalWidth)).toBe(true);
+      await expect(image).toHaveCSS('opacity', '0');
+      await expect(initials).toHaveCSS('opacity', '1');
+      await expect(image).toHaveCSS('transition-duration', '0s');
+    }
+  });
+}
+
 test('comparison hides unavailable impact in fresh and legacy saved analyses', async ({page}, testInfo) => {
   const c = await prepare(page, 'two_player');
   await submit(page, c.turns[0].question);
@@ -95,7 +130,7 @@ test('comparison hides unavailable impact in fresh and legacy saved analyses', a
   await expect(page.locator('[data-agent-tables] .h2h-boxplot')).toHaveCount(10);
   await expect(page.locator('[data-agent-answer]')).not.toContainText(/Win Shares|possession|winning-impact metrics/i);
   await expect(page.locator('.comparison-impact')).toHaveCount(0);
-  await expect(page.locator('[data-answer-context]')).not.toContainText(/Win Shares|possession/i);
+  await expect(page.locator('[data-agent-sources]')).not.toContainText(/Win Shares|possession/i);
   // The saved result uses its original game summaries without replaying a request.
   await page.locator('.h2h-plot-trigger').first().hover();
   await expect(page.locator('.h2h-plot-tooltip').first()).toBeVisible();
@@ -377,15 +412,13 @@ test('overview shows eleven metrics, sample evidence, balanced takeaways and exp
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
   await expect(table).toContainText('3PM');
-  const samples=page.locator('[data-sample-details]');
-  await samples.locator('summary').click();
-  await expect(samples).toContainText('attempts');
-  await expect(samples).toContainText('valid appearances');
-  await samples.locator('summary').click();
+  await expect(page.locator('[data-sample-details]')).toHaveCount(0);
+  await expect(table.locator('[data-overview-average]').first()).toHaveAttribute('title', /appearance|valid/i);
   const details=page.locator('[data-additional-metrics]');
   await expect(details).not.toHaveAttribute('open','');
   await details.locator('summary').click();
   await expect(details.locator('table')).toBeVisible();
+  expect(Math.abs((await table.boundingBox()).x - (await details.locator('table').boundingBox()).x)).toBeLessThanOrEqual(1);
   await expect(details).toContainText('PTS/36');
   await expect(details.locator('td[aria-label*="per 36 minutes"]').first()).toBeVisible();
   await page.reload();
@@ -400,10 +433,8 @@ test('focused scoring retains 3PM and nine metrics at a narrow viewport', async 
   const table=page.locator('[data-agent-tables] > .table-scroll table');
   await expect(table.locator('tbody tr')).toHaveCount(9);
   await expect(table).toContainText('3PM');
-  const samples=page.locator('[data-sample-details]');
-  await samples.locator('summary').click();
-  await expect(samples).toContainText('Shooting ranks use provisional minimums');
-  await samples.locator('summary').click();
+  await expect(page.locator('[data-sample-details]')).toHaveCount(0);
+  await expect(table.locator('[data-overview-average]').first()).toHaveAttribute('title', /appearance|valid/i);
   expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
 });
 
@@ -415,7 +446,7 @@ test('compact overview has visible Key Takeaways and a short eleven-row table', 
   await expect(table.locator('tbody tr')).toHaveCount(11);
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
   expect((await table.boundingBox()).height).toBeLessThan(500);
-  await expect(table.locator('thead th')).toHaveCount(4);
+  await expect(table.locator('thead th')).toHaveText(['Stat','Average','League %']);
   await expect(page.getByRole('heading',{name:'Key takeaways',exact:true})).toBeVisible();
   const items=page.locator('.result-takeaways .takeaway-card');
   expect(await items.count()).toBeGreaterThan(0);expect(await items.count()).toBeLessThanOrEqual(3);
@@ -434,10 +465,8 @@ for (const width of [1280,390]) {
     expect(await table.locator('tbody tr').evaluateAll(rows=>rows.slice(-3).map(r=>r.dataset.metricKey))).toEqual(['fg_pct','ft_pct','ts_pct']);
     expect((await table.boundingBox()).height).toBeLessThan(500);
     await expect(table.locator('tbody th abbr').first()).toHaveText('PTS');
-    // The time series is collapsed under the metrics table until opened.
-    const chart=page.locator('.chart-disclosure');
-    await expect(chart).not.toHaveAttribute('open','');
-    await chart.locator('summary').click();
+    const chart=page.locator('[data-overview-chart]');
+    await expect(chart).toHaveAttribute('open','');
     await expect(chart.locator('summary')).toContainText('Performance over time');
     await expect(page.locator('.chart-header')).toContainText('Game-by-game');
     await expect(page.locator('[data-chart-key]')).toHaveCount(5);
@@ -462,8 +491,17 @@ for (const width of [1280,390]) {
     await help.click();await expect(tooltip).toBeVisible();
     await help.click();await expect(tooltip).not.toBeVisible();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+    await chart.locator('summary').click();
+    await expect(chart).not.toHaveAttribute('open','');
+    await expect.poll(() => page.evaluate(() =>
+      Object.values(JSON.parse(localStorage.getItem(Object.keys(localStorage)
+        .find(key => key.startsWith('askOpenTabs:v1:'))) || '{}').drafts || {})
+        .some(draft => draft.closedOverviewCharts?.length > 0))).toBe(true);
     await page.reload();
-    await expect(page.locator('.chart-header')).toContainText('Game-by-game');
+    await expect(chart.locator('summary')).toContainText('Performance over time');
+    await expect(chart).not.toHaveAttribute('open','');
+    await chart.locator('summary').click();
+    await expect(page.locator('.chart-header')).toBeVisible();
   });
 }
 
@@ -476,6 +514,11 @@ test('dated week remains daily while a season remains monthly',async ({page})=>{
   await page.getByRole('button',{name:'New chat',exact:true}).click();
   await submit(page,'How did Avery Example perform in the 2024-25 regular season?');
   await expect(page.locator('.chart-header')).toContainText('Monthly average');
+  await expect(page.locator('.overview-period-result')).toContainText(/2025-04 · 6 \/ 6 games/i);
+  await expect(page.locator('.overview-chart svg')).toHaveCount(0);
+  await page.locator('[data-chart-key="ast"]').click();
+  await expect(page.locator('.chart-header')).toContainText('AST · Monthly average');
+  await expect(page.locator('.overview-period-result')).toContainText(/assists per game/i);
 });
 
 
@@ -539,7 +582,7 @@ for (const width of [1280,390]) {
     await prepare(page,'baseline_points');
     await submit(page,'How did Avery Example perform in April 2025?');
     let requests=0; page.on('request',r=>{if(r.method()==='POST' && r.url().includes('/api/agent/ask'))requests++;});
-    await page.locator('.chart-disclosure > summary').first().click();
+    await expect(page.locator('[data-overview-chart]').first()).toHaveAttribute('open','');
     await page.locator('[data-chart-key="ast"]').first().click();
     const table=page.locator('table.compact-metrics').first(), height=(await table.boundingBox()).height;
     const trigger=page.getByRole('button',{name:/^PTS distribution:/}).first();

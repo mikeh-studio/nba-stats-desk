@@ -217,6 +217,8 @@ def create_core_application(
         data_through={(scope["season"], scope["phase"]): scope["last"]},
         complete=True,
         cohort_complete=False,
+        game_results=models["accepted_game_results"],
+        game_participants=models["participant_manifest"],
     )
     evidence.validate()
 
@@ -236,6 +238,48 @@ def create_core_application(
             raise ValueError("Publication authority or freshness is unavailable")
         return leader_answer(evidence, manifest)
 
+    def require_production_authority():
+        if (
+            production_authority is None
+            or production_authority.check(manifest, binding) is not True
+            or authorized() is not True
+        ):
+            raise ValueError("Publication authority unavailable")
+        current = status()
+        if current["freshness"] not in {"fresh", "stale_usable"}:
+            raise ValueError("Publication freshness unavailable")
+        return current
+
+    def ask_publication_source(coverage_proof=None):
+        from dataclasses import replace
+
+        from app.agent.publication_ask_source import PublicationAskSource
+        from app.serving.weekly_profile import BOUND_THREES_PROFILE
+
+        current = require_production_authority()
+        if "ask_player_stats" not in current["capabilities"]:
+            raise ValueError("Publication does not authorize player statistics for Ask")
+        cohort_proof = (
+            "publication_manifest"
+            if current["profile"] == BOUND_THREES_PROFILE
+            else None
+        )
+        if not cohort_proof and coverage_proof is not None:
+            try:
+                coverage_proof.attestation(
+                    current, [row["game_id"] for row in models["dim_game"]]
+                )
+            except ValueError:
+                pass
+            else:
+                cohort_proof = "independent_coverage_review"
+        if cohort_proof:
+            current = {**current, "cohort_proof": cohort_proof}
+        return PublicationAskSource(
+            replace(evidence, cohort_complete=bool(cohort_proof)), current
+        )
+
+    app.state.ask_publication_source = ask_publication_source
     app.state.three_point_leaders = published_leaders
 
     @app.middleware("http")
@@ -354,6 +398,32 @@ def create_core_application(
                 ),
             )
         )
+
+    def check_published_player_release(season):
+        # Guest composition reads this service directly, bypassing HTTP middleware.
+        if (
+            production_authority is None
+            or season != scope["season"]
+            or production_authority.check(manifest, binding) is not True
+            or authorized() is not True
+            or status()["freshness"] not in {"fresh", "stale_usable"}
+        ):
+            raise ValueError("Published player release authority unavailable")
+
+    def published_player(pid, season):
+        check_published_player_release(season)
+        response = player(pid)
+        check_published_player_release(season)
+        return response
+
+    def published_search(q, season):
+        check_published_player_release(season)
+        response = search(q)
+        check_published_player_release(season)
+        return response
+
+    app.state.published_player = published_player
+    app.state.published_search = published_search
 
     @app.get("/api/health")
     def health():

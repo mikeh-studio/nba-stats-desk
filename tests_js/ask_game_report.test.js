@@ -1,0 +1,77 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {gamePerformance, hasMeaningfulTrend, renderGamePerformance} from "../app/static/ask_game_report.js";
+import {renderAskSources} from "../app/static/ask_sources.js";
+
+const pin = "pub_0123456789abcdef";
+const report = {
+  kind: "game_performance",
+  game: {
+    game_id: "0022600255", game_date: "2026-11-17", phase: "Regular Season",
+    team_abbr: "SAS", team_name: "San Antonio Spurs", opponent_abbr: "DET", opponent_name: "Detroit Pistons",
+    home_team_abbr: "DET", home_score: 104, away_team_abbr: "SAS", away_score: 108,
+  },
+  player: {player_id: 1641705, player_name: "Victor Wembanyama"},
+  metrics: [
+    {key:"reb", value:18, baseline:13.8, change:4.2},
+    {key:"oreb", value:5}, {key:"dreb", value:13}, {key:"min", value:28.8},
+    {key:"pts", value:25}, {key:"ast", value:4},
+    {key:"fg_pct", value:58.8, baseline:49.5, change:9.3, unit:"%", change_unit:"percentage points"},
+  ],
+  baseline: {first:"2026-10-22", last:"2026-11-15", games:14},
+  contribution: [{key:"pts", value:25, team_total:108, share:25/108}],
+  team_rebounding: {
+    status:"ok", formula:"OREB / (OREB + opponent DREB)",
+    team:{team_abbr:"SAS", oreb:16, opponent_dreb:28, rate:16/44},
+    opponent:{team_abbr:"DET", oreb:9, opponent_dreb:33, rate:9/42},
+  },
+  rosters: {status:"ok",
+    team:[{player_id:1641705, player_name:"Victor Wembanyama", reb:18, oreb:5, dreb:13}],
+    opponent:[{player_id:1, player_name:"Example <Forward>", reb:11, oreb:2, dreb:9}],
+  },
+};
+
+test("a game report chooses the verified lead exhibit and keeps both rosters expandable", () => {
+  assert.equal(gamePerformance({semantic_evidence:report}), report);
+  const rebounds = renderGamePerformance({...report, lead_metric:"reb"});
+  const main = rebounds.split("<details")[0];
+  assert.match(main, /San Antonio Spurs vs Detroit Pistons/);
+  assert.match(main, /SAS 108 · DET 104/);
+  assert.match(main, /Offensive rebound rate.*36\.4%.*21\.4%/s);
+  assert.doesNotMatch(main, /Team scoring/);
+  assert.equal((main.match(/scope="row"/g) || []).length, 4);
+  assert.match(rebounds, /Who got the rebounds\?.*Victor Wembanyama.*Example &lt;Forward&gt;/s);
+  assert.match(rebounds, /More player stats.*58\.8%.*49\.5%.*\+9\.3 pp/s);
+  assert.doesNotMatch(rebounds, /<Forward>|<details[^>]* open/);
+
+  const scoring = renderGamePerformance({...report, lead_metric:"pts"});
+  const featured = scoring.split("<details")[0];
+  assert.match(featured, /Team scoring.*108 points.*104 points.*25 of 108 SAS points \(23\.1%\)/s);
+  assert.doesNotMatch(featured, /Offensive rebound rate/);
+  assert.match(scoring, /More team comparisons.*Offensive rebound rate/s);
+});
+
+test("trends need two dated observations while discrete charts retain single marks", () => {
+  const line = points => ({type:"line", series:[{points}]});
+  assert.equal(hasMeaningfulTrend(line([{x:"2026-11-17",y:0}])), false);
+  assert.equal(hasMeaningfulTrend(line([{x:"2026-11-17",y:0},{x:"2026-11-18",y:null}])), false);
+  assert.equal(hasMeaningfulTrend(line([{x:"2026-11-17",y:0},{x:"2026-11-18",y:12}])), true);
+  assert.equal(hasMeaningfulTrend({type:"bar",series:[{points:[{x:"Team",y:0}]}]}), true);
+});
+
+test("Sources retain official game attribution, independently pinned reads and all public availability URLs", () => {
+  const html = renderAskSources({publication_id:pin, source_coverage:{last:"2026-11-17"}, semantic_evidence:report});
+  assert.match(html, /Accepted game results.*Game 0022600255/s);
+  assert.match(html, /performance\/games\?publication_id=pub_0123456789abcdef&amp;game_date=2026-11-17/);
+  assert.match(html, /performance\/players\?publication_id=pub_0123456789abcdef&amp;game_id=0022600255/);
+  assert.match(html, /players\/1641705\/game-log\?publication_id=pub_0123456789abcdef/);
+  const incomplete = {...report, game:{...report.game, home_score:null}};
+  assert.doesNotMatch(renderAskSources({publication_id:pin, semantic_evidence:incomplete}), /Accepted game results/);
+
+  const availability = renderAskSources({availability_evidence:{groups:{played:[{
+    game_date:"2025-01-01", source_urls:["https://www.nba.com/report-a", "https://www.nba.com/report-b"],
+  }]}, excluded_games:[{source_urls:["https://www.nba.com/report-b","javascript:alert(1)"]}]}});
+  assert.equal((availability.match(/href=/g) || []).length, 2);
+  assert.match(availability, /report-a.*report-b/s);
+  assert.doesNotMatch(availability, /javascript:/);
+});
