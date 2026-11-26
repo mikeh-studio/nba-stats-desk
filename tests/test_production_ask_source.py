@@ -835,6 +835,35 @@ def test_restored_publication_choice_validates_original_release(production):
     assert not legacy.calls
 
 
+def test_saved_unavailable_name_reply_replays_original_question(production):
+    client, captured, _, _, _ = production
+    add_riley(captured, ACTIVE, points=12)
+    question = "Example total points"
+    first = ask(client, question)
+    assert first["status"] == "clarification_required"
+    original = captured.pop(ACTIVE)
+    failed = ask(client, "Riley Example", conversation_id=first["conversation_id"])
+    assert failed["status"] == "publication_unavailable"
+    retry = failed["publication_retry"]
+    assert retry["question"] == question
+    assert retry["player_name"] == "Riley Example" and retry["publication_id"] == ACTIVE
+
+    captured[ACTIVE] = original
+    recovered = ask(
+        client,
+        retry["question"],
+        conversation_id=str(uuid4()),
+        previous_context={
+            "question": retry["question"],
+            "publication_id": retry["publication_id"],
+        },
+        selected_player_id=retry["player_id"],
+        selected_player_name=retry["player_name"],
+    )
+    assert recovered["status"] == "ok", recovered["answer"]
+    assert recovered["semantic_evidence"]["rows"][0]["value"] == 12
+
+
 def test_relative_game_clarification_keeps_its_eastern_date(production, monkeypatch):
     client, captured, _, _, _ = production
     add_riley(captured, ACTIVE, points=12)
@@ -876,8 +905,9 @@ def test_relative_game_clarification_keeps_its_eastern_date(production, monkeypa
     )
 
 
+@pytest.mark.parametrize("scalar", [True, False])
 def test_multi_player_browser_recovery_revalidates_prior_choice_on_publication(
-    production,
+    production, scalar
 ):
     client, captured, reads, legacy, _ = production
     add_riley(captured, PRIOR, points=5)
@@ -894,28 +924,41 @@ def test_multi_player_browser_recovery_revalidates_prior_choice_on_publication(
             ],
         ),
     )
-    question = "Compare Example vs Mason total points"
-    result = ask(
-        client,
-        question,
-        conversation_id=str(uuid4()),
-        selected_player_id=3000,
-        selected_player_name="Kyle Mason",
-        previous_context={
-            "question": question,
-            "publication_id": PRIOR,
+    question = (
+        "Compare Example vs Mason total points"
+        if scalar
+        else "Compare Example vs Mason this season\nSelected player: Riley Example"
+    )
+    hints = (
+        {
             "publication_identity_choices": [
                 {
                     "mention": "Example",
                     "player_id": 2000,
                     "player_name": "Riley Example",
                 }
-            ],
-        },
+            ]
+        }
+        if scalar
+        else {"publication_comparison_choices": {"0": 2000}}
+    )
+    result = ask(
+        client,
+        question,
+        conversation_id=str(uuid4()),
+        selected_player_id=3000,
+        selected_player_name="Kyle Mason",
+        previous_context={"question": question, "publication_id": PRIOR, **hints},
     )
     assert result["status"] == "ok", result["answer"]
     assert result["publication_id"] == PRIOR
-    assert result["semantic_evidence"]["difference"] == -6
+    report = result["semantic_evidence"]
+    value = (
+        report["difference"]
+        if scalar
+        else next(row["delta"] for row in report["metrics"] if row["key"] == "pts")
+    )
+    assert value == -6
     assert reads == [PRIOR, PRIOR] and not legacy.calls
 
 

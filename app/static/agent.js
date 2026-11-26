@@ -1042,6 +1042,7 @@ function bindClarifyOptions(root, payload) {
       askQuestion(question, {
         publicationId: payload.publication_id,
         identityChoices: payload.semantic_plan?.choices,
+        comparisonChoices: payload.semantic_plan?.comparison_choices,
         playerId: Number.isFinite(playerId) && playerId > 0 ? playerId : null,
         playerName: button.dataset.playerName || "",
       });
@@ -1737,9 +1738,10 @@ function appendRestoredTurn(turn, isLatest, preceding) {
           [previous.question, previous.payload.clarification_question].includes(turn.question)
       );
       const replay = turn.payload.publication_retry || priorPrompt?.payload;
-      return askQuestion(turn.question, replay ? {
+      return askQuestion(turn.payload.publication_retry?.question || turn.question, replay ? {
         publicationId: replay.publication_id,
         identityChoices: replay.choices,
+        comparisonChoices: replay.comparison_choices,
         playerId: replay.player_id,
         playerName: replay.player_name,
       } : null);
@@ -2215,10 +2217,13 @@ function buildAskBody(question, selection, conversationId = activeConversationId
         typeof player.player_name === "string" && player.player_name.length > 0 && player.player_name.length <= 80)
       .slice(0, 6)
       .map(([mention, {player_id, player_name}]) => ({mention, player_id, player_name}));
+    const comparisonChoices = Object.entries(selection.comparisonChoices || {})
+      .filter(([side, id]) => ["0", "1"].includes(side) && Number.isSafeInteger(id) && id > 0);
     body.previous_context = {
       ...(body.previous_context || {question: question.slice(0, 4000)}),
       publication_id: selection.publicationId,
       ...(choices.length ? {publication_identity_choices: choices} : {}),
+      ...(comparisonChoices.length ? {publication_comparison_choices: Object.fromEntries(comparisonChoices)} : {}),
     };
   }
   return body;

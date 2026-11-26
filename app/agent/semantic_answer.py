@@ -1586,6 +1586,11 @@ class SemanticAsk:
                             selected_player,
                             (pending.query_plan or {}).get("comparison_choices")
                             if pending
+                            else context.get("publication_comparison_choices")
+                            if publication
+                            and publication_pin
+                            and selected_player
+                            and context.get("browser_recovered")
                             else None,
                         )
                     else:
@@ -1956,7 +1961,13 @@ class SemanticAsk:
         if payload["status"] == "publication_unavailable" and publication_pin:
             payload["publication_retry"] = {
                 "publication_id": publication_pin,
+                "question": pending.question if pending else original,
                 **(selected_player or {}),
+                "comparison_choices": (
+                    (pending.query_plan or {}).get("comparison_choices")
+                    if pending
+                    else context.get("publication_comparison_choices")
+                ),
                 "choices": {
                     choice["mention"]: choice
                     for choice in context.get("publication_identity_choices", ())

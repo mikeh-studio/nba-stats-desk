@@ -551,6 +551,7 @@ def run_name_matching(
             if replay_choice:
                 payload["publication_retry"] = {
                     "publication_id": session.publication_id,
+                    "question": pending.question,
                     "player_id": replay_choice["player_id"],
                     "player_name": replay_choice["player_name"],
                     "choices": session.choices,

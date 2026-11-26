@@ -429,6 +429,38 @@ test("saved failures require an explicit retry and preserve their original evide
   assert.equal(turns[1].payload.answer,"Fresh answer");
 });
 
+test("a saved publication retry replays the original question and both identity hints", async () => {
+  const thread = new FakeElement();
+  const agent = await loadAgentModule({elements:{
+    "[data-agent-answer]": thread, "[data-agent-empty]": new FakeElement(),
+  }});
+  const question = "Compare Example vs Mason this season";
+  const publicationId = "pub_0123456789abcdef";
+  const payload = {
+    status: "publication_unavailable", answer: "Source unavailable",
+    publication_retry: {
+      question, publication_id: publicationId, player_id: 202, player_name: "Kyle Mason",
+      comparison_choices: {"0": 101},
+    },
+  };
+  agent.saveHistoryState({conversations:[{id:"saved-failure",turns:[{
+    question:"Kyle Mason", payload, request_id:"failed-request",timestamp:"2026-10-22T12:00:00Z",
+  }]}]});
+  const posts = [];
+  globalThis.fetch = async (url, options) => {
+    posts.push(JSON.parse(options.body));
+    return {ok:false, status:503, json:async () => ({detail:"Still unavailable."})};
+  };
+  await agent.restoreConversation("saved-failure");
+  await thread.children[0].children[2].listeners.get("click")[0]();
+  assert.equal(posts.length,1);
+  assert.equal(posts[0].question, question);
+  assert.equal(posts[0].selected_player_id, 202);
+  assert.deepEqual(posts[0].previous_context, {
+    question, publication_id: publicationId, publication_comparison_choices: {"0": 101},
+  });
+});
+
 test("browser history write failures do not break Ask", async () => {
   const storage = createStorage({ failWrites: true });
   const agent = await loadAgentModule({ storage });
