@@ -1019,6 +1019,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
+            tool_only=True,
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -1138,6 +1139,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=self.catalog.analysis_metric_keys(),
+            tool_only=True,
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -1307,6 +1309,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=self.catalog.analysis_metric_keys(),
+            tool_only=True,
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -1474,6 +1477,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
+            tool_only=True,
         )
         detail = self.repo.get_player_detail(_to_int(player_id) or -1)
         if detail is None:
@@ -1501,7 +1505,7 @@ class StatsToolRunner:
         metric: Any,
         min_games: Any = 5,
     ) -> dict[str, Any]:
-        metric_def = self.catalog.resolve_metric(str(metric or ""))
+        metric_def = self.catalog.resolve_metric(str(metric or ""), tool_only=True)
         if metric_def is None:
             return {
                 "status": "error",
@@ -1544,7 +1548,7 @@ class StatsToolRunner:
         }
 
     def search_rankings(self, metric: Any, limit: Any = 10) -> dict[str, Any]:
-        metric_def = self.catalog.resolve_metric(str(metric or ""))
+        metric_def = self.catalog.resolve_metric(str(metric or ""), tool_only=True)
         if metric_def is None:
             return {
                 "status": "error",

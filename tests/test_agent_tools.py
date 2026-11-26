@@ -434,8 +434,58 @@ def test_metric_tiers_assign_every_metric_a_tier() -> None:
         "plus_minus",
     )
     assert catalog.tier_keys(4) == ("fantasy_points_simple", "points_created")
-    # No metric should silently fall through to the untiered bucket.
-    assert all(metric.tier <= 4 for metric in catalog.metrics.values())
+    assert catalog.tier_keys(5) == (
+        "gp",
+        "fga",
+        "fg3a",
+        "fta",
+        "ft_pct",
+        "efg_pct",
+        "pts_per36",
+        "ast_per36",
+        "fantasy_proxy_weighted",
+    )
+
+
+def test_catalog_covers_governed_metrics_and_preserves_legacy_tool_scope():
+    from app.agent.reference_planner import followup_metric_key
+    from app.agent.scope_policy import explicit_metric_mentions
+    from app.agent.semantics import load_contract
+
+    catalog = load_semantic_catalog()
+    assert {m["key"] for m in catalog.list_metrics()} == set(load_contract().metrics)
+    for key in ("fg_pct", "fg3_pct"):
+        metric = catalog.metrics[key]
+        assert metric.is_percent
+        assert "summed" in metric.description
+    assert followup_metric_key("free throw percentage") == "ft_pct"
+    assert followup_metric_key("assists per 36 minutes") == "ast_per36"
+    assert explicit_metric_mentions("Compare points per 36 minutes and FG%") == {
+        "pts_per36",
+        "fg_pct",
+    }
+    result = StatsToolRunner(ToolFakeRepository()).search_rankings(
+        "weighted fantasy points"
+    )
+    assert result["status"] == "error"
+    assert result["invalid_metrics"] == ["weighted fantasy points"]
+
+
+def test_catalog_accepts_legacy_metadata_override(tmp_path):
+    path = tmp_path / "catalog.yml"
+    path.write_text(
+        "metrics:\n"
+        "  fg_pct:\n"
+        "    label: Custom FG%\n"
+        "    description: Custom description\n"
+        "    game_log_key: fg_pct\n"
+        "    trend_stat: FG_PCT\n"
+        "    unit: percent\n"
+    )
+    metric = load_semantic_catalog(path).resolve_metric("Custom FG%")
+    assert metric is not None
+    assert metric.formula == "fg_pct * 100"
+    assert metric.is_percent
 
 
 def test_default_metric_keys_track_tiers_one_and_two() -> None:

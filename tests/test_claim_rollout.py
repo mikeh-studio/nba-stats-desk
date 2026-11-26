@@ -9,6 +9,7 @@ from dataclasses import replace
 import pytest
 from app.agent import claim_rollout as rollout
 from app.agent.claims import finalize
+from app.config import get_settings
 from fastapi import HTTPException
 from starlette.requests import Request
 from tests.test_claim_bindings import literal_breakdown
@@ -35,6 +36,14 @@ def event():
 def test_invalid_setting_rejects(value):
     with pytest.raises(ValueError):
         replace(settings(), ask_claim_enforcement=value)
+
+
+def test_application_enforces_by_default_and_allows_log_rollback(monkeypatch):
+    monkeypatch.delenv("ASK_CLAIM_ENFORCEMENT", raising=False)
+    assert settings().ask_claim_enforcement == "enforce"
+    assert get_settings().ask_claim_enforcement == "enforce"
+    monkeypatch.setenv("ASK_CLAIM_ENFORCEMENT", "log")
+    assert get_settings().ask_claim_enforcement == "log"
 
 
 @pytest.mark.parametrize("mode", ["log", "enforce"])

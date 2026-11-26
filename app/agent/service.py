@@ -9,7 +9,12 @@ from typing import Any, Callable
 from pydantic import ValidationError
 
 from app.agent.conversation import ConversationStore, PendingClarification
-from app.agent.execution import ExecutionFailure, create_response, governed_request
+from app.agent.execution import (
+    DEFAULT_MAX_OUTPUT_TOKENS,
+    ExecutionFailure,
+    create_response,
+    governed_request,
+)
 from app.agent.legacy_loader import (
     build_agent_plan,
     build_query_plan,
@@ -829,6 +834,7 @@ class StatsAgent:
         timeout_seconds: float,
         provider: str = "openai",
         on_output_text_delta: Callable[[str], None] | None = None,
+        max_output_tokens: int = DEFAULT_MAX_OUTPUT_TOKENS,
     ) -> Any:
         kwargs: dict[str, Any] = dict(
             model=model, instructions=instructions, input=input_messages, text=text
@@ -842,6 +848,7 @@ class StatsAgent:
             settings=self.settings,
             provider=provider,
             timeout_seconds=timeout_seconds,
+            max_output_tokens=max_output_tokens,
             **kwargs,
         )
 

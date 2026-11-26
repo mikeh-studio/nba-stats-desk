@@ -154,24 +154,26 @@ def validate_literal_scope(
     )
     raw["phase"] = phase_resolution.phase
     metrics = explicit_metric_mentions(question)
-    per36 = bool(re.search(r"\bper[ -]?36\b", question, re.I))
+    per36_bases = {"pts", "ast"}
+    per36_keys = {"pts_per36", "ast_per36"}
+    per36 = bool(metrics & per36_keys or re.search(r"\bper[ -]?36\b", question, re.I))
     planned_per36 = {m for m in raw["metrics"] if m.endswith("_per36")}
     if planned_per36 and not per36:
         inherited_metrics = set(previous.get("metrics", [])) if previous else set()
         if metrics or not planned_per36 <= inherited_metrics:
             raise ValueError("Per-36 units were not requested or inherited")
     if per36:
-        if not planned_per36 or not metrics <= {"pts", "ast", "min"}:
+        if not planned_per36 or not metrics <= per36_bases | per36_keys | {"min"}:
             raise ValueError("Unsupported or unspecified per-36 metric")
-        if not metrics & {"pts", "ast"} and not (
+        if not metrics & (per36_bases | per36_keys) and not (
             previous and planned_per36 <= set(previous.get("metrics", []))
         ):
             raise ValueError("Specify the per-36 metric")
-        for base in ("pts", "ast"):
-            if base in metrics:
-                metrics.remove(base)
-                metrics.add(base + "_per36")
-        metrics.discard("min")
+        metrics = {
+            f"{key}_per36" if key in per36_bases else key
+            for key in metrics
+            if key != "min"
+        }
     if metrics and not metrics <= set(raw["metrics"]):
         raise ValueError("Planned metrics omit an explicit metric")
     if re.search(r"\btotal(?:s)?\b", question, re.I) and raw["aggregation"] != "total":
@@ -575,6 +577,7 @@ For descriptive intent, omitted phase resolves server-side to Regular Season; re
                     }
                 },
                 timeout_seconds=agent._request_timeout_seconds(provider),
+                max_output_tokens=1500,
                 provider=provider,
             )
             if trace:

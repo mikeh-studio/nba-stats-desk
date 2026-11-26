@@ -73,7 +73,7 @@ class Settings:
     metadata_dataset: str
     freshness_threshold_hours: int
     max_search_results: int
-    ask_claim_enforcement: str = "log"
+    ask_claim_enforcement: str = "enforce"
 
     ask_local_espn_dev: bool = False
     ask_intelligence_provider: str = "reference"
@@ -198,7 +198,7 @@ def get_settings() -> Settings:
         ask_deterministic_planning_enabled=_env_bool(
             "ASK_DETERMINISTIC_PLANNING_ENABLED", False
         ),
-        ask_claim_enforcement=os.getenv("ASK_CLAIM_ENFORCEMENT", "log"),
+        ask_claim_enforcement=os.getenv("ASK_CLAIM_ENFORCEMENT", "enforce"),
         project_id=os.getenv("BQ_PROJECT", os.getenv("GCP_PROJECT_ID", "")),
         gold_dataset=os.getenv("BQ_DATASET_GOLD", "nba_gold"),
         agent_dataset=os.getenv("BQ_DATASET_AGENT", "nba_agent"),

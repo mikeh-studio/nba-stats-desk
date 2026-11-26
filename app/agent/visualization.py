@@ -234,6 +234,7 @@ class VisualizationAgent:
                         timeout_seconds=min(
                             10, agent._request_timeout_seconds(provider)
                         ),
+                        max_output_tokens=128,
                     )
                 if trace:
                     trace.add_usage(getattr(response, "usage", None))

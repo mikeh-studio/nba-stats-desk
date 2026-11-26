@@ -37,6 +37,7 @@ class SDK:
     def __init__(self, provider, scenario, clock):
         self.provider, self.scenario, self.clock = provider, scenario, clock
         self.calls, self.options, self.requests = 0, [], []
+        self.response_text = '{"plan":{"status":"unsupported","queries":[],"message":"Scope unavailable","reason":"unsupported_scope"}}'
         self.responses = self
         self.chat = NS(completions=self)
         self.messages = NS(stream=self.stream)
@@ -59,11 +60,7 @@ class SDK:
             raise StatusError(401)
         if self.scenario == "deadline":
             self.clock.now += 100
-        return (
-            "not-json"
-            if self.scenario == "malformed"
-            else '{"plan":{"status":"unsupported","queries":[],"message":"Scope unavailable","reason":"unsupported_scope"}}'
-        )
+        return "not-json" if self.scenario == "malformed" else self.response_text
 
     def create(self, **kwargs):
         text = self.outcome(kwargs)
@@ -360,6 +357,94 @@ def test_provider_retry_limits_are_independent(provider, clock):
                 text={"format": {"type": "text"}},
             )
     assert sdk.calls == {"openai": 1, "claude": 2, "openrouter": 4}[provider]
+
+
+@pytest.mark.parametrize("provider", ["openai", "claude", "openrouter"])
+def test_secondary_ask_models_enforce_wire_controls(
+    provider, clock, tmp_path, monkeypatch
+):
+    from app.agent.visualization import VisualizationAgent, study_charts
+    from scripts.ask_eval.fixtures import fixture_artifacts
+    from tests.test_ask_dispatch import SOURCE, agent, research_request
+    from tests.test_research_insights import presentation_study
+
+    client, sdk, model = adapter(provider, "success", clock)
+    paths = fixture_artifacts(SOURCE, tmp_path, ["study"])
+    ask = agent(agent_teammate_study_path=paths["study"])
+    monkeypatch.setattr(ask, "_get_client", lambda provider: client)
+
+    sdk.response_text = json.dumps({"request": research_request("unsupported")})
+    result = ask.answer(
+        "Is Avery Example's scoring trend causal?", provider=provider, model=model
+    )
+    assert result["ask_route"]["reason_code"] == "planner_unsupported"
+
+    scope = SOURCE["study"]["scope"]
+    sdk.response_text = json.dumps(
+        {
+            **{
+                k: scope[k]
+                for k in (
+                    "focal_player_id",
+                    "teammate_id",
+                    "season",
+                    "start",
+                    "end",
+                    "metric",
+                )
+            },
+            "scope_matches": True,
+        }
+    )
+    result = ask.answer(
+        "Teammate study for Avery Example", provider=provider, model=model
+    )
+    assert result["study_status"] == "answered"
+
+    sdk.response_text = '{"chart_id":"ast"}'
+    options = study_charts(presentation_study(), {"pts", "ast"}, [])
+    with request_policy(ask.settings, provider):
+        result = VisualizationAgent().enrich(
+            ask, {"_chart_candidates": options}, "Assists", provider, model
+        )
+    assert result["visualization"]["selection"] == "model"
+
+    assert sdk.calls == 3
+    for request, limit in zip(sdk.requests, (1500, 1500, 128), strict=True):
+        if provider == "openai":
+            assert request["store"] is False
+            assert request["max_output_tokens"] == limit
+        else:
+            assert "store" not in request
+            assert request["max_tokens"] == limit
+        if provider == "openrouter":
+            assert request["extra_body"]["provider"]["zdr"] is True
+
+
+def test_request_attempt_budget_is_shared_with_retries_and_enrichment(clock):
+    client, sdk, model = adapter("openai", "transient", clock)
+    config = _settings(agent_max_tool_calls=1)
+    trace = AgentTrace("budget", "", model)
+
+    def call(name, **kwargs):
+        return create_response(
+            client, model=model, text={"format": {"name": name}}, **kwargs
+        )
+
+    with request_policy(config, "openai", trace):
+        call("research_intent_v3", max_output_tokens=1500)
+        call("teammate_study_answer", max_output_tokens=1500)
+        with execution.optional_model_budget(10):
+            call("visualization_choice", max_output_tokens=128)
+        with pytest.raises(ExecutionFailure, match="budget_exhausted"):
+            call("semantic_intent_v3")
+    assert sdk.calls == trace.model_calls == 4
+    assert [r["max_output_tokens"] for r in sdk.requests] == [1500, 1500, 1500, 128]
+
+    with request_policy(config, "openai"):
+        call("legacy_answer", store=True)
+    assert sdk.requests[-1]["store"] is False
+    assert sdk.requests[-1]["max_output_tokens"] == 3000
 
 
 @pytest.mark.parametrize("endpoint", ["/api/agent/ask", "/api/agent/ask/stream"])

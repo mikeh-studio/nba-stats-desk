@@ -216,6 +216,7 @@ class ClaudeResponsesClient:
             # whole transcript, so marking the newest block lets the next
             # iteration read everything before it from cache.
             messages[-1]["content"][-1]["cache_control"] = {"type": "ephemeral"}
+        # The Messages API has no Responses-compatible `store` argument.
         request: dict[str, Any] = {
             "model": model,
             "max_tokens": min(
