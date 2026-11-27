@@ -3,7 +3,12 @@
     schema=env_var('BQ_DATASET_GOLD', env_var('BQ_DATASET', 'nba_gold'))
 ) }}
 
-with playoff_player_teams as (
+with regular_seasons as (
+    select distinct season
+    from {{ ref('fct_player_game_stats') }}
+    where season_type = 'Regular Season'
+),
+playoff_player_teams as (
     select distinct season, game_id, team_abbr
     from {{ ref('fct_player_game_stats') }}
     where season_type = 'Playoffs'
@@ -68,7 +73,10 @@ round_team_counts as (
 completed_rounds as (
     select s.season, s.round_number, s.event_name
     from series_results s
-    join round_team_counts t using (season, round_number)
+    join regular_seasons r
+        on s.season = r.season
+    join round_team_counts t
+        on s.season = t.season and s.round_number = t.round_number
     group by 1, 2, 3, t.team_count
     having count(*) = power(2, 4 - s.round_number)
        and t.team_count = 2 * count(*)

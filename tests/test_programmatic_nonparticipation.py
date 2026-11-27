@@ -375,6 +375,44 @@ def test_dbt_event_model_and_singular_integrity_test():
     assert "where not p.participated" in test and "a.player_id is not null" in test
 
 
+def _render_dbt_participation_sql() -> tuple[str, str]:
+    root = Path(__file__).resolve().parents[1] / "dbt"
+    round_cases = " ".join(
+        f"when {index} then '{PLAYOFF_ROUND_LABELS[key]}'"
+        for index, key in enumerate(PLAYOFF_ROUNDS, start=1)
+    )
+    env = Environment()
+    env.globals.update(
+        config=lambda **_: "",
+        env_var=lambda _, default: default,
+        ref=lambda name: name,
+        playoff_round_name=lambda number: f"case {number} {round_cases} end",
+    )
+    model = env.from_string(
+        (root / "models/gold/fct_player_event_participation.sql").read_text()
+    ).render()
+    integrity_test = env.from_string(
+        (root / "tests/player_event_participation_valid.sql").read_text()
+    ).render()
+    return model, integrity_test
+
+
+def _create_dbt_participation_tables(db: duckdb.DuckDBPyConnection) -> None:
+    db.execute("""
+        create table dim_game (
+            season varchar, season_type varchar, game_id varchar, game_date date,
+            playoff_round_number integer, playoff_round_name varchar,
+            home_team_abbr varchar, away_team_abbr varchar, winning_team_abbr varchar
+        )
+    """)
+    db.execute("""
+        create table fct_player_game_stats (
+            season varchar, player_id integer, player_name varchar, team_abbr varchar,
+            season_type varchar, game_id varchar, game_date date
+        )
+    """)
+
+
 @pytest.mark.parametrize(
     ("case", "verified"),
     [
@@ -385,35 +423,10 @@ def test_dbt_event_model_and_singular_integrity_test():
     ],
 )
 def test_dbt_event_model_requires_coverage_and_a_chronological_clinch(case, verified):
-    root = Path(__file__).resolve().parents[1] / "dbt"
     event = PLAYOFF_ROUND_LABELS[PLAYOFF_ROUNDS[-1]]
-    env = Environment()
-    env.globals.update(
-        config=lambda **_: "",
-        env_var=lambda _, default: default,
-        ref=lambda name: name,
-        playoff_round_name=lambda number: f"case {number} when 4 then '{event}' end",
-    )
-    model = env.from_string(
-        (root / "models/gold/fct_player_event_participation.sql").read_text()
-    ).render()
-    integrity_test = env.from_string(
-        (root / "tests/player_event_participation_valid.sql").read_text()
-    ).render()
+    model, integrity_test = _render_dbt_participation_sql()
     with duckdb.connect(config={"threads": 1}) as db:
-        db.execute("""
-            create table dim_game (
-                season varchar, season_type varchar, game_id varchar, game_date date,
-                playoff_round_number integer, playoff_round_name varchar,
-                home_team_abbr varchar, away_team_abbr varchar, winning_team_abbr varchar
-            )
-        """)
-        db.execute("""
-            create table fct_player_game_stats (
-                season varchar, player_id integer, player_name varchar, team_abbr varchar,
-                season_type varchar, game_id varchar, game_date date
-            )
-        """)
+        _create_dbt_participation_tables(db)
         db.execute(
             "insert into fct_player_game_stats values (?, 1, 'Avery Finch', 'NYK', ?, 'reg', '2025-04-01')",
             [SEASON, REGULAR],
@@ -462,3 +475,62 @@ def test_dbt_event_model_requires_coverage_and_a_chronological_clinch(case, veri
                 [SEASON, event],
             )
             assert db.execute(integrity_test).fetchall() == [(SEASON, event, 1)]
+
+
+def test_dbt_event_model_requires_regular_season_rows_for_nonparticipation():
+    conf_finals = PLAYOFF_ROUND_LABELS[PLAYOFF_ROUNDS[2]]
+    finals = PLAYOFF_ROUND_LABELS[PLAYOFF_ROUNDS[3]]
+    model, integrity_test = _render_dbt_participation_sql()
+    with duckdb.connect(config={"threads": 1}) as db:
+        _create_dbt_participation_tables(db)
+        db.execute(
+            "insert into dim_game values (?, ?, 'round3-1', '2025-05-24', 3, ?, 'NYK', 'MIA', 'NYK')",
+            [SEASON, PLAYOFFS, conf_finals],
+        )
+        db.execute(
+            "insert into fct_player_game_stats values (?, 1, 'Avery Finch', 'NYK', ?, 'round3-1', '2025-05-24')",
+            [SEASON, PLAYOFFS],
+        )
+        for n in range(1, 5):
+            game_id = f"game-{n}"
+            game_date = f"2025-06-0{n}"
+            db.execute(
+                "insert into dim_game values (?, ?, ?, ?, 4, ?, 'ATL', 'BOS', 'ATL')",
+                [SEASON, PLAYOFFS, game_id, game_date, finals],
+            )
+            db.execute(
+                "insert into fct_player_game_stats values (?, 10, 'Round Winner', 'ATL', ?, ?, ?)",
+                [SEASON, PLAYOFFS, game_id, game_date],
+            )
+            db.execute(
+                "insert into fct_player_game_stats values (?, 30, 'Round Opponent', 'BOS', ?, ?, ?)",
+                [SEASON, PLAYOFFS, game_id, game_date],
+            )
+
+        db.execute("create table fct_player_event_participation as " + model)
+        facts = db.execute("""
+            select event_name, player_id, participated, is_verified_complete_cohort
+            from fct_player_event_participation
+            order by event_name, player_id
+        """).fetchall()
+        assert facts == [
+            (conf_finals, 1, True, False),
+            (finals, 10, True, False),
+            (finals, 30, True, False),
+        ]
+        assert (
+            db.execute(
+                "select * from fct_player_event_participation where not participated"
+            ).fetchall()
+            == []
+        )
+        assert db.execute(integrity_test).fetchall() == []
+
+        db.execute(
+            """
+            insert into fct_player_event_participation
+            values (?, ?, 1, 'Avery Finch', false, 'Fixture invalid fact.', true)
+        """,
+            [SEASON, finals],
+        )
+        assert db.execute(integrity_test).fetchall() == [(SEASON, finals, 1)]
