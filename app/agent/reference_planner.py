@@ -14,7 +14,7 @@ from app.agent import intelligence_contract as api
 from app.agent.catalog import load_semantic_catalog
 from app.agent.plan_execution import plan_schema
 from app.agent.scope_policy import explicit_aggregation
-from app.agent.semantics import SemanticError
+from app.agent.semantics import GAME_SHARE_PERCENT, SemanticError
 
 _METRICS = {
     "points": "pts",
@@ -295,7 +295,7 @@ LEADER_LABELS = dict(
     min="minutes",
 )
 
-LEADER_GAME_SHARE = 0.7
+LEADER_GAME_SHARE = GAME_SHARE_PERCENT / 100
 
 
 # Match the ranking intent, statistic, and scope independently. Requiring the
@@ -351,7 +351,7 @@ def league_leader_plan(question: str, selected_season: str) -> dict[str, Any] | 
         "model_calls": 0,
         "message": f"League leaders in {LEADER_LABELS[metric]} per game, {season} {phase.lower()}"
         + (
-            "; ranked players appeared in at least 70% of their team's games (the NBA's per-game leader standard)."
+            "; ranked players appeared in at least 65% of their team's games."
             if regular
             else "."
         ),

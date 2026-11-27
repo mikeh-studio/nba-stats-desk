@@ -11,7 +11,7 @@ import calendar
 import math
 import operator
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from dataclasses import field as dataclass_field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -545,6 +545,7 @@ def apply_game_filters(
 
 @dataclass(frozen=True)
 class QuerySelection:
+    qualification_rows: Sequence[Mapping[str, Any]]
     rows: Sequence[Mapping[str, Any]]
     scopes: list[tuple[str, str]]
     seasons: list[str]
@@ -599,6 +600,13 @@ def select_query_rows(
         and (start is None or _date(row["game_date"]) >= start)
     ]
     selected = apply_game_filters(dated, query)
+    qualification_rows = (
+        apply_game_filters(dated, replace(query, stat_filters=None))
+        if query.stat_filters
+        and query.aggregation == "average"
+        and query.min_games is None
+        else selected
+    )
     grouped: dict[int, list[Mapping[str, Any]]] = {}
     for row in selected:
         grouped.setdefault(row["player_id"], []).append(row)
@@ -610,7 +618,54 @@ def select_query_rows(
             offset = query.n if query.window == "prior_n_games" else 0
             rows = rows[offset : offset + query.n]
         selected.extend(rows)
-    return QuerySelection(selected, scopes, seasons, anchor, start, end)
+    return QuerySelection(
+        qualification_rows, selected, scopes, seasons, anchor, start, end
+    )
+
+
+GAME_SHARE_PERCENT = 65
+
+
+def range_minimums(rows, query):
+    """Count distinct team games in scope, splitting traded players at their first new-team appearance."""
+    if query.min_games is not None or query.aggregation != "average":
+        return {}
+    schedules = {}
+    players = {}
+    for row in rows:
+        team = row.get("team_abbr")
+        if not isinstance(team, str) or not re.fullmatch(r"[A-Z]{2,4}", team):
+            raise SemanticError(
+                "incomplete_evidence",
+                "Team identity is required to qualify per-game standings",
+            )
+        season = row["season"]
+        day = str(row["game_date"])
+        schedules.setdefault((season, team), {})[row["game_id"]] = day
+        players.setdefault((row["player_id"], season), set()).add((day, team))
+    opportunities = {}
+    for (pid, season), history in players.items():
+        stints = []
+        for day, team in sorted(history):
+            if not stints or team != stints[-1][1]:
+                stints.append((day, team))
+        games = 0
+        for i, (day, team) in enumerate(stints):
+            end = stints[i + 1][0] if i + 1 < len(stints) else None
+            games += sum(
+                (i == 0 or date >= day) and (end is None or date < end)
+                for date in schedules[season, team].values()
+            )
+        opportunities[pid] = opportunities.get(pid, 0) + games
+    if query.window in {"last_n_games", "prior_n_games"}:
+        offset = query.n if query.window == "prior_n_games" else 0
+        opportunities = {
+            pid: min(query.n, max(0, n - offset)) for pid, n in opportunities.items()
+        }
+    return {
+        pid: max(1, (n * GAME_SHARE_PERCENT + 99) // 100)
+        for pid, n in opportunities.items()
+    }
 
 
 def run_query(
@@ -702,11 +757,14 @@ def run_query(
         grouped.setdefault(int(row["player_id"]), []).append(row)
     summaries = []
     minimum = query.min_games if query.min_games is not None else contract.min_games
+    floors = range_minimums(selection.qualification_rows, query)
     for player_id, rows in grouped.items():
         rows.sort(key=lambda r: (str(r["game_date"]), r["game_id"]), reverse=True)
         summary = aggregate(rows, metric, query.aggregation)
         reasons = []
-        if summary["valid_games"] < minimum:
+        if floors:
+            summary["required_games"] = floors[player_id]
+        if summary["valid_games"] < floors.get(player_id, minimum):
             reasons.append("insufficient_games")
         if summary["missing_component_games"]:
             reasons.append("incomplete_components")
@@ -773,6 +831,8 @@ def finish_summaries(
 
     Callers must validate scope, membership and publication before entering here.
     """
+    uses_team_share = query.aggregation == "average" and query.min_games is None
+    floors = {s["required_games"] for s in summaries if "required_games" in s}
     cohort = [s for s in summaries if s["eligible"]]
     direction = query.direction or metric.direction
     for summary in cohort if cohort_complete else []:
@@ -827,7 +887,10 @@ def finish_summaries(
         },
         "cohort": {
             "size": len(cohort),
-            "min_games": minimum,
+            "min_games": (next(iter(floors)) if len(floors) == 1 else None)
+            if uses_team_share
+            else minimum,
+            **({"team_game_percent": GAME_SHARE_PERCENT} if uses_team_share else {}),
             "min_attempts": query.min_attempts,
             "attempt_field": metric.attempt_field,
             "direction": direction,
