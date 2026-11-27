@@ -16,6 +16,7 @@ import jsonschema
 
 from app.agent.claims import canonical_source
 from app.agent.execution import CURRENT, acquire_timed_lock
+from app.agent.semantic_source import capture_timestamp
 from app.agent.semantics import Evidence, SemanticError, load_contract
 from app.agent.serving_contract import MetricSummary
 from app.agent.serving_publication import (
@@ -521,4 +522,4 @@ class AskBundleWarehouse:
 
     @staticmethod
     def _utc_now() -> datetime:
-        return datetime.now(timezone.utc)
+        return datetime.fromisoformat(capture_timestamp())
