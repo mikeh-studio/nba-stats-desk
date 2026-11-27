@@ -49,6 +49,11 @@ def attach_publication(app, core, mode):
     from starlette.responses import JSONResponse
 
     workers = PublicationWorkers()
+    # The verified Core reader supplies the publication reference for this path.
+    # Off and shadow retain its governed fact execution for immediate rollback.
+    ask_serving_mode = os.getenv("ASK_SERVING_MODE") or "serve"
+    if ask_serving_mode not in {"off", "shadow", "serve"}:
+        raise ValueError("ASK_SERVING_MODE must be off, shadow or serve")
 
     async def publication(scope, receive, send):
         return await workers.serve(serve, scope, receive, send)
@@ -194,6 +199,7 @@ def attach_publication(app, core, mode):
     app.state.ask_publication_source = lambda publication_id: read_bounded(
         read_ask_publication, publication_id
     )
+    app.state.ask_publication_serving_mode = ask_serving_mode
     app.mount("/publication-core", publication)
     app.state.production_publication_enabled = True
 

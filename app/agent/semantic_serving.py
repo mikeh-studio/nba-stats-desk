@@ -336,12 +336,16 @@ def warehouse_for_repository(repo: Any) -> Any:
 
             if get_runtime_policy() is None and not repo.settings.ask_local_espn_dev:
                 adapter = getattr(repo, "_ask_bundle_warehouse", None)
+                mode = getattr(repo, "ask_publication_serving_mode", "off")
                 if (
                     adapter is None
                     or adapter.historical is not warehouse
                     or not _same_reader(adapter.read_publication, publication_reader)
+                    or adapter.publication_mode != mode
                 ):
-                    adapter = AskBundleWarehouse(warehouse, publication_reader)
+                    adapter = AskBundleWarehouse(
+                        warehouse, publication_reader, publication_mode=mode
+                    )
                     repo._ask_bundle_warehouse = adapter
                 return adapter
         return warehouse

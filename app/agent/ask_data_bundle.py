@@ -15,7 +15,13 @@ from typing import TYPE_CHECKING, Any
 import jsonschema
 
 from app.agent.claims import canonical_source
-from app.agent.execution import CURRENT, acquire_timed_lock
+from app.agent.execution import (
+    CURRENT,
+    ExecutionFailure,
+    acquire_timed_lock,
+    optional_shadow_budget,
+    record_serving_shadow,
+)
 from app.agent.semantic_source import capture_timestamp
 from app.agent.semantics import Evidence, SemanticError, load_contract
 from app.agent.serving_contract import MetricSummary
@@ -176,6 +182,42 @@ def _facts_digest(evidence: Evidence | None) -> str:
             }
         )
     )
+
+
+def record_bundle_shadow(
+    read_candidate: Callable[[], Evidence | None], reference: Evidence
+) -> dict[str, str]:
+    """Compare the complete inputs to a governed fact calculation."""
+    try:
+        with optional_shadow_budget():
+            candidate = read_candidate()
+            if candidate is None:
+                outcome = {"status": "ineligible"}
+            elif (
+                candidate.covered_scopes != reference.covered_scopes
+                or candidate.data_through != reference.data_through
+                or candidate.complete != reference.complete
+                or candidate.cohort_complete != reference.cohort_complete
+                or _facts_digest(candidate) != _facts_digest(reference)
+            ):
+                outcome = {"status": "mismatch", "code": "source_content_differs"}
+            elif (
+                candidate.source != reference.source
+                or candidate.snapshot_id != reference.snapshot_id
+                or candidate.model_built_at != reference.model_built_at
+            ):
+                outcome = {"status": "match", "code": "capture_provenance_differs"}
+            else:
+                outcome = {"status": "match"}
+    except Exception as exc:
+        outcome = {
+            "status": "error",
+            "code": exc.code
+            if isinstance(exc, (SemanticError, ExecutionFailure))
+            else "shadow_failure",
+        }
+    record_serving_shadow(outcome)
+    return outcome
 
 
 @dataclass(frozen=True)
@@ -416,8 +458,16 @@ class AskDataBundle:
                 raise ValueError("Unknown Pilot capability version")
             evidence = None
             captured = metadata.get("source_timestamp") or metadata.get("captured_at")
+            if (publication.detail_json is None) != (publication.detail_digest is None):
+                raise ValueError("Pilot detail binding is incomplete")
             if publication.detail_json is not None:
                 evidence = publication.detail_evidence(now=now)
+                if (
+                    evidence is None
+                    or evidence.covered_scopes != approval.scopes
+                    or evidence.data_through != coverage
+                ):
+                    raise ValueError("Pilot detail and approved coverage differ")
                 detail_captured = json.loads(publication.detail_json)[
                     "source_timestamp"
                 ]
@@ -485,10 +535,15 @@ class AskBundleWarehouse:
         read_publication: Callable[[str | None], PublicationAskSource | None]
         | None = None,
         clock: Callable[[], datetime] | None = None,
+        *,
+        publication_mode: str = "off",
     ) -> None:
+        if publication_mode not in {"off", "shadow", "serve"}:
+            raise ValueError("Unsupported Ask publication mode")
         self.historical = historical
         self.read_publication = read_publication
         self._clock = clock
+        self.publication_mode = publication_mode
 
     def __getattr__(self, key: str) -> Any:
         return getattr(self.historical, key)
@@ -529,7 +584,7 @@ class AskBundleWarehouse:
                 else None
             )
             selected_id = source.publication_id if source is not None else None
-        except (ValueError, OSError, KeyError) as exc:
+        except (ValueError, OSError, KeyError, TypeError) as exc:
             raise SemanticError(
                 "publication_unavailable",
                 "The authorized publication is unavailable. Try again when its verification is restored.",
@@ -554,7 +609,34 @@ class AskBundleWarehouse:
         self, publication_id: str | None = None
     ) -> PublicationAskSource | None:
         with self._request_state() as state:
-            return self._pinned_publication(state, publication_id)
+            source = self._pinned_publication(state, publication_id)
+            if source is None or self.publication_mode == "off":
+                return source
+            if self.publication_mode == "shadow":
+                if "shadow_compared" not in state:
+                    record_bundle_shadow(
+                        lambda: (
+                            self._core_bundle(state, source, self._utc_now()).evidence
+                        ),
+                        source.evidence,
+                    )
+                    state["shadow_compared"] = True
+                return source
+            bundle = self._core_bundle(state, source, self._utc_now())
+            if bundle.evidence is None:
+                raise SemanticError("invalid_evidence", "Core bundle facts are missing")
+            return replace(source, evidence=bundle.evidence)
+
+    @staticmethod
+    def _core_bundle(
+        state: dict[str, Any], source: PublicationAskSource, now: datetime
+    ) -> AskDataBundle:
+        if (bundle := state.get("bundle")) is None:
+            bundle = AskDataBundle.from_core_publication(source, now=now)
+            state["bundle"] = bundle
+        else:
+            validate_bundle_manifest(bundle.manifest, now=now)
+        return bundle
 
     def recheck_publication(self, source: PublicationAskSource) -> None:
         # Recheck live authority even when request-local reads use pinned evidence.
@@ -572,6 +654,9 @@ class AskBundleWarehouse:
                 "publication_unavailable",
                 "The publication's league coverage could not be reverified. Try again.",
             )
+        if self.publication_mode == "serve":
+            with self._request_state() as state:
+                self._core_bundle(state, current, self._utc_now())
 
     def open_bundle(
         self, publication_id: str | None = None, *, now: datetime | None = None
@@ -608,8 +693,8 @@ class AskBundleWarehouse:
                         "publication_unavailable",
                         "No authorized Ask publication is available.",
                     )
-                bundle = AskDataBundle.from_core_publication(
-                    source, now=now if now is not None else authority_clock()
+                bundle = self._core_bundle(
+                    state, source, now if now is not None else authority_clock()
                 )
             else:
                 read_pilot = getattr(self.historical, "open_pilot_publication", None)

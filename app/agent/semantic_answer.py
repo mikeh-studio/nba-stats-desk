@@ -1582,6 +1582,13 @@ class SemanticAsk:
                     raise
                 # The requested period stays fixed; only an unavailable baseline
                 # is omitted. build_overview withholds its comparisons.
+                if (
+                    turn.publication is None
+                    and getattr(self.warehouse, "mode", None) == "serve"
+                ):
+                    # The full scope already selected facts. Keep that source
+                    # for the primary-only retry when the baseline is unavailable.
+                    load_evidence = self.warehouse.facts.load
                 turn.snapshot, turn.evidence = load_evidence(primary_seasons)
         self._prepare_players(turn)
 

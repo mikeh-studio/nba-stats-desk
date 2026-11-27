@@ -66,6 +66,9 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
 
 
+ASK_SERVING_FAMILIES = ("points", "metrics", "rankings", "detail", "rich")
+
+
 @dataclass(frozen=True)
 class Settings:
     project_id: str
@@ -140,13 +143,7 @@ class Settings:
     next_regular_season_start: date = date(2026, 10, 20)
 
     def __post_init__(self) -> None:
-        if not set(self.ask_serving_families) <= {
-            "points",
-            "metrics",
-            "rankings",
-            "detail",
-            "rich",
-        }:
+        if not set(self.ask_serving_families) <= set(ASK_SERVING_FAMILIES):
             raise ValueError("Unsupported serving query family")
         if self.ask_serving_mode not in {"off", "shadow", "serve"}:
             raise ValueError("ASK_SERVING_MODE must be off, shadow or serve")
@@ -181,19 +178,29 @@ class Settings:
             if network.prefixlen == 0:
                 raise ValueError("Trust specific proxy networks, not every address")
 
+    @classmethod
+    def from_env(cls) -> Settings:
+        return _settings_from_env(cls)
+
 
 def get_settings() -> Settings:
-    return Settings(
-        ask_local_espn_dev=_env_bool("ASK_LOCAL_ESPN_DEV", False),
-        ask_serving_mode=os.getenv("ASK_SERVING_MODE", "off"),
-        ask_serving_families=tuple(
-            x.strip()
-            for x in os.getenv("ASK_SERVING_FAMILIES", "points").split(",")
-            if x.strip()
-        ),
+    return Settings.from_env()
+
+
+def _settings_from_env(settings_type: type[Settings]) -> Settings:
+    espn_dev = _env_bool("ASK_LOCAL_ESPN_DEV", False)
+    reference = os.getenv("ASK_SERVING_REFERENCE_PATH") or None
+    families = os.getenv("ASK_SERVING_FAMILIES", "points")
+    return settings_type(
+        ask_local_espn_dev=espn_dev,
+        ask_serving_mode=os.getenv("ASK_SERVING_MODE")
+        or ("serve" if reference and not espn_dev else "off"),
+        ask_serving_families=ASK_SERVING_FAMILIES
+        if families.strip() == "all"
+        else tuple(x.strip() for x in families.split(",") if x.strip()),
         ask_formula_cache_enabled=_env_bool("ASK_FORMULA_CACHE_ENABLED", False),
         ask_cohort_cache_enabled=_env_bool("ASK_COHORT_CACHE_ENABLED", False),
-        ask_serving_reference_path=os.getenv("ASK_SERVING_REFERENCE_PATH") or None,
+        ask_serving_reference_path=reference,
         ask_intelligence_provider=os.getenv("ASK_INTELLIGENCE_PROVIDER", "reference"),
         ask_deterministic_planning_enabled=_env_bool(
             "ASK_DETERMINISTIC_PLANNING_ENABLED", False

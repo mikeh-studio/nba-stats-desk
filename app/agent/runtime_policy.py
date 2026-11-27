@@ -60,10 +60,14 @@ class RuntimePolicy:
             settings.agent_history_enabled
             or settings.agent_trace_enabled
             or settings.ask_local_espn_dev
-            or settings.ask_serving_mode != "off"
             or settings.agent_position_context_path is not None
         ):
             raise ValueError("Runtime policy forbids optional persistence and sources")
+        if settings.ask_serving_mode != "off" and (
+            settings.ask_serving_mode not in {"shadow", "serve"}
+            or not settings.ask_serving_reference_path
+        ):
+            raise ValueError("Runtime policy requires a trusted serving reference")
 
     def validate_selection(self, provider, model):
         if provider != "openai" or model != self.model:

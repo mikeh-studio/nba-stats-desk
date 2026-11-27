@@ -1,4 +1,4 @@
-"""Feature-gated serving selection with publication-scoped single-flight caches."""
+"""Serving selection with publication-scoped single-flight caches."""
 
 from __future__ import annotations
 
@@ -8,7 +8,11 @@ from datetime import datetime
 from threading import Lock
 from time import monotonic
 
-from app.agent.ask_data_bundle import AskBundleWarehouse, AskDataBundle
+from app.agent.ask_data_bundle import (
+    AskBundleWarehouse,
+    AskDataBundle,
+    record_bundle_shadow,
+)
 from app.agent.execution import (
     CURRENT,
     ExecutionFailure,
@@ -33,7 +37,7 @@ class PublicationCache:
         self._locks = {False: Lock(), True: Lock()}
         self._values = {}
 
-    def get(self, *, detail=False):
+    def get(self, *, detail=False, mode="shadow"):
         lock = self._locks[detail]
         acquire_timed_lock(lock, "serving_cache_wait", 120)
         hit = False
@@ -58,8 +62,16 @@ class PublicationCache:
                 source_version=pub.approval.source_snapshot_id,
             )
             return pub
-        except Exception:
+        except Exception as exc:
             record_data_read(kind="evidence_cache", status="error", cache_hit=hit)
+            if (
+                mode == "serve"
+                and isinstance(exc, SemanticError)
+                and exc.code == "source_unavailable"
+            ):
+                raise SemanticError(
+                    "publication_unavailable", "Serving publication unavailable"
+                ) from exc
             raise
         finally:
             lock.release()
@@ -96,6 +108,22 @@ class ServingWarehouse:
         self.cache = PublicationCache(reader, clock)
         self._last_shadow: ServingShadow | FailedShadow | None = None
 
+    def _publication(self, *, detail=False) -> PilotPublication:
+        return self.cache.get(detail=detail, mode=self.mode)
+
+    def bound_detail(self, core: PilotPublication) -> PilotPublication:
+        detail = self._publication(detail=True)
+        if (
+            detail.approval != core.approval
+            or detail.metadata_digest != core.metadata_digest
+            or detail.detail_digest != core.detail_digest
+            or detail.detail_json is None
+        ):
+            raise SemanticError(
+                "invalid_evidence", "Serving core and detail bindings differ"
+            )
+        return detail
+
     @property
     def serving_shadow(self):
         policy = CURRENT.get()
@@ -112,7 +140,7 @@ class ServingWarehouse:
             self._last_shadow = value
 
     def candidate_shadow(self, evidence=None):
-        pub = self.cache.get()
+        pub = self._publication()
         metadata, _ = pub.expanded_metadata(self.clock())
         return ServingShadow(
             pub,
@@ -139,7 +167,7 @@ class ServingWarehouse:
             return None
         if not question_may_use_serving(question, self.families):
             return None
-        pub = self.cache.get()
+        pub = self._publication()
         metadata, _ = pub.expanded_metadata(self.clock())
         # The fact resolver sees all observed phases in every requested season.
         # Do not clarify identity against an unrelated or partial catalog.
@@ -265,11 +293,18 @@ class ServingWarehouse:
         if family not in self.families or (detail and pub.detail_digest is None):
             raise CapabilityMiss()
         if query.operation == "game_log" and hasattr(self.cache.reader, "run_game_log"):
-            value = self.cache.reader.run_game_log(query, now=self.clock())
+            try:
+                value = self.cache.reader.run_game_log(query, now=self.clock())
+            except SemanticError as exc:
+                if self.mode != "serve" or exc.code != "source_unavailable":
+                    raise
+                raise SemanticError(
+                    "publication_unavailable", "Serving publication unavailable"
+                ) from exc
             if value is None:
                 raise CapabilityMiss()
             return value
-        selected = self.cache.get(detail=True) if detail else pub
+        selected = self.bound_detail(pub) if detail else pub
         if metadata.get("capability_version") == "ask_serving_points/1":
             value = selected.run(
                 query, now=self.clock(), reuse_cohort=self.reuse_cohort
@@ -292,42 +327,31 @@ class ServingWarehouse:
             result = self.facts.load(seasons)
             self.serving_shadow = LazyShadow(self, result[1])
             return result
+        return self._load_rich(seasons) or self.facts.load(seasons)
+
+    def _load_rich(self, seasons):
         if "rich" not in self.families:
-            return self.facts.load(seasons)
-        core = self.cache.get()
-        if (
-            core.detail_digest is None
-            or not {(s, p) for s in seasons for p in PHASES} <= core.approval.scopes
-        ):
-            return self.facts.load(seasons)
-        pub = self.cache.get(detail=True)
-        if not any(s in seasons for s, p in pub.approval.scopes):
-            return self.facts.load(seasons)
+            return None
+        core = self._publication()
+        metadata, _ = core.expanded_metadata(self.clock())
+        scopes = {(s, p) for s in seasons for p in PHASES}
+        if core.detail_digest is None or not scopes <= core.approval.scopes:
+            return None
+        pub = self.bound_detail(core)
         evidence = pub.detail_evidence(now=self.clock())
-        if evidence is None:
-            return self.facts.load(seasons)
-        if not all(
-            any(s == season for s, p in evidence.covered_scopes) for season in seasons
-        ):
-            return self.facts.load(seasons)
-        # Whole-request fact fallback occurs only for an undeclared capability.
-        # Never merge partial populations or publications.
+        if evidence is None or evidence.covered_scopes != core.approval.scopes:
+            raise SemanticError("invalid_evidence", "Serving detail coverage differs")
         if {s for s, p in evidence.covered_scopes} != set(seasons):
             from dataclasses import replace
 
-            scopes = frozenset(
-                (s, p) for s, p in evidence.covered_scopes if s in seasons
-            )
             evidence = replace(
                 evidence,
                 rows=[r for r in evidence.rows if r["season"] in seasons],
-                covered_scopes=scopes,
+                covered_scopes=frozenset(scopes),
                 data_through={
                     k: v for k, v in evidence.data_through.items() if k in scopes
                 },
-                source=scoped_source(
-                    __import__("json").loads(pub.metadata_json), seasons
-                ),
+                source=scoped_source(metadata, seasons),
             )
         return {
             "capture": {
@@ -342,7 +366,10 @@ class ServingWarehouse:
     def load_for_request(self, seasons, *, rich=False):
         if self.mode == "serve" and not rich:
             return self.facts.load(seasons)
-        return self.load(seasons)
+        result = self.load(seasons)
+        if rich and self.mode == "shadow" and self.serving_shadow is not None:
+            self.serving_shadow.compare_rich(seasons)
+        return result
 
     def players(self, evidence):
         return self.facts.players(evidence)
@@ -475,21 +502,11 @@ class RefreshingServingWarehouse:
             self._lock.release()
 
     def open_pilot_publication(self) -> PilotPublication:
-        cache = self._select().cache
-        core = cache.get()
+        target = self._select()
+        core = target._publication()
         if core.detail_digest is None:
             return core
-        detail = cache.get(detail=True)
-        if (
-            detail.approval != core.approval
-            or detail.metadata_digest != core.metadata_digest
-            or detail.detail_digest != core.detail_digest
-            or detail.detail_json is None
-        ):
-            raise SemanticError(
-                "invalid_evidence", "Serving core and detail bindings differ"
-            )
-        return detail
+        return target.bound_detail(core)
 
     def open_bundle(
         self, publication_id: str | None = None, *, now: datetime | None = None
@@ -537,7 +554,10 @@ class RefreshingServingWarehouse:
     def load_for_request(self, seasons, *, rich=False):
         if self.mode == "serve" and not rich:
             return self.facts.load(seasons)
-        return self.load(seasons)
+        result = self.load(seasons)
+        if rich and self.mode == "shadow" and self._completed(seasons):
+            self.serving_shadow.compare_rich(seasons)
+        return result
 
     def players(self, evidence):
         return self.facts.players(evidence)
@@ -551,11 +571,27 @@ class RefreshingServingWarehouse:
 
 
 class LazyShadow:
-    """Only scalar execution compares; other routes incur no candidate reads."""
+    """Check eligible scalar results or rich source evidence under an optional budget."""
 
     def __init__(self, warehouse, evidence):
         self.warehouse, self.evidence = warehouse, evidence
         self.outcomes = []
+
+    def compare_rich(self, seasons):
+        warehouse = self.warehouse
+        if "rich" not in warehouse.families:
+            return
+
+        def candidate():
+            target = warehouse
+            if isinstance(warehouse, RefreshingServingWarehouse):
+                if not warehouse._reference().covers(seasons):
+                    return None
+                target = warehouse._select()
+            result = target._load_rich(seasons)
+            return result[1] if result is not None else None
+
+        self.outcomes.append(record_bundle_shadow(candidate, self.evidence))
 
     def compare(self, query, reference):
         warehouse = self.warehouse

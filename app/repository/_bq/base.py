@@ -88,6 +88,9 @@ class BigQueryBaseMixin:
     ask_publication_source: (
         Callable[[str | None], PublicationAskSource | None] | None
     ) = field(default=None, repr=False, compare=False, init=False)
+    ask_publication_serving_mode: str = field(
+        default="off", repr=False, compare=False, init=False
+    )
     _recent_performance_rows_cache: tuple[float, list[dict[str, Any]]] | None = field(
         default=None,
         init=False,

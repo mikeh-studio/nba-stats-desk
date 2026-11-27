@@ -874,8 +874,10 @@ def answer_reference(
                 "The similarity publication must match the selected season.",
             )
         warehouse = agent.semantic_agent.warehouse
-        # These reference/similarity routes are not part of the rich serving gate.
-        _, source = getattr(warehouse, "facts", warehouse).load(seasons)
+        if kind == "league_baseline" and hasattr(warehouse, "load_for_request"):
+            _, source = warehouse.load_for_request(seasons, rich=True)
+        else:
+            _, source = getattr(warehouse, "facts", warehouse).load(seasons)
         if not source.cohort_complete:
             raise SemanticError(
                 "unsupported_coverage",
