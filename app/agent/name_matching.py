@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, NamedTuple
 
-from app.agent.player_resolver import normalize_player_text
+from app.agent.alias_builder import normalize_player_text, player_aliases_for_cohort
 from app.agent.player_suggestions import (
     _CONTEXT_WORDS,
     _rank_matches,
@@ -152,13 +152,21 @@ def _spans(question, players):
                 exact.append((group[0].start(), group[0].start() + len(raw)))
     for player in players:
         for name in (player["player_name"], *player.get("aliases", [])):
-            if not name:
+            if not name or normalize_player_text(name) in _SCOPE_WORDS:
                 continue
             for m in re.finditer(
                 r"(?<!\w)" + re.escape(name) + r"(?!\w)", question, re.I
             ):
                 exact.append((m.start(), m.end()))
     exact = sorted(set(exact), key=lambda s: (s[0], -(s[1] - s[0])))
+    # A surname inside a recognized full name cannot start a second span.
+    standalone = {
+        (a, b)
+        for a, b in exact
+        if not any(
+            start <= a and end >= b and (start, end) != (a, b) for start, end in exact
+        )
+    }
     # Don't accept a familiar short alias while discarding an unfamiliar
     # surname: "Jalen Zqxv" is not simply "Jalen".
     for left, right in zip(tokens, tokens[1:]):
@@ -169,7 +177,7 @@ def _spans(question, players):
         pair = (left.start(), right.end())
         if any(
             s in {(left.start(), left.end()), (right.start(), right.end())}
-            for s in exact
+            for s in standalone
         ) and not any(a <= pair[0] and b >= pair[1] for a, b in exact):
             exact.append(pair)
     exact = [
@@ -247,24 +255,7 @@ def prepare_names(
     restored = {
         normalize_player_text(choice["mention"]): choice for choice in restored_choices
     }
-    from app.agent.player_resolver import load_player_aliases
-
-    aliases = load_player_aliases()
-    roster = [
-        dict(
-            p,
-            aliases=sorted(
-                set(p.get("aliases", []))
-                | {
-                    a
-                    for a, target in aliases.items()
-                    if normalize_player_text(target)
-                    == normalize_player_text(p["player_name"])
-                }
-            ),
-        )
-        for p in players
-    ]
+    roster = player_aliases_for_cohort(players)
     for start, end in _spans(question, roster):
         raw = question[start:end]
         key = normalize_player_text(raw)

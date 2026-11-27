@@ -852,12 +852,13 @@ The `/similarity-methodology` page explains inputs, missingness, scoring, groupi
 model selection and PCA limitations. Scores across the two methods are not
 interchangeable.
 
-NBA Finals requests first check the narrow, sourced `participation_catalog.json`.
-A matching verified nonparticipant returns `not_applicable` with reference evidence
-and no fabricated zero statistics. The initial record covers Stephen Curry in
-2025–26, sourced to the NBA elimination report. Unknown players/seasons and other
-rounds retain an explicit coverage limitation. Missing box scores or a current
-team are never sufficient evidence of nonparticipation.
+Ask checks the sourced `participation_catalog.json` for the existing Stephen Curry
+2025–26 NBA Finals record. It can also verify nonparticipation in any of the four
+playoff rounds from complete cohort evidence. Every expected matchup must have a
+recorded series winner. The player must have appeared that season before the
+round, and none of their recorded season teams can have reached the round.
+Verified nonparticipation returns `not_applicable` with evidence and no statistics.
+An absent record leaves participation unknown.
 
 League references support one metric, one season, one phase (regular season by
 default), and an optional last-N appearance window or explicit ISO date range.

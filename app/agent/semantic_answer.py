@@ -993,7 +993,8 @@ class SemanticAsk:
             return early_payload
         if turn.playoff_round:
             try:
-                self._load_evidence_and_players(turn)
+                if self._load_evidence_and_players(turn):
+                    return self._finalize_payload(turn)
             except (PlayerNameError, SemanticError) as exc:
                 return self._finalize_payload(turn, error=exc)
         assert turn.route_shape is not None
@@ -1748,7 +1749,7 @@ class SemanticAsk:
                     "unsupported_scope", round_scope_message(turn.question) or str(exc)
                 ) from exc
             raise
-        return False
+        return bool(turn.payload)
 
     def _load_archive(self, turn: _SemanticTurnState) -> None:
         load_evidence = turn.load_evidence
@@ -1824,6 +1825,22 @@ class SemanticAsk:
                     round_scope_message(turn.question)
                     or "Playoff-round coverage is unavailable.",
                 )
+        self._prepare_players(turn)
+        if turn.playoff_round:
+            from app.agent.participation import answer_known_nonparticipation
+
+            if len(turn.seasons) == 1:
+                participation = answer_known_nonparticipation(
+                    turn.question,
+                    turn.seasons[0],
+                    turn.conversation_id,
+                    evidence=turn.evidence,
+                    include_curated=turn.publication is None,
+                )
+                if participation is not None:
+                    turn.payload = participation
+                    turn.result = {"status": participation["status"]}
+                    return
             if (
                 turn.intent.get("kind") == "quantity_aggregation"
                 and not turn.publication_stat
@@ -1832,7 +1849,6 @@ class SemanticAsk:
                     "clarification_required",
                     turn.intent["message"] or "Specify the aggregation.",
                 )
-        self._prepare_players(turn)
 
     def _prepare_players(self, turn: _SemanticTurnState) -> None:
         evidence = turn.evidence
@@ -2512,14 +2528,17 @@ class SemanticAsk:
                 "version": 1,
                 "kind": (overview_pending or {}).get("overview_clarification"),
             }
-        payload["agent_plan"] = {
-            "route": "governed_metrics",
-            "confidence": 1.0,
-            "needs_clarification": payload["status"] == "clarification_required",
-        }
-        if turn.route_shape is None:
-            turn.route_shape = semantic_shape(turn.request_question)
-        route_label = SEMANTIC_LABELS[turn.route_shape]
+        if payload.get("participation_evidence"):
+            route_label = "event_participation"
+        else:
+            payload["agent_plan"] = {
+                "route": "governed_metrics",
+                "confidence": 1.0,
+                "needs_clarification": payload["status"] == "clarification_required",
+            }
+            if turn.route_shape is None:
+                turn.route_shape = semantic_shape(turn.request_question)
+            route_label = SEMANTIC_LABELS[turn.route_shape]
         reason_code = (
             f"overview_{overview_pending['overview_clarification']}"
             if overview_pending and overview_pending.get("overview_clarification")
