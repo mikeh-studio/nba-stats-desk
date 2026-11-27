@@ -8,11 +8,11 @@ from types import SimpleNamespace
 import pytest
 from app.agent.ask_data_bundle import AskDataBundle, record_bundle_shadow
 from app.agent.claims import expand_path, validate
-from app.agent.historical_positions import GROUPS
+from app.agent.historical_positions import GROUPS, MAPPING_VERSION, digest
 from app.agent.overview_percentiles import add_percentiles
 from app.agent.overview_positions import add_position_comparisons, validated_context
 from app.agent.publication_ask_source import PublicationAskSource
-from app.agent.scope_policy import requested_playoff_round
+from app.agent.scope_policy import normalize_playoff_round_year, requested_playoff_round
 from app.agent.semantics import (
     PLAYOFF_ROUNDS,
     Evidence,
@@ -82,6 +82,12 @@ def test_canonical_playoff_id(game_id, expected):
 )
 def test_round_wording(wording, key):
     assert requested_playoff_round(wording) == key
+
+
+@pytest.mark.parametrize("season", ["2024-25", "2024-2025", "2024/2025", "2024–2025"])
+def test_round_year_normalization_preserves_named_season(season):
+    question = f"points in the {season} NBA Finals"
+    assert normalize_playoff_round_year(question) == question
 
 
 def round_rows():
@@ -181,6 +187,30 @@ def test_round_scope_fails_closed(phase, round_key, code):
     assert err.value.code == code
 
 
+def test_unclassified_appearance_cannot_undercount_a_round_total():
+    rows = round_rows()
+    query = Query(
+        "pts",
+        SEASON,
+        "total",
+        season_type=PLAYOFFS,
+        player_id=1,
+        playoff_round="first_round",
+    )
+    assert run_query(round_evidence(rows), query)["rows"][0]["value"] == 42
+    del rows[2]["playoff_round"]
+    with pytest.raises(SemanticError) as err:
+        run_query(round_evidence(rows), query)
+    assert err.value.code == "unsupported_scope"
+
+    before_unclassified = replace(query, as_of="2025-04-19")
+    assert (
+        run_query(round_evidence(rows), before_unclassified)["rows"][0]["value"] == 12
+    )
+    rows[2].update(player_id=2, player_name="Another Player")
+    assert run_query(round_evidence(rows), query)["rows"][0]["value"] == 12
+
+
 def ask_fixture(rows, *, claim_mode="enforce"):
     config = replace(settings(), ask_claim_enforcement=claim_mode)
     warehouse = Warehouse()
@@ -254,6 +284,54 @@ def test_dispatch_withholds_unbacked_round_and_runs_participation_first():
     assert warehouse.calls == [[SEASON]]
 
 
+@pytest.mark.parametrize(
+    "question,game_id,round_key",
+    [
+        (
+            "How many total points did Regular Player score in the 2024 NBA Finals?",
+            "0042300401",
+            "nba_finals",
+        ),
+        (
+            "How did Regular Player perform in the 2024 Conference Finals?",
+            "0042300301",
+            "conference_finals",
+        ),
+    ],
+)
+@pytest.mark.parametrize("archived", [True, False])
+def test_ask_named_round_year_uses_only_the_requested_archive(
+    question, game_id, round_key, archived
+):
+    rows = round_rows()
+    ask, _, warehouse = ask_fixture(rows)
+    if archived:
+        rows.append(
+            dict(
+                rows[-1],
+                season="2023-24",
+                game_id=game_id,
+                game_date="2024-06-09",
+                pts=17,
+            )
+        )
+        warehouse.coverage.append(("2023-24", PLAYOFFS, "2024-06-09"))
+    result = ask.answer(question)
+    assert warehouse.calls == [["2023-24"]]
+    if not archived:
+        assert result["status"] in ("unsupported_coverage", "unsupported_scope")
+        assert not result["semantic_evidence"]
+        return
+    assert result["status"] == "ok", result["answer"]
+    evidence = result["semantic_evidence"]
+    assert evidence["scope"]["playoff_round"] == round_key
+    if round_key == "nba_finals":
+        assert evidence["rows"][0]["value"] == 17
+        assert evidence["rows"][0]["game_ids"] == [game_id]
+    else:
+        assert evidence["game_ids"] == [game_id]
+
+
 def season_positions(roster):
     return [
         dict(
@@ -263,10 +341,23 @@ def season_positions(roster):
             position_groups=GROUPS[r["position"]],
             position_source=r["provenance"],
             source_ref=r["source_ref"],
+            source_sha256=r["source_sha256"],
+            source_locator=r["source_locator"],
+            source_date=r["source_date"],
             is_verified_season_roster=True,
         )
         for r in roster["records"]
     ]
+
+
+def position_context(records, approved_seasons=(SEASON,)):
+    context = dict(
+        mapping_version=MAPPING_VERSION,
+        approved_seasons=list(approved_seasons),
+        season_positions=records,
+    )
+    context["sha256"] = digest(context)
+    return context
 
 
 def core_source(evidence):
@@ -292,16 +383,17 @@ def core_source(evidence):
 def test_bundle_declares_verified_capabilities_and_binds_immutable_positions():
     _, legacy = position_fixture()
     records = season_positions(legacy)
+    context = position_context(records)
     source = core_source(round_evidence(round_rows()))
     bundle = AskDataBundle.from_core_publication(
-        source, now=NOW, metrics=["pts"], season_positions=records
+        source, now=NOW, metrics=["pts"], season_positions=context
     )
     assert {"playoff_rounds", "season_positions"} <= set(
         bundle.manifest["capabilities"]
     )
     slot = bundle.manifest["auxiliary"]["season_positions"]
     assert slot["record_count"] == 20
-    assert bundle.evidence.position_context["sha256"] == slot["digest"]
+    assert bundle.evidence.position_context["sha256"] == context["sha256"]
     records[0]["listed_position"] = "C"
     assert bundle.auxiliary["season_positions"][0]["listed_position"] == "PG"
     assert validated_context(bundle.evidence.position_context) == validated_context(
@@ -309,13 +401,13 @@ def test_bundle_declares_verified_capabilities_and_binds_immutable_positions():
     )
     retained = replace(
         source.evidence,
-        position_context={"season_positions": season_positions(legacy)},
+        position_context=position_context(season_positions(legacy)),
     )
     assert record_bundle_shadow(lambda: bundle.evidence, retained) == {
         "status": "match"
     }
     bad = AskDataBundle.from_core_publication(
-        source, now=NOW, metrics=["pts"], season_positions=records
+        source, now=NOW, metrics=["pts"], season_positions=context
     )
     assert "season_positions" not in bad.manifest["capabilities"]
 
@@ -342,21 +434,21 @@ def test_position_cohort_uses_the_same_membership_and_thresholds(size, mode):
         add_position_comparisons(metrics, grouped, 1, scope, context, "among guards")
         return metrics[0]["peer_comparison"]
 
-    gold = compare({"season_positions": records})
+    gold = compare(position_context(records))
     assert gold["mode"] == mode
     assert gold["membership_sha256"] == compare(legacy)["membership_sha256"]
     another_season = [{**row, "season": "2025-26"} for row in records]
     assert (
-        compare({"season_positions": another_season})["fallback_reason"]
+        compare(position_context(another_season, ["2025-26"]))["fallback_reason"]
         == "missing_historical_provenance"
     )
     if size == 20:
         records.pop()
-        assert compare({"season_positions": records})["coverage"] == 0.95
-        assert compare({"season_positions": records})["kind"] == "position"
+        assert compare(position_context(records))["coverage"] == 0.95
+        assert compare(position_context(records))["kind"] == "position"
         records.pop()
         assert (
-            compare({"season_positions": records})["fallback_reason"]
+            compare(position_context(records))["fallback_reason"]
             == "insufficient_coverage"
         )
 
@@ -369,13 +461,40 @@ def test_position_cohort_uses_the_same_membership_and_thresholds(size, mode):
         {"is_verified_season_roster": False},
         {"position_groups": ["Big"]},
         {"season": "2025-25"},
+        {"source_ref": ""},
+        {"source_sha256": None},
+        {"source_date": "2025-02-30"},
+        {"source_locator": " "},
     ],
 )
 def test_positions_reject_invalid_or_unverified_provenance(change):
     _, legacy = position_fixture()
     records = season_positions(legacy)
+    records[0]["position_source"] = "dated_team_document"
+    assert validated_context(position_context(records)) == validated_context(legacy)
     records[0].update(change)
-    assert validated_context({"season_positions": records}) == ({}, set())
+    assert validated_context(position_context(records)) == ({}, set())
+
+
+def test_position_context_rejects_tampered_or_unapproved_records():
+    _, legacy = position_fixture()
+    records = season_positions(legacy)
+    context = position_context(records)
+    changed = [{**records[0], "source_locator": "another roster row"}, *records[1:]]
+    unapproved = position_context(records, [SEASON, "2025-26"])
+    unapproved["season_positions"] = [{**records[0], "season": "2023-24"}, *records[1:]]
+    unapproved["sha256"] = digest(unapproved)
+    source = core_source(round_evidence(round_rows()))
+    for invalid in (
+        {"season_positions": records},
+        {**context, "season_positions": changed},
+        unapproved,
+    ):
+        assert validated_context(invalid) == ({}, set())
+        bundle = AskDataBundle.from_core_publication(
+            source, now=NOW, metrics=["pts"], season_positions=invalid
+        )
+        assert "season_positions" not in bundle.manifest["capabilities"]
 
 
 def test_json_and_sse_apply_the_same_round_filter(monkeypatch):

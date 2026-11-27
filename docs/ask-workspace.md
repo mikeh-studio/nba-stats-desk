@@ -421,10 +421,11 @@ from the first round through the archive end. Until an opening date is recorded
 in `season.yml`, the full season coverage check applies.
 Explicit split questions retain their user-selected groups. Both current and
 comparison phases are recorded and displayed; missing baseline coverage
-withholds changes. Finals, championship series and individual playoff rounds
-are unsupported until verified round-level data is connected. They never fall
-back to full-season or all-playoff statistics. Finals-to-earlier-round and
-Finals-to-regular-season comparisons therefore remain unavailable.
+withholds changes. A single named playoff round requires round evidence for
+every in-scope playoff appearance. For example, the 2024 NBA Finals use the
+2023–24 archive. Ask withholds requests for round exclusions, specific games
+within a series, NBA Cup Finals, and comparisons between rounds. Suggested
+scorecard follow-ups retain the selected round.
 
 Game insights use the same scoped player appearances: scoring minimum, maximum,
 median, 20-point game count and a dated high (ties disclosed). Any missing scoring

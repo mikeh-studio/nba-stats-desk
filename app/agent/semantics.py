@@ -539,14 +539,33 @@ def apply_game_filters(
         ("game_result", query.game_result),
     )
     requested_fields = [(field, value) for field, value in fields if value is not None]
+    player_scope = (
+        query.player_id
+        if query.player_id is not None and query.operation in ("summary", "game_log")
+        else None
+    )
     if query.playoff_round is not None:
-        rows = [row for row in rows if row_playoff_round(row) == query.playoff_round]
+        round_rows = []
+        for row in rows:
+            round_key = row_playoff_round(row)
+            if (
+                round_key is None
+                and row["season_type"] == "Playoffs"
+                and (player_scope is None or row["player_id"] == player_scope)
+            ):
+                raise SemanticError(
+                    "unsupported_scope",
+                    "Playoff rounds cannot be isolated with the connected data.",
+                )
+            if round_key == query.playoff_round:
+                round_rows.append(row)
+        rows = round_rows
     if not requested_fields and query.weekdays is None and query.stat_filters is None:
         return list(rows)
     relevant = (
-        [row for row in rows if row["player_id"] == query.player_id]
-        if query.player_id is not None and query.operation in ("summary", "game_log")
-        else rows
+        rows
+        if player_scope is None
+        else [row for row in rows if row["player_id"] == player_scope]
     )
     for row in relevant:
         for field, _ in requested_fields:
@@ -658,11 +677,6 @@ def select_query_rows(
         if _date(row["game_date"]) <= end
         and (start is None or _date(row["game_date"]) >= start)
     ]
-    if query.playoff_round and dated and not playoff_round_seasons(dated):
-        raise SemanticError(
-            "unsupported_scope",
-            "Playoff rounds cannot be isolated with the connected data.",
-        )
     selected = apply_game_filters(dated, query)
     qualification_rows = (
         apply_game_filters(dated, replace(query, stat_filters=None))

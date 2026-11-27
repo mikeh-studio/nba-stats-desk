@@ -392,7 +392,12 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
         )
     # Optional impact measures stay absent until a verified matching-scope source is connected.
     impact = []
-    canonical = f"{names[0]} vs {names[1]} from {scope['start']} through {scope['end']} ({' + '.join(scope['phases'])})"
+    phase_label = (
+        PLAYOFF_ROUND_LABELS[scope["playoff_round"]]
+        if scope.get("playoff_round")
+        else " + ".join(scope["phases"])
+    )
+    canonical = f"{names[0]} vs {names[1]} from {scope['start']} through {scope['end']} ({phase_label})"
     if note := filter_question(scope):
         canonical += " " + note
     return {

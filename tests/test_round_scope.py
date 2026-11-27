@@ -6,8 +6,10 @@ from types import SimpleNamespace
 import pytest
 from app.agent.performance_overview import overview_scope
 from app.agent.question_intent import round_scope_message
+from app.agent.scope_policy import requested_playoff_round
 from app.agent.semantic_answer import SemanticAsk
 from app.agent.semantics import SemanticError
+from app.agent.service import StatsAgent
 from tests.test_semantic_migration import settings
 
 
@@ -35,6 +37,40 @@ def test_round_scope_withholds_before_warehouse_or_planner(scope):
     assert "cannot be isolated" in result["answer"]
     with pytest.raises(SemanticError, match="cannot be isolated"):
         overview_scope(question, "2025-26")
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "outside the first round",
+        "outside of the 2024-25 first round",
+        "except the first round",
+        "except in the first round",
+        "excluding the first round",
+        "excluding games from the first round",
+        "in game 2 of the first round",
+        "in game two of the first round",
+        "in the first round's second game",
+        "in the NBA Cup Finals",
+        "in the In-Season Tournament Finals",
+    ],
+)
+def test_qualified_round_is_refused_on_governed_route(scope):
+    def fail(*args, **kwargs):
+        pytest.fail("Unsupported round qualifiers must not load evidence or plan")
+
+    config = settings()
+    warehouse = SimpleNamespace(load=fail)
+    planner = SimpleNamespace(responses=SimpleNamespace(create=fail))
+    agent = StatsAgent(
+        config, SimpleNamespace(), client=planner, semantic_warehouse=warehouse
+    )
+    question = f"How many total points did Regular Player score {scope}?"
+    assert requested_playoff_round(question) is None
+    result = agent.answer(question)
+    assert result["status"] == "unsupported_scope"
+    assert result["ask_route"]["reason_code"] == "unsupported_round"
+    assert not result["semantic_evidence"]
 
 
 @pytest.mark.parametrize(

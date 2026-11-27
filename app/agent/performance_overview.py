@@ -599,20 +599,6 @@ def build_overview(question, evidence, players, scope, selected=None):
             query,
         )
 
-    if playoff_round:
-        from app.agent.semantics import playoff_round_seasons
-
-        playoff_rows = [
-            r
-            for r in evidence.rows
-            if r["season_type"] == "Playoffs"
-            and start <= date.fromisoformat(str(r["game_date"])) <= end
-        ]
-        if playoff_rows and not playoff_round_seasons(playoff_rows):
-            raise SemanticError(
-                "unsupported_scope",
-                "Playoff rounds cannot be isolated with the connected data.",
-            )
     current = rows_between(start, end, scope["phases"])
     previous_phases = scope.get("previous_phases", scope["phases"])
     previous = rows_between(

@@ -195,25 +195,55 @@ _ROUND_PATTERN = re.compile(
     + r")\b",
     re.I,
 )
+_NON_PLAYOFF_EVENT = re.compile(r"\b(?:nba[ -]cup|in[ -]season[ -]tournament)\b", re.I)
+_SERIES_GAME = re.compile(
+    r"\b(?:game[ -](?:no\.\s+)?(?:#?\d+|one|two|three|four|five|six|seven)|"
+    r"(?:first|second|third|fourth|fifth|sixth|seventh|"
+    r"\d+(?:st|nd|rd|th))[ -]game)\b",
+    re.I,
+)
+_QUALIFIED_ROUND_PREFIX = re.compile(
+    r"\b(?:before|after|through|until|since|except|excluding|without|"
+    r"outside(?: of)?|other than|apart from|not)\s+"
+    r"(?:games?\s+)?(?:(?:for|in|during|from)\s+)?(?:the\s+)?"
+    r"(?:20\d{2}(?:[-–/](?:20)?\d{2})?\s+)?$",
+    re.I,
+)
+_ROUND_YEAR = re.compile(
+    r"(?<![-–/])\b(20\d{2})(?=\s+(?:nba\s+)?(?:"
+    + "|".join(pattern for _, pattern in _ROUND_ALIASES)
+    + r"|playoffs?|postseason)\b)",
+    re.I,
+)
 
 
 def requested_playoff_round(question: str) -> str | None:
     """Recognize one canonical round, with no vague or conflicting round cues."""
     matches = list(_ROUND_PATTERN.finditer(question))
-    if len(matches) != 1:
+    if (
+        len(matches) != 1
+        or _NON_PLAYOFF_EVENT.search(question)
+        or _SERIES_GAME.search(question)
+    ):
         return None
     match = matches[0]
-    if re.search(
-        r"\b(?:before|after|through|until|since|except|excluding|without|not(?: in)?)\s+(?:the\s+)?(?:20\d{2}-\d{2}\s+)?$",
-        question[: match.start()],
-        re.I,
-    ):
+    if _QUALIFIED_ROUND_PREFIX.search(question[: match.start()]):
         return None
     if _ROUND_CUES.search(question[: match.start()] + " " + question[match.end() :]):
         return None
     if has_phase_cue(question, "Regular Season") or has_phase_cue(question, "Both"):
         return None
     return match.lastgroup
+
+
+def normalize_playoff_round_year(question: str) -> str:
+    """Convert a calendar year naming a round to the season that ends that year."""
+    if not requested_playoff_round(question):
+        return question
+    return _ROUND_YEAR.sub(
+        lambda match: f"{int(match[1]) - 1}-{match[1][-2:]}",
+        question,
+    )
 
 
 def playoff_round_planning_question(question: str, *, season: str | None = None) -> str:

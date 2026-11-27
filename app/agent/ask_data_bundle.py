@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
@@ -25,6 +25,8 @@ from app.agent.execution import (
     optional_shadow_budget,
     record_serving_shadow,
 )
+from app.agent.historical_positions import MAPPING_VERSION
+from app.agent.historical_positions import digest as position_digest
 from app.agent.overview_positions import verified_season_positions
 from app.agent.semantic_source import capture_timestamp
 from app.agent.semantics import (
@@ -172,6 +174,19 @@ def _freeze(value: Any) -> Any:
     return value
 
 
+def _scoped_position_context(context, seasons):
+    records = [r for r in verified_season_positions(context) if r["season"] in seasons]
+    if not records:
+        return None
+    scoped = dict(
+        mapping_version=MAPPING_VERSION,
+        approved_seasons=sorted({r["season"] for r in records}),
+        season_positions=records,
+    )
+    scoped["sha256"] = position_digest(scoped)
+    return scoped
+
+
 def _facts_digest(evidence: Evidence | None) -> str:
     checkpoint()
     if evidence is None:
@@ -179,15 +194,9 @@ def _facts_digest(evidence: Evidence | None) -> str:
     position_context = evidence.position_context
     if isinstance(position_context, Mapping) and "season_positions" in position_context:
         seasons = {season for season, _ in evidence.covered_scopes}
-        position_context = {
-            "season_positions": [
-                row
-                for row in verified_season_positions(
-                    position_context["season_positions"]
-                )
-                if row["season"] in seasons
-            ]
-        }
+        position_context = (
+            _scoped_position_context(position_context, seasons) or position_context
+        )
     return digest(
         _json_value(
             {
@@ -356,21 +365,21 @@ class AskDataBundle:
         evidence: Evidence | None,
         provenance: dict[str, Any],
         now: datetime,
-        season_positions: Sequence[Mapping[str, Any]] | None = None,
+        season_positions: Mapping[str, Any] | None = None,
     ) -> AskDataBundle:
         auxiliary = {}
         slots = {}
         if evidence is not None:
             if playoff_round_seasons(evidence.rows):
                 capabilities.append("playoff_rounds")
-            context = evidence.position_context or {}
-            records = verified_season_positions(
-                context.get("season_positions")
+            context = _scoped_position_context(
+                evidence.position_context
                 if season_positions is None
-                else season_positions
+                else season_positions,
+                scope["seasons"],
             )
-            records = [r for r in records if r["season"] in scope["seasons"]]
-            if records:
+            if context:
+                records = context["season_positions"]
                 capabilities.append("season_positions")
                 auxiliary["season_positions"] = records
                 checksum = digest(_json_value(records))
@@ -379,7 +388,7 @@ class AskDataBundle:
                 )
                 evidence = replace(
                     evidence,
-                    position_context=dict(season_positions=records, sha256=checksum),
+                    position_context=context,
                 )
         manifest = dict(
             schema_version=BUNDLE_SCHEMA_VERSION,
@@ -404,7 +413,7 @@ class AskDataBundle:
         now: datetime,
         metrics: list[str] | None = None,
         expires_at: str | None = None,
-        season_positions: Sequence[Mapping[str, Any]] | None = None,
+        season_positions: Mapping[str, Any] | None = None,
     ) -> AskDataBundle:
         try:
             _require_aware(now)
