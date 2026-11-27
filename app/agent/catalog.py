@@ -8,17 +8,17 @@ from typing import Any
 import yaml
 
 from app.agent.formulas import extract_formula_variables
+from app.agent.semantics import CATALOG_PATH
 
-CATALOG_PATH = Path(__file__).with_name("semantic_catalog.yml")
-
-# Metrics are tiered in the catalog (tier: 1..4). A vague "stats" question
-# defaults to everything through this tier — tier 1 (pts/reb/ast headline) plus
+# A vague "stats" question defaults to everything through this tier:
+# tier 1 (pts/reb/ast headline) plus
 # tier 2 (stl/blk/tov two-way) — i.e. the traditional box score. Tiers 3-4
 # (shooting/availability context, derived composites) are only pulled in when a
-# metric is named explicitly. DEFAULT_METRIC_KEYS mirrors tiers 1-2 in catalog
-# order; SemanticCatalog.default_metric_keys() is the data-driven source of
-# truth, and a test guards that the two stay in sync.
+# metric is named explicitly. Tier 5 requires governed player-game evidence.
+# DEFAULT_METRIC_KEYS mirrors SemanticCatalog.default_metric_keys() in catalog
+# order; a test guards that the two stay in sync.
 DEFAULT_TIER = 2
+GOVERNED_ONLY_TIER = 5
 DEFAULT_METRIC_KEYS = ("pts", "reb", "ast", "stl", "blk", "tov")
 
 # The default set above is the traditional box score, used for game logs and
@@ -120,8 +120,12 @@ class SemanticCatalog:
             for alias in metric.aliases:
                 self._aliases[_normalize_key(alias)] = key
 
-    def list_metrics(self) -> list[dict[str, Any]]:
-        return [metric.to_public_dict() for metric in self.metrics.values()]
+    def list_metrics(self, *, tool_only: bool = False) -> list[dict[str, Any]]:
+        return [
+            metric.to_public_dict()
+            for metric in self.metrics.values()
+            if not (tool_only and metric.tier == GOVERNED_ONLY_TIER)
+        ]
 
     def tier_keys(self, tier: int) -> tuple[str, ...]:
         """Metric keys belonging to exactly ``tier``, in catalog order."""
@@ -142,17 +146,21 @@ class SemanticCatalog:
         """Curated impact set for trend/opponent narratives (existing keys only)."""
         return tuple(key for key in ANALYSIS_METRIC_KEYS if key in self.metrics)
 
-    def resolve_metric(self, value: str) -> MetricDefinition | None:
+    def resolve_metric(
+        self, value: str, *, tool_only: bool = False
+    ) -> MetricDefinition | None:
         key = self._aliases.get(_normalize_key(value))
-        if key is None:
+        metric = self.metrics.get(key) if key is not None else None
+        if metric is not None and tool_only and metric.tier == GOVERNED_ONLY_TIER:
             return None
-        return self.metrics[key]
+        return metric
 
     def resolve_metrics(
         self,
         values: list[str] | None,
         *,
         default_keys: tuple[str, ...] = DEFAULT_METRIC_KEYS,
+        tool_only: bool = False,
     ) -> tuple[list[MetricDefinition], list[str]]:
         """Resolve a list of requested metrics, degrading gracefully.
 
@@ -173,7 +181,7 @@ class SemanticCatalog:
             if not normalized or normalized in _GENERIC_METRIC_TOKENS:
                 # Generic catch-all wording is satisfied by the default cohort.
                 continue
-            metric = self.resolve_metric(str(value))
+            metric = self.resolve_metric(str(value), tool_only=tool_only)
             if metric is None:
                 invalid.append(str(value))
                 continue
@@ -186,11 +194,16 @@ class SemanticCatalog:
 
 @lru_cache(maxsize=1)
 def load_semantic_catalog(path: str | Path = CATALOG_PATH) -> SemanticCatalog:
-    with Path(path).open("r", encoding="utf-8") as handle:
+    path = Path(path)
+    with path.open("r", encoding="utf-8") as handle:
         raw = yaml.safe_load(handle) or {}
-    from app.agent.semantics import CATALOG_PATH as CONTRACT_PATH
-
-    definitions = yaml.safe_load(CONTRACT_PATH.read_text())["metrics"]
+    # Older custom catalogs supply presentation metadata only.
+    combined = path == CATALOG_PATH or {"version", "grain"} <= raw.keys()
+    definitions = (
+        raw["metrics"]
+        if combined
+        else yaml.safe_load(CATALOG_PATH.read_text(encoding="utf-8"))["metrics"]
+    )
     metrics: dict[str, MetricDefinition] = {}
     for key, config in (raw.get("metrics") or {}).items():
         definition = definitions[key]
@@ -203,13 +216,16 @@ def load_semantic_catalog(path: str | Path = CATALOG_PATH) -> SemanticCatalog:
             )
         if formula is not None:
             extract_formula_variables(str(formula))
+        unit = str(config.get("unit") or "count")
         metrics[str(key)] = MetricDefinition(
             key=str(key),
-            label=str(config["label"]),
+            label=str(config.get("catalog_label") or config["label"]),
             description=str(config["description"]),
             aliases=tuple(str(item) for item in config.get("aliases", [])),
-            game_log_key=str(config.get("game_log_key") or key),
-            trend_stat=str(config["trend_stat"]),
+            game_log_key=str(
+                config.get("game_log_key", key) or ("" if combined else key)
+            ),
+            trend_stat=str(config.get("trend_stat") or ""),
             percentile_key=config.get("percentile_key") or None,
             leaderboard_column=str(config.get("leaderboard_column") or ""),
             direction=str(definition["direction"]),
@@ -217,6 +233,6 @@ def load_semantic_catalog(path: str | Path = CATALOG_PATH) -> SemanticCatalog:
             # Untiered metrics fall to the lowest priority so they never leak
             # into the default cohort by accident.
             tier=int(config.get("tier") or 99),
-            unit=str(config.get("unit") or "count"),
+            unit="percent" if combined and unit == "ratio" else unit,
         )
     return SemanticCatalog(metrics)

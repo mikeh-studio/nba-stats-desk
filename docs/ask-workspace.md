@@ -982,6 +982,14 @@ remaining request budget. Legacy route planning also retains its tighter
 45-second timeout. Provider timeouts are SDK I/O timeouts, not a guarantee that
 an entire streamed response finishes within that duration.
 
+All model attempts share a request cap of `max(1, AGENT_MAX_TOOL_CALLS) + 3`
+(nine by default), including retries and optional chart selection. The three
+extra slots cover planning, the final answer, and enrichment. Requests disable
+response storage and cap generated tokens at 3,000 by default, 1,500 for
+research intent and teammate study, and 128 for chart selection. When a runtime
+policy is active, its caps also apply and provider calls remain restricted to
+the authorized `semantic_intent_v3` planning schema.
+
 `OPENAI_AGENT_MAX_RETRIES`, `ANTHROPIC_AGENT_MAX_RETRIES` and
 `OPENROUTER_AGENT_MAX_RETRIES` independently configure retries (default two;
 zero means one attempt). The shared backoff base remains
@@ -1244,8 +1252,9 @@ this version and cannot establish its accuracy.
 See [claim bindings and surface inventory](ask-claim-bindings.md) for the additive
 `ask_claim_bindings/2` envelope. Structured cells and selected scope/sample prose
 link exact sources to exact destinations. After visualization enrichment,
-`ASK_CLAIM_ENFORCEMENT=enforce` withholds contradicted bindings; default `log`
-records invalid reports while preserving content. See the [observation rollout](ask-claim-bindings.md#observation-rollout)
+the default `ASK_CLAIM_ENFORCEMENT=enforce` withholds contradicted bindings.
+Set `ASK_CLAIM_ENFORCEMENT=log` to record invalid reports while preserving
+content. See the [observation rollout](ask-claim-bindings.md#observation-rollout)
 for activation and loss boundaries. Unbound surfaces remain explicitly incomplete;
 existing non-binding safeguards remain enforced in both modes.
 
@@ -1298,6 +1307,6 @@ On a publication-enabled host, a standalone regular-season three-point leader
 question uses the active weekly release when it has the
 `ask_three_point_leaders` capability. The answer identifies the release and
 cutoff, and reports makes per game, total makes, and appearances. Qualification
-uses 70% of the largest team game count through that cutoff, rounded up.
+uses 65% of each team’s game count through that cutoff, rounded up.
 Historical seasons continue through the existing historical reader. A release
 without the capability cannot answer this leaderboard.

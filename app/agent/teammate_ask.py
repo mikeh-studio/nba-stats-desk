@@ -429,6 +429,7 @@ def _answer_study(agent, question, provider, model, trace):
             }
         },
         timeout_seconds=agent._request_timeout_seconds(provider),
+        max_output_tokens=1500,
         provider=provider,
     )
     if trace:

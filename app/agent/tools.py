@@ -953,7 +953,7 @@ class StatsToolRunner:
         cached = _list_metrics_cache.get(cache_key, self.cache_ttl_seconds)
         if cached is not None:
             return cached
-        metrics = self.catalog.list_metrics()
+        metrics = self.catalog.list_metrics(tool_only=True)
         if query:
             query_norm = str(query).lower()
             metrics = [
@@ -1019,6 +1019,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
+            tool_only=True,
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -1138,6 +1139,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=self.catalog.analysis_metric_keys(),
+            tool_only=True,
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -1307,6 +1309,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=self.catalog.analysis_metric_keys(),
+            tool_only=True,
         )
         date_range, date_error = _coerce_date_range(start_date, end_date)
         if date_error:
@@ -1474,6 +1477,7 @@ class StatsToolRunner:
         selected, invalid = self.catalog.resolve_metrics(
             metrics,
             default_keys=DEFAULT_METRIC_KEYS,
+            tool_only=True,
         )
         detail = self.repo.get_player_detail(_to_int(player_id) or -1)
         if detail is None:
@@ -1501,13 +1505,13 @@ class StatsToolRunner:
         metric: Any,
         min_games: Any = 5,
     ) -> dict[str, Any]:
-        metric_def = self.catalog.resolve_metric(str(metric or ""))
+        metric_def = self.catalog.resolve_metric(str(metric or ""), tool_only=True)
         if metric_def is None:
             return {
                 "status": "error",
                 "message": "Unsupported metric.",
                 "invalid_metrics": [metric],
-                "valid_metrics": self.catalog.list_metrics(),
+                "valid_metrics": self.catalog.list_metrics(tool_only=True),
             }
         min_games_int = _coerce_limit(min_games, default=5, minimum=1, maximum=200)
         result = self.repo.get_player_metric_percentile(
@@ -1544,13 +1548,13 @@ class StatsToolRunner:
         }
 
     def search_rankings(self, metric: Any, limit: Any = 10) -> dict[str, Any]:
-        metric_def = self.catalog.resolve_metric(str(metric or ""))
+        metric_def = self.catalog.resolve_metric(str(metric or ""), tool_only=True)
         if metric_def is None:
             return {
                 "status": "error",
                 "message": "Unsupported metric.",
                 "invalid_metrics": [metric],
-                "valid_metrics": self.catalog.list_metrics(),
+                "valid_metrics": self.catalog.list_metrics(tool_only=True),
             }
         max_rows = _coerce_limit(limit, default=10, minimum=1, maximum=25)
         rows = self.repo.get_metric_leaders(metric_def.key, limit=max_rows)

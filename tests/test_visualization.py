@@ -59,6 +59,7 @@ def test_specialist_selects_only_verified_candidate_and_falls_back_safely():
         assert "_chart_candidates" not in payload
         assert agent.calls[0]["tools"] is None
         assert agent.calls[0]["timeout_seconds"] == 10
+        assert agent.calls[0]["max_output_tokens"] == 128
         assert (
             payload["charts"][0]["series"]
             == next(c for c in options if c["id"] == expected)["series"]

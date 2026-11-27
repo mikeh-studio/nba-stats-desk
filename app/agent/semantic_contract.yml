@@ -6,30 +6,295 @@ defaults:
   min_games: 5
   timezone: America/New_York
   fantasy_metric: fantasy_proxy_weighted
+# Tier 5 metrics use governed evidence. Legacy tool mappings are absent.
 metrics:
-  gp: {label: Games played, numerator: '1', unit: games, direction: higher}
-  pts: {label: PTS, numerator: pts, unit: count, direction: higher}
-  reb: {label: REB, numerator: reb, unit: count, direction: higher}
-  oreb: {label: OREB, numerator: oreb, unit: count, direction: higher}
-  dreb: {label: DREB, numerator: dreb, unit: count, direction: higher}
-  pf: {label: PF, numerator: pf, unit: count, direction: lower}
-  ast: {label: AST, numerator: ast, unit: count, direction: higher}
-  stl: {label: STL, numerator: stl, unit: count, direction: higher}
-  blk: {label: BLK, numerator: blk, unit: count, direction: higher}
-  tov: {label: TOV, numerator: tov, unit: count, direction: lower}
-  fg3m: {label: 3PM, numerator: fg3m, unit: count, direction: higher}
-  min: {label: MIN, numerator: min, unit: minutes, direction: higher}
-  fga: {label: FGA, numerator: fga, unit: count, direction: higher}
-  fg3a: {label: 3PA, numerator: fg3a, unit: count, direction: higher}
-  fta: {label: FTA, numerator: fta, unit: count, direction: higher}
-  fg_pct: {legacy_formula: "fg_pct * 100", label: FG%, numerator: fgm, denominator: fga, attempt_field: fga, unit: ratio, direction: higher}
-  fg3_pct: {label: 3P%, numerator: fg3m, denominator: fg3a, attempt_field: fg3a, unit: ratio, direction: higher}
-  ft_pct: {label: FT%, numerator: ftm, denominator: fta, attempt_field: fta, unit: ratio, direction: higher}
-  ts_pct: {label: TS%, numerator: pts, denominator: '2 * (fga + 0.44 * fta)', attempt_field: fga, unit: ratio, direction: higher}
-  efg_pct: {label: eFG%, numerator: 'fgm + 0.5 * fg3m', denominator: fga, attempt_field: fga, unit: ratio, direction: higher}
-  pts_per36: {label: Points per 36 minutes, numerator: '36 * pts', denominator: min, attempt_field: min, unit: per36, direction: higher}
-  ast_per36: {label: Assists per 36 minutes, numerator: '36 * ast', denominator: min, attempt_field: min, unit: per36, direction: higher}
-  plus_minus: {label: '+/-', numerator: plus_minus, unit: count, direction: higher}
-  fantasy_points_simple: {label: Simple box-score index, numerator: 'pts + reb + ast + stl + blk - tov', unit: index, direction: higher}
-  fantasy_proxy_weighted: {label: Weighted fantasy proxy, numerator: 'pts + 1.2 * reb + 1.5 * ast + 3 * stl + 3 * blk + fg3m - tov', unit: index, direction: higher}
-  points_created: {label: Attributed points proxy, numerator: 'pts + 2 * ast', unit: index, direction: higher}
+  gp:
+    label: "Games played"
+    numerator: "1"
+    unit: "games"
+    direction: "higher"
+    description: "Number of recorded player appearances in scope."
+    aliases: ["games played", "game count"]
+    game_log_key: null
+    tier: 5
+  pts:
+    label: "PTS"
+    numerator: "pts"
+    unit: "count"
+    direction: "higher"
+    description: "Points scored."
+    aliases: ["points", "point", "ppg", "scoring"]
+    game_log_key: "pts"
+    trend_stat: "PTS"
+    percentile_key: "pts_percentile"
+    leaderboard_column: "avg_pts"
+    tier: 1
+  reb:
+    label: "REB"
+    numerator: "reb"
+    unit: "count"
+    direction: "higher"
+    description: "Total rebounds, including offensive and defensive rebounds."
+    aliases: ["rebounds", "rebound", "rbs", "boards"]
+    game_log_key: "reb"
+    trend_stat: "REB"
+    percentile_key: "reb_percentile"
+    leaderboard_column: "avg_reb"
+    tier: 1
+  oreb:
+    label: "OREB"
+    numerator: "oreb"
+    unit: "count"
+    direction: "higher"
+    description: "Offensive rebounds."
+    aliases: ["offensive rebounds", "offensive rebound", "offensive boards"]
+    game_log_key: "oreb"
+    trend_stat: "OREB"
+    tier: 3
+  dreb:
+    label: "DREB"
+    numerator: "dreb"
+    unit: "count"
+    direction: "higher"
+    description: "Defensive rebounds."
+    aliases: ["defensive rebounds", "defensive rebound", "defensive boards"]
+    game_log_key: "dreb"
+    trend_stat: "DREB"
+    tier: 3
+  pf:
+    label: "PF"
+    numerator: "pf"
+    unit: "count"
+    direction: "lower"
+    description: "Personal fouls committed."
+    aliases: ["personal fouls", "personal foul", "fouls", "foul"]
+    game_log_key: "pf"
+    trend_stat: "PF"
+    tier: 3
+  ast:
+    label: "AST"
+    numerator: "ast"
+    unit: "count"
+    direction: "higher"
+    description: "Recorded assists."
+    aliases: ["assists", "assist", "playmaking"]
+    game_log_key: "ast"
+    trend_stat: "AST"
+    percentile_key: "ast_percentile"
+    leaderboard_column: "avg_ast"
+    tier: 1
+  stl:
+    label: "STL"
+    numerator: "stl"
+    unit: "count"
+    direction: "higher"
+    description: "Recorded steals."
+    aliases: ["steals", "steal"]
+    game_log_key: "stl"
+    trend_stat: "STL"
+    percentile_key: "stl_percentile"
+    leaderboard_column: "avg_stl"
+    tier: 2
+  blk:
+    label: "BLK"
+    numerator: "blk"
+    unit: "count"
+    direction: "higher"
+    description: "Recorded blocks."
+    aliases: ["blocks", "block", "blcks"]
+    game_log_key: "blk"
+    trend_stat: "BLK"
+    percentile_key: "blk_percentile"
+    leaderboard_column: "avg_blk"
+    tier: 2
+  tov:
+    label: "TOV"
+    numerator: "tov"
+    unit: "count"
+    direction: "lower"
+    description: "Turnovers committed. Fewer is better."
+    aliases: ["turnovers", "turnover", "tos", "ball_security"]
+    game_log_key: "tov"
+    trend_stat: "TOV"
+    percentile_key: "tov_percentile"
+    leaderboard_column: "avg_tov"
+    tier: 2
+  fg3m:
+    label: "3PM"
+    numerator: "fg3m"
+    unit: "count"
+    direction: "higher"
+    description: "Three-point field goals made."
+    aliases: ["threes", "three_pointers", "3pm", "three_point_makes"]
+    game_log_key: "fg3m"
+    trend_stat: "FG3M"
+    leaderboard_column: "avg_fg3m"
+    tier: 3
+  min:
+    label: "MIN"
+    numerator: "min"
+    unit: "minutes"
+    direction: "higher"
+    description: "Minutes played."
+    aliases: ["minutes", "playing_time", "mpg"]
+    game_log_key: "min"
+    trend_stat: "MIN"
+    leaderboard_column: "avg_min"
+    tier: 3
+  fga:
+    label: "FGA"
+    numerator: "fga"
+    unit: "count"
+    direction: "higher"
+    description: "Field-goal attempts, including two- and three-point attempts."
+    aliases: ["field goal attempts", "field goals attempted"]
+    game_log_key: null
+    tier: 5
+  fg3a:
+    label: "3PA"
+    numerator: "fg3a"
+    unit: "count"
+    direction: "higher"
+    description: "Three-point field goals attempted."
+    aliases: ["three point attempts", "3pt attempts", "attempted threes"]
+    game_log_key: null
+    tier: 5
+  fta:
+    label: "FTA"
+    numerator: "fta"
+    unit: "count"
+    direction: "higher"
+    description: "Free throws attempted."
+    aliases: ["free throw attempts", "free throws attempted"]
+    game_log_key: null
+    tier: 5
+  fg_pct:
+    legacy_formula: "fg_pct * 100"
+    label: "FG%"
+    numerator: "fgm"
+    denominator: "fga"
+    attempt_field: "fga"
+    unit: "ratio"
+    direction: "higher"
+    description: "Pooled field-goal percentage, calculated as summed makes divided by summed attempts."
+    aliases: ["field goal percentage", "fg percentage", "shooting percentage", "fg pct"]
+    game_log_key: "fg_pct"
+    trend_stat: "FG_PCT"
+    tier: 3
+  fg3_pct:
+    label: "3P%"
+    numerator: "fg3m"
+    denominator: "fg3a"
+    attempt_field: "fg3a"
+    unit: "ratio"
+    direction: "higher"
+    description: >-
+      Pooled three-point percentage, calculated as summed three-point makes divided by
+      summed three-point attempts.
+    aliases: ["three point percentage", "3p percentage", "three pt percentage", "3pt pct", "3p pct"]
+    trend_stat: "FG3_PCT"
+    tier: 3
+  ft_pct:
+    label: "FT%"
+    numerator: "ftm"
+    denominator: "fta"
+    attempt_field: "fta"
+    unit: "ratio"
+    direction: "higher"
+    description: >-
+      Pooled free-throw percentage, calculated as summed free throws made divided by
+      summed free-throw attempts.
+    aliases: ["free throw percentage", "ft percentage", "ft pct"]
+    game_log_key: null
+    tier: 5
+  ts_pct:
+    label: "TS%"
+    numerator: "pts"
+    denominator: "2 * (fga + 0.44 * fta)"
+    attempt_field: "fga"
+    unit: "ratio"
+    direction: "higher"
+    description: >-
+      Pooled true shooting percentage, calculated as total points divided by twice the
+      sum of field-goal attempts and 0.44 times free-throw attempts.
+    aliases: ["true shooting", "true shooting percentage", "ts percentage", "ts pct"]
+    trend_stat: "TS_PCT"
+    tier: 3
+  efg_pct:
+    label: "eFG%"
+    numerator: "fgm + 0.5 * fg3m"
+    denominator: "fga"
+    attempt_field: "fga"
+    unit: "ratio"
+    direction: "higher"
+    description: >-
+      Pooled effective field-goal percentage, calculated as summed field goals made plus
+      half of summed three-point makes, divided by summed field-goal attempts.
+    aliases: ["effective field goal percentage", "effective fg percentage", "effective FG%", "efg pct"]
+    game_log_key: null
+    tier: 5
+  pts_per36:
+    label: "Points per 36 minutes"
+    numerator: "36 * pts"
+    denominator: "min"
+    attempt_field: "min"
+    unit: "per36"
+    direction: "higher"
+    description: "Total points scaled to 36 minutes and divided by total minutes played."
+    aliases: ["points per 36", "pts per 36 minutes", "pts per 36", "pts per36"]
+    game_log_key: null
+    tier: 5
+  ast_per36:
+    label: "Assists per 36 minutes"
+    numerator: "36 * ast"
+    denominator: "min"
+    attempt_field: "min"
+    unit: "per36"
+    direction: "higher"
+    description: "Total assists scaled to 36 minutes and divided by total minutes played."
+    aliases: ["assists per 36", "ast per 36 minutes", "ast per 36", "ast per36"]
+    game_log_key: null
+    tier: 5
+  plus_minus:
+    label: "+/-"
+    numerator: "plus_minus"
+    unit: "count"
+    direction: "higher"
+    description: "Plus-minus point differential while the player is on the court."
+    aliases: ["plus minus", "plusminus", "plus/minus", "impact", "net points"]
+    game_log_key: "plus_minus"
+    trend_stat: "PLUS_MINUS"
+    tier: 3
+  fantasy_points_simple:
+    label: "Simple box-score index"
+    numerator: "pts + reb + ast + stl + blk - tov"
+    unit: "index"
+    direction: "higher"
+    catalog_label: "BSI"
+    description: "Simple box-score index used by this project as a fantasy proxy."
+    aliases: ["fantasy", "fantasy_proxy", "box_score_index", "bsi"]
+    game_log_key: "fantasy_points_simple"
+    trend_stat: "FANTASY_POINTS_SIMPLE"
+    leaderboard_column: "avg_fantasy_points_simple"
+    tier: 4
+  fantasy_proxy_weighted:
+    label: "Weighted fantasy proxy"
+    numerator: "pts + 1.2 * reb + 1.5 * ast + 3 * stl + 3 * blk + fg3m - tov"
+    unit: "index"
+    direction: "higher"
+    description: >-
+      Weighted box-score proxy using points, rebounds, assists, steals, blocks, made
+      threes, and turnovers.
+    aliases: ["weighted fantasy points", "weighted fantasy score"]
+    game_log_key: null
+    tier: 5
+  points_created:
+    label: "Attributed points proxy"
+    numerator: "pts + 2 * ast"
+    unit: "index"
+    direction: "higher"
+    catalog_label: "Attributed Points"
+    description: "Derived offensive points estimate calculated as PTS + AST * 2."
+    aliases: ["points_created", "points_attributed", "attributed_points", "points_plus_assists_times_two", "points + assists * 2", "pts_plus_ast_x2"]
+    trend_stat: "POINTS_CREATED"
+    tier: 4

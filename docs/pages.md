@@ -158,14 +158,14 @@ Operational controls:
   conversation IDs, tool arguments/results, or raw provider exception bodies.
   Rich tool details remain in the response and optional local history.
 
-Governed metric queries use `app/agent/semantic_contract.yml`; see
-[Metric semantics](semantic-contract.md). Legacy analytical tools retain
-`app/agent/semantic_catalog.yml` presentation and alias metadata. Base metrics map
-to curated gold fields. Derived metrics use safe arithmetic formulas over
-approved stat keys, such as:
+Governed metric queries and legacy analytical tools share the definitions and
+catalog metadata in `app/agent/semantic_contract.yml`. Tiers 1–4 retain the
+legacy tool cohorts. Tier 5 metrics use governed player-game evidence. Base
+metrics map to curated fields, and derived metrics use safe arithmetic over
+approved stat keys. For example, the attributed points proxy uses this numerator.
 
 ```yaml
-formula: "pts + ast * 2"
+numerator: "pts + 2 * ast"
 ```
 
 Shooting efficiency is exposed as derived percentage metrics scaled to 0-100,

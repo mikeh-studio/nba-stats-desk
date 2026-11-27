@@ -22,6 +22,9 @@ def metric_tables(payload, players):
         for _, section in sections
         for row in section["rows"]
     }
+    for _, section in sections:
+        if (pid := section["scope"].get("player_id")) is not None:
+            used_ids.add(pid)
     for query in payload.get("query_plan", {}).get("queries", []):
         used_ids.update(query.get("excluded_player_ids") or [])
     identities(payload, [p for p in players if p["player_id"] in used_ids])

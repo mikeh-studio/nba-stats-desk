@@ -481,9 +481,17 @@ def metric_assumption_contracts(payload):
             add(
                 [
                     base + ["cohort", f]
-                    for f in ("size", "min_games", "excluded_players")
+                    for f in (
+                        "size",
+                        "team_game_percent"
+                        if section["cohort"].get("team_game_percent")
+                        else "min_games",
+                        "excluded_players",
+                    )
                 ],
-                "Ranking cohort: {0} eligible players; minimum {1} games; {2} excluded.",
+                "Ranking cohort: {0} eligible players; minimum {1}% of team games; {2} excluded."
+                if section["cohort"].get("team_game_percent")
+                else "Ranking cohort: {0} eligible players; minimum {1} games; {2} excluded.",
             )
             if section["cohort"]["min_attempts"] is not None:
                 add(

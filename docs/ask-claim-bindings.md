@@ -139,14 +139,16 @@ contract validates restored presentation against its canonical snapshot.
 
 ## Observation rollout
 
-`ASK_CLAIM_ENFORCEMENT` accepts `log` (default) or `enforce`; any other explicit
-value fails configuration. Both modes validate mapped bindings. Log preserves a
+`ASK_CLAIM_ENFORCEMENT` accepts `enforce` (default) or `log`. Other values fail
+configuration. Both modes validate mapped bindings. Log preserves a
 known contradicted response/surface and normal conversation effects, while attaching
 an invalid report. This is a temporary observation choice, not verification.
 Enforce withholds contradicted surfaces and cancels pending successful conversation
 effects. Missing legacy bindings remain incomplete in both modes. Existing
 identity/date/phase, unsupported-intent, read-only and JSON-serialization safeguards
 remain enforced; serialization failures return a safe error in both modes.
+The fixture harness also defaults to enforce and accepts
+`ASK_EVAL_CLAIM_ENFORCEMENT=log` for observation runs.
 
 The server renders the current mode into the Ask page. A module snapshots that
 configuration before answer rendering; saved payload mode never overrides it.

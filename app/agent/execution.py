@@ -18,10 +18,29 @@ class ExecutionFailure(RuntimeError):
         super().__init__(code)
 
 
+DEFAULT_MAX_OUTPUT_TOKENS = 3000
+
+
+@dataclass
+class ModelAttemptBudget:
+    limit: int
+    used: int = 0
+    lock: Any = field(default_factory=RLock)
+
+    def reserve(self):
+        with self.lock:
+            if self.used >= self.limit:
+                raise ExecutionFailure("budget_exhausted")
+            if before_attempt := MODEL_ATTEMPT.get():
+                before_attempt()
+            self.used += 1
+
+
 @dataclass
 class RequestPolicy:
     settings: Any
     provider: str
+    model_budget: ModelAttemptBudget
     trace: Any = None
     deadline: float = 0.0
     on_success: list[Callable[[], None]] = field(default_factory=list)
@@ -82,10 +101,21 @@ def request_policy(settings, provider, trace=None):
         or settings.agent_request_deadline_seconds <= 0
     ):
         raise ValueError("Request deadline must be positive and finite")
-    policy = RequestPolicy(
-        settings, provider, trace, monotonic() + settings.agent_request_deadline_seconds
-    )
     from app.agent.formulas import formula_metadata_cache
+    from app.agent.runtime_policy import get_runtime_policy
+
+    # Allow a response per legacy tool round, plus planning, the final answer,
+    # and optional enrichment. Retry attempts spend from this same allowance.
+    limit = max(1, settings.agent_max_tool_calls) + 3
+    if runtime := get_runtime_policy():
+        limit = min(limit, runtime.max_model_calls)
+    policy = RequestPolicy(
+        settings,
+        provider,
+        ModelAttemptBudget(limit),
+        trace,
+        monotonic() + settings.agent_request_deadline_seconds,
+    )
 
     token = CURRENT.set(policy)
     try:
@@ -221,7 +251,13 @@ def transient(exc):
 
 
 def create_response(
-    client, *, settings=None, provider="openai", timeout_seconds=None, **kwargs
+    client,
+    *,
+    settings=None,
+    provider="openai",
+    timeout_seconds=None,
+    max_output_tokens=DEFAULT_MAX_OUTPUT_TOKENS,
+    **kwargs,
 ):
     if CURRENT.get() is None:
         if settings is None:
@@ -229,12 +265,24 @@ def create_response(
 
             settings = get_settings()
         with request_policy(settings, provider):
-            return create_response(client, timeout_seconds=timeout_seconds, **kwargs)
+            return create_response(
+                client,
+                timeout_seconds=timeout_seconds,
+                max_output_tokens=max_output_tokens,
+                **kwargs,
+            )
     policy = CURRENT.get()
     assert policy is not None
     from app.agent.runtime_policy import get_runtime_policy, guard_client
 
     runtime = get_runtime_policy()
+    if type(max_output_tokens) is not int or max_output_tokens <= 0:
+        raise ValueError("Model output token limits must be positive integers")
+    kwargs["store"] = False
+    kwargs["max_output_tokens"] = min(
+        max_output_tokens,
+        runtime.max_output_tokens if runtime else DEFAULT_MAX_OUTPUT_TOKENS,
+    )
     if runtime is not None:
         runtime.validate_selection(policy.provider, kwargs.get("model"))
         client = guard_client(client, policy.provider)
@@ -254,9 +302,8 @@ def create_response(
     if policy.provider == "claude":
         kwargs["on_output_text_delta"] = on_delta
     for attempt in range(policy.retries + 1):
-        if before_attempt := MODEL_ATTEMPT.get():
-            before_attempt()
         timeout = policy.timeout(timeout_seconds)
+        policy.model_budget.reserve()
         configured = client
         extra = {}
         if hasattr(client, "with_options"):

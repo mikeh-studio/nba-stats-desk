@@ -61,11 +61,15 @@ class OpenRouterResponsesClient:
             elif getattr(item, "type", None) != "function_call":
                 raise ValueError("Unsupported OpenRouter input item")
         fmt = text.get("format") or {}
+        routing = {"require_parameters": True}
+        if kwargs.get("store") is False:
+            # Chat Completions uses a routing policy for upstream retention.
+            routing["zdr"] = True
         params: dict[str, Any] = dict(
             model=model,
             messages=messages,
-            max_tokens=16000,
-            extra_body={"provider": {"require_parameters": True}},
+            max_tokens=kwargs.get("max_output_tokens", 16000),
+            extra_body={"provider": routing},
         )
         if fmt.get("type") == "json_schema":
             params["response_format"] = {

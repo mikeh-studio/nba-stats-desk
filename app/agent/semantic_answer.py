@@ -369,6 +369,12 @@ def _payload(message: str, status: str) -> dict[str, Any]:
     return answer_payload(user_message(message, status), status=status)
 
 
+def qualification_label(cohort):
+    if cohort.get("team_game_percent"):
+        return f"minimum {cohort['team_game_percent']}% of team games"
+    return f"minimum {cohort['min_games']} games"
+
+
 def leader_statement(section, metric, scope, names):
     """Lead a ranking with who ranked first; the table carries the rest."""
     ranked = [
@@ -398,9 +404,7 @@ def leader_statement(section, metric, scope, names):
     if runner:
         lead += f" Next: {names.get(runner['player_id'], str(runner['player_id']))} ({shown(runner)})."
     cohort = section["cohort"]
-    lead += (
-        f" {cohort['size']} players qualified (minimum {cohort['min_games']} games)."
-    )
+    lead += f" {cohort['size']} players qualified ({qualification_label(cohort)})."
     return [lead]
 
 
@@ -567,7 +571,7 @@ def render_answer(
             continue
         cohort = section["cohort"]
         payload["assumptions"].append(
-            f"Ranking cohort: {cohort['size']} eligible players; minimum {cohort['min_games']} games; {cohort['excluded_players']} excluded."
+            f"Ranking cohort: {cohort['size']} eligible players; {qualification_label(cohort)}; {cohort['excluded_players']} excluded."
         )
         if cohort["min_attempts"] is not None:
             payload["assumptions"].append(
