@@ -9020,7 +9020,7 @@
         "status": "pending",
         "reviewer": null
       },
-      "oracle_note": "All four teams have ten regular-season games, so ceil(0.70 x 10) = 7. Ellis Stone qualifies with 210/7 = 30 PPG. Lane Snow would lead at 240/6 = 40 PPG but is ineligible with six games. Eleven players qualify.",
+      "oracle_note": "All four teams have ten regular-season games, so ceil(0.65 x 10) = 7. Ellis Stone qualifies with 210/7 = 30 PPG. Lane Snow would lead at 240/6 = 40 PPG but is ineligible with six games. Eleven players qualify.",
       "turns": [
         {
           "question": "Who led the NBA in scoring in 2024-25 regular season?",
@@ -9048,6 +9048,10 @@
             {
               "path": "semantic_evidence.scope.season_type",
               "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.cohort.team_game_percent",
+              "equals": 65
             },
             {
               "path": "semantic_evidence.cohort.min_games",

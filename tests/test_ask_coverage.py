@@ -11,6 +11,7 @@ from statistics import median
 import pytest
 from app.agent.availability_ask import parse_request
 from app.agent.semantic_serving import source_players
+from app.agent.semantics import Query, run_query
 from app.availability import load_availability
 from jsonschema import ValidationError
 from scripts.ask_eval.fixtures import (
@@ -735,6 +736,19 @@ def expected_check(case_id, turn_index, path, actual):
     assert actual == check["equals"], (case_id, turn_index, path)
 
 
+def test_rich_leader_changes_when_team_plays_its_tenth_game():
+    _, evidence = FrozenWarehouse(SOURCE, "rich_league").load(["2024-25"])
+    for cutoff, floor, winner, average in [
+        ("2025-03-19", 6, 1112, 40),
+        ("2025-04-09", 7, 1105, 30),
+    ]:
+        query = Query("pts", "2024-25", "average", operation="rank", as_of=cutoff)
+        result = run_query(evidence, query)
+        leader = result["rows"][0]
+        assert result["cohort"]["min_games"] == floor
+        assert (leader["player_id"], leader["value"]) == (winner, average)
+
+
 def test_rich_league_oracles_use_independent_populations_and_arithmetic():
     avery = [row for row in SOURCE["rich_league_rows"] if row["player_id"] == 1101]
     historical = [row for row in avery if row["season"] == "2023-24"]
@@ -783,7 +797,7 @@ def test_rich_league_oracles_use_independent_populations_and_arithmetic():
     assert {team: len(ids) for team, ids in team_games.items()} == dict.fromkeys(
         ("AAA", "BBB", "CCC", "DDD"), 10
     )
-    floor = 7  # 70% of 10 team games
+    floor = 7  # 65% of 10 team games, rounded up
     averages = {pid: sum(points) / len(points) for pid, points in appearances.items()}
     eligible = [pid for pid, points in appearances.items() if len(points) >= floor]
     winner = max(eligible, key=averages.__getitem__)

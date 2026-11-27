@@ -173,6 +173,7 @@ CRITICAL = {
         ],
         "rich_qualified_leader": [
             (1, "semantic_plan.model_calls", 0),
+            (1, "semantic_evidence.cohort.team_game_percent", 65),
             (1, "semantic_evidence.cohort.min_games", 7),
             (1, "semantic_evidence.cohort.excluded_players", 1),
             (1, "semantic_evidence.rows.0.player_id", 1105),
