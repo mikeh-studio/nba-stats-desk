@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime
 from threading import Lock
 from time import monotonic
 
+from app.agent.ask_data_bundle import AskBundleWarehouse, AskDataBundle
 from app.agent.execution import (
     CURRENT,
     ExecutionFailure,
@@ -18,7 +20,7 @@ from app.agent.execution import (
 )
 from app.agent.semantic_serving import players_from_rows
 from app.agent.semantics import PHASES, SemanticError
-from app.agent.serving_runtime import ServingShadow, scoped_source
+from app.agent.serving_runtime import PilotPublication, ServingShadow, scoped_source
 
 
 class CapabilityMiss(Exception):
@@ -460,6 +462,28 @@ class RefreshingServingWarehouse:
             return target
         finally:
             self._lock.release()
+
+    def open_pilot_publication(self) -> PilotPublication:
+        cache = self._select().cache
+        core = cache.get()
+        if core.detail_digest is None:
+            return core
+        detail = cache.get(detail=True)
+        if (
+            detail.approval != core.approval
+            or detail.metadata_digest != core.metadata_digest
+            or detail.detail_digest != core.detail_digest
+            or detail.detail_json is None
+        ):
+            raise SemanticError(
+                "invalid_evidence", "Serving core and detail bindings differ"
+            )
+        return detail
+
+    def open_bundle(
+        self, publication_id: str | None = None, *, now: datetime | None = None
+    ) -> AskDataBundle:
+        return AskBundleWarehouse(self).open_bundle(publication_id, now=now)
 
     def _completed(self, seasons):
         from app.seasons import season_bounds

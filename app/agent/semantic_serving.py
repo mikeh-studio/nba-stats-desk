@@ -321,9 +321,17 @@ def warehouse_for_repository(repo: Any) -> Any:
             repo._governed_source_policy = policy
         publication_reader = getattr(repo, "ask_publication_source", None)
         if publication_reader and policy is None:
-            from app.agent.publication_ask_source import ProductionAskWarehouse
+            from app.agent.ask_data_bundle import AskBundleWarehouse
             from app.agent.runtime_policy import get_runtime_policy
 
             if get_runtime_policy() is None and not repo.settings.ask_local_espn_dev:
-                return ProductionAskWarehouse(warehouse, publication_reader)
+                adapter = getattr(repo, "_ask_bundle_warehouse", None)
+                if (
+                    adapter is None
+                    or adapter.historical is not warehouse
+                    or adapter.read_publication is not publication_reader
+                ):
+                    adapter = AskBundleWarehouse(warehouse, publication_reader)
+                    repo._ask_bundle_warehouse = adapter
+                return adapter
         return warehouse

@@ -82,10 +82,15 @@ def _scopes(source: Evidence) -> list[dict[str, Any]]:
 
 
 def candidate_summaries(
-    source: Evidence, publication_id: str, metrics: Sequence[str]
+    source: Evidence,
+    publication_id: str,
+    metrics: Sequence[str],
+    *,
+    require_complete_cohort: bool = True,
 ) -> tuple[MetricSummary, ...]:
+    """Summarize verified appearances, with a complete cohort required by default."""
     source.validate()
-    if not source.cohort_complete:
+    if require_complete_cohort and not source.cohort_complete:
         raise SemanticError(
             "incomplete_evidence", "Publication requires complete source cohort"
         )

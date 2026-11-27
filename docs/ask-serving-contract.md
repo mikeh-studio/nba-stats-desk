@@ -1,4 +1,4 @@
-# Ask serving contract — Phases 1 and 2
+# Ask serving contract — Phases 1–3
 
 Phase 1 defines and tests offline aggregate evidence and publication validation.
 Phase 2 adds opt-in development publication and consumption, described below.
@@ -434,3 +434,31 @@ and candidate references, lifetime and cleanup ownership. A prepared receipt is
 not proof of promotion; compare it with the actual current reference. Receipts
 never delete warehouse versions; publisher-owned tables retain their one-day TTL.
 This adds no refresh scheduler or production publication.
+
+## Phase 3 — Unified Ask Data Bundle (`ask_data_bundle/1`)
+
+The [bundle manifest](../contracts/ask_data_bundle/bundle-v1.schema.json) binds
+the publication and source snapshot IDs, covered seasons and phases, date
+range, cohort attestation, capabilities, and summary and fact digests. The bundle
+ID hashes the canonical manifest before the ID is added. The facts digest hashes
+the game-grain evidence payload, or JSON `null` for a summary-only bundle.
+Optional P4 slots declare digests and record counts for playoff rounds, season
+positions, player aliases, and event participation.
+
+- Core Stats Publication v2 uses `authority_backed` freshness from the verified
+  release. It builds summaries with the existing metric contract over the
+  publication's facts. League rankings require a complete cohort attestation.
+  Direct adapters for older Core sources require an explicit authority expiry
+  and use the read time for any missing release timestamps.
+- Ask Serving Wire v3 uses `dev_300s` freshness and reuses approved summaries.
+  The development builder sets expiry 300 seconds after capture. Expanded
+  publications declare metric and ranking capabilities. Bound game facts add
+  detail and rich capabilities.
+
+`AskBundleWarehouse.open_bundle()` returns a read-only bundle and pins it to the
+governed request. Reads require timezone-aware timestamps and fail at expiry or
+when the requested publication differs from the pin. The configured Core reader
+takes precedence for bundle reads. A development serving warehouse exposes its
+pinned Wire v3 publication when used on its own. Existing Core callers retain
+`open_publication()` and its separate live authority recheck, and historical
+methods keep their existing routing.

@@ -51,6 +51,7 @@ class RequestPolicy:
     serving_state: dict[Any, dict[str, Any]] = field(default_factory=dict)
     warehouse_lock: Any = field(default_factory=RLock)
     warehouse_byte_limit: int = 100_000_000
+    bundle_lock: Any = field(default_factory=RLock)
 
     def remaining(self) -> float:
         remaining = self.deadline - monotonic()

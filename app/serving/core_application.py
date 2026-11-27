@@ -266,7 +266,11 @@ def create_core_application(
         if cohort_proof:
             current = {**current, "cohort_proof": cohort_proof}
         return PublicationAskSource(
-            replace(evidence, cohort_complete=bool(cohort_proof)), current
+            replace(evidence, cohort_complete=bool(cohort_proof)),
+            current,
+            source_timestamp=manifest["freshness"]["discovery_verified_at"],
+            built_at=manifest["built_at"],
+            expires_at=manifest["freshness"]["expires_at"],
         )
 
     app.state.ask_publication_source = ask_publication_source

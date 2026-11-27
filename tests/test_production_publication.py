@@ -629,6 +629,7 @@ def production(tmp_path):
 def test_rolling_publication_ask_preserves_player_facts_without_a_league_certificate(
     production,
 ):
+    from app.agent.ask_data_bundle import AskDataBundle
     from scripts.serve_production_candidate import attach_publication
 
     legacy = FastAPI()
@@ -638,6 +639,15 @@ def test_rolling_publication_ask_preserves_player_facts_without_a_league_certifi
         assert source.evidence.rows
         assert not source.evidence.cohort_complete
         assert "cohort_proof" not in source.provenance
+        bundle = AskDataBundle.from_core_publication(
+            source, now=timestamp(production.clock[0])
+        )
+        assert bundle.summaries
+        assert "rankings" not in bundle.manifest["capabilities"]
+        assert (
+            bundle.manifest["freshness"]["expires_at"]
+            == production.envelope["manifest"]["freshness"]["expires_at"]
+        )
 
 
 def test_rolling_production_routes_and_pinned_rollback(production):
