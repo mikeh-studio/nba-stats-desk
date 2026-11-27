@@ -12,7 +12,7 @@ from scripts.ask_eval.grading import comparable
 def build_review(baseline, candidate, source, notes=None):
     if not comparable(baseline, candidate):
         raise ValueError(
-            "Runs use different cases, evidence, grader or execution modes; rerun before comparing."
+            "Runs differ in cases, evidence, grading, execution mode, or model transport. Rerun with matching settings."
         )
     if [r["id"] for r in baseline["results"]] != [
         r["id"] for r in candidate["results"]

@@ -212,7 +212,7 @@ for (const malformed of [false, true]) {
 
 for (const sourceKind of ['synthetic', 'production_snapshot']) {
   test(`recorded replay labels captured responses and failed harness separately: ${sourceKind}`, async ({page}) => {
-    const recorded = {...run, provider:'openai', model:'gpt-5.4-mini', source_kind:sourceKind,
+    const recorded = {...run, provider:'openai', model:'gpt-5.4-mini', transport:'codex_cli', source_kind:sourceKind,
       execution_mode:'recorded_provider_replay_http', harness_passed:false,
       cassette:{calls:14},runtime:{model_calls:0},
       selection_summary:{counts:{cases:2,source_rows:24},review_states:{pending:2}},
@@ -220,11 +220,17 @@ for (const sourceKind of ['synthetic', 'production_snapshot']) {
     const body=fs.readFileSync('scripts/ask_eval/review.html','utf8').replace('/*__DATA__*/',JSON.stringify({baseline:recorded,candidate:recorded,source:{}}));
     await page.route('**/__recorded-review',route=>route.fulfill({contentType:'text/html',body}));
     await page.goto('/__recorded-review');
-    await expect(page.locator('#intro')).toContainText('Captured openai / gpt-5.4-mini responses replayed through the current Ask code');
+    await expect(page.locator('#intro')).toContainText('Captured openai / gpt-5.4-mini (codex_cli) responses replayed through the current Ask code');
     await expect(page.locator('#intro')).not.toContainText('controlled planning');
     await expect(page.locator('#run-summary')).toContainText('Harness terminal gate: FAILED');
     await expect(page.locator('#run-summary')).toContainText('Provider calls this run: 0');
     await expect(page.getByRole('region',{name:'Oracle provenance'})).toContainText('"pending":2');
+    await expect(page.locator('#detail')).toContainText('openai / gpt-5.4-mini (codex_cli)');
+    const provenance = page.locator('details').filter({ hasText: 'Run provenance and limitations' });
+    await provenance.locator('summary').click();
+    const data = JSON.parse(await provenance.locator('pre').innerText());
+    expect(data.baseline.transport).toBe('codex_cli');
+    expect(data.candidate.transport).toBe('codex_cli');
     await expect(page.locator('.answer').first()).toContainText('Synthetic answer');
     await page.locator('#decision').selectOption('revise');
     await page.locator('#save').click();

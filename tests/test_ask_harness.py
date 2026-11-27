@@ -20,7 +20,7 @@ from scripts.ask_eval.fixtures import (
     frozen_repository,
     load_inputs,
 )
-from scripts.ask_eval.grading import canonical, grade
+from scripts.ask_eval.grading import canonical, comparable, grade
 from scripts.ask_eval.review import build_review
 from tests.test_semantic_migration import settings
 
@@ -238,6 +238,40 @@ def test_review_cannot_compare_incompatible_sources_or_inject_scripts():
     html = build_review(doc, doc, {"description": "</script><script>alert(1)</script>"})
     assert "</script><script>alert(1)</script>" not in html
     assert "\\u003c/script>" in html
+
+
+def test_live_run_comparability_includes_model_transport():
+    legacy = {
+        "execution_mode": "live_planner_synthetic_http",
+        "provider": "openai",
+        "model": "test-model",
+        "results": [],
+    }
+    api = {**legacy, "transport": "provider_api"}
+    codex = {**legacy, "transport": "codex_cli"}
+    assert not comparable(api, codex)
+    assert not comparable(legacy, codex)
+    assert comparable(codex, dict(codex))
+    assert comparable(legacy, api)
+    with pytest.raises(ValueError, match="model transport"):
+        build_review(api, codex, {})
+
+
+@pytest.mark.parametrize(
+    "legacy", [{"execution_mode": "controlled"}, {"provider": "controlled"}]
+)
+def test_legacy_controlled_runs_compare_with_explicit_transport(legacy):
+    assert comparable(legacy, {**legacy, "transport": "controlled"})
+
+
+def test_review_embeds_model_transport_for_both_runs():
+    baseline = {"label": "Baseline", "transport": "codex_cli", "results": []}
+    candidate = {**baseline, "label": "Candidate"}
+    html = build_review(baseline, candidate, {})
+    data = json.loads(html.split("const DATA=", 1)[1].split(";\n", 1)[0])
+    assert (
+        data["baseline"]["transport"] == data["candidate"]["transport"] == "codex_cli"
+    )
 
 
 def test_review_embeds_current_expectation_digest():

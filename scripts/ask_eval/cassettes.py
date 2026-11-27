@@ -375,6 +375,8 @@ class CassetteStore:
     def terminal(self):
         with self.lock:
             errors = list(self.errors)
+            if self.manifest.get("transport") == "codex_cli" and not self.records:
+                errors.append("codex_cli_no_recorded_calls")
             if self.mode == "replay":
                 errors.extend(
                     "unused_call:" + str(k) for k in self.records.keys() - self.consumed

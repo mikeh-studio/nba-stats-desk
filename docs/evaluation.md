@@ -800,6 +800,34 @@ python scripts/evaluate_ask.py \
   --output reports/ask-harness/my-offline-replay
 ```
 
+For Codex CLI, use an existing ChatGPT sign-in and pass `--codex-cli` with
+`--live` and the OpenAI provider. The harness skips provider credentials from
+`.env` and excludes `OPENAI_API_KEY` and cloud credentials from the CLI
+environment. Each call runs in a fresh temporary directory using isolated
+`codex exec --output-schema`, with the exact request schema, low reasoning
+effort, and disabled shell and web tools. The output-token limit is conveyed
+in the prompt. The version 2 manifest and run report identify the transport
+as `codex_cli`.
+
+```bash
+python scripts/evaluate_ask.py --codex-cli --live --model gpt-6-luna \
+  --case research_home --max-model-calls 4 --clock 2026-11-26 \
+  --record-cassettes reports/ask-harness/codex-luna-v3-20261126 \
+  --output reports/ask-harness/codex-luna-v3-20261126-record
+python scripts/evaluate_ask.py \
+  --replay-cassettes reports/ask-harness/codex-luna-v3-20261126 \
+  --output reports/ask-harness/codex-luna-v3-20261126-replay
+```
+
+Semantic planning uses the deterministic `reference` provider by default.
+Calls using the `semantic_intent_v3` schema require an installed model-backed
+[intelligence provider](intelligence-contract.md) selected with
+`ASK_EVAL_INTELLIGENCE`. Codex CLI replay restores the recorded intelligence
+provider selection without invoking the CLI. A live Codex CLI run requires
+at least one successful CLI call, and an empty Codex CLI cassette fails the
+harness gate. Review comparisons require matching model transports. The review
+page shows the transport alongside the model and in the run provenance.
+
 Replay resolves provider, model, selected cases and clock from the manifest;
 explicit conflicting arguments fail before server startup. It creates no provider
 client and spends no provider calls. The fixture server blocks Python-audited
