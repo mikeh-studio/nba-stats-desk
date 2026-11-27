@@ -452,13 +452,15 @@ positions, player aliases, and event participation.
   earliest deadline from the release, verified source policy, and verified
   revocation registry. It builds summaries with the existing metric contract over the
   publication's facts. League rankings require a complete cohort attestation.
-  Direct adapters for older Core sources require an explicit authority expiry
-  and use the read time for any missing release timestamps.
+  Direct adapters for older Core sources require an explicit authority expiry,
+  bound a missing source capture timestamp by `built_at`, and use the read time
+  only when release timestamps are absent.
 - Ask Serving Wire v3 uses `dev_300s` freshness and reuses approved summaries.
-  The development builder sets expiry 300 seconds after capture. Expanded
-  publications declare metric and ranking capabilities. Approved points summaries
-  or bound game facts enable points. Bound game facts also enable detail and rich
-  capabilities.
+  The development builder sets expiry 300 seconds after capture and binds the
+  capture timestamp into the approved metadata. Expanded publications declare
+  `metrics`, while `rankings` requires bound game facts and is omitted on
+  summary-only bundles. Approved points summaries or bound game facts enable
+  points. Bound game facts also enable detail and rich capabilities.
 
 `AskBundleWarehouse.open_bundle()` returns a read-only bundle and pins it to the
 governed request. Freshness is checked after cold builds and on cache reads.

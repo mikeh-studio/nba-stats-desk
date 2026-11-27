@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import date, datetime
 from pathlib import Path
@@ -35,11 +36,20 @@ def digest(value: Any) -> str:
     ).hexdigest()
 
 
+def _plain_mapping(value: Any) -> Any:
+    if isinstance(value, Mapping) and type(value) is not dict:
+        return {key: _plain_mapping(item) for key, item in value.items()}
+    return value
+
+
 def _summary_records(summaries: Sequence[MetricSummary]) -> list[dict[str, Any]]:
-    # JSON hashing immediately consumes these values; recursively copying every
-    # membership ID changes no serialized bytes and adds work per request.
+    # JSON hashing immediately consumes these values; normalize Mapping views
+    # without copying membership tuples so frozen summaries hash identically.
     return sorted(
-        ({f.name: getattr(s, f.name) for f in fields(s)} for s in summaries),
+        (
+            {f.name: _plain_mapping(getattr(s, f.name)) for f in fields(s)}
+            for s in summaries
+        ),
         key=lambda s: (s["season"], s["phase"], s["player_id"], s["metric"]),
     )
 

@@ -166,12 +166,41 @@ def test_manifest_rejects_tampered_scope_with_original_bundle_id(manifest):
                 dict(season=SEASON, phase=PHASE, data_through=FIRST),
             ]
         },
+        {
+            "covered_scopes": [
+                dict(season=SEASON, phase=PHASE, data_through="2024-10-21")
+            ]
+        },
+        {
+            "covered_scopes": [
+                dict(season=SEASON, phase=PHASE, data_through="2025-04-14")
+            ]
+        },
     ],
 )
 def test_manifest_rejects_invalid_covered_scopes(manifest, change):
     scope = manifest["scope"]
     scope["covered_scopes"] = [dict(season=SEASON, phase=PHASE, data_through=LAST)]
     scope.update(change)
+    with pytest.raises(SemanticError) as error:
+        validate_bundle_manifest(seal_manifest(manifest), now=NOW)
+    assert error.value.code == "invalid_evidence"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"capabilities": ["rankings"], "scope": {"cohort_complete": False}},
+        {"capabilities": ["detail"], "facts_digest": digest(None)},
+        {"capabilities": ["rich"], "facts_digest": digest(None)},
+    ],
+)
+def test_manifest_rejects_inconsistent_capabilities(manifest, changes):
+    for key, value in changes.items():
+        if isinstance(value, dict):
+            manifest[key].update(value)
+        else:
+            manifest[key] = value
     with pytest.raises(SemanticError) as error:
         validate_bundle_manifest(seal_manifest(manifest), now=NOW)
     assert error.value.code == "invalid_evidence"
@@ -348,6 +377,35 @@ def test_bundle_is_immutable_and_digests_are_canonical(core_source):
     )
     for key in ("bundle_id", "summary_digest", "facts_digest"):
         assert changed.manifest[key] != bundle.manifest[key]
+    for tampered in (
+        dict(summaries=()),
+        dict(evidence=None),
+        dict(summaries=(), evidence=None),
+    ):
+        with pytest.raises(ValueError, match="digest"):
+            replace(bundle, **tampered)
+
+
+def test_core_partial_timestamps_bound_legacy_source_timestamp_by_built_at(
+    core_source,
+):
+    earlier_build = (NOW - timedelta(minutes=5)).isoformat()
+    partial = replace(core_source, source_timestamp=None, built_at=earlier_build)
+    bundle = AskDataBundle.from_core_publication(partial, now=NOW)
+    assert bundle.manifest["freshness"] == {
+        "policy": "authority_backed",
+        "source_timestamp": earlier_build,
+        "built_at": earlier_build,
+        "expires_at": CORE_EXPIRY.isoformat(),
+    }
+    untimestamped = replace(core_source, source_timestamp=None, built_at=None)
+    fallback = AskDataBundle.from_core_publication(untimestamped, now=NOW)
+    assert fallback.manifest["freshness"] == {
+        "policy": "authority_backed",
+        "source_timestamp": NOW.isoformat(),
+        "built_at": NOW.isoformat(),
+        "expires_at": CORE_EXPIRY.isoformat(),
+    }
 
 
 def test_core_explicit_expiry_can_only_shorten_a_bound_release(core_source):
@@ -393,9 +451,9 @@ def pilot(snapshot, *, metrics=None, detail=False, publication_id="pilot_a"):
     ("metrics", "detail", "capabilities"),
     [
         (None, False, {"points"}),
-        (["ast"], False, {"metrics", "rankings"}),
+        (["ast"], False, {"metrics"}),
         (["ast"], True, {"points", "metrics", "rankings", "detail", "rich"}),
-        (["pts", "ast"], False, {"points", "metrics", "rankings"}),
+        (["pts", "ast"], False, {"points", "metrics"}),
         (["pts", "ast"], True, {"points", "metrics", "rankings", "detail", "rich"}),
     ],
 )
@@ -412,6 +470,11 @@ def test_pilot_publication_preserves_approved_summaries(
     assert bundle.manifest["freshness"]["expires_at"] == DEV_EXPIRY.isoformat()
     assert bundle.summaries == publication.summaries
     assert bundle.manifest["summary_digest"] == publication.approval.summary_digest
+    publication.approval.validate_contract_binding(
+        bundle.summaries,
+        relation_version=publication.approval.relation_version,
+        now=NOW,
+    )
     if detail:
         evidence = publication.detail_evidence(now=NOW)
         assert bundle.evidence.rows == tuple(evidence.rows)
@@ -421,10 +484,55 @@ def test_pilot_publication_preserves_approved_summaries(
                 replace(publication, detail_json="{}"), now=NOW
             )
     else:
+        assert "rankings" not in bundle.manifest["capabilities"]
         assert bundle.evidence is None
         assert bundle.manifest["facts_digest"] == digest(None)
     with pytest.raises(SemanticError) as error:
         AskDataBundle.from_pilot_publication(publication, now=DEV_EXPIRY)
+    assert error.value.code == "invalid_evidence"
+
+
+def test_summary_only_wire_preserves_short_lifetime_capture_and_legacy_fallback(
+    pilot_snapshot,
+):
+    publication = pilot(pilot_snapshot, metrics=["pts", "ast"], detail=False)
+    short_expiry = NOW + timedelta(seconds=120)
+    short_pub = replace(
+        publication, approval=replace(publication.approval, expires_at=short_expiry)
+    )
+    bundle = AskDataBundle.from_pilot_publication(short_pub, now=NOW)
+    assert bundle.manifest["freshness"]["source_timestamp"] == CAPTURE.isoformat()
+    assert bundle.manifest["freshness"]["expires_at"] == short_expiry.isoformat()
+
+    legacy_metadata = json.loads(short_pub.metadata_json)
+    legacy_metadata.pop("source_timestamp")
+    legacy_json = json.dumps(legacy_metadata, sort_keys=True, separators=(",", ":"))
+    legacy_pub = replace(
+        short_pub, metadata_json=legacy_json, metadata_digest=digest(legacy_metadata)
+    )
+    legacy_bundle = AskDataBundle.from_pilot_publication(legacy_pub, now=NOW)
+    assert (
+        legacy_bundle.manifest["freshness"]["source_timestamp"]
+        == (short_expiry - timedelta(seconds=300)).isoformat()
+    )
+
+    detail_pub = pilot(pilot_snapshot, metrics=["pts", "ast"], detail=True)
+    mismatched_metadata = json.loads(detail_pub.metadata_json)
+    mismatched_metadata["source_timestamp"] = (
+        CAPTURE - timedelta(seconds=5)
+    ).isoformat()
+    mismatched_json = json.dumps(
+        mismatched_metadata, sort_keys=True, separators=(",", ":")
+    )
+    with pytest.raises(SemanticError) as error:
+        AskDataBundle.from_pilot_publication(
+            replace(
+                detail_pub,
+                metadata_json=mismatched_json,
+                metadata_digest=digest(mismatched_metadata),
+            ),
+            now=NOW,
+        )
     assert error.value.code == "invalid_evidence"
 
 
@@ -664,9 +772,91 @@ def test_refreshing_warehouse_exposes_wire_bundle_and_keeps_core_separate(
         with pytest.raises(SemanticError) as error:
             historical.open_bundle()
         assert error.value.code == "invalid_evidence"
+        with pytest.raises(SemanticError) as error:
+            historical.open_bundle(now=NOW)
+        assert error.value.code == "invalid_evidence"
     with pytest.raises(SemanticError, match="reference unavailable"):
         historical.open_bundle(now=NOW)
     assert len(client.calls) == 2
+
+
+@pytest.mark.parametrize("shadow_first", [False, True])
+def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
+    pilot_snapshot, settings, tmp_path, monkeypatch, shadow_first
+):
+    from app.agent import ask_data_bundle
+    from app.agent.serving_bigquery import BigQueryServingReader
+
+    publication = pilot(pilot_snapshot)
+    reference, records = wire(publication)
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps(asdict(reference)))
+    entered, peer_waiting, release = Event(), Event(), Event()
+    original_load = BigQueryServingReader.load
+
+    def paused_load(self, *, now, include_detail=False):
+        if not entered.is_set():
+            entered.set()
+            assert release.wait(timeout=5)
+        return original_load(self, now=now, include_detail=include_detail)
+
+    monkeypatch.setattr(BigQueryServingReader, "load", paused_load)
+    client = WireClient(records)
+    warehouse = RefreshingServingWarehouse(
+        SemanticWarehouse(
+            BigQuerySemanticSource(SnapshotClient(), project="test-project")
+        ),
+        client,
+        path,
+        lambda: NOW,
+        project=reference.project,
+        mode="shadow",
+    )
+    query = Query(metric="pts", aggregation="average", season=SEASON, player_id=1)
+    with (
+        request_policy(settings, "openai") as policy,
+        ThreadPoolExecutor(max_workers=2) as pool,
+    ):
+        acquire_lock = serving_warehouse.acquire_timed_lock
+
+        def observe_lock(lock, *args):
+            if entered.is_set() and lock is policy.bundle_lock:
+                peer_waiting.set()
+            return acquire_lock(lock, *args)
+
+        monkeypatch.setattr(serving_warehouse, "acquire_timed_lock", observe_lock)
+        monkeypatch.setattr(ask_data_bundle, "acquire_timed_lock", observe_lock)
+        _, evidence = warehouse.load([SEASON])
+        shadow = warehouse.serving_shadow
+        reference_result = run_query(evidence, query)
+        first = (
+            pool.submit(copy_context().run, shadow.compare, query, reference_result)
+            if shadow_first
+            else pool.submit(copy_context().run, warehouse.open_bundle)
+        )
+        try:
+            assert entered.wait(timeout=5)
+            second = (
+                pool.submit(copy_context().run, warehouse.open_bundle)
+                if shadow_first
+                else pool.submit(
+                    copy_context().run, shadow.compare, query, reference_result
+                )
+            )
+            assert peer_waiting.wait(timeout=5)
+        finally:
+            release.set()
+        if shadow_first:
+            first.result(timeout=5)
+            bundle = second.result(timeout=5)
+        else:
+            bundle = first.result(timeout=5)
+            second.result(timeout=5)
+    assert bundle.manifest["publication_id"] == "pilot_a"
+    assert shadow.outcomes == [
+        {"status": "match", "code": "capture_provenance_differs"}
+    ]
+    assert len(client.calls) == 1
 
 
 def test_missing_wire_relation_fails_closed(pilot_snapshot, tmp_path):
