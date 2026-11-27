@@ -228,7 +228,7 @@ def current_route(
         prepare_route_context,
         select_route,
     )
-    from app.agent.scope_policy import fantasy_decision
+    from app.agent.scope_policy import fantasy_decision, round_scope_message
     from app.agent.semantic_answer import SemanticAsk
     from app.agent.semantics import SemanticError
     from app.agent.teammate_ask import precheck_teammate_study_route
@@ -270,17 +270,17 @@ def current_route(
         conversation_id=CONVERSATION_ID,
         period_question=original if time_notes else None,
     )
+    from app.agent.award_lookup import wants_award
+
+    if not wants_award(question) and round_scope_message(question):
+        if participation := answer_known_nonparticipation(question, settings.season):
+            return result("event_participation", "deterministic", participation)
     route = select_route(route_context)
     label = DISPATCH_LABELS.get(route.key, route.key)
     source = dispatch_source(route_context, route)
     payload = None
     if route.handler == "scope_refusal":
-        participation = answer_known_nonparticipation(question, settings.season)
-        payload = (
-            route_hint(participation, route="event_participation")
-            if participation is not None
-            else route_hint({}, reason_code="unsupported_round")
-        )
+        payload = route_hint({}, reason_code="unsupported_round")
     elif route.handler == "availability":
         _, payload = precheck_availability_route(settings.research_availability_path)
     elif route.handler == "teammate_study":
@@ -300,7 +300,16 @@ def current_route(
         if checked.direct:
             label, source = "teammate_study", "deterministic"
     elif route.handler == "semantic":
-        payload = SemanticAsk(settings, None, store).preview_route(
+        from scripts.ask_eval.fixtures import frozen_repository
+
+        warehouse = (
+            frozen_repository(
+                settings, attachments.source, "complete"
+            )._governed_warehouse
+            if route.key == "playoff_round"
+            else None
+        )
+        payload = SemanticAsk(settings, warehouse, store).preview_route(
             question, CONVERSATION_ID
         )
     return result(label, source, payload)

@@ -410,14 +410,6 @@ class StatsAgent:
             selected_player=selected_player,
             period_question=period_question,
         )
-        route = select_route(route_context)
-        if routing is not None:
-            routing.update(
-                route=DISPATCH_LABELS.get(route.key, route.key),
-                source=dispatch_source(route_context, route),
-            )
-        if trace:
-            trace.set_plan(route=route.key, confidence=1.0)
         publication_id = route_context.context.get("publication_id")
         pending_route = (
             self.conversation_store.get_pending_clarification(conversation_id)
@@ -430,7 +422,33 @@ class StatsAgent:
             and (pending_route.query_plan or {}).get("publication_retry")
         ):
             publication_id = publication_id or pending_route.publication_id
-        if publication_id and route.handler != "semantic":
+        from app.agent.award_lookup import wants_award
+
+        participation = None
+        if not wants_award(cleaned_question) and round_scope_message(cleaned_question):
+            from app.agent.participation import answer_known_nonparticipation
+
+            participation = answer_known_nonparticipation(
+                cleaned_question, self.settings.season, conversation_id
+            )
+            if participation is not None and not publication_id:
+                if routing is not None:
+                    routing.update(route="event_participation", source="deterministic")
+                if trace:
+                    trace.set_plan(route="event_participation", confidence=1.0)
+                    trace.outcome = "not_applicable"
+                return route_hint(participation, route="event_participation")
+        route = select_route(route_context)
+        if routing is not None:
+            routing.update(
+                route=DISPATCH_LABELS.get(route.key, route.key),
+                source=dispatch_source(route_context, route),
+            )
+        if trace:
+            trace.set_plan(route=route.key, confidence=1.0)
+        if publication_id and (
+            participation is not None or route.handler != "semantic"
+        ):
             if trace:
                 trace.outcome = "unsupported_scope"
             return answer_payload(
@@ -439,22 +457,13 @@ class StatsAgent:
                 conversation_id=conversation_id,
             )
         if route.handler == "scope_refusal":
-            from app.agent.participation import answer_known_nonparticipation
-
-            participation = answer_known_nonparticipation(
-                cleaned_question, self.settings.season, conversation_id
-            )
-            if participation is not None:
-                if trace:
-                    trace.set_plan(route="event_participation", confidence=1.0)
-                    trace.outcome = "not_applicable"
-                return route_hint(participation, route="event_participation")
             if trace:
                 trace.outcome = "unsupported_scope"
                 trace.error_type = "unsupported_scope"
             return route_hint(
                 answer_payload(
-                    round_scope_message(cleaned_question) or "Unsupported scope",
+                    round_scope_message(route_context.routing_question)
+                    or "Unsupported scope",
                     status="unsupported_scope",
                     conversation_id=conversation_id,
                 ),
@@ -524,16 +533,20 @@ class StatsAgent:
                 from app.agent.semantic_answer import try_published_three_point_leaders
 
                 if (
-                    payload := try_published_three_point_leaders(
-                        self,
-                        cleaned_question,
-                        route_context.context,
-                        conversation_id,
-                        runtime=runtime,
-                        selected_player=selected_player,
-                        keep_pending=keep_pending,
+                    route.key != "playoff_round"
+                    and (
+                        payload := try_published_three_point_leaders(
+                            self,
+                            cleaned_question,
+                            route_context.context,
+                            conversation_id,
+                            runtime=runtime,
+                            selected_player=selected_player,
+                            keep_pending=keep_pending,
+                        )
                     )
-                ) is not None:
+                    is not None
+                ):
                     return payload
                 payload = self.semantic_agent.answer(
                     cleaned_question,

@@ -313,6 +313,23 @@ def resolve_followup(
     }
     if carried:
         resolved += " " + filter_question(carried)
+    from app.agent.scope_policy import (
+        has_phase_cue,
+        requested_playoff_round,
+        round_scope_message,
+    )
+    from app.agent.semantics import PLAYOFF_ROUND_LABELS
+
+    if (
+        continues_analysis
+        and scope.get("playoff_round") in PLAYOFF_ROUND_LABELS
+        and not round_scope_message(question)
+        and not any(
+            has_phase_cue(question, phase)
+            for phase in ("Regular Season", "Playoffs", "Both")
+        )
+    ):
+        resolved += " in the " + PLAYOFF_ROUND_LABELS[scope["playoff_round"]]
     inherited = {}
     changes_dates = re.search(
         r"\b(?:20\d{2}|last|past|previous|prior|this (?:season|month|week|year)|current season|recently|lately|today|yesterday|since|before|after|from|as.of|January|February|March|April|May|June|July|August|September|October|November|December)\b",
@@ -343,7 +360,10 @@ def resolve_followup(
 
             if wants_overview(resolved):
                 resolved += f" {scope['season']} as of {end}"
-    if not re.search(r"\b(?:playoffs?|postseason|regular[ -]season)\b", question, re.I):
+    if not requested_playoff_round(question) and not any(
+        has_phase_cue(question, phase)
+        for phase in ("Regular Season", "Playoffs", "Both")
+    ):
         phases = scope.get("phases") or (
             [scope["season_type"]] if scope.get("season_type") else []
         )

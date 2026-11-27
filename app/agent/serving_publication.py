@@ -229,6 +229,7 @@ class ValidatedPublication:
                     "game_result",
                     "weekdays",
                     "stat_filters",
+                    "playoff_round",
                     "seasons",
                     "excluded_player_ids",
                     "min_games",

@@ -31,7 +31,12 @@ select
     ) as game_status,
     cast({{ 'game_time_utc' if 'game_time_utc' in schedule_columns else 'null' }} as timestamp) as scheduled_start_utc,
     cast({{ 'ingested_at_utc' if 'ingested_at_utc' in schedule_columns else 'null' }} as timestamp) as ingested_at_utc,
-    cast(source_updated_at_utc as timestamp) as source_updated_at_utc
+    cast(source_updated_at_utc as timestamp) as source_updated_at_utc,
+    {{ playoff_round_fields(
+        'cast(game_id as ' ~ varchar_type() ~ ')',
+        "coalesce(nullif(trim(cast(season_type as " ~ varchar_type() ~ ")), ''), 'Playoffs')" if 'season_type' in schedule_columns else "'Playoffs'",
+        schedule_columns
+    ) }}
 from {{ source('bronze', 'raw_schedule') }}
 where cast(schedule_date as date) between date('{{ warehouse_season_start() }}') and date('{{ warehouse_season_end() }}')
 {% else %}
@@ -45,7 +50,8 @@ select
     cast(null as {{ varchar_type() }}) as game_status,
     cast(null as timestamp) as scheduled_start_utc,
     cast(null as timestamp) as ingested_at_utc,
-    cast(null as timestamp) as source_updated_at_utc
+    cast(null as timestamp) as source_updated_at_utc,
+    {{ playoff_round_fields("cast(null as " ~ varchar_type() ~ ")", "'Regular Season'") }}
 from (select 1 as _empty_source)
 where 1 = 0
 {% endif %}

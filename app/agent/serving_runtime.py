@@ -358,6 +358,7 @@ class PilotPublication:
                 "game_result",
                 "weekdays",
                 "stat_filters",
+                "playoff_round",
                 "seasons",
             )
         )

@@ -3,7 +3,20 @@
     schema=env_var('BQ_DATASET_GOLD', env_var('BQ_DATASET', 'nba_gold'))
 ) }}
 
-with team_scores as (
+with game_playoff_scope as (
+    select
+        game_id,
+        season_type,
+        {% for field in playoff_round_columns() %}
+        {{ field }}{% if not loop.last %},{% endif %}
+        {% endfor %}
+    from {{ ref('stg_game_logs_clean') }}
+    qualify row_number() over (
+        partition by game_id
+        order by ingested_at_utc desc, player_id
+    ) = 1
+),
+team_scores as (
     select
         t.game_id,
         t.game_date,
@@ -50,9 +63,13 @@ games_with_team_ids as (
         on g.away_team_abbr = away_team.team_abbr
 )
 select
-    game_id,
-    game_date,
-    season,
+    g.game_id,
+    g.game_date,
+    g.season,
+    p.season_type,
+    {% for field in playoff_round_columns() %}
+    p.{{ field }},
+    {% endfor %}
     home_team_id,
     home_team_abbr,
     away_team_id,
@@ -72,6 +89,7 @@ select
         else away_team_pts - home_team_pts
     end as scoring_margin,
     ingested_at_utc
-from games_with_team_ids
+from games_with_team_ids g
+left join game_playoff_scope p on g.game_id = p.game_id
 where home_team_abbr is not null
   and away_team_abbr is not null

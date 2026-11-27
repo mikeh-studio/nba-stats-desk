@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from dataclasses import replace
 from datetime import date, timedelta
 
 from app.agent.clock import today as semantic_today
@@ -98,7 +99,9 @@ def wants_overview(question):
     )
 
 
-def overview_scope(question, selected_season, today=None, *, comparison=None):
+def overview_scope(
+    question, selected_season, today=None, *, comparison=None, playoff_round=None
+):
     from app.agent.game_filters import extract_game_filters
 
     extracted = extract_game_filters(question)
@@ -117,11 +120,13 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         )
     if first:
         question = re.sub(r"\bfirst (?:two|2) appearances\b", "", question, flags=re.I)
-        if not re.search(r"playoffs?|regular season", question, re.I):
+        if not playoff_round and not re.search(
+            r"playoffs?|regular season", question, re.I
+        ):
             question += " regular season"
     from app.agent.scope_policy import round_scope_message
 
-    if message := round_scope_message(question):
+    if message := round_scope_message(question, round_coverage=bool(playoff_round)):
         raise SemanticError("unsupported_scope", message)
     if not re.search(MONTH_PATTERN, question, re.I):
         question = re.sub(
@@ -274,6 +279,8 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         previous_end = start - timedelta(days=1)
     elif calendar_scope and re.search(r"\bpast month\b", question, re.I):
         previous_start = shift_months(previous_end, 1) + timedelta(days=1)
+    if playoff_round:
+        phases = ["Playoffs"]
     previous_phases = list(phases)
     if not trailing and not explicit and not calendar_scope:
         if phases == ["Playoffs"]:
@@ -309,6 +316,7 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         )
     return dict(
         **extracted.query_fields,
+        **({"playoff_round": playoff_round} if playoff_round else {}),
         comparison_intent=comparison,
         recent_appearances=10 if recent else None,
         first_appearances=2 if first else None,
@@ -521,10 +529,18 @@ def build_overview(question, evidence, players, scope, selected=None):
         }
     player = candidates[0]
     from app.agent.game_filters import filter_description, filter_scope
-    from app.agent.semantics import Query, apply_game_filters
+    from app.agent.semantics import PLAYOFF_ROUND_LABELS, Query, apply_game_filters
 
     predicates = filter_scope(scope)
-    filter_query = Query("pts", scope["seasons"][0], "average", **predicates)
+    playoff_round = scope.get("playoff_round")
+    filter_query = Query(
+        "pts",
+        scope["seasons"][0],
+        "average",
+        season_type="Playoffs" if playoff_round else "Both",
+        playoff_round=playoff_round,
+        **predicates,
+    )
     filter_query.validate(load_contract().metric("pts"))
     if scope.get("recent_appearances") or scope.get("first_appearances"):
         scope = dict(scope)
@@ -572,7 +588,7 @@ def build_overview(question, evidence, players, scope, selected=None):
             scope["chart_grain"] = "daily"
     start, end = scope["start"], scope["end"]
 
-    def rows_between(lo, hi, phases):
+    def rows_between(lo, hi, phases, query=filter_query):
         return apply_game_filters(
             [
                 r
@@ -580,13 +596,32 @@ def build_overview(question, evidence, players, scope, selected=None):
                 if r["season_type"] in phases
                 and lo <= date.fromisoformat(str(r["game_date"])) <= hi
             ],
-            filter_query,
+            query,
         )
 
+    if playoff_round:
+        from app.agent.semantics import playoff_round_seasons
+
+        playoff_rows = [
+            r
+            for r in evidence.rows
+            if r["season_type"] == "Playoffs"
+            and start <= date.fromisoformat(str(r["game_date"])) <= end
+        ]
+        if playoff_rows and not playoff_round_seasons(playoff_rows):
+            raise SemanticError(
+                "unsupported_scope",
+                "Playoff rounds cannot be isolated with the connected data.",
+            )
     current = rows_between(start, end, scope["phases"])
     previous_phases = scope.get("previous_phases", scope["phases"])
     previous = rows_between(
-        scope["previous_start"], scope["previous_end"], previous_phases
+        scope["previous_start"],
+        scope["previous_end"],
+        previous_phases,
+        replace(filter_query, playoff_round=None)
+        if previous_phases == ["Regular Season"]
+        else filter_query,
     )
     own = [r for r in current if r["player_id"] == player["player_id"]]
     prior = [r for r in previous if r["player_id"] == player["player_id"]]
@@ -678,7 +713,11 @@ def build_overview(question, evidence, players, scope, selected=None):
                 **({"monthly": points} if grain == "monthly" else {}),
             }
         )
-    phase = " + ".join(scope["phases"])
+    phase = (
+        PLAYOFF_ROUND_LABELS[playoff_round]
+        if playoff_round
+        else " + ".join(scope["phases"])
+    )
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
     from app.agent.overview_percentiles import add_percentiles
 

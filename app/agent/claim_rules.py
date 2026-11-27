@@ -460,15 +460,21 @@ def metric_assumption_contracts(payload):
             from app.agent.scoring_report import game_log_context_contract
 
             fields, template = game_log_context_contract(section["scope"])
-        add(
-            [seasons, scope + ["season_type"], *[scope + [field] for field in fields]],
-            template,
-            formats=[
-                "join_comma" if section["scope"].get("seasons") else "identity",
-                "identity",
-                *(["identity"] * len(fields)),
-            ],
-        )
+        sources = [
+            seasons,
+            scope + ["season_type"],
+            *[scope + [field] for field in fields],
+        ]
+        formats = [
+            "join_comma" if section["scope"].get("seasons") else "identity",
+            "identity",
+            *(["identity"] * len(fields)),
+        ]
+        if section["scope"].get("playoff_round"):
+            template += f" · {{{len(sources)}}}"
+            sources.append(scope + ["playoff_round"])
+            formats.append("playoff_round")
+        add(sources, template, formats=formats)
         index += 1  # Contract version is metadata, not a statistical claim.
         for field, label in (
             ("team_abbr", "Appearance team"),

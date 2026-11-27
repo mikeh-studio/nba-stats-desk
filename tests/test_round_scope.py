@@ -15,12 +15,8 @@ from tests.test_semantic_migration import settings
     "scope",
     [
         "the final",
-        "NBA Finals",
         "conference final",
         "championship series",
-        "first round",
-        "first-round",
-        "second-round playoffs",
         "final round",
         "earlier playoff rounds",
         "round 2",

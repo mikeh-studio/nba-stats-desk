@@ -39,6 +39,8 @@ def capture_sql(sources, phases=None):
                 for field in sorted(OPTIONAL_COMPONENTS)
             ],
             "JSON_VALUE(TO_JSON_STRING(fact), '$.wl') AS game_result",
+            "COALESCE(JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round'), "
+            "JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round_name')) AS playoff_round",
         ]
     )
     selects = [

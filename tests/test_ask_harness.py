@@ -169,7 +169,8 @@ def test_shared_envelope_never_changes_route_specific_refusal():
 @pytest.mark.parametrize(
     "question,route",
     [
-        ("How did Avery Example play in the Finals?", "unsupported_round"),
+        ("How did Avery Example play in the Finals?", "playoff_round"),
+        ("How did Avery Example play in early playoff rounds?", "unsupported_round"),
         ("How many games did Avery Example play?", "appearances"),
         ("Avery Example points without Blair Sample", "availability"),
         ("Avery Example points at home", "metrics"),

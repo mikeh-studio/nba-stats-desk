@@ -29,6 +29,48 @@ COMPONENTS = frozenset(
 )
 OPTIONAL_COMPONENTS = frozenset({"oreb", "dreb", "pf"})
 PHASES = ("Regular Season", "Playoffs")
+PLAYOFF_ROUNDS = (
+    "first_round",
+    "conference_semifinals",
+    "conference_finals",
+    "nba_finals",
+)
+PLAYOFF_ROUND_LABELS = dict(
+    zip(
+        PLAYOFF_ROUNDS,
+        ("First Round", "Conference Semifinals", "Conference Finals", "NBA Finals"),
+        strict=True,
+    )
+)
+_PLAYOFF_GAME_ID = re.compile(r"004[0-9]{2}00([1-4])[0-9][1-7]")
+_PLAYOFF_ROUND_KEYS = {
+    label.casefold(): key for key, label in PLAYOFF_ROUND_LABELS.items()
+}
+
+
+def playoff_round_from_game_id(game_id: object) -> str | None:
+    match = _PLAYOFF_GAME_ID.fullmatch(game_id) if isinstance(game_id, str) else None
+    return PLAYOFF_ROUNDS[int(match[1]) - 1] if match else None
+
+
+def row_playoff_round(row: Mapping[str, Any]) -> str | None:
+    if row.get("season_type") != "Playoffs":
+        return None
+    for field in ("playoff_round", "playoff_round_name"):
+        value = row.get(field)
+        if isinstance(value, str):
+            value = value.strip().casefold()
+            if value in PLAYOFF_ROUNDS:
+                return value
+            if value in _PLAYOFF_ROUND_KEYS:
+                return _PLAYOFF_ROUND_KEYS[value]
+    return playoff_round_from_game_id(row.get("game_id"))
+
+
+def playoff_round_seasons(rows: Sequence[Mapping[str, Any]]) -> set[str]:
+    return {row["season"] for row in rows if row_playoff_round(row) is not None}
+
+
 STAT_FILTER_OPERATORS = {
     "gt": operator.gt,
     "gte": operator.ge,
@@ -234,8 +276,15 @@ class Query:
     game_result: str | None = None
     weekdays: list[int] | None = None
     stat_filters: list[dict[str, Any]] | None = None
+    playoff_round: str | None = None
 
     def validate(self, metric: Metric) -> None:
+        if self.playoff_round is not None and (
+            self.playoff_round not in PLAYOFF_ROUNDS or self.season_type != "Playoffs"
+        ):
+            raise SemanticError(
+                "invalid_scope", "Select a canonical round within Playoffs scope"
+            )
         for name in ("team_abbr", "opponent_abbr"):
             value = getattr(self, name)
             if value is not None and (
@@ -490,6 +539,8 @@ def apply_game_filters(
         ("game_result", query.game_result),
     )
     requested_fields = [(field, value) for field, value in fields if value is not None]
+    if query.playoff_round is not None:
+        rows = [row for row in rows if row_playoff_round(row) == query.playoff_round]
     if not requested_fields and query.weekdays is None and query.stat_filters is None:
         return list(rows)
     relevant = (
@@ -576,6 +627,13 @@ def select_query_rows(
     phases = PHASES if query.season_type == "Both" else (query.season_type,)
     seasons = query.seasons or [query.season]
     scopes = [(season, phase) for season in seasons for phase in phases]
+    if query.playoff_round is not None and not set(seasons) <= playoff_round_seasons(
+        evidence.rows
+    ):
+        raise SemanticError(
+            "unsupported_scope",
+            "Playoff rounds cannot be isolated with the connected data.",
+        )
     if any(
         s not in evidence.covered_scopes or s not in evidence.data_through
         for s in scopes
@@ -600,6 +658,11 @@ def select_query_rows(
         if _date(row["game_date"]) <= end
         and (start is None or _date(row["game_date"]) >= start)
     ]
+    if query.playoff_round and dated and not playoff_round_seasons(dated):
+        raise SemanticError(
+            "unsupported_scope",
+            "Playoff rounds cannot be isolated with the connected data.",
+        )
     selected = apply_game_filters(dated, query)
     qualification_rows = (
         apply_game_filters(dated, replace(query, stat_filters=None))

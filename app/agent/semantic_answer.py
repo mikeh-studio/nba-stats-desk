@@ -50,7 +50,10 @@ from app.agent.scope_policy import (
     explicit_phase,
     explicit_scope,
     has_phase_cue,
+    playoff_round_planning_question,
     question_scope,
+    requested_playoff_round,
+    round_scope_message,
     split_kind,
 )
 from app.agent.semantic_serving import (
@@ -63,7 +66,15 @@ from app.agent.semantic_serving import (
     source_players,
 )
 from app.agent.semantic_source import capture_timestamp
-from app.agent.semantics import Evidence, Query, SemanticError, load_contract, run_query
+from app.agent.semantics import (
+    PLAYOFF_ROUND_LABELS,
+    Evidence,
+    Query,
+    SemanticError,
+    load_contract,
+    playoff_round_seasons,
+    run_query,
+)
 from app.agent.source_policy import get_source_policy
 from app.seasons import DEFAULT_SEASON, season_bounds
 
@@ -130,6 +141,7 @@ def normalize_metric_plan_scope(
     time_assumptions,
     window_seasons,
     inherited,
+    playoff_round=None,
 ):
     """One date/exclusion normalization path for facts and prepared execution."""
     validated_points_scope = plan.pop("validated_points_scope", None)
@@ -140,6 +152,8 @@ def normalize_metric_plan_scope(
             query.update(metric_window)
         if validated_points_scope:
             query.update(validated_points_scope)
+        if playoff_round:
+            query.update(season_type="Playoffs", playoff_round=playoff_round)
         if query.get("window") == "date_range":
             # Fresh metric requests need the same full-window coverage as
             # inherited ones. Missing required archives must fail closed.
@@ -483,6 +497,8 @@ def render_answer(
         if scope["operation"] == "game_log":
             context = game_log_context(scope)
             section["scope_presentation"] = "calendar_dates"
+        if round_key := scope.get("playoff_round"):
+            context += f" · {PLAYOFF_ROUND_LABELS[round_key]}"
         if scope["window"] == "last_n_months":
             statements.append(
                 f"Past {scope['n']} calendar months: {scope['window_start']} through "
@@ -748,6 +764,7 @@ class _SemanticTurnState:
     metric_window: dict[str, Any] = field(default_factory=dict)
     named_seasons: bool = False
     allow_fallback: bool = False
+    playoff_round: str | None = None
     prepared_attempt: PreparedAttempt | None = None
     load_evidence: Callable[[list[str]], tuple[dict[str, Any], Evidence]] | None = None
     snapshot: dict[str, Any] = field(default_factory=dict)
@@ -823,6 +840,11 @@ class SemanticAsk:
         turn = _SemanticTurnState(question, question, conversation_id=conversation_id)
         if early_payload := self.precheck_semantic_route(turn):
             return early_payload
+        if turn.playoff_round:
+            try:
+                self._load_evidence_and_players(turn)
+            except (PlayerNameError, SemanticError) as exc:
+                return self._finalize_payload(turn, error=exc)
         assert turn.route_shape is not None
         payload = {"status": "ok"} if turn.overview else {}
         return route_hint(
@@ -1084,11 +1106,15 @@ class SemanticAsk:
         if not turn.publication_opened or turn.publication is None:
             turn.publication_stat = None
 
-        turn.intent = question_scope(turn.question)
+        turn.playoff_round = requested_playoff_round(turn.question)
+        turn.intent = question_scope(
+            turn.question, round_coverage=bool(turn.playoff_round)
+        )
         if turn.award:
             turn.intent["kind"] = "award_lookup_then_performance"
         if turn.intent["status"] and not (
-            turn.publication_stat and turn.intent["kind"] == "quantity_aggregation"
+            (turn.publication_stat or turn.playoff_round)
+            and turn.intent["kind"] == "quantity_aggregation"
         ):
             raise SemanticError(
                 turn.intent["status"], turn.intent["message"] or "Unsupported question"
@@ -1146,16 +1172,24 @@ class SemanticAsk:
         shape = "metrics" if turn.publication_stat else semantic_shape(turn.question)
         turn.route_shape = "award" if turn.award_request else shape
         turn.split = split_kind(turn.question) if shape == "player_split" else None
+        if turn.split and turn.playoff_round:
+            raise SemanticError(
+                "unsupported_scope", "Ask about the playoff round as a single scope."
+            )
         turn.comparison = (
             comparison_sides(turn.question) if shape == "player_comparison" else None
         )
+        round_scope = (
+            {"playoff_round": turn.playoff_round} if turn.playoff_round else {}
+        )
         turn.overview = (
-            comparison_scope(turn.question, self.settings.season)
+            comparison_scope(turn.question, self.settings.season, **round_scope)
             if turn.comparison
             else overview_scope(
                 turn.question,
                 self.settings.season,
                 comparison=turn.requested_comparison,
+                **round_scope,
             )
             if shape == "overview"
             else None
@@ -1270,7 +1304,10 @@ class SemanticAsk:
                 turn.publication = open_publication(turn.publication_pin)
             if turn.publication is not None:
                 turn.publication.load(primary)
-                if turn.split or turn.position_group:
+                if turn.split or (
+                    turn.position_group
+                    and turn.publication.evidence.position_context is None
+                ):
                     raise SemanticError(
                         "unsupported_coverage",
                         "This publication supports box-score summaries, game logs, and player comparisons. This additional analysis is unavailable.",
@@ -1286,14 +1323,16 @@ class SemanticAsk:
                     )
                 if turn.overview:
                     explicit_phases = bool(
-                        re.search(
+                        turn.playoff_round
+                        or re.search(
                             r"\b(?:regular[ -]season|playoffs?|postseason|both phases|all phases)\b",
                             turn.question,
                             re.I,
                         )
                     )
                     if explicit_phases:
-                        turn.publication.check_phase(turn.overview["phases"])
+                        if not turn.playoff_round:
+                            turn.publication.check_phase(turn.overview["phases"])
                     else:
                         turn.overview["phases"] = [turn.publication.phase]
                     if not (turn.overview["explicit_start"] or turn.inherited):
@@ -1371,6 +1410,7 @@ class SemanticAsk:
                 turn.seasons = primary
         turn.allow_fallback = (
             turn.publication is None
+            and not turn.playoff_round
             and not has_time_scope(turn.question)
             and not turn.inherited
             and not turn.pending
@@ -1442,6 +1482,7 @@ class SemanticAsk:
             and not turn.overview
             and not turn.split
             and not turn.award
+            and not turn.playoff_round
             and not turn.pending
             and not turn.inherited
             and not turn.selected_player
@@ -1505,7 +1546,8 @@ class SemanticAsk:
             and turn.prepared_attempt.result is None
             else (
                 lambda requested: self.warehouse.load_for_request(
-                    requested, rich=bool(turn.overview or turn.split)
+                    requested,
+                    rich=bool(turn.overview or turn.split or turn.playoff_round),
                 )
             )
             if hasattr(self.warehouse, "load_for_request")
@@ -1529,7 +1571,18 @@ class SemanticAsk:
                 )
             turn.snapshot = {"capture": turn.prepared_attempt.source_query}
             return True
-        self._load_archive(turn)
+        try:
+            self._load_archive(turn)
+        except SemanticError as exc:
+            if (
+                turn.playoff_round
+                and exc.code == "unsupported_coverage"
+                and turn.evidence is None
+            ):
+                raise SemanticError(
+                    "unsupported_scope", round_scope_message(turn.question) or str(exc)
+                ) from exc
+            raise
         return False
 
     def _load_archive(self, turn: _SemanticTurnState) -> None:
@@ -1590,6 +1643,30 @@ class SemanticAsk:
                     # for the primary-only retry when the baseline is unavailable.
                     load_evidence = self.warehouse.facts.load
                 turn.snapshot, turn.evidence = load_evidence(primary_seasons)
+        if turn.playoff_round:
+            assert turn.evidence is not None
+            turn.evidence.validate()
+            seasons = (
+                self._window_seasons(
+                    turn, str(turn.overview["start"]), str(turn.overview["end"])
+                )
+                if turn.overview
+                else turn.seasons
+            )
+            if not set(seasons) <= playoff_round_seasons(turn.evidence.rows):
+                raise SemanticError(
+                    "unsupported_scope",
+                    round_scope_message(turn.question)
+                    or "Playoff-round coverage is unavailable.",
+                )
+            if (
+                turn.intent.get("kind") == "quantity_aggregation"
+                and not turn.publication_stat
+            ):
+                raise SemanticError(
+                    "clarification_required",
+                    turn.intent["message"] or "Specify the aggregation.",
+                )
         self._prepare_players(turn)
 
     def _prepare_players(self, turn: _SemanticTurnState) -> None:
@@ -1735,7 +1812,7 @@ class SemanticAsk:
         series_plan = (
             turn.retained_series_plan
             or derived_series_plan(
-                extracted.cleaned_question,
+                playoff_round_planning_question(extracted.cleaned_question),
                 turn.seasons[0],
                 [p["player_name"] for p in turn.players],
             )
@@ -1744,6 +1821,10 @@ class SemanticAsk:
         )
         if series_plan:
             assert extracted is not None
+            if turn.playoff_round:
+                series_plan.query.update(
+                    season_type="Playoffs", playoff_round=turn.playoff_round
+                )
             self._execute_series(turn, series_plan, extracted.query_fields)
         elif re.search(r"\b(?:rolling|cumulative|trend)\b", turn.question, re.I):
             raise SemanticError(
@@ -1847,6 +1928,9 @@ class SemanticAsk:
                     "invalid_scope", "Please restate the player and statistic."
                 )
             publication_plan = turn.publication.stat_plan(resolved_stat)
+        selected_season = (
+            turn.seasons[0] if len(turn.seasons) == 1 else self.settings.season
+        )
         turn.plan = (
             turn.leader_plan
             or (turn.prepared_attempt.plan if turn.prepared_attempt else None)
@@ -1855,7 +1939,9 @@ class SemanticAsk:
                 turn.client,
                 settings=self.settings,
                 model=turn.model,
-                question=turn.question,
+                question=playoff_round_planning_question(
+                    turn.question, season=selected_season
+                ),
                 selected_player_name=turn.selected_player["player_name"]
                 if turn.selected_player
                 else None,
@@ -1866,13 +1952,17 @@ class SemanticAsk:
                     False,
                 ),
                 dated_points_question=(
-                    prepare_names(turn.planner_original, turn.players, strict=False)[0]
+                    prepare_names(
+                        playoff_round_planning_question(
+                            turn.planner_original, season=selected_season
+                        ),
+                        turn.players,
+                        strict=False,
+                    )[0]
                     if turn.dated_points_eligible
                     else turn.planner_original
                 ),
-                selected_season=turn.seasons[0]
-                if len(turn.seasons) == 1
-                else self.settings.season,
+                selected_season=selected_season,
                 usage_callback=turn.trace.add_usage if turn.trace else None,
                 players=turn.players,
                 # Stored route labels are routing state, not planner context.
@@ -1914,6 +2004,7 @@ class SemanticAsk:
             time_assumptions=turn.time_assumptions,
             window_seasons=lambda start, end: self._window_seasons(turn, start, end),
             inherited=turn.inherited,
+            playoff_round=turn.playoff_round,
         )
         if turn.publication is not None:
             turn.publication.check_plan(turn.plan)
@@ -2259,6 +2350,11 @@ class SemanticAsk:
             if overview_pending and overview_pending.get("overview_clarification")
             else status_reason(payload)
         )
+        if payload["status"] == "unsupported_scope" and (
+            turn.intent.get("kind") == "unavailable_round"
+            or (turn.playoff_round and "cannot be isolated" in payload["answer"])
+        ):
+            route_label, reason_code = "unsupported", "unsupported_round"
         route_hint(
             payload,
             route=route_label,

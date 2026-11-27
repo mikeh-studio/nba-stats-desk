@@ -132,15 +132,19 @@ deduped as (
         {% if 'season_type' in ns.column_names %}
         coalesce(
             nullif(trim(cast(season_type as {{ varchar_type() }})), ''),
+            {% if 'game_id' in ns.column_names %}
             case
-                when substring(cast(game_id as {{ varchar_type() }}), 1, 3) = '004' then 'Playoffs'
+                when substring(trim(cast(game_id as {{ varchar_type() }})), 1, 3) = '004' then 'Playoffs'
                 when substring(cast(game_id as {{ varchar_type() }}), 1, 3) = '002' then 'Regular Season'
                 else 'Regular Season'
             end
+            {% else %}
+            'Regular Season'
+            {% endif %}
         ) as season_type,
         {% elif 'game_id' in ns.column_names %}
         case
-            when substring(cast(game_id as {{ varchar_type() }}), 1, 3) = '004' then 'Playoffs'
+            when substring(trim(cast(game_id as {{ varchar_type() }})), 1, 3) = '004' then 'Playoffs'
             when substring(cast(game_id as {{ varchar_type() }}), 1, 3) = '002' then 'Regular Season'
             else 'Regular Season'
         end as season_type,
@@ -150,14 +154,26 @@ deduped as (
         cast(player_id as {{ int64_type() }}) as player_id,
         cast(player_name as {{ varchar_type() }}) as player_name,
         cast(ingested_at_utc as timestamp) as ingested_at_utc,
+        {% for field in playoff_round_columns() if field in ns.column_names %}
+        {{ field }},
+        {% endfor %}
         row_number() over (
             partition by player_id, game_date, matchup
             order by ingested_at_utc desc
         ) as row_num
     from source_data
+),
+schedule as (
+    select game_id, {{ playoff_round_columns() | join(', ') }}
+    from {{ ref('stg_schedule_clean') }}
+    where playoff_round_number is not null
+    qualify row_number() over (
+        partition by game_id
+        order by source_updated_at_utc desc, team_abbr
+    ) = 1
 )
 select
-    game_id,
+    logs.game_id,
     game_date,
     matchup,
     wl,
@@ -184,6 +200,8 @@ select
     season_type,
     player_id,
     player_name,
-    ingested_at_utc
-from deduped
+    ingested_at_utc,
+    {{ playoff_round_fields('logs.game_id', 'season_type', ns.column_names, 'logs.', 'schedule.') }}
+from deduped logs
+left join schedule on logs.game_id = schedule.game_id
 where row_num = 1

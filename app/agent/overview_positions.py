@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from typing import Any
 
 from app.agent.historical_positions import (
     GROUPS,
@@ -98,6 +99,40 @@ def peer_question(question):
     return re.sub(r"^\s*compare\s+", "Give me an overview of ", text, flags=re.I)
 
 
+def verified_season_positions(records: Any) -> list[dict[str, Any]]:
+    """Validate season-roster records as a unit before enabling a peer cohort."""
+    if not isinstance(records, (list, tuple)) or len(records) > 5000:
+        return []
+    verified = []
+    seen = set()
+    for record in records:
+        if not isinstance(record, Mapping):
+            return []
+        season, player_id = record.get("season"), record.get("player_id")
+        position = record.get("listed_position")
+        expected = GROUPS.get(position) if isinstance(position, str) else None
+        groups = record.get("position_groups")
+        source_ref = record.get("source_ref")
+        if (
+            not season_valid(season)
+            or type(player_id) is not int
+            or player_id <= 0
+            or (season, player_id) in seen
+            or record.get("is_verified_season_roster") is not True
+            or record.get("position_source")
+            not in ("season_roster", "dated_team_document")
+            or not isinstance(source_ref, str)
+            or not re.fullmatch(r"https://[^\s/]+/[^\s]+", source_ref)
+            or expected is None
+            or not isinstance(groups, (tuple, list))
+            or tuple(groups) != expected
+        ):
+            return []
+        seen.add((season, player_id))
+        verified.append(dict(record))
+    return sorted(verified, key=lambda r: (r["season"], r["player_id"]))
+
+
 def validated_context(context):
     """Only operator-reviewed, season-effective bundles can enable grouping.
 
@@ -105,6 +140,15 @@ def validated_context(context):
     an operator assertion backed by retained source/audit evidence, not inferred
     from a season label. Unapproved or malformed optional evidence fails closed.
     """
+    if isinstance(context, Mapping) and "season_positions" in context:
+        records = verified_season_positions(context["season_positions"])
+        return (
+            {
+                (r["season"], r["player_id"]): GROUPS[r["listed_position"]]
+                for r in records
+            },
+            {r["season"] for r in records},
+        )
     if (
         not isinstance(context, Mapping)
         or context.get("mapping_version") != MAPPING_VERSION
