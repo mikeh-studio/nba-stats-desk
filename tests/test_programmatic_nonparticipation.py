@@ -805,22 +805,31 @@ def test_source_policy_allowlist_cannot_be_bypassed_in_participation(monkeypatch
 
 
 @pytest.mark.parametrize(
-    "question",
+    ("question", "number"),
     [
-        f"What was Avery Finch's PPG in the {SEASON} Western Conference Finals?",
-        f"What was Avery Finch's RPG in the {SEASON} West Conference Finals?",
-        f"Avery Finch APG in the {SEASON} Eastern Conference Finals",
-        f"What was Avery Finch's TS% in the {SEASON} East Conference Semis?",
-        f"Avery Finch true shooting percentage in the {SEASON} NBA Finals",
+        (f"What was Avery Finch's PPG in the {SEASON} Conference Finals?", 3),
+        (f"What was Avery Finch's RPG in the {SEASON} Conference Semis?", 2),
+        (f"Avery Finch APG in the {SEASON} First Round", 1),
+        (f"What was Avery Finch's TS% in the {SEASON} NBA Finals?", 4),
+        (f"Avery Finch true shooting percentage in the {SEASON} NBA Finals", 4),
     ],
 )
-def test_supported_round_spans_and_metric_aliases_precede_modifier_checks(question):
-    number = 4
-    if "Western" in question or "West " in question or "Eastern" in question:
-        number = 3
-    elif "East " in question:
-        number = 2
+def test_supported_round_spans_and_metric_aliases_precede_modifier_checks(
+    question, number
+):
     evidence = completed_evidence(number)
     response = answer_known_nonparticipation(question, SEASON, evidence=evidence)
     assert response is not None
     assert response["status"] == "not_applicable"
+
+
+@pytest.mark.parametrize(
+    ("question", "number"),
+    [
+        (f"What was Avery Finch's PPG in the {SEASON} Western Conference Finals?", 3),
+        (f"What was Avery Finch's TS% in the {SEASON} East Conference Semis?", 2),
+    ],
+)
+def test_conference_qualified_round_deferred_to_scope_refusal(question, number):
+    evidence = completed_evidence(number)
+    assert answer_known_nonparticipation(question, SEASON, evidence=evidence) is None
