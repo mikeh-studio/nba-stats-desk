@@ -2,8 +2,9 @@
 
 import json
 import re
-from collections import Counter, defaultdict
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from app.agent.semantics import (
     PLAYOFF_ROUNDS,
     Evidence,
     SemanticError,
+    _date,
     row_playoff_round,
 )
 
@@ -61,35 +63,42 @@ def load_participation_catalog() -> list[dict[str, Any]]:
 def _completed_round_teams(
     games: Mapping[str, list[Mapping[str, Any]]], expected_series: int
 ) -> set[str]:
-    series: dict[tuple[str, str], list[str]] = defaultdict(list)
-    for rows in games.values():
+    series: dict[tuple[str, str], list[tuple[date, str, str]]] = defaultdict(list)
+    for game_id, rows in games.items():
         teams = set()
+        observed_teams = set()
+        dates = set()
         winners = set()
         for row in rows:
             team, opponent = row.get("team_abbr"), row.get("opponent_abbr")
             if not team or not opponent or team == opponent:
                 return set()
             teams.add(tuple(sorted((team, opponent))))
+            observed_teams.add(team)
+            dates.add(_date(row["game_date"]))
             results = {row.get("game_result"), row.get("wl")} - {None}
             if not results <= {"W", "L"} or len(results) > 1:
                 return set()
             if results:
                 winners.add(team if "W" in results else opponent)
-        if len(teams) != 1 or len(winners) != 1:
+        if (
+            len(teams) != 1
+            or len(observed_teams) != 2
+            or len(winners) != 1
+            or len(dates) != 1
+        ):
             return set()
-        series[teams.pop()].append(winners.pop())
+        series[teams.pop()].append((dates.pop(), game_id, winners.pop()))
 
     teams_in_round = {team for pair in series for team in pair}
-    if (
-        len(series) == expected_series
-        and len(teams_in_round) == 2 * expected_series
-        and all(
-            4 <= len(winners) <= 7 and max(Counter(winners).values()) == 4
-            for winners in series.values()
-        )
-    ):
-        return teams_in_round
-    return set()
+    if len(series) != expected_series or len(teams_in_round) != 2 * expected_series:
+        return set()
+    for series_games in series.values():
+        _, _, final_winner = max(series_games)
+        wins = sum(winner == final_winner for _, _, winner in series_games)
+        if not 4 <= len(series_games) <= 7 or wins != 4:
+            return set()
+    return teams_in_round
 
 
 def derive_nonparticipation_records(evidence: Evidence) -> list[dict[str, Any]]:
@@ -97,9 +106,12 @@ def derive_nonparticipation_records(evidence: Evidence) -> list[dict[str, Any]]:
     if not evidence.complete or evidence.cohort_complete is not True:
         return []
     evidence.validate()
+    regular_seasons = set()
     season_players: dict[tuple[str, int], list[Mapping[str, Any]]] = defaultdict(list)
     playoff_games: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
     for row in evidence.rows:
+        if row["season_type"] == "Regular Season":
+            regular_seasons.add(row["season"])
         if row["season_type"] in ("Regular Season", "Playoffs"):
             season_players[row["season"], row["player_id"]].append(row)
         if row["season_type"] == "Playoffs":
@@ -118,7 +130,7 @@ def derive_nonparticipation_records(evidence: Evidence) -> list[dict[str, Any]]:
 
     records = []
     for (season, label), games in sorted(rounds.items()):
-        if (season, label) in conflicting_rounds:
+        if season not in regular_seasons or (season, label) in conflicting_rounds:
             continue
         number = PLAYOFF_ROUNDS.index(label) + 1
         round_teams = _completed_round_teams(games, 2 ** (4 - number))
@@ -320,5 +332,21 @@ def answer_known_nonparticipation(
         )
         if curated is not None:
             return _answer(curated, conversation_id, curated=True)
-        return _answer({**matching[0], "event": event}, conversation_id, curated=False)
+        candidate = matching[0]
+        game_ids = candidate.get("round_game_ids")
+        if (
+            isinstance(game_ids, (list, tuple))
+            and game_ids
+            and all(
+                isinstance(value, str) and value.strip()
+                for value in (
+                    candidate.get("source"),
+                    candidate.get("snapshot_id"),
+                    *game_ids,
+                )
+            )
+        ):
+            return _answer(
+                {**candidate, "event": event}, conversation_id, curated=False
+            )
     return None

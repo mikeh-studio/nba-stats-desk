@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from app.agent.name_vocabulary import SCOPE_WORDS
+
 ALIAS_PATH = Path(__file__).with_name("player_aliases.yml")
 _SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
 
@@ -26,6 +28,10 @@ def normalize_player_text(value: str) -> str:
 def name_base(name: str) -> str:
     parts = normalize_player_text(name).split()
     return " ".join(parts[:-1] if len(parts) > 2 and parts[-1] in _SUFFIXES else parts)
+
+
+def observed_player_names(player: Mapping[str, Any]) -> tuple[str, ...]:
+    return (player["player_name"], *player.get("observed_names", ()))
 
 
 @lru_cache(maxsize=1)
@@ -57,24 +63,28 @@ def build_programmatic_aliases(
     canonical_names: dict[Any, set[str]] = defaultdict(set)
     for player in players:
         name = player["player_name"]
-        key = normalize_player_text(name)
-        if not key:
+        if not normalize_player_text(name):
             continue
         identity = player.get("player_id")
         if identity is None:
             identity = name
         canonical_names[identity].add(name)
-        name_owners[key].add(identity)
-        base = name_base(name)
-        claims[key].add(identity)
-        claims[base].add(identity)
-        # Retain the older spaced spelling for apostrophized names.
-        claims[normalize_player_text(re.sub(r"['’‘ʼ]", " ", name))].add(identity)
-        parts = base.split()
-        if len(parts) > 1:
-            claims[parts[-1]].add(identity)
-        for token in parts:
-            token_owners[token].add(identity)
+        for spelling in observed_player_names(player):
+            key = normalize_player_text(spelling)
+            if not key:
+                continue
+            name_owners[key].add(identity)
+            base = name_base(spelling)
+            # Retain the older spaced spelling for apostrophized names.
+            spaced = normalize_player_text(re.sub(r"['’‘ʼ]", " ", spelling))
+            parts = base.split()
+            for alias in (key, base, spaced, parts[-1]):
+                if " " in alias or (
+                    alias not in SCOPE_WORDS and sum(ch.isalpha() for ch in alias) >= 2
+                ):
+                    claims[alias].add(identity)
+            for token in parts:
+                token_owners[token].add(identity)
         for alias in player.get("aliases", ()):
             normalized = normalize_player_text(alias)
             if normalized:

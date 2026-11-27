@@ -854,9 +854,11 @@ interchangeable.
 
 Ask checks the sourced `participation_catalog.json` for the existing Stephen Curry
 2025–26 NBA Finals record. It can also verify nonparticipation in any of the four
-playoff rounds from complete cohort evidence. Every expected matchup must have a
-recorded series winner. The player must have appeared that season before the
-round, and none of their recorded season teams can have reached the round.
+playoff rounds from complete regular-season and playoff cohort evidence. Each
+observed round game must have player rows for both teams, and every expected
+series must end with the winner's fourth win. The player must have appeared
+that season before the round, and none of their recorded season teams can
+have reached the round.
 Verified nonparticipation returns `not_applicable` with evidence and no statistics.
 An absent record leaves participation unknown.
 

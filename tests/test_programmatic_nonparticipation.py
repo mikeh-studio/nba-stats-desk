@@ -4,6 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
+import duckdb
 import pytest
 from app.agent.participation import (
     answer_known_nonparticipation,
@@ -13,6 +14,7 @@ from app.agent.participation import (
 from app.agent.semantics import PLAYOFF_ROUND_LABELS, PLAYOFF_ROUNDS, Evidence
 from app.repository import BigQueryWarehouseRepository
 from fastapi.testclient import TestClient
+from jinja2 import Environment
 from tests.test_name_matching_routes import ask
 from tests.test_playoff_rounds_and_positions import ask_fixture
 
@@ -193,6 +195,70 @@ def test_earlier_playoff_appearance_qualifies_but_any_round_team_blocks_absence(
     )
 
 
+@pytest.mark.parametrize("declares_regular_season", [False, True])
+def test_playoff_only_evidence_cannot_verify_season_team_history(
+    declares_regular_season,
+):
+    evidence = completed_evidence()
+    earlier_appearance = appearance(
+        1,
+        "Avery Finch",
+        "NYK",
+        season_type=PLAYOFFS,
+        game_id="0042400301",
+        game_date="2025-05-24",
+    )
+    evidence = replace(
+        evidence,
+        rows=[earlier_appearance, *evidence.rows[2:]],
+        covered_scopes=(
+            evidence.covered_scopes
+            if declares_regular_season
+            else frozenset({(SEASON, PLAYOFFS)})
+        ),
+    )
+    assert not derive_nonparticipation_records(evidence)
+
+
+def test_losing_team_opponent_labels_do_not_substitute_for_player_rows():
+    evidence = completed_evidence()
+    evidence = replace(
+        evidence,
+        rows=[
+            row
+            for row in evidence.rows
+            if (row["game_id"], row["team_abbr"]) != ("0042400404", "BOS")
+        ],
+    )
+    assert not derive_nonparticipation_records(evidence)
+
+
+@pytest.mark.parametrize("clinching_date", ["2025-06-04", "2025-06-06"])
+def test_series_must_end_on_the_clinching_win(clinching_date):
+    evidence = completed_evidence()
+    extra_game = [
+        {
+            **row,
+            "game_date": "2025-06-05",
+            "game_id": "0042400405",
+            result_field: result,
+        }
+        for row, result_field, result in zip(
+            evidence.rows[-2:], ["game_result", "wl"], ["L", "W"], strict=True
+        )
+    ]
+    rows = [
+        {**row, "game_date": clinching_date} if row["game_id"] == "0042400404" else row
+        for row in evidence.rows
+    ]
+    records = derive_nonparticipation_records(
+        replace(evidence, rows=[*rows, *extra_game])
+    )
+    assert [record["player_id"] for record in records] == (
+        [1] if clinching_date == "2025-06-06" else []
+    )
+
+
 def test_curated_v1_reason_and_provenance_override_precomputed_record():
     [catalog] = load_participation_catalog()
     candidate = {
@@ -240,6 +306,31 @@ def test_precomputed_gold_record_requires_attestation_and_no_conflicting_row():
         )
 
 
+@pytest.mark.parametrize(
+    ("field", "invalid_value"),
+    [
+        ("source", ""),
+        ("snapshot_id", " "),
+        ("round_game_ids", []),
+        ("round_game_ids", [""]),
+    ],
+)
+def test_precomputed_gold_record_requires_nonempty_provenance(field, invalid_value):
+    [record] = derive_nonparticipation_records(completed_evidence())
+    question = f"Did Avery Finch play in the {SEASON} NBA Finals?"
+    record.pop(field)
+    assert (
+        answer_known_nonparticipation(question, SEASON, programmatic_records=[record])
+        is None
+    )
+    assert (
+        answer_known_nonparticipation(
+            question, SEASON, programmatic_records=[{**record, field: invalid_value}]
+        )
+        is None
+    )
+
+
 @pytest.mark.parametrize("transport", ["", "/stream"])
 def test_ask_returns_nonparticipation_before_planning(monkeypatch, transport):
     from app import main
@@ -282,3 +373,92 @@ def test_dbt_event_model_and_singular_integrity_test():
     assert "ref('fct_player_event_participation')" in test
     assert "having count(*) > 1" in test
     assert "where not p.participated" in test and "a.player_id is not null" in test
+
+
+@pytest.mark.parametrize(
+    ("case", "verified"),
+    [
+        ("no_playoff_player_rows", False),
+        ("one_sided_game", False),
+        ("game_after_clinch", False),
+        ("valid_five_game_series", True),
+    ],
+)
+def test_dbt_event_model_requires_coverage_and_a_chronological_clinch(case, verified):
+    root = Path(__file__).resolve().parents[1] / "dbt"
+    event = PLAYOFF_ROUND_LABELS[PLAYOFF_ROUNDS[-1]]
+    env = Environment()
+    env.globals.update(
+        config=lambda **_: "",
+        env_var=lambda _, default: default,
+        ref=lambda name: name,
+        playoff_round_name=lambda number: f"case {number} when 4 then '{event}' end",
+    )
+    model = env.from_string(
+        (root / "models/gold/fct_player_event_participation.sql").read_text()
+    ).render()
+    integrity_test = env.from_string(
+        (root / "tests/player_event_participation_valid.sql").read_text()
+    ).render()
+    with duckdb.connect(config={"threads": 1}) as db:
+        db.execute("""
+            create table dim_game (
+                season varchar, season_type varchar, game_id varchar, game_date date,
+                playoff_round_number integer, playoff_round_name varchar,
+                home_team_abbr varchar, away_team_abbr varchar, winning_team_abbr varchar
+            )
+        """)
+        db.execute("""
+            create table fct_player_game_stats (
+                season varchar, player_id integer, player_name varchar, team_abbr varchar,
+                season_type varchar, game_id varchar, game_date date
+            )
+        """)
+        db.execute(
+            "insert into fct_player_game_stats values (?, 1, 'Avery Finch', 'NYK', ?, 'reg', '2025-04-01')",
+            [SEASON, REGULAR],
+        )
+        games = [(f"game-{n}", f"2025-06-0{n}", "ATL") for n in range(1, 5)]
+        if case in {"game_after_clinch", "valid_five_game_series"}:
+            if verified:
+                games[-1] = ("game-4", "2025-06-06", "ATL")
+            games.append(("game-5", "2025-06-05", "BOS"))
+        for game_id, game_date, winner in games:
+            db.execute(
+                "insert into dim_game values (?, ?, ?, ?, 4, ?, 'ATL', 'BOS', ?)",
+                [SEASON, PLAYOFFS, game_id, game_date, event, winner],
+            )
+            if case != "no_playoff_player_rows":
+                db.execute(
+                    "insert into fct_player_game_stats values (?, 10, 'Round Winner', 'ATL', ?, ?, ?)",
+                    [SEASON, PLAYOFFS, game_id, game_date],
+                )
+                if (case, game_id) != ("one_sided_game", "game-4"):
+                    db.execute(
+                        "insert into fct_player_game_stats values (?, 30, 'Round Opponent', 'BOS', ?, ?, ?)",
+                        [SEASON, PLAYOFFS, game_id, game_date],
+                    )
+
+        db.execute("create table fct_player_event_participation as " + model)
+        facts = db.execute("""
+            select player_id, participated, is_verified_complete_cohort
+            from fct_player_event_participation
+            order by player_id
+        """).fetchall()
+        if verified:
+            assert facts == [(1, False, True), (10, True, True), (30, True, True)]
+        elif case == "no_playoff_player_rows":
+            assert facts == []
+        else:
+            assert facts == [(10, True, False), (30, True, False)]
+        assert db.execute(integrity_test).fetchall() == []
+
+        if case in {"no_playoff_player_rows", "one_sided_game"}:
+            db.execute(
+                """
+                insert into fct_player_event_participation
+                values (?, ?, 1, 'Avery Finch', false, 'Fixture invalid fact.', true)
+            """,
+                [SEASON, event],
+            )
+            assert db.execute(integrity_test).fetchall() == [(SEASON, event, 1)]

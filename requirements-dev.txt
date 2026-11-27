@@ -4,5 +4,8 @@
 ruff>=0.15,<1
 mypy>=1.11,<3
 
+# Execute dbt SQL regressions against local fixtures.
+duckdb>=1.1,<2
+
 # Exercise offline association analysis in CI.
 -r requirements-analysis.txt

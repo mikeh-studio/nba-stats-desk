@@ -3,33 +3,56 @@
     schema=env_var('BQ_DATASET_GOLD', env_var('BQ_DATASET', 'nba_gold'))
 ) }}
 
-with round_games as (
-    select
-        season,
-        game_id,
-        playoff_round_number as round_number,
-        playoff_round_name as event_name,
-        home_team_abbr,
-        away_team_abbr,
-        winning_team_abbr
-    from {{ ref('dim_game') }}
+with playoff_player_teams as (
+    select distinct season, game_id, team_abbr
+    from {{ ref('fct_player_game_stats') }}
     where season_type = 'Playoffs'
-      and playoff_round_number between 1 and 4
-      and playoff_round_name = {{ playoff_round_name('playoff_round_number') }}
+),
+round_games as (
+    select
+        g.season,
+        g.game_id,
+        g.game_date,
+        g.playoff_round_number as round_number,
+        g.playoff_round_name as event_name,
+        g.home_team_abbr,
+        g.away_team_abbr,
+        least(g.home_team_abbr, g.away_team_abbr) as team_a,
+        greatest(g.home_team_abbr, g.away_team_abbr) as team_b,
+        g.winning_team_abbr,
+        h.team_abbr is not null and a.team_abbr is not null as both_teams_observed
+    from {{ ref('dim_game') }} g
+    left join playoff_player_teams h
+        on g.season = h.season and g.game_id = h.game_id and g.home_team_abbr = h.team_abbr
+    left join playoff_player_teams a
+        on g.season = a.season and g.game_id = a.game_id and g.away_team_abbr = a.team_abbr
+    where g.season_type = 'Playoffs'
+      and g.playoff_round_number between 1 and 4
+      and g.playoff_round_name = {{ playoff_round_name('g.playoff_round_number') }}
+),
+series_games as (
+    select
+        *,
+        row_number() over (
+            partition by season, round_number, team_a, team_b
+            order by game_date desc, game_id desc
+        ) as reverse_game_order
+    from round_games
 ),
 series_results as (
     select
         season,
         round_number,
         event_name,
-        least(home_team_abbr, away_team_abbr) as team_a,
-        greatest(home_team_abbr, away_team_abbr) as team_b,
+        team_a,
+        team_b,
         count(*) as games,
-        sum(case when winning_team_abbr = least(home_team_abbr, away_team_abbr)
-            then 1 else 0 end) as team_a_wins,
-        sum(case when winning_team_abbr = greatest(home_team_abbr, away_team_abbr)
-            then 1 else 0 end) as team_b_wins
-    from round_games
+        count(game_date) as dated_games,
+        sum(case when both_teams_observed then 1 else 0 end) as covered_games,
+        sum(case when winning_team_abbr = team_a then 1 else 0 end) as team_a_wins,
+        sum(case when winning_team_abbr = team_b then 1 else 0 end) as team_b_wins,
+        max(case when reverse_game_order = 1 then winning_team_abbr end) as final_winner
+    from series_games
     group by 1, 2, 3, 4, 5
 ),
 round_teams as (
@@ -51,8 +74,11 @@ completed_rounds as (
        and t.team_count = 2 * count(*)
        and sum(case when s.games between 4 and 7
             and s.team_a != s.team_b
+            and s.games = s.dated_games
+            and s.games = s.covered_games
             and s.games = s.team_a_wins + s.team_b_wins
-            and greatest(s.team_a_wins, s.team_b_wins) = 4
+            and ((s.final_winner = s.team_a and s.team_a_wins = 4)
+                or (s.final_winner = s.team_b and s.team_b_wins = 4))
             then 1 else 0 end) = count(*)
 ),
 player_appearances as (

@@ -72,9 +72,10 @@ models:
     description: >-
       Verified playoff-round participation at grain (season, event_name, player_id).
       An observed appearance establishes participation. Verified nonparticipation
-      requires every expected series in the round to have a winner with four wins,
-      a regular-season or earlier-round appearance, and verified season teams
-      outside the round. Missing records leave participation unknown.
+      requires both teams to have player rows in every round game and the final
+      game of every expected series to be the winner's fourth win. The player
+      needs a regular-season or earlier-round appearance and verified season
+      teams outside the round. Missing records leave participation unknown.
     columns:
       - name: season
         tests: [not_null]
@@ -94,7 +95,9 @@ models:
         description: Why the appearance or verified nonparticipation was recorded.
         tests: [not_null]
       - name: is_verified_complete_cohort
-        description: The entire round bracket is present in the gold game facts and every series is decided.
+        description: >-
+          Every expected series ends in a clinch, with player rows for both
+          teams in each gold round game.
         tests: [not_null]
   - name: player_shot_location_profile
     columns:

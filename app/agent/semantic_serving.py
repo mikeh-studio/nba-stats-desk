@@ -245,6 +245,10 @@ def players_from_rows(rows, *, source_policy=None) -> list[dict[str, Any]]:
                 (str(row.get("game_date") or ""), team),
             )
     for player in players.values():
+        if len(player["aliases"]) > 1:
+            player["observed_names"] = tuple(
+                sorted(player["aliases"] - {player["player_name"]})
+            )
         player["team_abbr"] = latest_teams.get(player["player_id"], ("", ""))[1] or None
     return player_aliases_for_cohort(players.values())
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -97,10 +98,18 @@ class PlayerResolver:
         for term in terms:
             rows.extend(self.repo.search_players(term, limit=1000))
         players = {}
+        names = defaultdict(set)
         for row in rows:
             if row.get("player_id") is None or not row.get("player_name"):
                 continue
-            players[row["player_id"]] = dict(row)
+            player_id = row["player_id"]
+            players[player_id] = dict(row)
+            names[player_id].add(row["player_name"])
+        for player_id, player in players.items():
+            if len(names[player_id]) > 1:
+                player["observed_names"] = tuple(
+                    sorted(names[player_id] - {player["player_name"]})
+                )
         roster = player_aliases_for_cohort(
             players.values(), overrides=self.alias_overrides
         )

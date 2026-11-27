@@ -7,7 +7,7 @@ from app.agent.alias_builder import (
     build_programmatic_aliases,
     player_aliases_for_cohort,
 )
-from app.agent.name_matching import PlayerNameError, prepare_names
+from app.agent.name_matching import PlayerNameError, mask_player_tokens, prepare_names
 from app.agent.player_resolver import PlayerResolver
 from app.agent.semantic_serving import players_from_rows
 
@@ -74,6 +74,56 @@ def test_shared_surnames_still_clarify_in_ask(first, second, alias):
         prepare_names(f"{alias} points per game", players)
     assert error.value.result["status"] == "clarification_required"
     assert {p["player_name"] for p in error.value.result["matches"]} == {first, second}
+
+
+@pytest.mark.parametrize(
+    "surname", ["25", "X7", "Games", "Points", "PTS", "3PM", "Finals"]
+)
+def test_generated_surnames_exclude_numbers_scope_and_metric_words(surname):
+    name = f"Example {surname}"
+    aliases = build_programmatic_aliases(roster(name), overrides={})
+    assert surname.lower() not in aliases
+    assert aliases[name.lower()] == name
+
+
+def test_numeric_surname_does_not_mask_season_text():
+    players = roster("Example 25", "Avery Finch")
+    question = "Avery Finch points per game in the 2024-25 season"
+    assert prepare_names(question, players)[0] == question
+    masked, selected = mask_player_tokens(question, players)
+    assert masked == "player2 points per game in the 2024-25 season"
+    assert set(selected) == {2}
+
+
+def test_scope_word_alias_is_still_rejected_during_downstream_masking():
+    [player] = roster("Home Games")
+    player["aliases"] = ["games"]
+    assert mask_player_tokens("last five games", [player]) == ("last five games", {})
+    masked, selected = mask_player_tokens("Home Games last five games", [player])
+    assert masked == "player1 last five games"
+    assert set(selected) == {1}
+
+
+@pytest.mark.parametrize("reverse_spellings", [False, True])
+def test_surname_collisions_include_all_observed_spellings(reverse_spellings):
+    players = roster("Enes Freedom", "Enes Kanter", "Blake Kanter")
+    players[1]["player_id"] = players[0]["player_id"]
+    if reverse_spellings:
+        players[:2] = reversed(players[:2])
+
+    assert "kanter" not in build_programmatic_aliases(players)
+    governed = players_from_rows(players)
+    assert all("kanter" not in player["aliases"] for player in governed)
+    with pytest.raises(PlayerNameError) as error:
+        prepare_names("Kanter points per game", governed)
+    assert {player["player_id"] for player in error.value.result["matches"]} == {1, 3}
+    assert error.value.result["status"] == "clarification_required"
+
+    repo = SimpleNamespace(
+        list_agent_player_candidates=lambda **_: players,
+        search_players=lambda *_, **__: [],
+    )
+    assert PlayerResolver(repo).resolve("Kanter").status == "ambiguous"
 
 
 def test_curated_nicknames_merge_without_hiding_other_identities():

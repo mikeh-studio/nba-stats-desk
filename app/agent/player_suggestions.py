@@ -3,21 +3,12 @@
 import re
 from difflib import SequenceMatcher
 
-from app.agent.alias_builder import name_base, normalize_player_text
-
-# Exclude question/scope words so prose cannot become a player-name candidate.
-_CONTEXT_WORDS = frozenset(
-    "how did does do has have had is was were he she his her they their it its "
-    "play played playing perform performed performing performance doing done "
-    "compare compares compared comparing with to and vs versus than who better "
-    "last this current previous prior season seasons regular playoffs playoff "
-    "postseason year years games game show me tell about points rebounds assists "
-    "steals blocks stats statistics average averaged per in on at of the a an "
-    "for from through between during since until please overview summary "
-    "can could would you give review an analysis of among guards wings centers forwards "
-    "scoring rebounding playmaking shooting efficiency fare been assist rebound steal block "
-    "three threes leaders leader christmas day".split()
+from app.agent.alias_builder import (
+    name_base,
+    normalize_player_text,
+    observed_player_names,
 )
+from app.agent.name_vocabulary import CONTEXT_WORDS as _CONTEXT_WORDS
 
 
 def suggestion_prompt(players):
@@ -197,7 +188,7 @@ def resolve_player_name(name, players):
         tokens = {
             p["player_id"]: p
             for p in players
-            if key in name_base(p["player_name"]).split()
+            if any(key in name_base(name).split() for name in observed_player_names(p))
         }
         if matches or len(tokens) > 1:
             matches.update(tokens)
