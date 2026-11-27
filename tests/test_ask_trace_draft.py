@@ -216,6 +216,23 @@ def test_source_and_case_consistency(inputs):
     assert not inputs["output"].exists()
 
 
+def test_rich_case_drafts_against_its_selected_source_variant(inputs):
+    _, corpus = load_inputs(ROOT)
+    case = next(c for c in corpus["cases"] if c["id"] == "rich_archive_dates")
+    edit(inputs, "cases", lambda value: value.update(cases=[case]))
+    module.draft(**inputs)
+    _, drafted = load_inputs(ROOT, inputs["output"])
+    assert drafted["cases"] == [case]
+
+    edit(
+        inputs,
+        "cases",
+        lambda value: value["cases"][0].update(source_variant="complete"),
+    )
+    with pytest.raises(module.DraftError, match="season or identity"):
+        module.draft(**inputs)
+
+
 def test_frozen_content_hashes(inputs):
     result = module.draft(**inputs)
     for name, expected in result["frozen_file_sha256"].items():

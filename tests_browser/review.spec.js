@@ -12,9 +12,11 @@ const run = {
   case_sha256: 'review-test-cases', source_sha256: 'review-test-source', code_sha256: 'review-test-code',
   results: cases.map(c => ({ id: c.id, passed: true, parity: true, modes: { json: [turn], sse: [turn] } })),
 };
-const html = fs.readFileSync('scripts/ask_eval/review.html', 'utf8').replace('/*__DATA__*/', JSON.stringify({
+const template = fs.readFileSync('scripts/ask_eval/review.html', 'utf8');
+const minimalData = {
   baseline: run, candidate: run, source: { description: 'Synthetic UI fixture' },
-}));
+};
+const html = template.replace('/*__DATA__*/', JSON.stringify(minimalData));
 
 test.beforeEach(async ({ page }) => {
   await page.route('**/__review-test', route => route.fulfill({ contentType: 'text/html', body: html }));
@@ -56,9 +58,21 @@ test('review guidance distinguishes human judgment from automated checks and the
   await expect(guide).toContainText('do not need to approve the old answer');
 });
 
-test('a saved decision updates the case, survives reload, and exports unchanged', async ({ page }) => {
-  await page.locator('#reviewer').fill('Test reviewer');
+test('a digest-bound approval requires a reviewer and survives reload and export until the digest changes', async ({ page }) => {
+  let digest = 'a'.repeat(64);
+  await page.route('**/__bound-review', route => route.fulfill({
+    contentType: 'text/html',
+    body: template.replace('/*__DATA__*/', JSON.stringify({
+      ...minimalData, expectation_sha256: { first: digest, second: 'b'.repeat(64) },
+    })),
+  }));
+  await page.goto('/__bound-review');
   await page.locator('#decision').selectOption('approved');
+  await page.locator('#reviewer').fill('   ');
+  await page.locator('#save').click();
+  await expect(page.locator('#review-save-state')).toContainText('Enter a reviewer name');
+  await expect(page.locator('#stats')).toContainText('0 / 2');
+  await page.locator('#reviewer').fill(' Test reviewer ');
   await page.locator('#notes').fill('Checked the expected values.');
   await page.locator('#save').click();
   await expect(page.locator('#review-save-state')).toContainText('Saved locally');
@@ -74,7 +88,11 @@ test('a saved decision updates the case, survives reload, and exports unchanged'
   const downloaded = page.waitForEvent('download');
   await page.locator('#export').click();
   const data = JSON.parse(fs.readFileSync(await (await downloaded).path(), 'utf8'));
-  expect(data.decisions.first).toMatchObject({ reviewer: 'Test reviewer', decision: 'approved', notes: 'Checked the expected values.' });
+  expect(data.decisions.first).toMatchObject({ reviewer: 'Test reviewer', decision: 'approved', notes: 'Checked the expected values.', expectation_sha256: digest });
+  digest = 'c'.repeat(64);
+  await page.reload();
+  await expect(page.locator('#stats')).toContainText('0 / 2');
+  await expect(page.locator('#decision')).toHaveValue('pending');
 });
 
 test('storage failure shows an inline warning and preserves the decision for export', async ({ page }) => {
@@ -142,14 +160,21 @@ for (const [id, expected] of [
 test('oracle provenance stays separate from browser approval and pass rate', async ({ page }) => {
   const expanded = { ...run, execution_mode: 'controlled_planner_frozen_source_http',
     corpus_summary: { counts: { cases: 147 } },
-    selection_summary: { counts: { cases: 2, source_rows: 24 }, review_states: { pending: 2 }, cases: { first: { review: { status: 'pending', reviewer: null } } } },
+    selection_summary: {
+      counts: { cases: 2, source_rows: 158 },
+      source_variants: {
+        rich_league: { dataset: 'rich_league_rows', cases: 2, source_rows: 158, seasons: { '2023-24': 48, '2024-25': 110 } },
+      },
+      review_states: { pending: 2 },
+      cases: { first: { review: { status: 'pending', reviewer: null } } },
+    },
   };
   const body = fs.readFileSync('scripts/ask_eval/review.html','utf8').replace('/*__DATA__*/',JSON.stringify({baseline:expanded,candidate:expanded,source:{description:'Synthetic provenance fixture'}}));
   await page.route('**/__provenance-review',route=>route.fulfill({contentType:'text/html',body}));
   await page.goto('/__provenance-review');
   const panel = page.getByRole('region', {name:'Oracle provenance'});
   await expect(panel).toContainText('controlled_planner_frozen_source_http');
-  await expect(panel).toContainText('Selected cases: 2; full corpus: 147; source rows: 24');
+  await expect(panel).toContainText('Selected cases: 2; full corpus: 147; source rows: 158');
   await expect(panel).toContainText('"pending":2');
   await page.locator('#decision').selectOption('approved');
   await page.locator('#save').click();
@@ -157,6 +182,8 @@ test('oracle provenance stays separate from browser approval and pass rate', asy
   await expect(panel).toContainText('"pending":2');
   await panel.locator('summary').click();
   await expect(panel.locator('pre')).toContainText('"reviewer": null');
+  await expect(panel.locator('pre')).toContainText('"dataset": "rich_league_rows"');
+  await expect(panel.locator('pre')).toContainText('"2024-25": 110');
 });
 
 

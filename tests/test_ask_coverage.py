@@ -2,23 +2,85 @@
 
 import copy
 import json
+import subprocess
+import sys
+from collections import defaultdict
 from pathlib import Path
+from statistics import median
 
 import pytest
 from app.agent.availability_ask import parse_request
 from app.agent.semantic_serving import source_players
+from app.agent.semantics import Query, run_query
 from app.availability import load_availability
-from scripts.ask_eval.fixtures import fixture_artifacts, load_inputs, validate_cases
+from jsonschema import ValidationError
+from scripts.ask_eval.fixtures import (
+    FrozenWarehouse,
+    expectation_digest,
+    fixture_artifacts,
+    frozen_repository,
+    load_inputs,
+    validate_cases,
+)
 from scripts.ask_eval.grading import grade
+from tests.test_semantic_migration import settings
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE, DOCUMENT = load_inputs(ROOT)
+SCHEMA = json.loads((ROOT / "tests/fixtures/ask/schema.json").read_text())
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_supplied_schema_cannot_allow_an_assertion_free_turn(tmp_path, schema_version):
+    case = copy.deepcopy(next(c for c in DOCUMENT["cases"] if c["id"] == "award_mvp"))
+    case["turns"][0]["checks"] = []
+    document = {**DOCUMENT, "schema_version": schema_version, "cases": [case]}
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "cases.json").write_text(json.dumps(document))
+    (inputs / "source.json").write_text(json.dumps(SOURCE))
+    (inputs / "schema.json").write_text('{"type": "object"}')
+
+    with pytest.raises(ValidationError) as error:
+        load_inputs(ROOT, inputs)
+    assert list(error.value.absolute_path) == ["cases", 0, "turns", 0, "checks"]
+
+    output = tmp_path / "output"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/evaluate_ask.py",
+            "--input-dir",
+            str(inputs),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "ValidationError: [] should be non-empty" in result.stderr
+    assert not (output / "results.json").exists()
+
+
+def test_supplied_schema_can_enforce_additional_constraints(tmp_path):
+    case = next(c for c in DOCUMENT["cases"] if c["id"] == "award_mvp")
+    (tmp_path / "cases.json").write_text(json.dumps({**DOCUMENT, "cases": [case]}))
+    (tmp_path / "source.json").write_text(json.dumps(SOURCE))
+    (tmp_path / "schema.json").write_text(
+        '{"required": ["required_by_historical_schema"]}'
+    )
+
+    with pytest.raises(ValidationError, match="required_by_historical_schema"):
+        load_inputs(ROOT, tmp_path)
 
 
 def test_distinct_and_paraphrase_counts_and_parent_contracts():
     distinct = {c["id"]: c for c in DOCUMENT["cases"] if not c.get("variant_of")}
     variants = [c for c in DOCUMENT["cases"] if c.get("variant_of")]
-    assert len(distinct) == 123 and len(variants) == 24
+    assert len(distinct) == 129 and len(variants) == 24
     for case in variants:
         assert (
             case["turns"][0]["checks"]
@@ -138,13 +200,15 @@ def test_inventory_preserves_review_and_reports_missing_critical_selections():
     before = copy.deepcopy(DOCUMENT)
     summary = summarize(SOURCE, DOCUMENT)
     assert summary["counts"] == {
-        "cases": 147,
-        "distinct": 123,
+        "cases": 153,
+        "distinct": 129,
         "paraphrases": 24,
-        "turns": 180,
-        "source_rows": 24,
+        "turns": 195,
+        "source_rows": 182,
     }
-    assert summary["review_states"] == {"pending": 147}
+    assert summary["source_variants"]["complete"]["source_rows"] == 24
+    assert summary["source_variants"]["rich_league"]["source_rows"] == 158
+    assert summary["review_states"] == {"pending": 153}
     assert all(not value["absent"] for value in summary["critical_risks"].values())
     assert DOCUMENT == before
     for ids in CRITICAL.values():
@@ -152,6 +216,66 @@ def test_inventory_preserves_review_and_reports_missing_critical_selections():
             assert summary["cases"][cid]["assertions"]
     subset = {**DOCUMENT, "cases": DOCUMENT["cases"][:1]}
     assert summarize(SOURCE, subset)["critical_risks"]["research"]["absent"]
+
+
+@pytest.mark.parametrize(
+    "case_id,variant,dataset,total,seasons",
+    [
+        ("points_mean", "complete", "rows", 24, {"2024-25": 24}),
+        (
+            "rich_qualified_leader",
+            "rich_league",
+            "rich_league_rows",
+            158,
+            {"2023-24": 48, "2024-25": 110},
+        ),
+    ],
+)
+def test_inventory_reports_selected_variant_rows(
+    case_id, variant, dataset, total, seasons
+):
+    from scripts.ask_eval.coverage import summarize
+
+    case = next(c for c in DOCUMENT["cases"] if c["id"] == case_id)
+    summary = summarize(SOURCE, {**DOCUMENT, "cases": [case]})
+    assert summary["counts"]["source_rows"] == total
+    assert summary["source_variants"] == {
+        variant: {
+            "dataset": dataset,
+            "cases": 1,
+            "source_rows": total,
+            "seasons": seasons,
+        }
+    }
+
+
+def test_inventory_counts_snapshot_rows_once_and_no_rows_for_empty_selection():
+    from scripts.ask_eval.coverage import summarize
+
+    source = {
+        **SOURCE,
+        "source_kind": "production_snapshot",
+        "snapshot": {"rows": SOURCE["rows"][:2]},
+    }
+    cases = [
+        case
+        for case in DOCUMENT["cases"]
+        if case["id"] in {"points_mean", "rich_qualified_leader"}
+    ]
+    summary = summarize(source, {**DOCUMENT, "cases": cases})
+    assert summary["counts"]["source_rows"] == 2
+    assert summary["source_variants"] == {
+        variant: {
+            "dataset": "snapshot",
+            "cases": 1,
+            "source_rows": 2,
+            "seasons": {"2024-25": 2},
+        }
+        for variant in ("complete", "rich_league")
+    }
+    empty = summarize(source, {**DOCUMENT, "cases": []})
+    assert empty["counts"]["source_rows"] == 0
+    assert empty["source_variants"] == {}
 
 
 def test_raw_rows_independently_bind_metric_oracles():
@@ -493,10 +617,12 @@ def test_invariant_matching_rejects_wrong_types_and_unsafe_tolerances(
     ]
 
 
-def test_summary_is_detached_and_approval_is_only_declared():
+def test_v1_summary_is_detached_and_approval_is_only_declared():
     from scripts.ask_eval.coverage import summarize
 
     document = copy.deepcopy(DOCUMENT)
+    document["schema_version"] = 1
+    document["cases"][1]["review"]["status"] = "approved"
     summary = summarize(SOURCE, document)
     document["cases"][0]["review"]["status"] = "approved"
     document["cases"][0]["turns"][0]["checks"][0]["equals"] = "mutated"
@@ -505,3 +631,265 @@ def test_summary_is_detached_and_approval_is_only_declared():
         summary["cases"][document["cases"][0]["id"]]["assertions"][0]["equals"] == "ok"
     )
     assert "Unverified declarations" in summary["approval_verification"]
+    assert summary["schema_version"] == 1
+    assert summary["verified_approved"] == 0
+    assert summary["unverified_approved"] == 1
+
+
+@pytest.fixture
+def reviewed_document():
+    case = copy.deepcopy(DOCUMENT["cases"][0])
+    case["review"] = {
+        "status": "approved",
+        "reviewer": "Synthetic test reviewer",
+        "reviewed_at": "2025-04-20T10:00:00Z",
+        "expectation_sha256": expectation_digest(case),
+    }
+    return {"schema_version": 2, "human_reviewed": True, "cases": [case]}
+
+
+def test_v2_approved_case_is_hash_verified(reviewed_document):
+    from scripts.ask_eval.coverage import summarize
+
+    case = reviewed_document["cases"][0]
+    case["turns"][0]["planner_response"] = {"changed": "controlled plumbing"}
+    case["oracle_note"] = "An editorial note changed."
+    validate_cases(reviewed_document, SCHEMA)
+    summary = summarize(SOURCE, reviewed_document)
+    assert summary["schema_version"] == 2
+    assert summary["declared_human_reviewed"]
+    assert summary["verified_approved"] == 1
+    assert summary["unverified_approved"] == 0
+    assert "Hash-bound verification" in summary["approval_verification"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("question", "Changed question"),
+        ("checks", [{"path": "status", "equals": "changed"}]),
+        ("reset_context", True),
+        ("client_context", {"question": "restored"}),
+        ("expected_failure", {"http_status": 502, "detail": "failed"}),
+    ],
+)
+def test_v2_approval_detects_changed_turn(reviewed_document, field, value):
+    from scripts.ask_eval.coverage import summarize
+
+    reviewed_document["human_reviewed"] = False
+    reviewed_document["cases"][0]["turns"][0][field] = value
+    with pytest.raises(ValueError, match="expectation_sha256 does not match"):
+        validate_cases(reviewed_document, SCHEMA)
+    summary = summarize(SOURCE, reviewed_document)
+    assert summary["verified_approved"] == 0
+    assert summary["unverified_approved"] == 1
+    assert "Unverified declarations" in summary["approval_verification"]
+
+
+@pytest.mark.parametrize("field", ["reviewer", "reviewed_at", "expectation_sha256"])
+def test_v2_approval_requires_review_provenance(reviewed_document, field):
+    reviewed_document["cases"][0]["review"].pop(field)
+    with pytest.raises(ValueError, match=field):
+        validate_cases(reviewed_document, SCHEMA)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"), [("reviewer", " "), ("reviewed_at", "April 20, 2025")]
+)
+def test_v2_approval_rejects_invalid_review_provenance(reviewed_document, field, value):
+    reviewed_document["cases"][0]["review"][field] = value
+    with pytest.raises(ValueError, match=field):
+        validate_cases(reviewed_document, SCHEMA)
+
+
+def test_rich_warehouse_loads_only_requested_seasons_and_observed_phases():
+    warehouse = FrozenWarehouse(SOURCE, "rich_league")
+    _, historical = warehouse.load(["2023-24"])
+    _, current = warehouse.load(["2024-25"])
+    _, union = warehouse.load(["2024-25", "2023-24"])
+    assert len(historical.rows) == 48
+    assert len(current.rows) == 110
+    assert union.rows == historical.rows + current.rows
+    assert historical.data_through == {("2023-24", "Regular Season"): "2024-04-05"}
+    assert current.data_through == {("2024-25", "Regular Season"): "2025-04-09"}
+    assert union.data_through == historical.data_through | current.data_through
+    assert len({row["player_id"] for row in union.rows}) == 12
+    assert {row["home_away"] for row in union.rows} == {"HOME", "AWAY"}
+    assert all(row["reb"] == row["oreb"] + row["dreb"] for row in union.rows)
+
+    repo = frozen_repository(settings(), SOURCE, "rich_league")
+    health = repo.get_health()["season_coverage"]
+    assert health["player_game_rows"] == 110
+    assert health["game_count"] == 20
+    assert health["first_game_date"] == "2024-10-23"
+    assert repo.search_players("Casey")[0]["team_abbr"] == "CCC"
+    detail = repo.get_player_detail(1103)
+    assert detail["player"]["team_abbr"] == "CCC"
+    assert len(detail["game_log"]["games"]) == 14
+    log = repo.get_player_game_log(1103, start_date="2025-01-01", limit=2)
+    assert [row["game_date"] for row in log["games"]] == ["2025-03-19", "2025-04-09"]
+
+
+def expected_check(case_id, turn_index, path, actual):
+    case = next(c for c in DOCUMENT["cases"] if c["id"] == case_id)
+    check = next(c for c in case["turns"][turn_index]["checks"] if c["path"] == path)
+    assert actual == check["equals"], (case_id, turn_index, path)
+
+
+def test_rich_leader_changes_when_team_plays_its_tenth_game():
+    _, evidence = FrozenWarehouse(SOURCE, "rich_league").load(["2024-25"])
+    for cutoff, floor, winner, average in [
+        ("2025-03-19", 6, 1112, 40),
+        ("2025-04-09", 7, 1105, 30),
+    ]:
+        query = Query("pts", "2024-25", "average", operation="rank", as_of=cutoff)
+        result = run_query(evidence, query)
+        leader = result["rows"][0]
+        assert result["cohort"]["min_games"] == floor
+        assert (leader["player_id"], leader["value"]) == (winner, average)
+
+
+def test_rich_league_oracles_use_independent_populations_and_arithmetic():
+    avery = [row for row in SOURCE["rich_league_rows"] if row["player_id"] == 1101]
+    historical = [row for row in avery if row["season"] == "2023-24"]
+    window = [row for row in avery if "2024-04-01" <= row["game_date"] <= "2024-11-30"]
+    current = [row for row in avery if row["season"] == "2024-25"]
+    value = "semantic_evidence.rows.0.value"
+    games = "semantic_evidence.rows.0.observed_games"
+    for index, sample in enumerate((window, historical)):
+        expected_check("rich_archive_dates", index, games, len(sample))
+        expected_check(
+            "rich_archive_dates",
+            index,
+            value,
+            sum(r["pts"] for r in sample) / len(sample),
+        )
+    assert {r["season"] for r in window} == {"2023-24", "2024-25"}
+
+    league = [r for r in SOURCE["rich_league_rows"] if r["season"] == "2024-25"]
+    for index, team in enumerate(("AAA", "CCC")):
+        sample = [
+            r for r in league if r["player_id"] == 1103 and r["team_abbr"] == team
+        ]
+        expected_check("rich_traded_player", index, games, len(sample))
+        expected_check(
+            "rich_traded_player",
+            index,
+            value,
+            sum(r["pts"] for r in sample) / len(sample),
+        )
+    for index, (metric, result) in enumerate(
+        (("oreb", "W"), ("dreb", "L"), ("pf", "L"))
+    ):
+        sample = [r for r in current if r["wl"] == result]
+        expected_check("rich_boxscore_results", index, games, len(sample))
+        expected_check(
+            "rich_boxscore_results",
+            index,
+            value,
+            sum(r[metric] for r in sample) / len(sample),
+        )
+
+    appearances, team_games = defaultdict(list), defaultdict(set)
+    for row in league:
+        appearances[row["player_id"]].append(row["pts"])
+        team_games[row["team_abbr"]].add(row["game_id"])
+    assert {team: len(ids) for team, ids in team_games.items()} == dict.fromkeys(
+        ("AAA", "BBB", "CCC", "DDD"), 10
+    )
+    floor = 7  # 65% of 10 team games, rounded up
+    averages = {pid: sum(points) / len(points) for pid, points in appearances.items()}
+    eligible = [pid for pid, points in appearances.items() if len(points) >= floor]
+    winner = max(eligible, key=averages.__getitem__)
+    assert len(appearances[1112]) == 6 and averages[1112] == 40 > averages[winner]
+    for path, actual in {
+        "semantic_evidence.cohort.min_games": floor,
+        "semantic_evidence.cohort.size": len(eligible),
+        "semantic_evidence.cohort.excluded_players": len(appearances) - len(eligible),
+        "semantic_evidence.rows.0.player_id": winner,
+        games: len(appearances[winner]),
+        value: averages[winner],
+    }.items():
+        expected_check("rich_qualified_leader", 0, path, actual)
+
+    totals = {
+        k: sum(r[k] for r in current)
+        for k in ("fg3m", "fg3a", "ftm", "fta", "pts", "fga", "min")
+    }
+    assert {row["min"] for row in current} == set(range(28, 38))
+    components = [
+        (totals["fg3m"], totals["fg3a"]),
+        (totals["ftm"], totals["fta"]),
+        (totals["pts"], 2 * (totals["fga"] + 0.44 * totals["fta"])),
+        (36 * totals["pts"], totals["min"]),
+    ]
+    for index, (numerator, denominator) in enumerate(components):
+        expected_check(
+            "rich_efficiency", index, "semantic_evidence.rows.0.numerator", numerator
+        )
+        expected_check(
+            "rich_efficiency",
+            index,
+            "semantic_evidence.rows.0.denominator",
+            denominator,
+        )
+        expected_check("rich_efficiency", index, value, numerator / denominator)
+
+
+def test_rich_availability_oracle_uses_report_provenance_and_final_minutes(tmp_path):
+    attachment = SOURCE["rich_availability"]
+    assert {game["home_away"] for game in attachment["games"]} == {"home", "away"}
+    assert {row["home_away"] for row in attachment["stats"]["rows"]} == {"HOME", "AWAY"}
+    path = fixture_artifacts(SOURCE, tmp_path, ["rich_availability"])[
+        "rich_availability"
+    ]
+    load_availability(path)  # Validates the independently authored joins and digests.
+    focal, teammate = (
+        {
+            row["game_id"]: row
+            for row in attachment["stats"]["rows"]
+            if row["player_id"] == pid
+        }
+        for pid in (1101, 1102)
+    )
+    schedule = list(focal)
+    usual, limited, dnp, out, unknown = schedule[:6], *schedule[6:]
+    prior_median = median(teammate[game]["min"] for game in usual)
+    assert len(usual) == 6 and teammate[limited]["min"] < prior_median * 0.5
+    assert set((dnp, out, unknown)).isdisjoint(teammate)
+    assert attachment["participation"][0]["game_id"] == dnp
+    assert attachment["participation"][0]["minutes"] == 0
+    conflict, report_only = attachment["reports"]
+    assert teammate[usual[2]]["min"] == 32
+    assert (conflict["game_date"], report_only["game_date"]) == (
+        focal[usual[2]]["game_date"],
+        focal[out]["game_date"],
+    )
+    for report in (conflict, report_only):
+        assert report["injury_status"] == "Out"
+        assert report["source_url"] and report["ingested_at_utc"]
+        assert report["report_timestamp_utc"] < report["game_date"] + "T20:00:00Z"
+    for index in range(3):
+        include = index == 1
+        both = [*usual, limited] if include else usual
+        location = "groups.both_played.6" if include else "excluded_games.0"
+        for path, actual in {
+            "policy.include_limited_minutes": include,
+            "metrics.0.groups.both_played.value": sum(
+                focal[game]["pts"] for game in both
+            )
+            / len(both),
+            "metrics.0.groups.did_not_play.value": (
+                focal[dnp]["pts"] + focal[out]["pts"]
+            )
+            / 2,
+            f"{location}.minutes_checks.1.baseline_minutes": prior_median,
+            f"{location}.minutes_checks.1.cutoff_minutes": prior_median * 0.5,
+            f"excluded_games.{0 if include else 1}.game_id": unknown,
+        }.items():
+            expected_check(
+                "rich_availability_recovery",
+                index,
+                "availability_evidence." + path,
+                actual,
+            )

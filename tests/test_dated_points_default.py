@@ -236,19 +236,18 @@ def test_literal_variants(question):
     assert planned(question)["queries"][0]["aggregation"] == "average"
 
 
-def test_advisory_provenance_is_optional_but_invalid_values_cannot_execute():
+def test_missing_advisory_provenance_and_invalid_aggregation_cannot_execute():
     raw = raw_plan()
     raw["queries"][0].pop("aggregation_source")
-    result = plan_question(
-        client_for(raw),
-        model="test",
-        question=QUESTION,
-        selected_season="2024-25",
-        players=PLAYERS,
-        teams=("AAA", "BBB"),
-    )
-    assert result["queries"][0]["aggregation"] == "average"
-    assert result["aggregation_policy"]["model_aggregation_source"] == "omitted"
+    with pytest.raises(ExecutionFailure, match="invalid_provider_output"):
+        plan_question(
+            client_for(raw),
+            model="test",
+            question=QUESTION,
+            selected_season="2024-25",
+            players=PLAYERS,
+            teams=("AAA", "BBB"),
+        )
     with pytest.raises((SemanticError, ExecutionFailure)):
         planned(QUESTION.replace("points", "assists"), metric="ast")
     for value in ("ratio", None, [], "sum"):
@@ -468,7 +467,7 @@ def test_repeated_whitespace_matches_planner_identity_normalization():
 
 def test_sparse_plan_and_null_fields_inherit_literal_scope():
     raw = raw_plan()
-    for key in ("window", "start_date", "as_of", "season_type"):
+    for key in ("start_date", "as_of"):
         raw["queries"][0].pop(key)
     plan = plan_question(
         client_for(raw),
@@ -480,8 +479,7 @@ def test_sparse_plan_and_null_fields_inherit_literal_scope():
     )
     assert plan["aggregation_policy"]["chosen_aggregation"] == "average"
     assert plan["queries"][0]["start_date"] == "2025-04-11"
-    # The controlled adapter materializes a complete typed Scope before the host.
-    assert plan["aggregation_policy"]["derived_scope_fields"] == []
+    assert plan["queries"][0]["as_of"] == "2025-04-13"
     assert planned(start_date=None)["queries"][0]["start_date"] == "2025-04-11"
 
 

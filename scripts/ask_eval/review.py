@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 
+from scripts.ask_eval.fixtures import expectation_digest
 from scripts.ask_eval.grading import comparable
 
 
@@ -24,6 +25,10 @@ def build_review(baseline, candidate, source, notes=None):
                 "candidate": candidate,
                 "source": source,
                 "notes": notes or {},
+                "expectation_sha256": {
+                    case["id"]: expectation_digest(case)
+                    for case in candidate.get("cases", [])
+                },
             },
             ensure_ascii=False,
         )

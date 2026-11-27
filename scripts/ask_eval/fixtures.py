@@ -6,24 +6,36 @@ import copy
 import hashlib
 import json
 from dataclasses import fields, replace
+from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from types import SimpleNamespace
 
 
+def source_dataset_for_variant(source, variant):
+    if source.get("source_kind") == "production_snapshot":
+        return "snapshot", source.get("snapshot", {}).get("rows", [])
+    if variant == "rich_league":
+        return "rich_league_rows", source.get("rich_league_rows", [])
+    return "rows", source.get("rows", [])
+
+
 class FrozenWarehouse:
     def __init__(self, source, variant):
-        self.source = source
+        _, self.rows = source_dataset_for_variant(source, variant)
         self.variant = variant
 
     def load(self, seasons):
         from app.agent.semantics import Evidence, SemanticError
 
-        if not seasons or not set(seasons).issubset({"2024-25"}):
+        requested = set(seasons)
+        supported = {row["season"] for row in self.rows}
+        if not requested or not requested.issubset(supported):
             raise SemanticError(
-                "unsupported_coverage", "Frozen fixture covers only 2024-25."
+                "unsupported_coverage",
+                f"Frozen fixture covers only {', '.join(sorted(supported)) or 'no seasons'}.",
             )
-        rows = copy.deepcopy(self.source["rows"])
+        rows = copy.deepcopy([row for row in self.rows if row["season"] in requested])
         if self.variant == "missing_points":
             rows[0]["pts"] = None
         if self.variant == "duplicate":
@@ -32,15 +44,10 @@ class FrozenWarehouse:
             for row in rows:
                 if row["player_id"] == 202:
                     row["player_name"] = "Avery Example"
-        coverage = {
-            (s, p): max(
-                r["game_date"]
-                for r in rows
-                if r["season"] == s and r["season_type"] == p
-            )
-            for s in ["2024-25"]
-            for p in ("Regular Season", "Playoffs")
-        }
+        coverage = {}
+        for row in rows:
+            key = (row["season"], row["season_type"])
+            coverage[key] = max(coverage.get(key, ""), row["game_date"])
         digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
         return {
             "capture": {"query_id": "synthetic-" + digest, "query_count": 0}
@@ -57,10 +64,19 @@ class FrozenWarehouse:
 def frozen_repository(settings, source, variant):
     from app.repository import BigQueryWarehouseRepository
 
+    warehouse = FrozenWarehouse(source, variant)
+    rich = variant == "rich_league"
+    repository_rows = (
+        sorted(warehouse.rows, key=lambda row: (row["game_date"], row["game_id"]))
+        if rich
+        else warehouse.rows
+    )
+    latest_season = max(row["season"] for row in repository_rows) if rich else "2024-25"
+
     class Repository(BigQueryWarehouseRepository):
         def __init__(self):
             super().__init__(settings, client=SimpleNamespace())
-            self._governed_warehouse = FrozenWarehouse(source, variant)
+            self._governed_warehouse = warehouse
 
         def _query(self, *args, **kwargs):
             from scripts.ask_eval.source_guard import uncaptured_read
@@ -68,6 +84,26 @@ def frozen_repository(settings, source, variant):
             uncaptured_read("synthetic")
 
         def get_health(self):
+            if rich:
+                rows = [
+                    row for row in repository_rows if row["season"] == latest_season
+                ]
+                dates = [row["game_date"] for row in rows]
+                return {
+                    "season": latest_season,
+                    "status": "fixture",
+                    "is_fresh": False,
+                    "checked_at_utc": max(dates) + "T00:00:00Z",
+                    "season_coverage": {
+                        "season": latest_season,
+                        "first_game_date": min(dates),
+                        "latest_game_date": max(dates),
+                        "game_count": len({row["game_id"] for row in rows}),
+                        "player_game_rows": len(rows),
+                        "season_types": sorted({row["season_type"] for row in rows}),
+                        "is_full_season": False,
+                    },
+                }
             return {
                 "season": "2024-25",
                 "status": "fixture",
@@ -92,14 +128,14 @@ def frozen_repository(settings, source, variant):
                     "team_abbr": r["team_abbr"],
                     "is_ranked": True,
                 }
-                for r in source["rows"]
+                for r in repository_rows
             }
             return [
                 p for p in players.values() if query.lower() in p["player_name"].lower()
             ][:limit]
 
         def get_player_detail(self, player_id):
-            rows = [r for r in source["rows"] if r["player_id"] == player_id]
+            rows = [r for r in repository_rows if r["player_id"] == player_id]
             if not rows:
                 return None
             neighbors = copy.deepcopy(source["neighbors"].get(str(player_id), []))
@@ -109,22 +145,27 @@ def frozen_repository(settings, source, variant):
                 neighbors = []
             return {
                 "player": {
-                    k: rows[0][k]
+                    k: rows[-1 if rich else 0][k]
                     for k in ("player_id", "player_name", "season", "team_abbr")
                 },
                 "similar_players": neighbors,
                 "panel_states": {"similarity": "fresh" if neighbors else "unavailable"},
                 "game_log": {"games": rows},
-                "chart_baselines": {"pts": {"value": 35 / 3}},
-                "sample": {"games_sampled": 6},
+                "chart_baselines": {} if rich else {"pts": {"value": 35 / 3}},
+                "sample": {"games_sampled": len(rows) if rich else 6},
             }
 
         def get_player_game_log(self, player_id, limit=10, **kwargs):
-            return {
-                "games": [r for r in source["rows"] if r["player_id"] == player_id][
-                    -limit:
+            rows = [r for r in repository_rows if r["player_id"] == player_id]
+            if rich:
+                start, end = kwargs.get("start_date"), kwargs.get("end_date")
+                rows = [
+                    row
+                    for row in rows
+                    if (not start or row["game_date"] >= start)
+                    and (not end or row["game_date"] <= end)
                 ]
-            }
+            return {"games": rows[-limit:]}
 
     return Repository()
 
@@ -175,6 +216,51 @@ class ControlledModel:
         )
 
 
+def expectation_digest(case):
+    """Bind review to the authored expectations, including recovery inputs."""
+    expectation = {
+        key: case.get(key)
+        for key in ("id", "family", "variant_of", "source_variant", "attachments")
+    }
+    expectation["turns"] = [
+        {
+            key: turn.get(key)
+            for key in (
+                "question",
+                "checks",
+                "expected_failure",
+                "reset_context",
+                "client_context",
+            )
+        }
+        for turn in case["turns"]
+    ]
+    canonical = json.dumps(
+        expectation,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def approval_issue(case):
+    review = case["review"]
+    if not (review.get("reviewer") or "").strip():
+        return "requires a non-empty reviewer"
+    reviewed_at = review.get("reviewed_at")
+    try:
+        if not reviewed_at or "T" not in reviewed_at:
+            raise ValueError
+        datetime.fromisoformat(reviewed_at)
+    except ValueError:
+        return "requires an ISO 8601 reviewed_at timestamp"
+    if review.get("expectation_sha256") != expectation_digest(case):
+        return "expectation_sha256 does not match the case expectations"
+    return None
+
+
 def validate_cases(document, schema):
     import jsonschema
 
@@ -191,18 +277,40 @@ def validate_cases(document, schema):
             paths = [c["path"] for c in turn["checks"]]
             if len(paths) != len(set(paths)):
                 raise ValueError("Duplicate assertion paths")
+        if document["schema_version"] == 2 and case["review"]["status"] == "approved":
+            if issue := approval_issue(case):
+                raise ValueError(f"Approval for {case['id']} {issue}")
     if document["human_reviewed"] and not all(
         c["review"]["status"] == "approved" for c in document["cases"]
     ):
         raise ValueError("A human-reviewed set requires approval of every case")
 
 
+def bundled_schema_path(root: Path, document) -> Path:
+    filename = (
+        "schema.v1.json" if document.get("schema_version") == 1 else "schema.json"
+    )
+    return root / "tests/fixtures/ask" / filename
+
+
+def schema_path_for(root: Path, document, input_dir: Path | None = None) -> Path:
+    if input_dir is not None:
+        input_schema = input_dir / "schema.json"
+        if input_schema.is_file():
+            return input_schema
+    return bundled_schema_path(root, document)
+
+
 def load_inputs(root: Path, input_dir: Path | None = None):
+    import jsonschema
+
     folder = input_dir or root / "tests/fixtures/ask"
     document = json.loads((folder / "cases.json").read_text())
-    validate_cases(
-        document, json.loads((root / "tests/fixtures/ask/schema.json").read_text())
-    )
+    bundled_schema = bundled_schema_path(root, document)
+    schema_path = schema_path_for(root, document, input_dir)
+    validate_cases(document, json.loads(bundled_schema.read_text()))
+    if schema_path != bundled_schema:
+        jsonschema.validate(document, json.loads(schema_path.read_text()))
     source = json.loads((folder / "source.json").read_text())
     if source.get("source_kind") == "production_snapshot":
         from scripts.ask_eval.production import validate_production_source
@@ -222,7 +330,7 @@ def fixture_artifacts(source, directory, attachments=None):
         if key not in source:
             continue
         value = copy.deepcopy(source[key])
-        if key == "availability":
+        if ATTACHMENT_SETTINGS.get(key) == "research_availability_path":
             # A study-only or attachment-free baseline need not provide these modules.
             from app.agent.semantic_source import snapshot_digest
             from app.research_snapshots import digest
@@ -237,6 +345,7 @@ def fixture_artifacts(source, directory, attachments=None):
 
 ATTACHMENT_SETTINGS = {
     "availability": "research_availability_path",
+    "rich_availability": "research_availability_path",
     "study": "agent_teammate_study_path",
 }
 
@@ -267,6 +376,7 @@ class FixtureAttachments:
             return base
         supported = {field.name for field in fields(base)}
         # Check the whole request before preparing any files or applying settings.
+        selected_settings = set()
         for key in attachments:
             setting = ATTACHMENT_SETTINGS.get(key)
             if setting is None or setting not in supported:
@@ -276,6 +386,9 @@ class FixtureAttachments:
                 or key not in self.source
             ):
                 raise FixtureCapabilityError(key, "frozen_attachment_missing")
+            if setting in selected_settings:
+                raise FixtureCapabilityError(key, "conflicting_attachment_setting")
+            selected_settings.add(setting)
         with self.lock:
             for key in attachments:
                 if key not in self.paths:

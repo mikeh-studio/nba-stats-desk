@@ -283,7 +283,9 @@ The Ask harness stores draft scenarios and linked paraphrases in
 `tests/fixtures/ask/cases.json`, with fictional statistics in
 `tests/fixtures/ask/source.json`. Generate current counts and assertion coverage
 with `python -m scripts.ask_eval.coverage`. The schema validates
-case shape, IDs, structured assertions and review provenance. Expectations cover
+case shape, IDs, structured assertions and review provenance. Run summaries count
+each frozen row dataset once per selection and report case counts and row counts
+by season for each selected source variant. Expectations cover
 identity, phase/date scope, numeric tolerances, missingness, rendered values,
 refusals and multi-turn behavior. Award cases use the existing reviewed catalog.
 Availability/study cases include both missing-source refusals and successful
@@ -368,7 +370,8 @@ answers, tables, complete responses, source inputs, hashes and limitations. It
 supports filtering, review decisions and a JSON export. Decisions are stored
 in browser storage under the source/case/candidate hashes. Serve locally for stable
 storage, and retain the exported file privately. Saving requires an explicit
-approval/revision decision; reviewer name and notes are optional. Each case lists
+approval or revision decision. Approval requires a reviewer name when the page
+includes expectation digests. Notes are optional. Each case lists
 what needs human judgment: question/identity/scope alignment, the expected
 calculation or justified refusal, and evidence-grounded wording. Follow-ups,
 league populations, and published similarity scores have specific guidance.
@@ -473,11 +476,37 @@ The study estimates are predeclared contract fixtures, not a fitted or validated
 statistical study. Expected arithmetic and membership are documented beside each
 case and independently checked in `tests/test_ask_coverage.py`.
 
+The original 24-row `complete` variant remains the source for the original
+league-wide and cassette expectations. `rich_league` adds 158 appearances for
+12 fictional players across AAA, BBB, CCC and DDD in 2023-24 and 2024-25. Its
+cases check a date range spanning both archives, an explicit historical season,
+and a midseason trade from AAA to CCC. Varied minutes and shot attempts support
+pooled 3P%, FT%, TS% and points per 36. OREB, DREB and PF are checked on
+win/loss samples. An unfiltered regular-season leader case admits a 30 PPG
+player with seven of ten team games and excludes a 40 PPG player with six.
+
+The `rich_availability` attachment supplies a final team schedule, two pregame
+Out reports with timestamps and source URLs, and a verified zero-minute
+box-score record. The `availability/2` case checks positive minutes overriding
+an Out report, both bases for verified nonparticipation, and a missing
+appearance that remains unverified. The limited appearance has ten minutes
+against a 30-minute median of six prior appearances, below the default
+50% cutoff. The case toggles inclusion in conversation, then evicts server
+conversation state to simulate a restart and restores the browser's saved
+context for the next turn.
+
 The fixture server materializes attachments in a process-owned temporary folder
 and activates them only for cases that request them. No credentials, warehouse
 queries or paid calls are required. Controlled research/semantic plans establish
 adapter and evidence contracts; even paraphrase passes do **not** establish real
 model interpretation accuracy. New expectations remain pending human review.
+
+Controlled semantic replies explicitly declare season, phase, metric,
+operation, aggregation, aggregation source and window. A missing required
+field produces `invalid_provider_output`. Write any proposed dates, game
+counts and canonical metric keys into the fixture reply. The adapter resolves
+fixture player handles and passes the proposal to the public host, which
+validates scope and calculates the evidence.
 
 `evaluate_ask.py` permits up to 400 HTTP requests by default offline; live runs
 retain the 160-request default and require explicit model and call budgets.
@@ -728,14 +757,25 @@ Frozen-source runs and synthetic position-group tests establish different things
 real position comparisons require separately verified season membership.
 
 
-### Schema-v1 review provenance limitation
+### Expectation review provenance
 
-The coverage inventory reports declared review states without verifying reviewer
-identity or approval binding. Schema v1 intentionally permits an omitted reviewer
-and does not bind approval to a hash of the expectations. Even an `approved`
-declaration therefore does not establish human-reviewed rubric credit. Browser
-review decisions are separate records. A future versioned provenance contract may
-strengthen this without silently rejecting existing v1 corpora.
+The checked-in corpus uses schema v2. Each `approved` case requires a non-empty
+`reviewer`, an ISO 8601 `reviewed_at` timestamp, and an `expectation_sha256`
+matching the current case. The digest covers the case identity, family,
+paraphrase link, source variant, attachments, and each turn's question,
+assertions, expected failure, reset flag and browser context. Review metadata,
+editorial notes and controlled model replies are outside the digest. Editing a
+bound expectation invalidates its approval. `human_reviewed: true` requires every
+case to be approved under the same checks. All checked-in cases are pending.
+
+The review page displays the digest from the run's authored cases and exports
+it with each decision, reviewer, timestamp and notes. To persist an approval,
+copy the exported `status`, `reviewer`, `reviewed_at` and
+`expectation_sha256` into the matching case's `review` object and validate the
+corpus again. Coverage counts hash-verified and unverified approvals. Hash
+verification binds the review declaration to the expectations and carries the
+recorded reviewer identity. Schema v1 remains readable and its approvals are
+reported as unverified declarations.
 
 Critical risks list the selected case, one-based turn, expected assertion path and
 value, maximum tolerance, and missing assertions. Presence means the required
@@ -773,6 +813,10 @@ Version 2 recordings bind each independent case/turn/JSON-or-SSE call sequence t
 its provider, model, complete semantic request hash, fixture settings, selected
 case contract, source, schema and fixed date. Version 2 binds the manifest hash
 in the terminal record and validates stored request/match hashes and record shape.
+The runner validates each case document against its bundled schema (`schema.v1.json`
+for v1 and `schema.json` for v2) and against `--input-dir/schema.json` when supplied.
+For replay, the SHA-256 binds the exact bytes of the supplied schema if present,
+or the bundled schema otherwise, including whitespace.
 The sole supported v1 bundle is the original reviewed capture, pinned by raw-file
 hashes and canonical cassette hash; arbitrary unverified v1 bundles are rejected.
 Transport timeouts/retries are saved

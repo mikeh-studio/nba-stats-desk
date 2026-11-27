@@ -143,6 +143,8 @@ class CalendarComparisonModel(Model):
                             {
                                 "metric": "pts",
                                 "season": "2025-26",
+                                "season_type": "Regular Season",
+                                "operation": "summary",
                                 "aggregation": "average",
                                 "aggregation_source": "planner_selected",
                                 "player_name": "resolved_player_1",
@@ -260,6 +262,8 @@ class CurrentMonthModel(Model):
                             {
                                 "metric": "pts",
                                 "season": "2025-26",
+                                "season_type": "Regular Season",
+                                "operation": "summary",
                                 "aggregation": "average",
                                 "aggregation_source": "planner_selected",
                                 "player_name": "resolved_player_1",

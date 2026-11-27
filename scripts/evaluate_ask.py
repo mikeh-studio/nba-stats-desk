@@ -19,7 +19,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.ask_eval.fixtures import load_inputs  # noqa: E402
+from scripts.ask_eval.fixtures import load_inputs, schema_path_for  # noqa: E402
 from scripts.ask_eval.grading import (  # noqa: E402
     canonical,
     expected_failure_payload,
@@ -194,7 +194,7 @@ def main():
     p.add_argument(
         "--input-dir",
         type=Path,
-        help="Private directory containing source.json and cases.json",
+        help="Private directory containing source.json, cases.json, and optional schema.json",
     )
     p.add_argument("--code-root", type=Path, default=ROOT)
     p.add_argument("--label", default="candidate")
@@ -285,6 +285,7 @@ def main():
     )
     source, document = load_inputs(ROOT, args.input_dir)
     input_dir = args.input_dir or ROOT / "tests/fixtures/ask"
+    schema_path = schema_path_for(ROOT, document, args.input_dir)
     from scripts.ask_eval.coverage import summarize
 
     corpus_summary = summarize(source, document)
@@ -328,7 +329,7 @@ def main():
         "clock": args.clock,
         "cases": {c["id"]: sha(c) for c in document["cases"]},
         "source_sha256": digest(input_dir / "source.json"),
-        "schema_sha256": digest(ROOT / "tests/fixtures/ask/schema.json"),
+        "schema_sha256": digest(schema_path),
         "corpus_sha256": digest(input_dir / "cases.json"),
         "adapter_revision": revision,
         "phase2_flags": {
@@ -375,9 +376,11 @@ def main():
             "ASK_EVAL_SERVING_FIXTURE": "1" if args.serving_fixture else "0",
             "ASK_EVAL_DETERMINISTIC_COMMON": "1" if args.deterministic_common else "0",
             "ASK_EVAL_MAX_CALLS": str(args.max_model_calls or 0),
-            "ASK_EVAL_INPUT_DIR": str(input_dir.resolve()),
             "ASK_EVAL_CALL_LOG": str((args.output / "model-calls.jsonl").resolve()),
         }
+        env.pop("ASK_EVAL_INPUT_DIR", None)
+        if args.input_dir is not None:
+            env["ASK_EVAL_INPUT_DIR"] = str(input_dir.resolve())
         env.pop("ASK_EVAL_CLOCK", None)
         if args.clock:
             env["ASK_EVAL_CLOCK"] = args.clock

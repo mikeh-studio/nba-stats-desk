@@ -382,6 +382,9 @@ def test_specific_metric_duplicate_name_can_resume(evidence, selection):
                             "aggregation": "average",
                             "aggregation_source": "planner_selected",
                             "season": "2025-26",
+                            "season_type": "Regular Season",
+                            "operation": "summary",
+                            "window": "season_to_date",
                             "player_name": "resolved_player_1",
                         }
                     ],

@@ -408,6 +408,76 @@ def test_reviewed_recording_rejects_new_planner_contract_offline(tmp_path):
     )
 
 
+def test_replay_v1_cases_with_original_schema(tmp_path):
+    import hashlib
+    import json
+    from pathlib import Path
+
+    fixtures = Path("tests/fixtures/ask")
+    schema = (fixtures / "schema.v1.json").read_bytes()
+    schema_sha256 = hashlib.sha256(schema).hexdigest()
+    cases = json.loads((fixtures / "cases.json").read_text())["cases"]
+    case = next(case for case in cases if case["id"] == "award_mvp")
+    document = {"schema_version": 1, "human_reviewed": False, "cases": [case]}
+    cases_bytes = json.dumps(document).encode()
+    source_bytes = b'{"description":"Frozen award replay fixture","rows":[]}'
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "cases.json").write_bytes(cases_bytes)
+    (inputs / "source.json").write_bytes(source_bytes)
+    input_schema = inputs / "schema.json"
+    input_schema.write_bytes(schema)
+
+    # Reproduce the parent runner's binding with v1 case inputs. The award
+    # endpoint resolves from the catalog without any provider calls to record.
+    recording = CassetteStore(
+        tmp_path / "cassette",
+        "record",
+        {
+            **BINDING,
+            "model": "gpt-5.4-mini",
+            "cases": {case["id"]: sha(case)},
+            "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "schema_sha256": schema_sha256,
+            "corpus_sha256": hashlib.sha256(cases_bytes).hexdigest(),
+        },
+    )
+    recording.terminal()
+    command = [
+        sys.executable,
+        "scripts/evaluate_ask.py",
+        "--input-dir",
+        str(inputs),
+        "--replay-cassettes",
+        str(recording.directory),
+    ]
+
+    for name in ("explicit-schema", "bundled-schema"):
+        output = tmp_path / name
+        result = subprocess.run(
+            [*command, "--output", str(output)],
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        report = json.loads((output / "results.json").read_text())
+        assert report["schema_sha256"] == schema_sha256
+        assert report["passed"] == report["total"] == 1
+        input_schema.unlink(missing_ok=True)
+
+    # Equivalent JSON with different bytes must still fail the manifest check.
+    input_schema.write_bytes(schema + b"\n")
+    result = subprocess.run(
+        [*command, "--output", str(tmp_path / "mismatch")],
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "Cassette manifest mismatch: schema_sha256" in result.stderr
+
+
 def test_synthetic_repository_rejects_uncaptured_mixed_seasons():
     from app.agent.semantics import SemanticError
     from scripts.ask_eval.fixtures import FrozenWarehouse

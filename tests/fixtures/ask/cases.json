@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "human_reviewed": false,
   "cases": [
     {
@@ -58,7 +58,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -121,7 +124,10 @@
                 "season": "2024-25",
                 "aggregation": "total",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -184,7 +190,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -247,7 +256,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -310,7 +322,10 @@
                 "season": "2024-25",
                 "aggregation": "ratio",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "planner_selected"
+                "aggregation_source": "planner_selected",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -373,7 +388,10 @@
                 "season": "2024-25",
                 "aggregation": "ratio",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "planner_selected"
+                "aggregation_source": "planner_selected",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -438,7 +456,9 @@
                 "player_name": "resolved_player_101",
                 "window": "last_n_games",
                 "n": 2,
-                "aggregation_source": "planner_selected"
+                "aggregation_source": "planner_selected",
+                "season_type": "Regular Season",
+                "operation": "summary"
               }
             ]
           }
@@ -504,7 +524,9 @@
                 "window": "date_range",
                 "start_date": "2025-04-11",
                 "as_of": "2025-04-13",
-                "aggregation_source": "omitted"
+                "aggregation_source": "omitted",
+                "season_type": "Regular Season",
+                "operation": "summary"
               }
             ]
           }
@@ -568,7 +590,9 @@
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
                 "season_type": "Playoffs",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -631,7 +655,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -682,7 +709,9 @@
                 "aggregation": "average",
                 "player_name": null,
                 "operation": "rank",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "window": "season_to_date"
               }
             ]
           }
@@ -746,7 +775,9 @@
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
                 "operation": "percentile",
-                "aggregation_source": "planner_selected"
+                "aggregation_source": "planner_selected",
+                "season_type": "Regular Season",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2147,7 +2178,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2181,7 +2215,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "inherited"
+                "aggregation_source": "inherited",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2237,7 +2274,9 @@
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
                 "season_type": "Playoffs",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2264,7 +2303,9 @@
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
                 "season_type": "Playoffs",
-                "aggregation_source": "inherited"
+                "aggregation_source": "inherited",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2457,7 +2498,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "planner_selected"
+                "aggregation_source": "planner_selected",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2512,7 +2556,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2538,7 +2585,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_202",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2593,7 +2643,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2619,7 +2672,10 @@
                 "season": "2023-24",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2674,7 +2730,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2775,7 +2834,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2817,7 +2879,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -2855,7 +2920,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -5179,7 +5247,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "planner_selected"
+                "aggregation_source": "planner_selected",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -5733,7 +5804,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "planner_selected"
+                "aggregation_source": "planner_selected",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           },
@@ -7133,7 +7207,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -7197,7 +7274,10 @@
                 "season": "2024-25",
                 "aggregation": "average",
                 "player_name": "resolved_player_101",
-                "aggregation_source": "explicit"
+                "aggregation_source": "explicit",
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date"
               }
             ]
           }
@@ -8641,6 +8721,971 @@
             }
           ]
         }
+      ]
+    },
+    {
+      "id": "rich_archive_dates",
+      "family": "Metrics",
+      "source_variant": "rich_league",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Avery's 2024-04-05 (14 points) and 2024-10-23, 11-06 and 11-20 (18, 14, 24) give 70/4 = 17.5 across two archives. The separate 2023-24 season has 10, 14, 16 and 14 for 54/4 = 13.5.",
+      "turns": [
+        {
+          "question": "Avery Finch points per game from 2024-04-01 through 2024-11-30",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 17.5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.window_start",
+              "equals": "2024-04-01"
+            },
+            {
+              "path": "semantic_evidence.scope.window_end",
+              "equals": "2024-11-30"
+            },
+            {
+              "path": "semantic_evidence.scope.seasons",
+              "equals": [
+                "2024-25",
+                "2023-24"
+              ]
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "pts",
+                "aggregation": "average",
+                "aggregation_source": "explicit",
+                "player_name": "resolved_player_1101",
+                "operation": "summary",
+                "season": "2024-25",
+                "season_type": "Regular Season",
+                "window": "date_range",
+                "start_date": "2024-04-01",
+                "as_of": "2024-11-30"
+              }
+            ]
+          }
+        },
+        {
+          "question": "Avery Finch points per game in 2023-24",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 13.5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.season",
+              "equals": "2023-24"
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "pts",
+                "aggregation": "average",
+                "aggregation_source": "explicit",
+                "player_name": "resolved_player_1101",
+                "operation": "summary",
+                "season": "2023-24",
+                "season_type": "Regular Season",
+                "window": "season_to_date"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rich_traded_player",
+      "family": "Game filters",
+      "source_variant": "rich_league",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Casey Vale's four AAA appearances scored 9, 11, 13 and 15 (48/4 = 12). His six CCC appearances scored 17, 19, 21, 23, 25 and 27 (132/6 = 22). Team is read from each appearance.",
+      "turns": [
+        {
+          "question": "Casey Vale points per game in 2024-25 for AAA",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1103
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 4
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 12
+            },
+            {
+              "path": "semantic_evidence.scope.team_abbr",
+              "equals": "AAA"
+            }
+          ]
+        },
+        {
+          "question": "Casey Vale points per game in 2024-25 for CCC",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1103
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 6
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 22
+            },
+            {
+              "path": "semantic_evidence.scope.team_abbr",
+              "equals": "CCC"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rich_boxscore_results",
+      "family": "Game filters",
+      "source_variant": "rich_league",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Avery's five wins have OREB 2+4+3+5+3 = 17. The five losses have DREB 7+8+4+10+7 = 36 and PF 3+4+3+3+1 = 14. Divide each sum by five for its per-game average.",
+      "turns": [
+        {
+          "question": "Avery Finch offensive rebounds per game in 2024-25 in wins",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "oreb"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 3.4,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.game_result",
+              "equals": "W"
+            }
+          ]
+        },
+        {
+          "question": "Avery Finch defensive rebounds per game in 2024-25 in losses",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "dreb"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 7.2,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.game_result",
+              "equals": "L"
+            }
+          ]
+        },
+        {
+          "question": "Avery Finch personal fouls per game in 2024-25 in losses",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pf"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 5
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 2.8,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.scope.game_result",
+              "equals": "L"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rich_qualified_leader",
+      "family": "Rankings",
+      "source_variant": "rich_league",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "All four teams have ten regular-season games, so ceil(0.65 x 10) = 7. Ellis Stone qualifies with 210/7 = 30 PPG. Lane Snow would lead at 240/6 = 40 PPG but is ineligible with six games. Eleven players qualify.",
+      "turns": [
+        {
+          "question": "Who led the NBA in scoring in 2024-25 regular season?",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1105
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 7
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 30
+            },
+            {
+              "path": "semantic_evidence.scope.season_type",
+              "equals": "Regular Season"
+            },
+            {
+              "path": "semantic_evidence.cohort.team_game_percent",
+              "equals": 65
+            },
+            {
+              "path": "semantic_evidence.cohort.min_games",
+              "equals": 7
+            },
+            {
+              "path": "semantic_evidence.cohort.size",
+              "equals": 11
+            },
+            {
+              "path": "semantic_evidence.cohort.excluded_players",
+              "equals": 1
+            },
+            {
+              "path": "semantic_evidence.rows.0.rank",
+              "equals": 1
+            },
+            {
+              "path": "semantic_plan.model_calls",
+              "equals": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rich_efficiency",
+      "family": "Metrics",
+      "source_variant": "rich_league",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "Avery's ten 2024-25 appearances pool 26/64 on threes and 36/48 on free throws. TS% uses 204/(2 x (151 + 0.44 x 48)). Points per 36 use 36 x 204/325 over minutes ranging from 28 to 37.",
+      "turns": [
+        {
+          "question": "Avery Finch 3P% in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "fg3_pct"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 10
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 0.40625,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.rows.0.numerator",
+              "equals": 26
+            },
+            {
+              "path": "semantic_evidence.rows.0.denominator",
+              "equals": 64
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "fg3_pct",
+                "aggregation": "ratio",
+                "aggregation_source": "planner_selected",
+                "player_name": "resolved_player_1101",
+                "operation": "summary",
+                "season": "2024-25",
+                "season_type": "Regular Season",
+                "window": "season_to_date"
+              }
+            ]
+          }
+        },
+        {
+          "question": "Avery Finch FT% in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "ft_pct"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 10
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 0.75,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.rows.0.numerator",
+              "equals": 36
+            },
+            {
+              "path": "semantic_evidence.rows.0.denominator",
+              "equals": 48
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "ft_pct",
+                "aggregation": "ratio",
+                "aggregation_source": "planner_selected",
+                "player_name": "resolved_player_1101",
+                "operation": "summary",
+                "season": "2024-25",
+                "season_type": "Regular Season",
+                "window": "season_to_date"
+              }
+            ]
+          }
+        },
+        {
+          "question": "Avery Finch TS% in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "ts_pct"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 10
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 0.5926098071113177,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.rows.0.numerator",
+              "equals": 204
+            },
+            {
+              "path": "semantic_evidence.rows.0.denominator",
+              "equals": 344.24,
+              "absolute_tolerance": 1e-09
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "ts_pct",
+                "aggregation": "ratio",
+                "aggregation_source": "planner_selected",
+                "player_name": "resolved_player_1101",
+                "operation": "summary",
+                "season": "2024-25",
+                "season_type": "Regular Season",
+                "window": "season_to_date"
+              }
+            ]
+          }
+        },
+        {
+          "question": "Avery Finch points per 36 minutes in 2024-25",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "semantic_evidence.metric.key",
+              "equals": "pts_per36"
+            },
+            {
+              "path": "semantic_evidence.rows.0.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "semantic_evidence.rows.0.observed_games",
+              "equals": 10
+            },
+            {
+              "path": "semantic_evidence.rows.0.value",
+              "equals": 22.596923076923076,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "semantic_evidence.rows.0.numerator",
+              "equals": 7344
+            },
+            {
+              "path": "semantic_evidence.rows.0.denominator",
+              "equals": 325
+            }
+          ],
+          "planner_response": {
+            "status": "query",
+            "message": "",
+            "queries": [
+              {
+                "metric": "pts_per36",
+                "aggregation": "ratio",
+                "aggregation_source": "planner_selected",
+                "player_name": "resolved_player_1101",
+                "operation": "summary",
+                "season": "2024-25",
+                "season_type": "Regular Season",
+                "window": "season_to_date"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rich_availability_recovery",
+      "family": "Availability",
+      "source_variant": "rich_league",
+      "review": {
+        "status": "pending",
+        "reviewer": null
+      },
+      "oracle_note": "The first six both-played games sum to 106 points (106/6); the third includes 32 final minutes despite Out. Blake's six prior minutes are 28, 30, 32, 30, 34, 26, so 10 minutes on Feb 12 falls below half of the median 30. Including that game adds 26 points (132/7). Avery scores 20 in the final DNP and 24 in the report-only Out (44/2); the tenth game lacks verification. The last turn evicts server state, restores the browser's pair and inclusion setting, then excludes the limited game again.",
+      "turns": [
+        {
+          "question": "Compare Avery Finch points per game with and without Blake Reed in the 2024-25 regular season",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_evidence.policy_version",
+              "equals": "availability/2"
+            },
+            {
+              "path": "availability_evidence.policy.minutes_threshold",
+              "equals": 0.5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "availability_evidence.policy.include_limited_minutes",
+              "equals": false
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 17.666666666666668,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 22
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.game_id",
+              "equals": "r24-03-1"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.report_status",
+              "equals": "Out"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.teammate_minutes",
+              "equals": 32
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.classification_basis",
+              "equals": "stats_positive_minutes"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.warnings",
+              "equals": [
+                "Recorded minutes override the pregame report"
+              ]
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.0.game_id",
+              "equals": "r24-08-1"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.0.classification_basis",
+              "equals": "final_boxscore"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.1.game_id",
+              "equals": "r24-09-1"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.1.classification_basis",
+              "equals": "out_report"
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.excluded_games.1.game_id",
+              "equals": "r24-10-1"
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.game_id",
+              "equals": "r24-07-1"
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.minutes",
+              "equals": 10
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.baseline_minutes",
+              "equals": 30
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.cutoff_minutes",
+              "equals": 15
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.status",
+              "equals": "limited_minutes"
+            },
+            {
+              "path": "availability_evidence.excluded.limited_minutes",
+              "equals": 1
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 1102
+            }
+          ]
+        },
+        {
+          "question": "Include limited-minute appearances",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_evidence.policy_version",
+              "equals": "availability/2"
+            },
+            {
+              "path": "availability_evidence.policy.minutes_threshold",
+              "equals": 0.5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "availability_evidence.policy.include_limited_minutes",
+              "equals": true
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 18.857142857142858,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 7
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 22
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.game_id",
+              "equals": "r24-03-1"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.report_status",
+              "equals": "Out"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.teammate_minutes",
+              "equals": 32
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.classification_basis",
+              "equals": "stats_positive_minutes"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.warnings",
+              "equals": [
+                "Recorded minutes override the pregame report"
+              ]
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.0.game_id",
+              "equals": "r24-08-1"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.0.classification_basis",
+              "equals": "final_boxscore"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.1.game_id",
+              "equals": "r24-09-1"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.1.classification_basis",
+              "equals": "out_report"
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.game_id",
+              "equals": "r24-10-1"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.6.game_id",
+              "equals": "r24-07-1"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.6.minutes_checks.1.minutes",
+              "equals": 10
+            },
+            {
+              "path": "availability_evidence.groups.both_played.6.minutes_checks.1.baseline_minutes",
+              "equals": 30
+            },
+            {
+              "path": "availability_evidence.groups.both_played.6.minutes_checks.1.cutoff_minutes",
+              "equals": 15
+            },
+            {
+              "path": "availability_evidence.groups.both_played.6.minutes_checks.1.status",
+              "equals": "limited_minutes"
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 1102
+            }
+          ]
+        },
+        {
+          "question": "Exclude limited-minute appearances",
+          "checks": [
+            {
+              "path": "status",
+              "equals": "ok"
+            },
+            {
+              "path": "availability_evidence.policy_version",
+              "equals": "availability/2"
+            },
+            {
+              "path": "availability_evidence.policy.minutes_threshold",
+              "equals": 0.5,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "availability_evidence.policy.include_limited_minutes",
+              "equals": false
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.value",
+              "equals": 17.666666666666668,
+              "absolute_tolerance": 1e-09
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.both_played.observed_games",
+              "equals": 6
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.value",
+              "equals": 22
+            },
+            {
+              "path": "availability_evidence.metrics.0.groups.did_not_play.observed_games",
+              "equals": 2
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.game_id",
+              "equals": "r24-03-1"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.report_status",
+              "equals": "Out"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.teammate_minutes",
+              "equals": 32
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.classification_basis",
+              "equals": "stats_positive_minutes"
+            },
+            {
+              "path": "availability_evidence.groups.both_played.2.warnings",
+              "equals": [
+                "Recorded minutes override the pregame report"
+              ]
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.0.game_id",
+              "equals": "r24-08-1"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.0.classification_basis",
+              "equals": "final_boxscore"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.1.game_id",
+              "equals": "r24-09-1"
+            },
+            {
+              "path": "availability_evidence.groups.did_not_play.1.classification_basis",
+              "equals": "out_report"
+            },
+            {
+              "path": "availability_evidence.excluded.unverified_status_or_membership",
+              "equals": 1
+            },
+            {
+              "path": "availability_evidence.excluded_games.1.game_id",
+              "equals": "r24-10-1"
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.game_id",
+              "equals": "r24-07-1"
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.minutes",
+              "equals": 10
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.baseline_minutes",
+              "equals": 30
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.cutoff_minutes",
+              "equals": 15
+            },
+            {
+              "path": "availability_evidence.excluded_games.0.minutes_checks.1.status",
+              "equals": "limited_minutes"
+            },
+            {
+              "path": "availability_evidence.excluded.limited_minutes",
+              "equals": 1
+            },
+            {
+              "path": "availability_scope.player_id",
+              "equals": 1101
+            },
+            {
+              "path": "availability_scope.teammate_id",
+              "equals": 1102
+            }
+          ],
+          "reset_context": true,
+          "client_context": {
+            "question": "Include limited-minute appearances",
+            "analysis_type": "availability",
+            "players": [
+              {
+                "player_id": 1101,
+                "player_name": "Avery Finch"
+              },
+              {
+                "player_id": 1102,
+                "player_name": "Blake Reed"
+              }
+            ],
+            "metrics": [
+              "pts"
+            ],
+            "scope": {
+              "season": "2024-25",
+              "phases": [
+                "Regular Season"
+              ]
+            },
+            "availability_scope": {
+              "player_id": 1101,
+              "teammate_id": 1102,
+              "season": "2024-25",
+              "phase": "Regular Season",
+              "explicit_phase": true,
+              "metrics": [
+                "pts"
+              ],
+              "aggregation": "average",
+              "include_limited_minutes": true
+            }
+          }
+        }
+      ],
+      "attachments": [
+        "rich_availability"
       ]
     }
   ]

@@ -7,11 +7,20 @@ prompts or language heuristics; all scope and arithmetic remain host-owned.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import fields
 
 from app.agent import intelligence_contract as api
-from app.agent.scope_policy import explicit_scope
-from app.agent.semantics import load_contract
+
+REQUIRED_QUERY_FIELDS = {
+    "season",
+    "season_type",
+    "operation",
+    "metric",
+    "aggregation",
+    "aggregation_source",
+    "window",
+}
 
 
 class ControlledIntelligence:
@@ -44,8 +53,6 @@ class ControlledIntelligence:
             references = {name: name for name in context.player_names}
         references.update({name: name for name in context.player_names})
         question = context.question
-        import re
-
         mentions = []
         for key, name in references.items():
             if not key.startswith("resolved_player_"):
@@ -75,7 +82,10 @@ class ControlledIntelligence:
         text = await model.generate_plan(
             system_prompt=prompts.planning_system, user_payload=json.dumps(payload)
         )
-        raw = json.loads(text)
+        try:
+            raw = json.loads(text)
+        except (TypeError, ValueError):
+            return api.ProviderFailure("invalid_provider_output")
         if isinstance(raw, dict) and set(raw) == {"plan"}:
             raw = raw["plan"]
         if not isinstance(raw, dict) or set(raw) not in (
@@ -83,7 +93,11 @@ class ControlledIntelligence:
             {"status", "queries", "message", "reason"},
         ):
             return api.ProviderFailure("invalid_provider_output")
+        if not isinstance(raw["queries"], list) or not isinstance(raw["message"], str):
+            return api.ProviderFailure("invalid_provider_output")
         if raw["status"] in ("clarification_required", "unsupported"):
+            if raw["queries"]:
+                return api.ProviderFailure("invalid_provider_output")
             if raw.get("reason") is not None:
                 return api.Withheld(raw["status"], raw["reason"])
             return api.Withheld(
@@ -99,40 +113,26 @@ class ControlledIntelligence:
         queries = []
         scope_fields = {f.name for f in fields(api.Scope)}
         for original in raw["queries"]:
+            if (
+                not isinstance(original, dict)
+                or not REQUIRED_QUERY_FIELDS <= original.keys()
+                or any(
+                    not isinstance(original[key], str) for key in REQUIRED_QUERY_FIELDS
+                )
+                or original["aggregation_source"]
+                not in ("explicit", "inherited", "planner_selected", "omitted")
+            ):
+                return api.ProviderFailure("invalid_provider_output")
             q = dict(original)
             if q.get("player_name") is not None:
+                if not isinstance(q["player_name"], str):
+                    return api.ProviderFailure("invalid_provider_output")
                 q["player_name"] = references.get(q["player_name"], q["player_name"])
-            scope_hint = explicit_scope(context.question)
-            phase = scope_hint.get("season_type") or (
-                "Playoffs"
-                if re.search(r"\bplayoffs?\b", context.question, re.I)
-                else "Regular Season"
-            )
-            if (
-                "season_type" not in q
-                and context.prior
-                and not mentions
-                and not re.search(
-                    r"\b(?:playoffs?|regular season)\b", context.question, re.I
-                )
-            ):
-                phase = context.prior.scopes[0].season_type
-            q.setdefault("season_type", phase)
-            for key, value in scope_hint.items():
-                if key in {"window", "start_date", "as_of", "n"}:
-                    q.setdefault(key, value)
-            if q.get("metric") in ("Fantasy Score", "fantasy", "fantasy_points"):
-                q["metric"] = load_contract().default_fantasy_metric
-            q.setdefault("operation", "summary")
-            if q.get("aggregation_source") not in (
-                "explicit",
-                "inherited",
-                "planner_selected",
-                "omitted",
-            ):
-                q["aggregation_source"] = "omitted"
-            scope = api.Scope(**{k: q.pop(k) for k in scope_fields if k in q})
-            queries.append(api.QueryProposal(scope=scope, **q))
+            try:
+                scope = api.Scope(**{k: q.pop(k) for k in scope_fields if k in q})
+                queries.append(api.QueryProposal(scope=scope, **q))
+            except TypeError:
+                return api.ProviderFailure("invalid_provider_output")
         return api.QueryPlan("metrics", raw["status"], tuple(queries))
 
 

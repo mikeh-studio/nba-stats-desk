@@ -13,7 +13,7 @@ from tests.test_dated_points_default import SOURCE
 from tests.test_semantic_migration import settings
 
 QUESTION = "Casey Orbit points from 2025-03-04 through 2025-03-06 in 2024-25"
-LABELS = ["explicit", "inherited", "omitted", "planner_selected", None]
+LABELS = ["explicit", "inherited", "omitted", "planner_selected"]
 
 
 @pytest.fixture
@@ -265,16 +265,9 @@ def test_unresolved_competing_or_invalid_dates_cannot_execute_total(
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
-def test_missing_label_is_not_execution_authority(endpoint_v3, transport):
-    payload = endpoint_v3(transport=transport, omit_label=True)
-    assert payload["status"] == "ok", payload
-    assert (
-        payload["query_plan"]["aggregation_policy"]["original_aggregation"] == "total"
-    )
-    assert (
-        payload["query_plan"]["aggregation_resolution"][0]["model_aggregation_source"]
-        == "omitted"
-    )
+def test_missing_or_null_aggregation_source_fails_closed(endpoint_v3, transport):
+    endpoint_v3(transport=transport, omit_label=True, expect_error=True)
+    endpoint_v3(transport=transport, aggregation_source=None, expect_error=True)
 
 
 @pytest.mark.parametrize("transport", ["json", "sse"])
@@ -437,7 +430,7 @@ def test_pending_dates_cannot_resume_as_guessed_total(endpoint_v3, transport):
 @pytest.mark.parametrize(
     "phase_words,phase", [("", "Regular Season"), (" playoffs", "Playoffs")]
 )
-def test_missing_phase_materializes_validated_scope(
+def test_authored_phase_materializes_validated_scope(
     endpoint_v3, transport, open_ended, phase_words, phase
 ):
     question = (
@@ -446,7 +439,7 @@ def test_missing_phase_materializes_validated_scope(
     payload = endpoint_v3(
         question,
         transport,
-        omit_phase=True,
+        season_type=phase,
         aggregation="average",
         start_date="2025-03-01" if open_ended else "2025-03-04",
     )
@@ -454,8 +447,14 @@ def test_missing_phase_materializes_validated_scope(
         payload
     )
     assert payload["query_plan"]["queries"][0]["season_type"] == phase
-    # The typed provider supplies an explicit phase; host validation checks it.
-    assert payload["query_plan"]["queries"][0]["season_type"] == phase
+    endpoint_v3(
+        question,
+        transport,
+        omit_phase=True,
+        aggregation="average",
+        start_date="2025-03-01" if open_ended else "2025-03-04",
+        expect_error=True,
+    )
 
 
 def test_missing_both_phase_materialized_before_query():
@@ -567,7 +566,7 @@ def test_since_polite_and_asof_scope_remain_supported(endpoint_v3, transport):
         ("Playoffs", " playoffs"),
     ],
 )
-def test_missing_phase_preserves_context_and_fresh_request_resets(
+def test_authored_phase_preserves_context_and_fresh_request_resets(
     endpoint_v3, transport, phase, words
 ):
     cid = str(uuid4())
@@ -581,7 +580,7 @@ def test_missing_phase_preserves_context_and_fresh_request_resets(
         "What about points?",
         transport,
         conversation=cid,
-        omit_phase=True,
+        season_type=phase,
         aggregation="average",
         **dates,
     )
@@ -596,7 +595,7 @@ def test_missing_phase_preserves_context_and_fresh_request_resets(
         **dates,
     )
     assert bad["status"] != "ok" and not bad["tables"], bad
-    fresh = endpoint_v3(QUESTION, transport, conversation=cid, omit_phase=True)
+    fresh = endpoint_v3(QUESTION, transport, conversation=cid)
     assert fresh["status"] == "ok", fresh
     assert fresh["query_plan"]["queries"][0]["season_type"] == "Regular Season"
 
@@ -638,7 +637,7 @@ def test_partial_explicit_phase_overrides_prior_scope(
     assert first["status"] == "ok"
     request = "What about points " + words + "?"
     result = endpoint_v3(
-        request, transport, conversation=cid, omit_phase=True, aggregation="average"
+        request, transport, conversation=cid, season_type=phase, aggregation="average"
     )
     assert result["status"] == ("no_observations" if phase == "Playoffs" else "ok"), (
         result

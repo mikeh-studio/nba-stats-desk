@@ -85,6 +85,9 @@ class Model:
             {
                 "metric": self.metric,
                 "season": content["selected_season"],
+                "season_type": "Regular Season",
+                "operation": "summary",
+                "window": "season_to_date",
                 "aggregation": "ratio" if self.metric == "fg_pct" else "average",
                 "player_name": "resolved_player_2"
                 if self.metric == "fg_pct"
@@ -124,11 +127,11 @@ def test_bigquery_repository_automatically_enables_semantic_path():
     assert StatsAgent(settings(), repo, client=Model()).semantic_agent is not None
 
 
-def test_weighted_fantasy_alias_is_canonicalized_in_response():
+def test_weighted_fantasy_alias_uses_canonical_planned_metric():
     payload = StatsAgent(
         settings(),
         SimpleNamespace(),
-        client=Model("Fantasy Score"),
+        client=Model("fantasy_proxy_weighted"),
         semantic_warehouse=Warehouse(),
     ).answer("Regular Player average Fantasy Score")
     assert payload["semantic_evidence"]["metric"]["key"] == "fantasy_proxy_weighted"
@@ -290,7 +293,9 @@ def test_game_log_answer_and_chart_share_observations():
     payload = StatsAgent(
         settings(),
         SimpleNamespace(),
-        client=Model("Fantasy Score", operation="game_log", window="last_n_games", n=2),
+        client=Model(
+            "fantasy_proxy_weighted", operation="game_log", window="last_n_games", n=2
+        ),
         semantic_warehouse=Warehouse(),
     ).answer("Regular Player Fantasy Score game log for the last 2 appearances")
     assert payload["status"] == "ok"
