@@ -68,7 +68,9 @@ averages are described as lower rather than an overall playmaking advantage.
 ## Qualification and supported answers
 
 Per-game averages use 65% of each team's games in the selected range, rounded
-up, for Ask rank and percentile eligibility. Explicit minimums take precedence.
+up, for Ask rank and percentile eligibility. Team schedules use the selected
+dates and game filters before player stat predicates are applied. Missing team
+identity yields incomplete evidence. Explicit minimums take precedence.
 For players changing teams, the first recorded appearance with the new team
 starts the next stint. Facts and aggregate serving share the calculation.
 A model plan that compares two seasons' leaderboards for a one-period question

@@ -11,7 +11,7 @@ import calendar
 import math
 import operator
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from dataclasses import field as dataclass_field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -600,7 +600,13 @@ def select_query_rows(
         and (start is None or _date(row["game_date"]) >= start)
     ]
     selected = apply_game_filters(dated, query)
-    qualification_rows = selected
+    qualification_rows = (
+        apply_game_filters(dated, replace(query, stat_filters=None))
+        if query.stat_filters
+        and query.aggregation == "average"
+        and query.min_games is None
+        else selected
+    )
     grouped: dict[int, list[Mapping[str, Any]]] = {}
     for row in selected:
         grouped.setdefault(row["player_id"], []).append(row)
@@ -627,7 +633,13 @@ def range_minimums(rows, query):
     schedules = {}
     players = {}
     for row in rows:
-        season, team = row["season"], row["team_abbr"]
+        team = row.get("team_abbr")
+        if not isinstance(team, str) or not re.fullmatch(r"[A-Z]{2,4}", team):
+            raise SemanticError(
+                "incomplete_evidence",
+                "Team identity is required to qualify per-game standings",
+            )
+        season = row["season"]
         day = str(row["game_date"])
         schedules.setdefault((season, team), {})[row["game_id"]] = day
         players.setdefault((row["player_id"], season), set()).add((day, team))

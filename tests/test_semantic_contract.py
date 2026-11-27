@@ -472,3 +472,32 @@ def test_weekly_rank_and_percentile_share_team_specific_eligibility(evidence):
     assert excluded["required_games"] == 3
     assert excluded["percentile"] is None
     assert run_query(scoped, replace(other, min_games=2))["rows"][0]["rank"] == 1
+
+
+def test_scoring_filter_preserves_team_game_denominator(evidence):
+    template = evidence.rows[0]
+    rows = [
+        dict(template, game_id=str(i), player_id=1, team_abbr="BOS", pts=5)
+        for i in range(10)
+    ]
+    rows.append(dict(rows[-1], player_id=2, pts=35))
+    query = Query(
+        "pts",
+        template["season"],
+        "average",
+        operation="percentile",
+        player_id=2,
+        stat_filters=[dict(component="pts", op="gte", value=30)],
+    )
+    player = run_query(replace(evidence, rows=rows), query)["rows"][0]
+    assert (player["valid_games"], player["required_games"]) == (1, 7)
+    assert player["rank"] is None and player["percentile"] is None
+
+
+def test_missing_team_withholds_qualification(evidence):
+    row = dict(evidence.rows[0])
+    row.pop("team_abbr")
+    query = Query("pts", row["season"], "average", operation="rank")
+    with pytest.raises(SemanticError) as exc:
+        run_query(replace(evidence, rows=[row]), query)
+    assert exc.value.code == "incomplete_evidence"
