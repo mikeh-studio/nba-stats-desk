@@ -55,11 +55,12 @@ test("opponent split claim selectors preserve table and cell coordinates", () =>
   assert.deepEqual(claim(2, 0, 4).source, ["opponent_splits", "toughest_opponent_games", 0, "game_result"]);
 });
 
-function validateTables(renderedPayload) {
+function validateTables(renderedPayload, { extraRow = false, extraCell = false, extraTable = false } = {}) {
   const component = "opponent_splits";
   const evidence = prepareClaimEvidence(renderedPayload);
   const descriptors = claimSchema(evidence, component);
   const nodes = new Map();
+  const counts = new Map();
   for (const descriptor of descriptors) {
     const [, tableIndex, selector] = descriptor.selector.match(/^\[data-opponent-split-table="(\d+)"\] (.+)$/);
     const table = renderedPayload.tables[tableIndex];
@@ -72,9 +73,34 @@ function validateTables(renderedPayload) {
       getAttribute: () => descriptor.id,
     });
   }
+  const tables = renderedPayload.tables;
+  counts.set("[data-opponent-split-table]", tables.length + (extraTable ? 1 : 0));
+  counts.set("table", tables.length + (extraTable ? 1 : 0));
+  counts.set(
+    "tbody tr",
+    tables.reduce((sum, table) => sum + table.rows.length, 0) + (extraRow ? 1 : 0),
+  );
+  tables.forEach((table, ti) => {
+    const panel = `[data-opponent-split-table="${ti}"]`;
+    counts.set(`${panel} table`, 1);
+    counts.set(`${panel} thead tr`, 1);
+    counts.set(`${panel} thead th`, table.columns.length);
+    counts.set(`${panel} thead td`, 0);
+    counts.set(`${panel} tbody tr`, table.rows.length + (extraRow && ti === 0 ? 1 : 0));
+    table.rows.forEach((_, ri) => {
+      counts.set(
+        `${panel} tbody tr:nth-child(${ri + 1}) td`,
+        table.columns.length + (extraCell && ti === 0 && ri === 0 ? 1 : 0),
+      );
+      counts.set(`${panel} tbody tr:nth-child(${ri + 1}) th`, 0);
+    });
+  });
   const root = {
-    querySelectorAll: selector => selector === "[data-ui-claim]"
-      ? [...nodes.values()] : nodes.has(selector) ? [nodes.get(selector)] : [],
+    querySelectorAll: selector => {
+      if (selector === "[data-ui-claim]") return [...nodes.values()];
+      if (counts.has(selector)) return Array.from({ length: counts.get(selector) }, () => ({}));
+      return nodes.has(selector) ? [nodes.get(selector)] : [];
+    },
   };
   return validateRenderedClaims(root, renderedPayload, {component, evidence, descriptors});
 }
@@ -98,4 +124,12 @@ test("opponent split validation rejects a corrupt Table 1 opponent cell", () => 
   assert.equal(report.errors.length, 1);
   assert.deepEqual(report.errors[0].source, ["opponent_splits", "opponents", 0, "opponent_abbr"]);
   assert.equal(report.errors[0].reason, "Rendered destination contradicts canonical evidence");
+});
+
+test("opponent split validation rejects extra unbound DOM rows, cells, or tables", () => {
+  for (const mutation of [{ extraRow: true }, { extraCell: true }, { extraTable: true }]) {
+    const report = validateTables(payload, mutation);
+    assert.equal(report.status, "invalid");
+    assert.match(report.errors[0].reason, /table structure contradicts canonical evidence/i);
+  }
 });

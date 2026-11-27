@@ -590,3 +590,279 @@ def test_pinned_publication_provides_game_rows_and_checks_explicit_date_bounds()
     )
     assert refused["status"] == "unsupported_coverage"
     assert facts.calls == []
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "in games with 20+ points",
+        "with 20+ pts",
+        "in 20-point games",
+        "against every team in the Western Conference",
+        "against every team in the Eastern Conference",
+        "against Atlantic Division teams",
+        "against playoff teams",
+        "in wins",
+        "in losses",
+        "in winning games",
+        "on back-to-backs",
+        "on zero rest",
+        "with 2 days rest",
+        "as a starter",
+        "off the bench",
+        "in overtime",
+    ],
+)
+def test_unsupported_game_and_opponent_filters_rejected_before_computing(
+    split_agent, clause
+):
+    question = f"How did Avery Example perform against every team {clause} in 2024-25?"
+    result = split_agent.answer(question)
+    assert result["status"] == "unsupported_scope", (clause, result)
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert not result.get("opponent_splits")
+    assert not result["tables"]
+
+
+def test_conference_playoff_round_still_succeeds(split_agent):
+    result = split_agent.answer(
+        "Break down Avery Example's scoring by opponent in the Western Conference Finals in 2024-25"
+    )
+    assert result["status"] in {"ok", "unsupported_coverage"}, result
+    assert result["ask_route"]["route"] == "opponent_splits"
+
+
+def test_last_n_appearance_window_preserves_venue(facts, split_agent):
+    away = parse_opponent_splits(
+        "Show Avery Example's opponent splits in his last 2 away appearances in 2024-25",
+        [PLAYER],
+        SEASON,
+    )
+    assert away.query.window == "last_n_games"
+    assert away.query.n == 2
+    assert away.query.home_away == "AWAY"
+    away_ids = sorted(
+        compute_opponent_splits(facts, away)["baseline"]["metrics"]["pts"]["game_ids"]
+    )
+    assert away_ids == ["02", "03"]
+
+    home = parse_opponent_splits(
+        "Show Avery Example's opponent splits in his last 2 home appearances in 2024-25",
+        [PLAYER],
+        SEASON,
+    )
+    assert home.query.home_away == "HOME"
+    home_ids = sorted(
+        compute_opponent_splits(facts, home)["baseline"]["metrics"]["pts"]["game_ids"]
+    )
+    assert home_ids == ["04", "05"]
+
+    conflict = split_agent.answer(
+        "Show Avery Example's opponent splits at home in his last 2 away appearances in 2024-25"
+    )
+    assert conflict["status"] == "unsupported_scope"
+
+
+@pytest.mark.parametrize(
+    "calendar_clause",
+    [
+        "in February and March of 2024-25",
+        "from January through March 2025",
+        "in 2024-25 as of 2025-01-10 and as of 2025-01-12",
+        "in 2024-25 past 5 days",
+        "in 2024-25 last 5 days and last 10 days",
+    ],
+)
+def test_unresolved_or_conflicting_calendar_constraints_do_not_fall_through(
+    split_agent, calendar_clause
+):
+    result = split_agent.answer(
+        f"Show Avery Example's opponent splits {calendar_clause}"
+    )
+    assert result["status"] == "clarification_required", (calendar_clause, result)
+    assert not result.get("opponent_splits")
+
+
+def test_followup_inherits_total_aggregation_unless_overridden(split_agent):
+    first = split_agent.answer(
+        "Show Avery Example's total points by opponent in 2024-25",
+        conversation_id="totals",
+    )
+    assert first["status"] == "ok", first
+    assert first["opponent_splits"]["aggregation"] == "total"
+
+    inherited = split_agent.answer("What about assists?", conversation_id="totals")
+    assert inherited["status"] == "ok", inherited
+    assert inherited["opponent_splits"]["aggregation"] == "total"
+    assert inherited["opponent_splits"]["display_metrics"] == ["ast"]
+
+    overridden = split_agent.answer(
+        "What about rebounds per game?", conversation_id="totals"
+    )
+    assert overridden["status"] == "ok", overridden
+    assert overridden["opponent_splits"]["aggregation"] == "average"
+    assert overridden["opponent_splits"]["display_metrics"] == ["reb"]
+
+    still_avg = split_agent.answer("What about steals?", conversation_id="totals")
+    assert still_avg["status"] == "ok", still_avg
+    assert still_avg["opponent_splits"]["aggregation"] == "average"
+
+
+def test_identical_full_name_disambiguation_survives_to_followup(facts, monkeypatch):
+    twin = {"player_id": 202, "player_name": "Avery Example", "aliases": ["Avery"]}
+    other_rows = [
+        {
+            **row,
+            "game_id": f"twin-{row['game_id']}",
+            "player_id": twin["player_id"],
+            "player_name": twin["player_name"],
+            "team_abbr": "MIA",
+        }
+        for row in facts.rows[:2]
+    ]
+    config = replace(settings(), ask_claim_enforcement="enforce")
+    repository = frozen_repository(
+        config, {"rows": [*facts.rows, *other_rows]}, "complete"
+    )
+    agent = StatsAgent(
+        config, repository, conversation_store=InMemoryConversationStore()
+    )
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Opponent splits must use the governed game rows directly")
+
+    monkeypatch.setattr(agent, "_get_client", unexpected)
+    monkeypatch.setattr("app.agent.service.answer_legacy_repository", unexpected)
+
+    clarify = agent.answer(
+        "Show Avery Example's opponent splits in 2024-25", conversation_id="twins"
+    )
+    assert clarify["status"] == "clarification_required", clarify
+    assert {opt["player_id"] for opt in clarify["clarification_options"]} == {101, 202}
+
+    selected = agent.answer(
+        "Show Avery Example's opponent splits in 2024-25",
+        conversation_id="twins",
+        selected_player={"player_id": 101, "player_name": "Avery Example"},
+    )
+    assert selected["status"] == "ok", selected
+    assert selected["opponent_splits"]["player"]["player_id"] == 101
+
+    followup = agent.answer("What about FT%?", conversation_id="twins")
+    assert followup["status"] == "ok", followup
+    assert followup["ask_route"]["route"] == "opponent_splits"
+    assert followup["ask_route"]["source"] == "prior_route"
+    assert followup["opponent_splits"]["player"]["player_id"] == 101
+    assert followup["opponent_splits"]["display_metrics"] == ["ft_pct"]
+    assert followup["claim_validation"]["status"] == "complete"
+
+
+def test_browser_only_recovery_restores_opponent_splits_and_revalidates(facts):
+    from app import main as main_module
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+
+    twin_rows = [
+        {
+            **row,
+            "game_id": f"twin-{row['game_id']}",
+            "player_id": 202,
+            "player_name": "Avery Example",
+            "team_abbr": "MIA",
+        }
+        for row in facts.rows[:2]
+    ]
+    cfg = replace(
+        settings(SEASON), ask_claim_enforcement="enforce", agent_history_enabled=False
+    )
+    repo = BigQueryWarehouseRepository(cfg, client=SimpleNamespace())
+    repo._governed_warehouse = SimpleNamespace(
+        load=lambda seasons: (
+            {"capture": {}},
+            replace(facts, rows=[*facts.rows, *twin_rows]),
+        )
+    )
+    old = dict(app.dependency_overrides)
+    app.dependency_overrides.update(
+        {
+            get_settings: lambda: cfg,
+            get_repository: lambda: repo,
+            get_agent_client: lambda: object(),
+        }
+    )
+    main_module._season_conversation_store(SEASON)._conversations.clear()
+    try:
+        with TestClient(app) as client:
+            first = client.post(
+                f"/api/agent/ask?season={SEASON}",
+                json={
+                    "question": "Show Avery Example's total points by opponent in his last 2 away appearances in 2024-25",
+                    "selected_player_id": 101,
+                    "selected_player_name": "Avery Example",
+                },
+            )
+            assert first.status_code == 200
+            first_payload = first.json()
+            assert first_payload["status"] == "ok", first_payload
+            prior = first_payload["conversation_context"]
+            assert prior["analysis_type"] == "opponent_splits"
+            assert prior["players"] == [
+                {"player_id": 101, "player_name": "Avery Example"}
+            ]
+            assert "opponent_splits_question" in prior
+
+            # Simulate server restart / empty conversation store with browser-only recovery.
+            main_module._season_conversation_store(SEASON)._conversations.clear()
+            recovered = client.post(
+                f"/api/agent/ask?season={SEASON}",
+                json={
+                    "question": "What about FT%?",
+                    "conversation_id": "browser-only-splits",
+                    "previous_context": prior,
+                },
+            )
+            assert recovered.status_code == 200
+            rec_payload = recovered.json()
+            assert rec_payload["status"] == "ok", rec_payload
+            assert rec_payload["ask_route"]["route"] == "opponent_splits"
+            assert rec_payload["ask_route"]["source"] == "prior_route"
+            assert rec_payload["opponent_splits"]["player"]["player_id"] == 101
+            assert rec_payload["opponent_splits"]["display_metrics"] == ["ft_pct"]
+            assert rec_payload["opponent_splits"]["scope"]["home_away"] == "AWAY"
+            assert rec_payload["opponent_splits"]["scope"]["window"] == "last_n_games"
+            assert rec_payload["opponent_splits"]["scope"]["n"] == 2
+            assert rec_payload["claim_validation"]["status"] == "complete"
+
+            # Tampered scope or mismatched player fails revalidation on recovery.
+            bad_scope = deepcopy(prior)
+            bad_scope["opponent_splits_question"] = (
+                "How did Avery Example do in 2024-25?"
+            )
+            bad_resp = client.post(
+                f"/api/agent/ask?season={SEASON}",
+                json={
+                    "question": "What about FT%?",
+                    "conversation_id": "browser-only-bad-scope",
+                    "previous_context": bad_scope,
+                },
+            )
+            assert bad_resp.status_code == 400
+
+            missing_player = deepcopy(prior)
+            missing_player["players"] = [
+                {"player_id": 999, "player_name": "Avery Example"}
+            ]
+            missing_resp = client.post(
+                f"/api/agent/ask?season={SEASON}",
+                json={
+                    "question": "What about FT%?",
+                    "conversation_id": "browser-only-missing-player",
+                    "previous_context": missing_player,
+                },
+            )
+            assert missing_resp.status_code == 200
+            assert missing_resp.json()["status"] == "unsupported_coverage"
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(old)

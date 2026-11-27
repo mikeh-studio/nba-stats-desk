@@ -268,7 +268,17 @@ def descriptor(payload, sources, context):
     if sources[0][0] == "opponent_splits":
         if sources[0][1] in ("assumptions", "scope_assumptions"):
             return "scope_note", "label"
-        if field in ("wins", "losses", "unknown_outcomes", "n"):
+        if field == "n":
+            window = resolve(payload, [*sources[0][:-1], "window"])
+            unit = {
+                "last_n_games": "games",
+                "last_n_days": "days",
+                "last_n_months": "months",
+            }.get(window)
+            if unit is None:
+                raise ValueError("Unsupported window unit for n")
+            return field, unit
+        if field in ("wins", "losses", "unknown_outcomes"):
             return field, "games"
         if field in ("first_game_date", "last_game_date"):
             return field, "date"

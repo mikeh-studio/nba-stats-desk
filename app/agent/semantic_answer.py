@@ -1135,6 +1135,13 @@ class SemanticAsk:
         inherited: dict[str, Any]
         if opponent_followup:
             question, inherited = opponent_followup, {}
+            prior_players = context.get("players") or []
+            if (
+                not selected_player
+                and len(prior_players) == 1
+                and prior_players[0].get("player_id") is not None
+            ):
+                selected_player = prior_players[0]
         else:
             question, inherited = resolve_followup(question, context)
         # Route labels for payload/trace; the semantic shape is filled in below.
@@ -1149,7 +1156,11 @@ class SemanticAsk:
             or context.get("split_question")
             else "deterministic"
         )
-        if selected_player and not re.search(r"\nSelected player:", question):
+        if (
+            selected_player
+            and not opponent_followup
+            and not re.search(r"\nSelected player:", question)
+        ):
             question += f"\nSelected player: {selected_player.get('player_name', '')}"
         if progress_callback:
             progress_callback(
@@ -1961,6 +1972,11 @@ class SemanticAsk:
                 p
                 for p in turn.players
                 if p["player_id"] == turn.selected_player.get("player_id")
+                and (
+                    not turn.selected_player.get("player_name")
+                    or p["player_name"].casefold()
+                    == turn.selected_player["player_name"].casefold()
+                )
             ]
             if not matches:
                 raise SemanticError(
@@ -2030,6 +2046,9 @@ class SemanticAsk:
                 turn.players,
                 turn.opponent_query.season,
                 query=turn.opponent_query,
+                player_id=(
+                    turn.selected_player["player_id"] if turn.selected_player else None
+                ),
             )
             turn.plan = turn.payload["semantic_plan"]
             turn.result = {"status": turn.payload["status"]}

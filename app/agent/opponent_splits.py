@@ -6,16 +6,22 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import date
 from math import isclose
 from statistics import mean, pstdev
 from typing import Any
 
+from app.agent.award_lookup import wants_award
 from app.agent.catalog import load_semantic_catalog
+from app.agent.clock import today as semantic_today
 from app.agent.game_filters import extract_game_filters
 from app.agent.name_matching import mask_player_tokens, prepare_names
+from app.agent.overview_calendar import MONTH_PATTERN, literal_date_intervals
 from app.agent.payload import answer_payload
 from app.agent.player_comparison import comparison_sides
+from app.agent.player_resolver import normalize_player_text
 from app.agent.scope_policy import (
+    _ROUND_PATTERN,
     COLLECTIVE_MATCHUP,
     explicit_aggregation,
     explicit_metric_mentions,
@@ -24,6 +30,8 @@ from app.agent.scope_policy import (
     extract_metrics,
     requested_playoff_round,
     round_scope_message,
+    split_kind,
+    venue_mentions,
 )
 from app.agent.semantic_serving import requested_seasons, seasons_in_dates
 from app.agent.semantics import (
@@ -51,9 +59,11 @@ _OPPONENT_CUE = re.compile(
     re.I,
 )
 _LAST_GAMES = re.compile(
-    r"\b(?:last|past|most recent)\s+(\d+)\s+(?:(?:home|away|road|playoffs?|regular[ -]season)\s+)?(?:games?|appearances?)\b",
+    r"\b(?:last|past|most recent)\s+(\d+)\s+"
+    r"(?:(home|away|road|playoffs?|regular[ -]season)\s+)?(?:games?|appearances?)\b",
     re.I,
 )
+_VENUE_APPEARANCES = re.compile(r"\b(home|away|road)\s+appearances\b", re.I)
 _UNCONSUMED_GAME_WINDOW = re.compile(
     r"\b(?:last|past|most recent|first|previous|prior|preceding|next)\s+"
     r"(?:(?!(?:round|season|games?|appearances?|and|or)\b)[\w-]+\s+){0,4}(?:games?|appearances?)\b",
@@ -75,6 +85,57 @@ _WITHIN_GAME_SCOPE = re.compile(
     r"|period\s+[1-4])\b",
     re.I,
 )
+_UNSUPPORTED_STAT_THRESHOLD = re.compile(
+    r"\b\d+\+\s*(?:[\w/%-]+\s+){0,2}(?:points?|pts|rebounds?|reb|assists?|ast"
+    r"|steals?|stl|blocks?|blk|turnovers?|tov|minutes?|min|threes?|3pm|3pa"
+    r"|fg3m|fg3a|fgm|fga|ftm|fta|oreb|dreb|pf|fouls?|games?|shooting)\b"
+    r"|\b\d+\+\s*(?:point|rebound|assist|steal|block|turnover|minute|three|pt)\b"
+    r"|\b\d+[- ](?:point|rebound|assist|steal|block|turnover|minute)\s+games?\b"
+    r"|\b(?:double[- ]doubles?|triple[- ]doubles?|double[- ]digits?|50/40/90)\b"
+    r"|(?:(?<!\w)(?:>=|<=|>|<|=)\s*-?\d+(?:\.\d+)?|\b(?:at least|more than|over"
+    r"|under|less than|fewer than|at most|no more than)\s+-?\d+(?:\.\d+)?%?)"
+    r"\s*(?:points?|pts|rebounds?|reb|assists?|ast|steals?|stl|blocks?|blk"
+    r"|turnovers?|tov|minutes?|min|threes?|3pm|3pa|fg3m|fg3a|fgm|fga|ftm|fta"
+    r"|oreb|dreb|pf|fouls?|shooting|fg|fg%|fg3%|3p%|ft%|ts%|efg%)\b"
+    r"|\b\d+(?:\.\d+)?%?\+?\s+or\s+(?:more|fewer|less)\s+(?:points?|pts|rebounds?|reb"
+    r"|assists?|ast|steals?|stl|blocks?|blk|turnovers?|tov|minutes?|min|threes?"
+    r"|3pm|3pa|fg3m|fg3a|fgm|fga|ftm|fta)\b"
+    r"|\b\d+(?:\.\d+)?%\+\s*(?:shooting|fg|fg3|3p|ft|ts|efg)\b"
+    r"|\b(?:with|in games with|games with|when (?:he|she|they) "
+    r"(?:had|recorded|scored?|shot|played)|where (?:he|she|they) "
+    r"(?:had|recorded|scored?|shot|played)|scoring|shooting)\s+"
+    r"(?!20\d{2}[-–/])(?:\d+\+?|\d+(?:\.\d+)?%|at least|more than|over|under"
+    r"|fewer than|less than|>=|<=|>|<)\b",
+    re.I,
+)
+_UNSUPPORTED_OPPONENT_GROUP = re.compile(
+    r"\b(?:eastern|western)\s+conference\b"
+    r"|\b(?:east|west)\s+(?:teams?|opponents?)\b|\bin\s+the\s+(?:east|west)\b"
+    r"|\b(?:atlantic|central|southeast|northwest|pacific|southwest)\s+division\b"
+    r"|\b(?:conference|division)\s+(?:opponents?|teams?|rivals?|matchups?|games?)\b"
+    r"|\b(?:playoff|non-playoff|lottery|winning|losing|contending|above[- ]?\.500"
+    r"|below[- ]?\.500|sub[- ]?\.500)\s+(?:teams?|opponents?|matchups?)\b"
+    r"|\b(?:teams?|opponents?)\s+(?:above|below|over|under)\s+\.?500\b"
+    r"|\b(?:top|bottom)[- ]?\d+\s+(?:teams?|opponents?|defenses?|offenses?)\b",
+    re.I,
+)
+_UNSUPPORTED_GAME_PREDICATE = re.compile(
+    r"\b(?:(?:winning|losing)\s+(?:games|efforts)|(?:won|lost)\s+games"
+    r"|(?:after|following)\s+(?:a\s+)?(?:win|loss)"
+    r"|when\s+(?:(?:his|her|their|the)\s+team\s+)?(?:won|wins|lost|loses|winning|losing)"
+    r"|only\s+(?:wins|losses)|(?:wins|losses)\s+only"
+    r"|in\s+team\s+(?:wins|losses)"
+    r"|back[- ]to[- ]backs?|b2bs?|zero[- ]rest|no rest|well[- ]rested|rested games?"
+    r"|on\s+(?:\d+|zero|no|one|two|three)\+?\s+days?(?:\s+of)?\s+rest"
+    r"|\d+\+?\s+days?(?:\s+of)?\s+rest"
+    r"|second\s+night\s+of\s+a\s+back[- ]to[- ]back"
+    r"|as\s+a\s+starter|off\s+the\s+bench|bench\s+games?"
+    r"|when\s+(?:starting|coming\s+off\s+the\s+bench)"
+    r"|blowouts?|close\s+games?|garbage\s+time"
+    r"|(?:without|with)\s+(?:his|her|their|a|the)\s+teammates?"
+    r"|teammates?\s+(?:out|absent|injured|sidelined|inactive))\b",
+    re.I,
+)
 _UNSUPPORTED_SCOPE = re.compile(
     r"\b(?:career|all[ -]time|excluding|except|head[ -]to[ -]head"
     r"|(?:last|past|preceding) [\w-]+ weeks?|play[ -]in|preseason|playoff series|NBA Cup"
@@ -90,7 +151,7 @@ def wants_opponent_splits(question: str) -> bool:
 
 def opponent_splits_followup(question: str, previous: str | None) -> str | None:
     """Carry the previous split scope forward only for a metric-only reply."""
-    if not previous:
+    if not previous or not wants_opponent_splits(previous):
         return None
     metric_text = re.sub(
         r"^(?:and|what about|how about|show(?: me)?|compare|now)\s+",
@@ -100,6 +161,13 @@ def opponent_splits_followup(question: str, previous: str | None) -> str | None:
     ).strip(" ?.!")
     rest, extracted = extract_metrics(metric_text)
     keys = explicit_metric_mentions(metric_text) | set(extracted)
+    rest_without_agg = re.sub(
+        r"\b(?:total|totals|sum|average|averages|averaging|mean|ppg"
+        r"|per[ -]game|a game)\b",
+        " ",
+        rest,
+        flags=re.I,
+    )
     # Also recognize an exact catalog alias beyond the shared split grammar.
     metric_labels = {
         str(alias).casefold()
@@ -109,10 +177,34 @@ def opponent_splits_followup(question: str, previous: str | None) -> str | None:
     }
     if keys and (
         metric_text.casefold() in metric_labels
-        or not re.sub(r"\band\b|[\s,&/]", "", rest, flags=re.I)
+        or not re.sub(r"\band\b|[\s,&/]", "", rest_without_agg, flags=re.I)
     ):
         return previous + _METRIC_REPLY + metric_text
     return None
+
+
+def _reject_unsupported_predicates(
+    question: str, scope_text: str, round_key: str | None
+) -> None:
+    round_stripped = _ROUND_PATTERN.sub(" ", scope_text) if round_key else scope_text
+    if _UNSUPPORTED_OPPONENT_GROUP.search(round_stripped):
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits cover all opponents in the sample and cannot filter opponents by conference, division, or tier.",
+        )
+    if _UNSUPPORTED_STAT_THRESHOLD.search(
+        scope_text
+    ) or _UNSUPPORTED_GAME_PREDICATE.search(scope_text):
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits support a single home or away filter and do not support stat thresholds, game outcomes, rest, or lineup filters.",
+        )
+    filters = extract_game_filters(scope_text).query_fields
+    if set(filters) - {"home_away", "team_abbr"}:
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits support a single home or away filter.",
+        )
 
 
 def opponent_split_query(question: str, season: str) -> Query:
@@ -152,13 +244,101 @@ def opponent_split_query(question: str, season: str) -> Query:
             "unsupported_scope",
             "Choose one season or playoff round, an explicit date range, or a last-N-games window.",
         )
-    scope = explicit_scope(scope_text)
-    dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", question)
-    if len(dates) > 2 or (
-        dates and not (scope.get("as_of") or re.search(r"\bas[ -]of\b", question, re.I))
-    ):
+    _reject_unsupported_predicates(question, scope_text, round_key)
+    normalized_scope_text = _VENUE_APPEARANCES.sub(r"\1 games", scope_text)
+    home, away = venue_mentions(normalized_scope_text)
+    if home and away:
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits support a single home or away filter.",
+        )
+    scope = explicit_scope(normalized_scope_text)
+    intervals = literal_date_intervals(question)
+    if len(intervals) > 1:
         raise SemanticError(
             "clarification_required", "Use one explicit date range or an as-of date."
+        )
+    as_of_mentions = re.findall(r"\bas[ -]of\b", question, re.I)
+    as_ofs = re.findall(r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I)
+    if len(as_of_mentions) != len(as_ofs) or len(as_ofs) > 1:
+        raise SemanticError(
+            "clarification_required", "Choose one end date for these splits."
+        )
+    if as_ofs:
+        try:
+            as_of_date = date.fromisoformat(as_ofs[0])
+        except ValueError as exc:
+            raise SemanticError(
+                "clarification_required", "Please provide a valid as-of date."
+            ) from exc
+        if as_of_date > semantic_today():
+            raise SemanticError(
+                "clarification_required",
+                "Please choose an as-of date no later than today.",
+            )
+    week_dates = re.findall(
+        r"\bweek\s+(?:of|starting|beginning)\s+(\d{4}-\d{2}-\d{2})\b",
+        question,
+        re.I,
+    )
+    if (intervals and week_dates) or len(week_dates) > 1:
+        raise SemanticError(
+            "clarification_required", "Use one explicit date range or an as-of date."
+        )
+    dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", question)
+    expected_dates = [
+        *(intervals[0] if intervals else ()),
+        *as_ofs,
+        *week_dates,
+    ]
+    if len(dates) != len(expected_dates) or set(dates) != set(expected_dates):
+        raise SemanticError(
+            "clarification_required", "Use one explicit date range or an as-of date."
+        )
+    if intervals and as_ofs and intervals[0][1] != as_ofs[0]:
+        raise SemanticError(
+            "clarification_required", "Choose one end date for these splits."
+        )
+    months = re.findall(MONTH_PATTERN, scope_text, re.I)
+    if (
+        len(months) > 1
+        or (months and scope.get("window") != "date_range")
+        or (months and intervals)
+    ):
+        raise SemanticError(
+            "clarification_required",
+            "Choose one explicit date range or single calendar month for these splits.",
+        )
+    day_windows = re.findall(
+        r"\b(?:last|past|preceding|most recent)\s+(\d+)\s+(?:calendar\s+)?days?\b",
+        scope_text,
+        re.I,
+    )
+    month_windows = re.findall(
+        r"\b(?:last|past|preceding|most recent)\s+(\d+)\s+months?\b",
+        scope_text,
+        re.I,
+    )
+    if len(day_windows) > 1 or (day_windows and scope.get("window") != "last_n_days"):
+        raise SemanticError(
+            "clarification_required", "Choose one window for these splits."
+        )
+    if len(month_windows) > 1 or (
+        month_windows and scope.get("window") != "last_n_months"
+    ):
+        raise SemanticError(
+            "clarification_required", "Choose one window for these splits."
+        )
+    if scope.get("window") is None and re.search(
+        r"\b(?:this|last|past|previous|prior|preceding|most recent|next|current)\s+"
+        r"(?:[\w-]+\s+){0,2}(?:days?|weeks?|months?|years?)\b"
+        r"|\bweek\s+(?:of|starting|beginning)\b",
+        scope_text,
+        re.I,
+    ):
+        raise SemanticError(
+            "clarification_required",
+            "Choose one explicit date range, single calendar month, or numeric window for these splits.",
         )
     named = re.search(r"\b20\d{2}[-–/]\d{2,4}\b(?![-/–]\d)", question)
     if playoff_year := re.search(
@@ -179,18 +359,35 @@ def opponent_split_query(question: str, season: str) -> Query:
         raise SemanticError(
             "clarification_required", "Choose one NBA season for these splits."
         )
-    if last_games := _LAST_GAMES.findall(question):
-        if len(set(last_games)) != 1 or scope.get("window"):
+    if last_game_matches := list(_LAST_GAMES.finditer(question)):
+        parsed_windows = {
+            (int(match[1]), (match[2] or "").lower()) for match in last_game_matches
+        }
+        if len(parsed_windows) != 1 or scope.get("window"):
             raise SemanticError(
                 "clarification_required", "Choose one window for these splits."
             )
-        scope.update(window="last_n_games", n=int(last_games[0]))
-    if as_of := re.search(r"\bas[ -]of\s+(\d{4}-\d{2}-\d{2})\b", question, re.I):
-        if scope.get("as_of", as_of[1]) != as_of[1]:
+        n_games, qualifier = next(iter(parsed_windows))
+        if qualifier == "home":
+            venue = "HOME"
+        elif qualifier in {"away", "road"}:
+            venue = "AWAY"
+        else:
+            venue = None
+        if venue and scope.get("home_away") and scope["home_away"] != venue:
+            raise SemanticError(
+                "unsupported_scope",
+                "Opponent splits support a single home or away filter.",
+            )
+        if venue:
+            scope["home_away"] = venue
+        scope.update(window="last_n_games", n=n_games)
+    if as_ofs:
+        if scope.get("as_of", as_ofs[0]) != as_ofs[0]:
             raise SemanticError(
                 "clarification_required", "Choose one end date for these splits."
             )
-        scope["as_of"] = as_of[1]
+        scope["as_of"] = as_ofs[0]
     query = Query(
         metric="pts",
         aggregation="average",
@@ -218,11 +415,26 @@ def parse_opponent_splits(
     season: str,
     *,
     query: Query | None = None,
+    player_id: int | None = None,
 ) -> OpponentSplitsRequest:
     if re.search(r"\bplayer\d+\b", question, re.I):
         raise SemanticError("invalid_scope", "Use a player name.")
+    if player_id is not None:
+        chosen = next((p for p in players if p["player_id"] == player_id), None)
+        if chosen is None:
+            raise SemanticError(
+                "unsupported_coverage",
+                "Selected player is absent from this source scope",
+            )
+        players = [
+            p
+            for p in players
+            if p["player_id"] == player_id
+            or p["player_name"].casefold() != chosen["player_name"].casefold()
+        ]
     base, _, metric_reply = question.partition(_METRIC_REPLY)
     base = base.split("\nSelected player:", 1)[0]
+    metric_reply = metric_reply.split("\nSelected player:", 1)[0]
     canonical_base, scoped_players = prepare_names(base, players)
     masked, named = mask_player_tokens(canonical_base, scoped_players)
     if len(named) != 1:
@@ -231,14 +443,24 @@ def parse_opponent_splits(
         )
     player = next(iter(named.values()))
     query = query or opponent_split_query(canonical_base, season)
-    filters = extract_game_filters(
-        re.sub(COLLECTIVE_MATCHUP, " ", canonical_base, flags=re.I), [player]
-    ).query_fields
+    filter_text = _VENUE_APPEARANCES.sub(
+        r"\1 games", re.sub(COLLECTIVE_MATCHUP, " ", canonical_base, flags=re.I)
+    )
+    filters = extract_game_filters(filter_text, [player]).query_fields
     # Uppercase stat shorthand can resemble a team code. MIN is a team code.
     team = filters.get("team_abbr", "")
     if team != "MIN" and explicit_metric_mentions(team):
         filters.pop("team_abbr")
     if set(filters) - {"home_away"}:
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits support a single home or away filter.",
+        )
+    if (
+        filters.get("home_away")
+        and query.home_away
+        and filters["home_away"] != query.home_away
+    ):
         raise SemanticError(
             "unsupported_scope",
             "Opponent splits support a single home or away filter.",
@@ -251,6 +473,9 @@ def parse_opponent_splits(
         if keys
         else DEFAULT_METRICS
     )
+    reply_agg = explicit_aggregation(metric_reply) if metric_reply else None
+    base_agg = explicit_aggregation(masked)
+    aggregation = reply_agg or base_agg or "average"
     return OpponentSplitsRequest(
         replace(
             query,
@@ -259,9 +484,7 @@ def parse_opponent_splits(
         ),
         {key: player[key] for key in ("player_id", "player_name")},
         metrics,
-        "total"
-        if explicit_aggregation(metric_reply or masked) == "total"
-        else "average",
+        aggregation,
         canonical_base,
     )
 
@@ -463,10 +686,13 @@ def answer_opponent_splits(
     season: str,
     *,
     query: Query | None = None,
+    player_id: int | None = None,
 ) -> dict[str, Any]:
     from app.agent.claim_renderers import opponent_splits_tables
 
-    request = parse_opponent_splits(question, players, season, query=query)
+    request = parse_opponent_splits(
+        question, players, season, query=query, player_id=player_id
+    )
     result = compute_opponent_splits(evidence, request)
     prior_question = (
         request.canonical_question
@@ -476,6 +702,19 @@ def answer_opponent_splits(
         prior_question += f" ({request.query.season})"
     if not request.query.playoff_round and not explicit_phase(prior_question):
         prior_question += f" {request.query.season_type}"
+    if explicit_aggregation(prior_question) != request.aggregation:
+        prior_question = " ".join(
+            re.sub(
+                r"\b(?:total|totals|sum|average|averaging|mean|ppg|per[ -]game|a game)\b",
+                " ",
+                prior_question,
+                flags=re.I,
+            ).split()
+        )
+        if request.aggregation == "total":
+            prior_question += " total"
+        elif explicit_aggregation(prior_question) is not None:
+            prior_question += " per game"
     payload = answer_payload(
         "",
         status="ok",
@@ -483,6 +722,7 @@ def answer_opponent_splits(
         opponent_splits=result,
         semantic_plan={"status": "opponent_splits", "model_calls": 0},
         conversation_context={
+            "analysis_type": "opponent_splits",
             "players": [request.player],
             "scope": {"season": request.query.season},
             "opponent_splits_question": prior_question,
@@ -490,3 +730,37 @@ def answer_opponent_splits(
     )
     opponent_splits_tables(payload)
     return payload
+
+
+def hydrate_opponent_splits_context(
+    context: dict[str, Any], default_season: str
+) -> dict[str, Any]:
+    """Validate recovered opponent-splits hints before storing them in session state."""
+    opp_question = context.get("opponent_splits_question")
+    if context.get("analysis_type") != "opponent_splits" and not opp_question:
+        return context
+    if not isinstance(opp_question, str) or not opp_question.strip():
+        raise ValueError("Missing saved opponent splits question")
+    if (
+        not wants_opponent_splits(opp_question)
+        or split_kind(opp_question)
+        or wants_award(opp_question)
+        or comparison_sides(opp_question)
+    ):
+        raise ValueError("Invalid saved opponent splits route")
+    players = context.get("players") or []
+    if len(players) != 1:
+        raise ValueError("Saved opponent splits require one player")
+    player = players[0]
+    player_id = player.get("player_id")
+    player_name = str(player.get("player_name") or "").strip()
+    if type(player_id) is not int or player_id < 1 or not player_name:
+        raise ValueError("Invalid saved opponent splits player")
+    if normalize_player_text(player_name) not in normalize_player_text(opp_question):
+        raise ValueError("Saved player does not match saved opponent splits question")
+    scope = context.get("scope") or {}
+    season = scope.get("season") or default_season
+    query = opponent_split_query(opp_question, season)
+    if scope.get("season") and query.season != scope["season"]:
+        raise ValueError("Saved season does not match saved opponent splits question")
+    return dict(context, analysis_type="opponent_splits")

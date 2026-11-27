@@ -1114,6 +1114,28 @@ test("split follow-ups retain canonical scope in browser history", async () => {
   assert.equal(context.split_question, split);
 });
 
+test("opponent splits follow-ups retain canonical question and resolved player in browser history", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  const opp = "Show Avery Example's opponent splits (2024-25) Regular Season";
+  agent.persistHistoryTurn("Show Avery Example's opponent splits", {
+    conversation_id: id,
+    status: "ok",
+    conversation_context: {
+      analysis_type: "opponent_splits",
+      players: [{ player_id: 101, player_name: "Avery Example" }],
+      scope: { season: "2024-25" },
+      opponent_splits_question: opp,
+    },
+  });
+  const context = agent.buildAskBody("What about FT%?").previous_context;
+  assert.equal(context.analysis_type, "opponent_splits");
+  assert.equal(context.opponent_splits_question, opp);
+  assert.deepEqual(context.players, [{ player_id: 101, player_name: "Avery Example" }]);
+  assert.equal(context.scope.season, "2024-25");
+});
+
 test("award answers keep the winner statement and safe source link visible", async () => {
   const agent = await loadAgentModule();
   const target = new FakeElement();

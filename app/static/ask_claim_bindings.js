@@ -1087,6 +1087,42 @@ export function validateRenderedClaims(root, payload, session) {
   for (const id of wanted)
     if (counts.get(id) !== 1)
       errors.push({ id, reason: "Missing or duplicate claim destination" });
+  if (session.component === "opponent_splits" && Array.isArray(payload.tables)) {
+    const totalRows = payload.tables.reduce(
+      (sum, table) => sum + (table.rows?.length || 0),
+      0,
+    );
+    const structureValid =
+      root.querySelectorAll("[data-opponent-split-table]").length ===
+        payload.tables.length &&
+      root.querySelectorAll("table").length === payload.tables.length &&
+      root.querySelectorAll("tbody tr").length === totalRows &&
+      payload.tables.every((table, ti) => {
+        const panel = `[data-opponent-split-table="${ti}"]`;
+        const colCount = table.columns?.length || 0;
+        const rowCount = table.rows?.length || 0;
+        return (
+          root.querySelectorAll(`${panel} table`).length === 1 &&
+          root.querySelectorAll(`${panel} thead tr`).length === 1 &&
+          root.querySelectorAll(`${panel} thead th`).length === colCount &&
+          root.querySelectorAll(`${panel} thead td`).length === 0 &&
+          root.querySelectorAll(`${panel} tbody tr`).length === rowCount &&
+          table.rows.every(
+            (_, ri) =>
+              root.querySelectorAll(
+                `${panel} tbody tr:nth-child(${ri + 1}) td`,
+              ).length === colCount &&
+              root.querySelectorAll(
+                `${panel} tbody tr:nth-child(${ri + 1}) th`,
+              ).length === 0,
+          )
+        );
+      });
+    if (!structureValid)
+      errors.push({
+        reason: "Rendered opponent split table structure contradicts canonical evidence",
+      });
+  }
   return {
     version: UI_CLAIM_VERSION,
     status: errors.length ? "invalid" : session.component === "opponent_splits" ? "complete" : "incomplete",
