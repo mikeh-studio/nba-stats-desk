@@ -53,8 +53,21 @@ def test_round_scope_withholds_before_warehouse_or_planner(scope):
         "in the first round's second game",
         "in the NBA Cup Finals",
         "in the In-Season Tournament Finals",
+        "in the Eastern Conference Finals",
+        "in the Western Conference Finals",
+        "in the Eastern Conference Semifinals",
+        "in the West Conference Semis",
         "outside the Eastern Conference Finals",
         "before the 2024 Western Conference Finals",
+        "not counting the NBA Finals",
+        "excluding the Finals",
+        "except the Finals",
+        "in the Finals opener",
+        "in the series opener",
+        "in the game opener",
+        "in games 1 and 2 of the first round",
+        "in games 1-3 of the NBA Finals",
+        "in the first two games of the NBA Finals",
     ],
 )
 def test_qualified_round_is_refused_on_governed_route(scope):
@@ -81,9 +94,13 @@ def test_qualified_round_is_refused_on_governed_route(scope):
         "Curry points this regular season",
         "Curry final 10 games",
         "What was the final score?",
+        "How did the first-round pick play this season?",
+        "Which first round pick led rookies in scoring?",
+        "How did the 1st-round pick perform?",
     ],
 )
 def test_round_guard_does_not_match_unrelated_final_usage(question):
+    assert requested_playoff_round(question) is None
     assert round_scope_message(question) is None
 
 

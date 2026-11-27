@@ -8,14 +8,17 @@ from types import SimpleNamespace
 import pytest
 from app.agent.ask_data_bundle import AskDataBundle, record_bundle_shadow
 from app.agent.claims import expand_path, validate
+from app.agent.conversation import InMemoryConversationStore
 from app.agent.historical_positions import GROUPS, MAPPING_VERSION, digest
 from app.agent.overview_percentiles import add_percentiles
 from app.agent.overview_positions import add_position_comparisons, validated_context
+from app.agent.performance_overview import build_overview
 from app.agent.publication_ask_source import PublicationAskSource
 from app.agent.scope_policy import (
     normalize_playoff_round_year,
     playoff_round_planning_question,
     requested_playoff_round,
+    round_scope_message,
 )
 from app.agent.semantics import (
     PLAYOFF_ROUNDS,
@@ -69,25 +72,41 @@ def test_canonical_playoff_id(game_id, expected):
         ("opening round", "first_round"),
         ("conference semifinals", "conference_semifinals"),
         ("conference semis", "conference_semifinals"),
-        ("Eastern Conference Semifinals", "conference_semifinals"),
-        ("West Conference Semis", "conference_semifinals"),
+        ("Eastern Conference Semifinals", None),
+        ("West Conference Semis", None),
         ("second round", "conference_semifinals"),
         ("2nd round", "conference_semifinals"),
         ("conference finals", "conference_finals"),
-        ("Eastern Conference Finals", "conference_finals"),
-        ("Western Conference Finals", "conference_finals"),
+        ("Eastern Conference Finals", None),
+        ("Western Conference Finals", None),
         ("third round", "conference_finals"),
         ("3rd round", "conference_finals"),
         ("nba finals", "nba_finals"),
         ("finals", "nba_finals"),
+        ("Finals of 2024", "nba_finals"),
+        ("NBA Finals 2024", "nba_finals"),
+        ("David West in the 2024 NBA Finals", "nba_finals"),
+        ("first-round pick in the NBA Finals", "nba_finals"),
+        ("first-round pick", None),
+        ("first round pick", None),
+        ("1st-round pick", None),
         ("early playoff rounds", None),
         ("first round and Finals", None),
         ("regular season vs Finals", None),
         ("the final score", None),
         ("excluding the first round", None),
+        ("excluding the Finals", None),
+        ("except the Finals", None),
+        ("not counting the NBA Finals", None),
         ("before the Finals", None),
         ("outside the Eastern Conference Finals", None),
         ("before the 2024 Western Conference Finals", None),
+        ("Finals opener", None),
+        ("series opener", None),
+        ("game opener", None),
+        ("games 1 and 2 of the first round", None),
+        ("games 1-3 of the Finals", None),
+        ("first two games of the NBA Finals", None),
     ],
 )
 def test_round_wording(wording, key):
@@ -100,12 +119,14 @@ def test_round_year_normalization_preserves_named_season(season):
     assert normalize_playoff_round_year(question) == question
 
 
-def test_conference_round_year_and_planning_rewrite():
-    question = "How many total points did Luka Doncic score in the 2024 Western Conference Finals?"
+def test_round_year_normalization_and_planning_rewrite():
+    question = (
+        "How many total points did Luka Doncic score in the 2024 Conference Finals?"
+    )
     normalized = normalize_playoff_round_year(question)
     assert (
         normalized
-        == "How many total points did Luka Doncic score in the 2023-24 Western Conference Finals?"
+        == "How many total points did Luka Doncic score in the 2023-24 Conference Finals?"
     )
     assert (
         playoff_round_planning_question(normalized)
@@ -113,11 +134,22 @@ def test_conference_round_year_and_planning_rewrite():
     )
     assert (
         playoff_round_planning_question(
-            "How many total points did Luka Doncic score in the Eastern Conference Semifinals?",
+            "How many total points did Luka Doncic score in the Conference Semifinals?",
             season="2023-24",
         )
         == "Luka Doncic total points in the 2023-24 playoffs?"
     )
+    assert (
+        normalize_playoff_round_year("points in the Finals of 2024")
+        == "points in the Finals of 2023-24"
+    )
+    assert (
+        normalize_playoff_round_year("points in the NBA Finals 2024")
+        == "points in the NBA Finals 2023-24"
+    )
+    conference_q = "How many total points did Luka Doncic score in the 2024 Western Conference Finals?"
+    assert requested_playoff_round(conference_q) is None
+    assert round_scope_message(conference_q) is not None
 
 
 def round_rows():
@@ -238,7 +270,76 @@ def test_unclassified_appearance_cannot_undercount_a_round_total():
         run_query(round_evidence(rows), before_unclassified)["rows"][0]["value"] == 12
     )
     rows[2].update(player_id=2, player_name="Another Player")
-    assert run_query(round_evidence(rows), query)["rows"][0]["value"] == 12
+    peer_incomplete = run_query(round_evidence(rows), query)
+    assert peer_incomplete["cohort_complete"] is False
+    assert peer_incomplete["cohort"]["cohort_complete"] is False
+    assert peer_incomplete["rows"][0]["value"] == 12
+    assert peer_incomplete["rows"][0]["rank"] is None
+    assert peer_incomplete["rows"][0]["percentile"] is None
+
+
+def test_out_of_scope_predicate_row_does_not_block_verified_round_total():
+    rows = [
+        {**round_rows()[1], "home_away": "HOME", "pts": 20},
+        {
+            **round_rows()[1],
+            "game_id": "unmapped-away",
+            "home_away": "AWAY",
+            "pts": 15,
+        },
+    ]
+    home_query = Query(
+        "pts",
+        SEASON,
+        "total",
+        season_type=PLAYOFFS,
+        player_id=1,
+        home_away="HOME",
+        playoff_round="first_round",
+    )
+    result = run_query(round_evidence(rows), home_query)
+    assert result["rows"][0]["value"] == 20
+    assert result["rows"][0]["game_ids"] == ["0042400101"]
+    with pytest.raises(SemanticError) as err:
+        run_query(round_evidence(rows), replace(home_query, home_away=None))
+    assert err.value.code == "unsupported_scope"
+
+
+def test_incomplete_peer_round_withholds_cohort_claims_and_overview_percentiles():
+    rows = round_rows()
+    del rows[2]["playoff_round"]
+    rows[2].update(player_id=2, player_name="Another Player")
+    ask, _, _ = ask_fixture(rows)
+    result = ask.answer(
+        "How many total points did Regular Player score in the 2024-25 first round?"
+    )
+    assert result["status"] == "ok", result["answer"]
+    evidence = result["semantic_evidence"]
+    assert evidence["cohort_complete"] is False
+    assert evidence["rows"][0]["value"] == 12
+    assert evidence["rows"][0]["rank"] is None
+    assert evidence["rows"][0]["percentile"] is None
+    assert not any(note.startswith("Ranking cohort:") for note in result["assumptions"])
+    assert validate(result)["errors"] == []
+
+    overview = build_overview(
+        "How did Regular Player perform in the 2024-25 first round?",
+        round_evidence(rows),
+        [{"player_id": 1, "player_name": "Regular Player"}],
+        {
+            "start": date(2024, 7, 1),
+            "end": date(2025, 6, 30),
+            "previous_start": date(2024, 7, 1),
+            "previous_end": date(2025, 6, 30),
+            "phases": [PLAYOFFS],
+            "previous_phases": [REGULAR],
+            "seasons": [SEASON],
+            "playoff_round": "first_round",
+        },
+    )
+    assert overview["status"] == "ok"
+    assert overview["semantic_evidence"]["cohort_complete"] is False
+    assert overview["semantic_evidence"]["metrics"][0]["percentile"] is None
 
 
 def ask_fixture(rows, *, claim_mode="enforce"):
@@ -323,17 +424,22 @@ def test_dispatch_withholds_unbacked_round_and_runs_participation_first():
             "nba_finals",
         ),
         (
+            "How many total points did Regular Player score in the Finals of 2024?",
+            "0042300401",
+            "nba_finals",
+        ),
+        (
+            "How many total points did Regular Player score in the NBA Finals 2024?",
+            "0042300401",
+            "nba_finals",
+        ),
+        (
             "How did Regular Player perform in the 2024 Conference Finals?",
             "0042300301",
             "conference_finals",
         ),
         (
-            "How many total points did Regular Player score in the 2024 Western Conference Finals?",
-            "0042300301",
-            "conference_finals",
-        ),
-        (
-            "How many total points did Regular Player score in the 2024 Eastern Conference Semifinals?",
+            "How many total points did Regular Player score in the 2024 Conference Semifinals?",
             "0042300201",
             "conference_semifinals",
         ),
@@ -566,3 +672,150 @@ def test_json_and_sse_apply_the_same_round_filter(monkeypatch):
         assert payload["semantic_evidence"]["scope"]["playoff_round"] == "first_round"
         assert payload["semantic_evidence"]["rows"][0]["value"] == 42
         assert payload["claim_validation"]["status"] != "invalid"
+
+
+def test_browser_restored_followup_preserves_and_revalidates_playoff_round(monkeypatch):
+    from app import main as main_module
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+
+    rows = [
+        dict(row, home_away="HOME" if index % 2 == 0 else "AWAY", ast=10)
+        for index, row in enumerate(round_rows())
+    ]
+    _, model, warehouse = ask_fixture(rows)
+    config = settings()
+    repository = BigQueryWarehouseRepository(config, client=SimpleNamespace())
+    repository._governed_warehouse = warehouse
+    store = InMemoryConversationStore()
+    monkeypatch.setattr(
+        main_module,
+        "_season_conversation_store",
+        lambda season: store,
+    )
+    monkeypatch.setitem(app.dependency_overrides, get_settings, lambda: config)
+    monkeypatch.setitem(app.dependency_overrides, get_repository, lambda: repository)
+    monkeypatch.setitem(app.dependency_overrides, get_agent_client, lambda: model)
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/agent/ask?season=2024-25",
+            json={"question": "Regular Player total points in 2024-25 first round"},
+        )
+        assert first.status_code == 200
+        first_payload = first.json()
+        assert first_payload["semantic_evidence"]["scope"]["playoff_round"] == (
+            "first_round"
+        )
+        # Simulate browser reload with fresh server conversation store.
+        store = InMemoryConversationStore()
+        prior_context = {
+            "question": "Regular Player total points in 2024-25 first round",
+            "players": [{"player_id": 1, "player_name": "Regular Player"}],
+            "scope": {
+                **first_payload["semantic_evidence"]["scope"],
+                "phases": [PLAYOFFS],
+            },
+            "metrics": ["pts"],
+        }
+        restored = client.post(
+            "/api/agent/ask?season=2024-25",
+            json={
+                "question": "What about total assists?",
+                "conversation_id": "restored-round-chat",
+                "previous_context": prior_context,
+            },
+        )
+        assert restored.status_code == 200
+        restored_payload = restored.json()
+        assert restored_payload["status"] == "ok", restored_payload["answer"]
+        assert restored_payload["semantic_evidence"]["metric"]["key"] == "ast"
+        assert restored_payload["semantic_evidence"]["rows"][0]["value"] == 20
+        assert restored_payload["semantic_evidence"]["scope"]["playoff_round"] == (
+            "first_round"
+        )
+
+        # Browser recovery preserves round scope without inventing missing aggregation.
+        store = InMemoryConversationStore()
+        ambiguous = client.post(
+            "/api/agent/ask?season=2024-25",
+            json={
+                "question": "What about assists?",
+                "conversation_id": "ambiguous-round-chat",
+                "previous_context": prior_context,
+            },
+        )
+        assert ambiguous.status_code == 200
+        assert ambiguous.json()["status"] == "clarification_required"
+
+        invalid_round = client.post(
+            "/api/agent/ask?season=2024-25",
+            json={
+                "question": "What about total assists?",
+                "conversation_id": "bad-round-chat",
+                "previous_context": {
+                    **prior_context,
+                    "scope": {**prior_context["scope"], "playoff_round": "bogus"},
+                },
+            },
+        )
+        assert invalid_round.status_code == 422
+
+        mismatched_phase = client.post(
+            "/api/agent/ask?season=2024-25",
+            json={
+                "question": "What about total assists?",
+                "conversation_id": "mismatched-phase-chat",
+                "previous_context": {
+                    **prior_context,
+                    "scope": {
+                        **prior_context["scope"],
+                        "season_type": REGULAR,
+                        "phases": [REGULAR],
+                    },
+                },
+            },
+        )
+        assert mismatched_phase.status_code == 422
+
+        # Revalidation against warehouse refuses if round coverage disappeared.
+        warehouse.rows = [{**rows[1], "game_id": "unmapped"}]
+        store = InMemoryConversationStore()
+        unbacked = client.post(
+            "/api/agent/ask?season=2024-25",
+            json={
+                "question": "What about total assists?",
+                "conversation_id": "unbacked-round-chat",
+                "previous_context": prior_context,
+            },
+        )
+        assert unbacked.status_code == 200
+        assert unbacked.json()["status"] == "unsupported_scope"
+
+
+def test_landing_contracts_do_not_widen_game_logs_or_schedule():
+    import sys
+    from pathlib import Path
+
+    import pandas as pd
+    from tests.test_source_contracts import _game_log_row, _schedule_rows
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dags"))
+    import nba_source_contracts as contracts
+
+    game_logs = pd.DataFrame([_game_log_row()])
+    validated_logs = contracts.validate_source_contract(
+        "game_logs", game_logs, season="2025-26"
+    )
+    assert len(validated_logs.frame.columns) == 29
+    assert list(validated_logs.frame.columns) == list(game_logs.columns)
+
+    schedule = pd.DataFrame(_schedule_rows())
+    validated_schedule = contracts.validate_source_contract(
+        "schedule", schedule, season="2025-26"
+    )
+    assert len(validated_schedule.frame.columns) == 11
+    assert list(validated_schedule.frame.columns) == [
+        *schedule.columns,
+        "GAME_TIME_UTC",
+    ]

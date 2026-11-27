@@ -1,12 +1,7 @@
 domain: schedule
 source: nba_api_schedule
 version: 2
-optional_columns:
-  - GAME_TIME_UTC
-  - PLAYOFF_ROUND_NUMBER
-  - PLAYOFF_ROUND_NAME
-  - PLAYOFF_SERIES_ID
-  - PLAYOFF_SERIES_GAME_NUMBER
+optional_columns: [GAME_TIME_UTC]
 grain: one row per team per scheduled game
 business_key:
   - GAME_ID
@@ -15,10 +10,6 @@ type_validation_severity: quarantine
 columns:
   SCHEDULE_DATE: date
   GAME_ID: string
-  PLAYOFF_ROUND_NUMBER: int64
-  PLAYOFF_ROUND_NAME: string
-  PLAYOFF_SERIES_ID: string
-  PLAYOFF_SERIES_GAME_NUMBER: int64
   SEASON: string
   TEAM_ABBR: string
   OPPONENT_ABBR: string

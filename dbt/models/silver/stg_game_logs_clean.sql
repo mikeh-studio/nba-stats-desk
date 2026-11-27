@@ -163,45 +163,115 @@ deduped as (
         ) as row_num
     from source_data
 ),
-schedule as (
-    select game_id, {{ playoff_round_columns() | join(', ') }}
+deduped_logs as (
+    select
+        *,
+        {{ playoff_round_explicit_inputs(ns.column_names) }}
+    from deduped
+    where row_num = 1
+),
+schedule_rounds as (
+    select
+        game_id,
+        case
+            when count(distinct playoff_round_number) = 1
+                and count(playoff_round_number) = count(*)
+            then min(playoff_round_number)
+        end as sched_round_number,
+        case
+            when count(distinct playoff_series_id) = 1
+                and count(playoff_series_id) = count(*)
+            then min(playoff_series_id)
+        end as sched_series_id,
+        case
+            when count(distinct playoff_series_game_number) = 1
+                and count(playoff_series_game_number) = count(*)
+            then min(playoff_series_game_number)
+        end as sched_series_game_number,
+        (
+            count(distinct playoff_round_number) > 1
+            or count(distinct playoff_series_id) > 1
+            or count(distinct playoff_series_game_number) > 1
+            or count(playoff_round_number) != count(*)
+        ) as has_sched_conflict
     from {{ ref('stg_schedule_clean') }}
-    where playoff_round_number is not null
-    qualify row_number() over (
-        partition by game_id
-        order by source_updated_at_utc desc, team_abbr
-    ) = 1
+    group by 1
+),
+log_round_inputs as (
+    select
+        game_id,
+        case
+            when count(distinct season_type) = 1
+                and count(season_type) = count(*)
+            then min(season_type)
+        end as resolved_season_type,
+        case
+            when count(distinct explicit_playoff_round_number) = 1
+            then min(explicit_playoff_round_number)
+        end as log_round_number,
+        case
+            when count(distinct explicit_playoff_series_id) = 1
+            then min(explicit_playoff_series_id)
+        end as log_series_id,
+        case
+            when count(distinct explicit_playoff_series_game_number) = 1
+            then min(explicit_playoff_series_game_number)
+        end as log_series_game_number,
+        (
+            max(case when explicit_playoff_round_row_conflict then 1 else 0 end) = 1
+            or count(distinct explicit_playoff_round_number) > 1
+            or count(distinct explicit_playoff_series_id) > 1
+            or count(distinct explicit_playoff_series_game_number) > 1
+            or count(distinct season_type) > 1
+        ) as has_log_conflict
+    from deduped_logs
+    group by 1
+),
+game_rounds as (
+    select
+        l.game_id,
+        {{ playoff_round_resolved_columns(
+            'l.game_id',
+            'l.resolved_season_type',
+            'coalesce(l.log_round_number, s.sched_round_number)',
+            'coalesce(l.log_series_id, s.sched_series_id)',
+            'coalesce(l.log_series_game_number, s.sched_series_game_number)',
+            '(l.has_log_conflict or coalesce(s.has_sched_conflict, false))'
+        ) }}
+    from log_round_inputs l
+    left join schedule_rounds s on l.game_id = s.game_id
 )
 select
     logs.game_id,
-    game_date,
-    matchup,
-    wl,
-    min,
-    fgm,
-    fga,
-    fg_pct,
-    ftm,
-    fta,
-    ft_pct,
-    fg3m,
-    fg3a,
-    plus_minus,
-    pf,
-    oreb,
-    dreb,
-    pts,
-    reb,
-    ast,
-    stl,
-    blk,
-    tov,
-    season,
-    season_type,
-    player_id,
-    player_name,
-    ingested_at_utc,
-    {{ playoff_round_fields('logs.game_id', 'season_type', ns.column_names, 'logs.', 'schedule.') }}
-from deduped logs
-left join schedule on logs.game_id = schedule.game_id
-where row_num = 1
+    logs.game_date,
+    logs.matchup,
+    logs.wl,
+    logs.min,
+    logs.fgm,
+    logs.fga,
+    logs.fg_pct,
+    logs.ftm,
+    logs.fta,
+    logs.ft_pct,
+    logs.fg3m,
+    logs.fg3a,
+    logs.plus_minus,
+    logs.pf,
+    logs.oreb,
+    logs.dreb,
+    logs.pts,
+    logs.reb,
+    logs.ast,
+    logs.stl,
+    logs.blk,
+    logs.tov,
+    logs.season,
+    logs.season_type,
+    logs.player_id,
+    logs.player_name,
+    logs.ingested_at_utc,
+    {% for field in playoff_round_columns() %}
+    rounds.{{ field }}{% if not loop.last %},{% endif %}
+    {% endfor %}
+from deduped_logs logs
+left join game_rounds rounds on logs.game_id = rounds.game_id

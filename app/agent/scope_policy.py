@@ -173,24 +173,46 @@ def split_kind(question: str) -> str | None:
     return None
 
 
+_DRAFT_ROUND_SUFFIX = (
+    r"(?![ -]+(?:(?:of[ -]+(?:the[ -]+)?)?(?:nba[ -]+)?draft|"
+    r"(?:draft[ -]+)?(?:picks?|selections?|choices?))\b)"
+)
 _ROUND_CUES = re.compile(
     r"\b(?:finals|(?:nba|conference) final|the final(?!\s+(?:\d+|score|games?))|"
     r"championship series|semi[ -]?finals?|conference semis|"
-    r"(?:first|second|third|1st|2nd|3rd|early|earlier|opening|final)[ -](?:playoff[ -])?rounds?|"
-    r"round[ -](?:one|two|three|[1-4]))\b",
+    r"(?:finals|series|game|round|playoff)[ -]openers?|opening[ -]games?|"
+    r"(?:first|second|third|1st|2nd|3rd|early|earlier|opening|final)[ -](?:playoff[ -])?rounds?"
+    + _DRAFT_ROUND_SUFFIX
+    + r"|round[ -](?:one|two|three|[1-4]))\b",
     re.I,
 )
 _ROUND_ALIASES = (
-    ("first_round", r"(?:first|1st|opening)[ -](?:playoff[ -])?round"),
+    (
+        "first_round",
+        r"(?:first|1st|opening)[ -](?:playoff[ -])?round" + _DRAFT_ROUND_SUFFIX,
+    ),
     (
         "conference_semifinals",
-        r"(?:(?:eastern|western|east|west)[ -])?(?:conference semi[ -]?finals|conference semis)|(?:second|2nd)[ -](?:playoff[ -])?round",
+        r"conference semi[ -]?finals|conference semis|"
+        r"(?:second|2nd)[ -](?:playoff[ -])?round" + _DRAFT_ROUND_SUFFIX,
     ),
     (
         "conference_finals",
-        r"(?:(?:eastern|western|east|west)[ -])?conference finals|(?:third|3rd)[ -](?:playoff[ -])?round",
+        r"conference finals|"
+        r"(?:third|3rd)[ -](?:playoff[ -])?round" + _DRAFT_ROUND_SUFFIX,
     ),
     ("nba_finals", r"nba finals|finals"),
+)
+_CONFERENCE_QUALIFIED_ROUND = re.compile(
+    r"\b(?:eastern|western|east|west)[ -](?:"
+    r"conference\b|"
+    r"semi[ -]?finals?\b|"
+    r"semis\b|"
+    r"finals?\b|"
+    r"(?:first|1st|opening|second|2nd|third|3rd)[ -](?:playoff[ -])?rounds?"
+    + _DRAFT_ROUND_SUFFIX
+    + r")",
+    re.I,
 )
 _ROUND_PATTERN = re.compile(
     r"\b(?:"
@@ -200,24 +222,44 @@ _ROUND_PATTERN = re.compile(
 )
 _NON_PLAYOFF_EVENT = re.compile(r"\b(?:nba[ -]cup|in[ -]season[ -]tournament)\b", re.I)
 _SERIES_GAME = re.compile(
-    r"\b(?:game[ -](?:no\.\s+)?(?:#?\d+|one|two|three|four|five|six|seven)|"
-    r"(?:first|second|third|fourth|fifth|sixth|seventh|"
-    r"\d+(?:st|nd|rd|th))[ -]game)\b",
+    r"\b(?:games?[ -](?:nos?\.\s+)?(?:#?\d+|one|two|three|four|five|six|seven)|"
+    r"(?:first|second|third|fourth|fifth|sixth|seventh|final|last|opening|"
+    r"\d+(?:st|nd|rd|th))[ -](?:(?:one|two|three|four|five|six|seven|\d+|few)[ -])?games?|"
+    r"(?:(?:finals|series|game|round|playoff)[ -])?openers?|opening[ -]games?)\b",
     re.I,
 )
 _QUALIFIED_ROUND_PREFIX = re.compile(
-    r"\b(?:before|after|through|until|since|except|excluding|without|"
-    r"outside(?: of)?|other than|apart from|not)\s+"
-    r"(?:games?\s+)?(?:(?:for|in|during|from)\s+)?(?:the\s+)?"
+    r"\b(?:before|after|through|until|since|prior to|leading up to|up to|"
+    r"except(?: for)?|excluding|without(?: counting| including)?|"
+    r"outside(?: of)?|other than|apart from|aside from|besides|barring|minus|"
+    r"not(?:\s+(?:counting|including))?)\s+"
+    r"(?:games?\s+)?(?:(?:for|in|during|from|of)\s+)?(?:the\s+)?"
     r"(?:20\d{2}(?:[-–/](?:20)?\d{2})?\s+)?$",
     re.I,
 )
-_ROUND_YEAR = re.compile(
-    r"(?<![-–/])\b(20\d{2})(?=\s+(?:nba\s+)?(?:"
-    + "|".join(pattern for _, pattern in _ROUND_ALIASES)
-    + r"|playoffs?|postseason)\b)",
+_QUALIFIED_ROUND_SUFFIX = re.compile(
+    r"^\s*(?:excluded|omitted)\b",
     re.I,
 )
+_ROUND_OR_PHASE = (
+    r"(?:"
+    + "|".join(pattern for _, pattern in _ROUND_ALIASES)
+    + r"|playoffs?|postseason)"
+)
+_ROUND_YEAR = re.compile(
+    r"(?<![-–/])\b(?P<leading>20\d{2})(?=\s+(?:nba\s+)?"
+    + _ROUND_OR_PHASE
+    + r"\b)|(?P<prefix>\b"
+    + _ROUND_OR_PHASE
+    + r"(?:\s+(?:of|in)|,)?\s+)(?P<trailing>20\d{2})\b(?![-–/]\d)",
+    re.I,
+)
+
+
+def _replace_round_year(match: re.Match[str]) -> str:
+    year = match["leading"] or match["trailing"]
+    season = f"{int(year) - 1}-{year[-2:]}"
+    return f"{match['prefix']}{season}" if match["prefix"] else season
 
 
 def requested_playoff_round(question: str) -> str | None:
@@ -225,12 +267,15 @@ def requested_playoff_round(question: str) -> str | None:
     matches = list(_ROUND_PATTERN.finditer(question))
     if (
         len(matches) != 1
+        or _CONFERENCE_QUALIFIED_ROUND.search(question)
         or _NON_PLAYOFF_EVENT.search(question)
         or _SERIES_GAME.search(question)
     ):
         return None
     match = matches[0]
-    if _QUALIFIED_ROUND_PREFIX.search(question[: match.start()]):
+    if _QUALIFIED_ROUND_PREFIX.search(
+        question[: match.start()]
+    ) or _QUALIFIED_ROUND_SUFFIX.search(question[match.end() :]):
         return None
     if _ROUND_CUES.search(question[: match.start()] + " " + question[match.end() :]):
         return None
@@ -243,10 +288,7 @@ def normalize_playoff_round_year(question: str) -> str:
     """Convert a calendar year naming a round to the season that ends that year."""
     if not requested_playoff_round(question):
         return question
-    return _ROUND_YEAR.sub(
-        lambda match: f"{int(match[1]) - 1}-{match[1][-2:]}",
-        question,
-    )
+    return _ROUND_YEAR.sub(_replace_round_year, question)
 
 
 def playoff_round_planning_question(question: str, *, season: str | None = None) -> str:
@@ -259,9 +301,21 @@ def playoff_round_planning_question(question: str, *, season: str | None = None)
         _ROUND_PATTERN.sub("playoffs", question),
         flags=re.I,
     )
+    wording = re.sub(
+        r"\bplayoffs(?:\s+(?:of|in)|,)?\s+(20\d{2}-\d{2})\b",
+        r"\1 playoffs",
+        wording,
+        flags=re.I,
+    )
+    wording = re.sub(
+        r"\s+in the playoffs(?=\s+\(Playoffs\)\s*$)",
+        "",
+        wording,
+        flags=re.I,
+    )
     if season and not re.search(r"\b20\d{2}\b", wording):
         wording = re.sub(
-            r"\bplayoffs\b", f"{season} playoffs", wording, count=1, flags=re.I
+            r"(?<!\()\bplayoffs\b", f"{season} playoffs", wording, count=1, flags=re.I
         )
     if match := re.fullmatch(
         r"how many total points did (.+?) score ((?:in|during|for) .+)", wording, re.I

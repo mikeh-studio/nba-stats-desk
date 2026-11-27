@@ -60,7 +60,7 @@ def answer_known_nonparticipation(question, season, conversation_id=None):
         text = re.sub(r"20\d{2}[-–/]\d{2,4}", " ", text)
         text = re.sub(r"[’']s\b", " ", text)
         text = re.sub(
-            r"\b(?:nba|finals?|in|the|this|season|did|does|play|participate|reach|make|it|to|how|many|what|were|was|his|points?|pts|rebounds?|assists?|stats|statistics|per|game|score|scored|average)\b",
+            r"\b(?:nba|finals?|in|of|the|this|season|did|does|play|participate|reach|make|it|to|how|many|what|were|was|his|points?|pts|rebounds?|assists?|stats|statistics|per|game|score|scored|average)\b",
             " ",
             text,
         )

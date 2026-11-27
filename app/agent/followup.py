@@ -15,6 +15,7 @@ _QUERY_SCOPE_FIELDS = (
     "metric",
     "season",
     "season_type",
+    "playoff_round",
     "aggregation",
     "operation",
     "player_id",
@@ -318,19 +319,32 @@ def resolve_followup(
         requested_playoff_round,
         round_scope_message,
     )
-    from app.agent.semantics import PLAYOFF_ROUND_LABELS
+    from app.agent.semantics import PLAYOFF_ROUND_LABELS, SemanticError
 
+    prior_round = scope.get("playoff_round")
+    valid_round_phase = scope.get("season_type") in (None, "Playoffs") and not any(
+        phase != "Playoffs" for phase in (scope.get("phases") or ())
+    )
+    if prior_round is not None and (
+        prior_round not in PLAYOFF_ROUND_LABELS or not valid_round_phase
+    ):
+        raise SemanticError(
+            "invalid_scope", "Select a canonical round within Playoffs scope"
+        )
+    inherited_round = False
     if (
         continues_analysis
-        and scope.get("playoff_round") in PLAYOFF_ROUND_LABELS
+        and prior_round in PLAYOFF_ROUND_LABELS
+        and valid_round_phase
         and not round_scope_message(question)
         and not any(
             has_phase_cue(question, phase)
             for phase in ("Regular Season", "Playoffs", "Both")
         )
     ):
-        resolved += " in the " + PLAYOFF_ROUND_LABELS[scope["playoff_round"]]
-    inherited = {}
+        resolved += " in the " + PLAYOFF_ROUND_LABELS[prior_round]
+        inherited_round = True
+    inherited: dict[str, Any] = {}
     changes_dates = re.search(
         r"\b(?:20\d{2}|last|past|previous|prior|this (?:season|month|week|year)|current season|recently|lately|today|yesterday|since|before|after|from|as.of|January|February|March|April|May|June|July|August|September|October|November|December)\b",
         question,
@@ -360,9 +374,15 @@ def resolve_followup(
 
             if wants_overview(resolved):
                 resolved += f" {scope['season']} as of {end}"
-    if not requested_playoff_round(question) and not any(
-        has_phase_cue(question, phase)
-        for phase in ("Regular Season", "Playoffs", "Both")
+        elif continues_analysis and inherited_round and scope.get("season"):
+            inherited["seasons"] = [scope["season"]]
+    if (
+        not requested_playoff_round(question)
+        and not round_scope_message(question)
+        and not any(
+            has_phase_cue(question, phase)
+            for phase in ("Regular Season", "Playoffs", "Both")
+        )
     ):
         phases = scope.get("phases") or (
             [scope["season_type"]] if scope.get("season_type") else []

@@ -484,29 +484,32 @@ def metric_assumption_contracts(payload):
             if section["scope"].get(field):
                 add([scope + [field]], label + ": {0}")
         if section["scope"]["operation"] != "game_log":
-            add(
-                [
-                    base + ["cohort", f]
-                    for f in (
-                        "size",
-                        "team_game_percent"
-                        if section["cohort"].get("team_game_percent")
-                        else "min_games",
-                        "excluded_players",
-                    )
-                ],
-                "Ranking cohort: {0} eligible players; minimum {1}% of team games; {2} excluded."
-                if section["cohort"].get("team_game_percent")
-                else "Ranking cohort: {0} eligible players; minimum {1} games; {2} excluded.",
-            )
-            if section["cohort"]["min_attempts"] is not None:
+            if section.get("cohort_complete", True):
                 add(
                     [
-                        base + ["cohort", "min_attempts"],
-                        base + ["cohort", "attempt_field"],
+                        base + ["cohort", f]
+                        for f in (
+                            "size",
+                            "team_game_percent"
+                            if section["cohort"].get("team_game_percent")
+                            else "min_games",
+                            "excluded_players",
+                        )
                     ],
-                    "Attempt minimum: {0} {1}.",
+                    "Ranking cohort: {0} eligible players; minimum {1}% of team games; {2} excluded."
+                    if section["cohort"].get("team_game_percent")
+                    else "Ranking cohort: {0} eligible players; minimum {1} games; {2} excluded.",
                 )
+                if section["cohort"]["min_attempts"] is not None:
+                    add(
+                        [
+                            base + ["cohort", "min_attempts"],
+                            base + ["cohort", "attempt_field"],
+                        ],
+                        "Attempt minimum: {0} {1}.",
+                    )
+            else:
+                index += 1
         add(
             [
                 base + ["provenance", f]

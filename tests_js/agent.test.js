@@ -1269,3 +1269,36 @@ test("a scope note leading a plain answer is shown once", async () => {
   assert.doesNotMatch(target.innerHTML, /Local review/);
   assert.equal(target.children.filter(c => c.className === "scope-assumption").length, 1);
 });
+
+test("buildAskBody preserves canonical playoff_round across browser-restored followups", async () => {
+  const agent = await loadAgentModule();
+  agent.startNewChat();
+  const id = agent.getNavigation().activeConversationId;
+  agent.persistHistoryTurn("Avery points in 2024-25 first round", {
+    conversation_id: id,
+    status: "ok",
+    player_profile: {player: {player_id: 101, player_name: "Avery Example"}},
+    semantic_evidence: {
+      metric: {key: "pts"},
+      scope: {
+        season: "2024-25",
+        season_type: "Playoffs",
+        playoff_round: "first_round",
+        as_of: "2025-06-08",
+      },
+    },
+  });
+  const body = agent.buildAskBody("What about his assists?");
+  assert.equal(body.previous_context.scope.playoff_round, "first_round");
+  assert.deepEqual(body.previous_context.scope.phases, ["Playoffs"]);
+  agent.persistHistoryTurn("Avery points in regular season", {
+    conversation_id: id,
+    status: "ok",
+    player_profile: {player: {player_id: 101, player_name: "Avery Example"}},
+    semantic_evidence: {
+      metric: {key: "pts"},
+      scope: {season: "2024-25", season_type: "Regular Season"},
+    },
+  });
+  assert.equal(agent.buildAskBody("What about his assists?").previous_context.scope.playoff_round, null);
+});

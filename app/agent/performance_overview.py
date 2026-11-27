@@ -529,7 +529,12 @@ def build_overview(question, evidence, players, scope, selected=None):
         }
     player = candidates[0]
     from app.agent.game_filters import filter_description, filter_scope
-    from app.agent.semantics import PLAYOFF_ROUND_LABELS, Query, apply_game_filters
+    from app.agent.semantics import (
+        PLAYOFF_ROUND_LABELS,
+        Query,
+        _apply_game_filters_with_status,
+        apply_game_filters,
+    )
 
     predicates = filter_scope(scope)
     playoff_round = scope.get("playoff_round")
@@ -538,6 +543,7 @@ def build_overview(question, evidence, players, scope, selected=None):
         scope["seasons"][0],
         "average",
         season_type="Playoffs" if playoff_round else "Both",
+        player_id=player["player_id"] if playoff_round else None,
         playoff_round=playoff_round,
         **predicates,
     )
@@ -589,7 +595,7 @@ def build_overview(question, evidence, players, scope, selected=None):
     start, end = scope["start"], scope["end"]
 
     def rows_between(lo, hi, phases, query=filter_query):
-        return apply_game_filters(
+        return _apply_game_filters_with_status(
             [
                 r
                 for r in evidence.rows
@@ -599,9 +605,9 @@ def build_overview(question, evidence, players, scope, selected=None):
             query,
         )
 
-    current = rows_between(start, end, scope["phases"])
+    current, current_cohort_complete = rows_between(start, end, scope["phases"])
     previous_phases = scope.get("previous_phases", scope["phases"])
-    previous = rows_between(
+    previous, _ = rows_between(
         scope["previous_start"],
         scope["previous_end"],
         previous_phases,
@@ -707,7 +713,8 @@ def build_overview(question, evidence, players, scope, selected=None):
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
     from app.agent.overview_percentiles import add_percentiles
 
-    cohort = grouped if evidence.cohort_complete else {}
+    overview_cohort_complete = evidence.cohort_complete and current_cohort_complete
+    cohort = grouped if overview_cohort_complete else {}
     add_percentiles(metrics + extra, cohort, player["player_id"], contract.min_games)
     add_position_comparisons(
         metrics + extra,
@@ -856,8 +863,10 @@ def build_overview(question, evidence, players, scope, selected=None):
             ),
             (
                 f"Percentiles compare qualified players in the same dates and phases, with at least {contract.min_games} appearances and complete components. Shooting ranks require 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, or 50 3PA for 3P%. TOV ranks favor fewer turnovers; MIN describes exposure. Ties share the percentage of other qualified players strictly worse. These provisional project rules are not NBA official qualification."
-                if evidence.cohort_complete
+                if overview_cohort_complete
                 else "League ranks and percentiles are unavailable for this source."
+                if not evidence.cohort_complete
+                else "League ranks and percentiles are withheld because playoff-round coverage is incomplete across peers."
             ),
             f"Source: {evidence.source}; data through {max(evidence.data_through.values())}. No games or missing values are fabricated.",
             "Charts show "
@@ -910,5 +919,6 @@ def build_overview(question, evidence, players, scope, selected=None):
             "source": evidence.source,
             "data_through": str(max(evidence.data_through.values())),
             "min_games": contract.min_games,
+            "cohort_complete": overview_cohort_complete,
         },
     }

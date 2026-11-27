@@ -1,11 +1,6 @@
 domain: game_logs
 source: nba_api_player_game_logs
 version: 1
-optional_columns:
-  - PLAYOFF_ROUND_NUMBER
-  - PLAYOFF_ROUND_NAME
-  - PLAYOFF_SERIES_ID
-  - PLAYOFF_SERIES_GAME_NUMBER
 grain: one row per player per game appearance
 business_key:
   - PLAYER_ID
@@ -14,10 +9,6 @@ business_key:
 type_validation_severity: quarantine
 columns:
   GAME_ID: string
-  PLAYOFF_ROUND_NUMBER: int64
-  PLAYOFF_ROUND_NAME: string
-  PLAYOFF_SERIES_ID: string
-  PLAYOFF_SERIES_GAME_NUMBER: int64
   GAME_DATE: date
   MATCHUP: string
   WL: string

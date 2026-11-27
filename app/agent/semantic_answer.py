@@ -600,12 +600,17 @@ def render_answer(
                     ]
             continue
         cohort = section["cohort"]
-        payload["assumptions"].append(
-            f"Ranking cohort: {cohort['size']} eligible players; {qualification_label(cohort)}; {cohort['excluded_players']} excluded."
-        )
-        if cohort["min_attempts"] is not None:
+        if section.get("cohort_complete", True):
             payload["assumptions"].append(
-                f"Attempt minimum: {cohort['min_attempts']} {cohort['attempt_field']}."
+                f"Ranking cohort: {cohort['size']} eligible players; {qualification_label(cohort)}; {cohort['excluded_players']} excluded."
+            )
+            if cohort["min_attempts"] is not None:
+                payload["assumptions"].append(
+                    f"Attempt minimum: {cohort['min_attempts']} {cohort['attempt_field']}."
+                )
+        else:
+            payload["assumptions"].append(
+                "Ranking cohort is incomplete across peers; league ranks and percentiles are withheld."
             )
         source = section["provenance"]
         payload["assumptions"].append(

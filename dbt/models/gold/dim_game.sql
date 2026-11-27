@@ -6,15 +6,20 @@
 with game_playoff_scope as (
     select
         game_id,
-        season_type,
+        case
+            when count(distinct season_type) = 1
+                and count(season_type) = count(*)
+            then min(season_type)
+        end as season_type,
         {% for field in playoff_round_columns() %}
-        {{ field }}{% if not loop.last %},{% endif %}
+        case
+            when count(distinct {{ field }}) = 1
+                and count({{ field }}) = count(*)
+            then min({{ field }})
+        end as {{ field }}{% if not loop.last %},{% endif %}
         {% endfor %}
     from {{ ref('stg_game_logs_clean') }}
-    qualify row_number() over (
-        partition by game_id
-        order by ingested_at_utc desc, player_id
-    ) = 1
+    group by 1
 ),
 team_scores as (
     select
