@@ -26,6 +26,99 @@ _METRIC = re.compile(
 )
 
 
+REGULAR_SEASON_CUE = r"\bregular[ -]season\b"
+PLAYOFFS_CUE = r"\b(?:playoffs?|postseason)\b"
+_SEPARATED_PLAYOFFS_CUE = r"\b(?:playoffs?|post[ -]?season)\b"
+_BOTH_PHASES_CUE = r"\bboth phases\b"
+
+
+def has_phase_cue(text: str, phase: str, *, separated_postseason: bool = True) -> bool:
+    pattern = {
+        "Regular Season": REGULAR_SEASON_CUE,
+        "Playoffs": _SEPARATED_PLAYOFFS_CUE if separated_postseason else PLAYOFFS_CUE,
+        "Both": _BOTH_PHASES_CUE,
+    }[phase]
+    return re.search(pattern, text, re.I) is not None
+
+
+def explicit_phase(
+    text: str,
+    *,
+    include_both_cues: bool = True,
+    separated_postseason: bool = True,
+) -> str | None:
+    """Recognize literal phase scope; callers choose the spelling their grammar consumes."""
+    regular = has_phase_cue(text, "Regular Season")
+    playoffs = has_phase_cue(
+        text, "Playoffs", separated_postseason=separated_postseason
+    )
+    if (regular and playoffs) or (include_both_cues and has_phase_cue(text, "Both")):
+        return "Both"
+    if regular:
+        return "Regular Season"
+    return "Playoffs" if playoffs else None
+
+
+METRICS = {
+    "pts_per36": r"points per 36(?: minutes)?",
+    "ast_per36": r"assists per 36(?: minutes)?",
+    "ts_pct": r"true shooting(?: percentage| percent|%)?|ts%",
+    "efg_pct": r"effective field goal(?: percentage| percent|%)?|efg%",
+    "fg3_pct": r"(?:three.point|3.point|3pt) (?:percentage|percent)|3p%|fg3%",
+    "fg_pct": r"field goal (?:percentage|percent)|fg%",
+    "ft_pct": r"free throw (?:percentage|percent)|ft%",
+    "fg3a": r"(?:three.point|3.point) attempts|fg3a",
+    "fg3m": r"(?:three.point|3.point) (?:makes|made)|threes|3pm|fg3m",
+    "fga": r"field goal attempts|fga",
+    "fta": r"free throw attempts|fta",
+    "pts": r"points|scoring|pts",
+    "oreb": r"offensive rebounds?|oreb",
+    "dreb": r"defensive rebounds?|dreb",
+    "pf": r"personal fouls?|fouls?|pf",
+    "reb": r"rebounds|rebounding|reb",
+    "ast": r"assists|ast",
+    "stl": r"steals|stl",
+    "blk": r"blocks|blk",
+    "tov": r"turnovers|tov",
+    "min": r"minutes|min",
+    "plus_minus": r"plus.minus|\+/-",
+}
+
+
+_METRIC_PATTERNS = {
+    key: re.compile(r"(?<!\w)(?:" + pattern + r")(?!\w)", re.I)
+    for key, pattern in METRICS.items()
+}
+
+
+def extract_metrics(text: str) -> tuple[str, list[str]]:
+    """Consume metrics in catalog order, with specific phrases ahead of their parts."""
+    metrics = []
+    for key, pattern in _METRIC_PATTERNS.items():
+        text, count = pattern.subn(" ", text)
+        if count:
+            metrics.append(key)
+    return text, metrics
+
+
+def longest_metric_spans(
+    text: str, *, protected: Iterable[tuple[int, int]] = ()
+) -> list[tuple[int, int]]:
+    """Locate metric wording while protecting identities and numerical filters."""
+    protected = tuple(protected)
+    spans = {
+        match.span()
+        for pattern in _METRIC_PATTERNS.values()
+        for match in pattern.finditer(text)
+        if not any(a <= match.start() and match.end() <= b for a, b in protected)
+    }
+    return sorted(
+        (start, end)
+        for start, end in spans
+        if not any(a <= start and end <= b and (a < start or end < b) for a, b in spans)
+    )
+
+
 def absence_cue_text(question: str) -> str:
     # Ignore idiomatic uses of "out" while preserving any separate absence condition.
     return re.sub(

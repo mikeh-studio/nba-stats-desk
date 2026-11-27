@@ -173,6 +173,45 @@ def outcome_of(reason_code: str | None) -> str:
     return "refuse"
 
 
+def route_settings(fixture, case, attachments):
+    flags = case_settings(fixture, case)
+    return {
+        "season": fixture["selected_season"],
+        # The fixture has no reviewed v3 study catalog attachment.
+        "research_studies_path": None,
+        "research_availability_path": attachments.path("availability")
+        if flags["research_availability"]
+        else None,
+        "agent_teammate_study_path": attachments.path("study")
+        if flags["teammate_study_v1"]
+        else None,
+    }
+
+
+def route_conversation(case, season, max_turns):
+    from app.agent.conversation import InMemoryConversationStore
+
+    store = InMemoryConversationStore()
+    context = case.get("context") or {}
+    if context.get("prior_route"):
+        store.append_turn(
+            CONVERSATION_ID,
+            question="Earlier question",
+            answer="",
+            max_turns=max_turns,
+            context=prior_context(context["prior_route"], season),
+        )
+    if pending := context.get("pending"):
+        store.set_pending_clarification(
+            CONVERSATION_ID,
+            question=pending["question"],
+            query_plan=pending.get("query_plan"),
+            route=pending.get("route"),
+            candidates=pending.get("candidates", ()),
+        )
+    return store
+
+
 def current_route(
     question: str,
     case: dict[str, Any],
@@ -180,109 +219,91 @@ def current_route(
     attachments: Attachments,
 ) -> dict[str, Any]:
     """Replay dispatch and pre-planner checks for one question; no model calls."""
-    from app.agent.availability_ask import wants_availability
-    from app.agent.conversation import (
-        PendingClarification,
-        clarification_candidates,
-    )
-    from app.agent.followup import resolve_followup
-    from app.agent.performance_overview import overview_scope
-    from app.agent.player_comparison import comparison_scope
-    from app.agent.research_ask import direct_study_plan, named_absence_pair
+    from app.agent.availability_ask import precheck_availability_route
+    from app.agent.participation import answer_known_nonparticipation
+    from app.agent.research_ask import precheck_research_route
+    from app.agent.route_labels import finish_route, route_hint
     from app.agent.routes import (
-        RouteContext,
         dispatch_source,
-        pending_routing,
+        prepare_route_context,
         select_route,
     )
-    from app.agent.semantic_serving import requested_seasons
+    from app.agent.scope_policy import fantasy_decision
+    from app.agent.semantic_answer import SemanticAsk
     from app.agent.semantics import SemanticError
+    from app.agent.teammate_ask import precheck_teammate_study_route
+    from app.agent.time_defaults import resolve_recent_season
 
-    season = fixture["selected_season"]
-    flags = case_settings(fixture, case)
-    settings = SimpleNamespace(
-        season=season,
-        research_studies_path="fixture-catalog" if flags["research_studies"] else None,
-        research_availability_path=attachments.path("availability")
-        if flags["research_availability"]
-        else None,
-        agent_teammate_study_path=attachments.path("study")
-        if flags["teammate_study_v1"]
-        else None,
-    )
-    context = case.get("context") or {}
-    recent = prior_context(context.get("prior_route"), season)
-    pending = context.get("pending")
-    routing_question, reference_reply, _ = pending_routing(
-        question,
-        PendingClarification(
-            question=pending["question"],
-            query_plan=pending.get("query_plan"),
-            route=pending.get("route"),
-            candidates=clarification_candidates(pending.get("candidates")),
+    def result(label, source, payload=None):
+        routed = finish_route(payload or {}, route=label, source=source)["ask_route"]
+        reason = routed["reason_code"]
+        return {
+            "ask_route": routed,
+            "outcome": outcome_of(reason)
+            if reason or (payload or {}).get("status") == "ok"
+            else "unknown",
+            "model_calls": 0,
+        }
+
+    original = question
+    try:
+        question, time_notes = resolve_recent_season(question)
+    except SemanticError as exc:
+        return result("clarify", "deterministic", {"status": exc.code})
+    question = question.strip()
+    if fantasy_decision(question):
+        return result(
+            "clarify", "deterministic", route_hint({}, reason_code="fantasy_scope")
         )
-        if pending
-        else None,
+
+    settings = SimpleNamespace(
+        **route_settings(fixture, case, attachments), agent_conversation_max_turns=6
     )
-    route_context = RouteContext(
+    store = route_conversation(
+        case, settings.season, settings.agent_conversation_max_turns
+    )
+    route_context, _, _ = prepare_route_context(
         question,
-        routing_question,
-        recent,
-        recent,
-        settings,
-        True,
-        reference_reply=reference_reply,
+        settings=settings,
+        governed=True,
+        store=store,
+        conversation_id=CONVERSATION_ID,
+        period_question=original if time_notes else None,
     )
     route = select_route(route_context)
     label = DISPATCH_LABELS.get(route.key, route.key)
     source = dispatch_source(route_context, route)
-    reason: str | None = None
-    outcome = "unknown"
-
+    payload = None
     if route.handler == "scope_refusal":
-        reason, outcome = "unsupported_round", "refuse"
-    elif route.handler == "availability" and not settings.research_availability_path:
-        reason, outcome = "availability_missing", "refuse"
-    elif route.handler == "teammate_study" and not settings.agent_teammate_study_path:
-        reason, outcome = "study_not_configured", "refuse"
-    elif route.handler == "research":
-        previous = recent.get("research_scope")
-        seasons = requested_seasons(
-            question, previous.get("season", season) if previous else season
+        participation = answer_known_nonparticipation(question, settings.season)
+        payload = (
+            route_hint(participation, route="event_participation")
+            if participation is not None
+            else route_hint({}, reason_code="unsupported_round")
         )
-        pair = named_absence_pair(question)
-        published = fixture.get("catalog", {}).get(pair["pair_id"], {}) if pair else {}
-        if len(seasons) != 1:
-            reason, outcome = "multi_season", "refuse"
-        elif pair and published.get("status") != "published":
-            label, reason, outcome = (
-                "teammate_study",
-                "study_coverage_missing",
-                "refuse",
-            )
-        elif not previous and direct_study_plan(question, seasons[0]):
-            label = "teammate_study"
+    elif route.handler == "availability":
+        _, payload = precheck_availability_route(settings.research_availability_path)
+    elif route.handler == "teammate_study":
+        _, _, payload = precheck_teammate_study_route(
+            route_context.study_question,
+            settings.season,
+            settings.agent_teammate_study_path,
+        )
+    elif route.handler == "research":
+        checked = precheck_research_route(
+            question,
+            settings.season,
+            route_context.recent_context.get("research_scope"),
+            settings.research_studies_path,
+        )
+        payload = checked.refusal
+        if checked.direct:
+            label, source = "teammate_study", "deterministic"
     elif route.handler == "semantic":
-        if wants_availability(question):
-            label, source = "unsupported", "deterministic"
-            reason, outcome = "availability_scope_required", "refuse"
-        else:
-            if source == "deterministic" and resolve_followup(question, recent)[1]:
-                source = "prior_route"
-            try:
-                if label == "player_overview":
-                    overview_scope(routing_question, season)
-                    outcome = "answer"
-                elif label == "player_comparison":
-                    comparison_scope(routing_question, season)
-                    outcome = "answer"
-            except SemanticError as exc:
-                reason, outcome = exc.code, outcome_of(exc.code)
-    return {
-        "ask_route": {"route": label, "source": source, "reason_code": reason},
-        "outcome": outcome,
-        "model_calls": 0,
-    }
+        payload = SemanticAsk(settings, None, store).preview_route(
+            question, CONVERSATION_ID
+        )
+    return result(label, source, payload)
 
 
 def research_unsupported(season: str) -> dict[str, Any]:
@@ -330,32 +351,22 @@ def ask_route_case(
     provider: str,
     live_settings: Any = None,
 ) -> dict[str, Any]:
-    from app.agent.conversation import InMemoryConversationStore
     from app.agent.observability import AgentTrace
     from app.agent.service import StatsAgent
     from app.config import Settings
     from scripts.ask_eval.fixtures import ControlledModel, frozen_repository
 
     season = fixture["selected_season"]
-    flags = case_settings(fixture, case)
     settings = Settings(
         project_id="fixture-project",
         gold_dataset="fixture",
         metadata_dataset="fixture",
         freshness_threshold_hours=36,
         max_search_results=12,
-        season=season,
         openai_api_key="fixture-key",
         agent_rate_limit_per_minute=0,
         agent_rate_limit_daily=0,
-        # No v3 catalog file is frozen here; every study reads as coverage_pending.
-        research_studies_path=None,
-        research_availability_path=attachments.path("availability")
-        if flags["research_availability"]
-        else None,
-        agent_teammate_study_path=attachments.path("study")
-        if flags["teammate_study_v1"]
-        else None,
+        **route_settings(fixture, case, attachments),
     )
     if live_settings is not None:
         settings = replace(
@@ -388,25 +399,7 @@ def ask_route_case(
             }
         )
     client = CountingClient(inner)
-    store = InMemoryConversationStore()
-    context = case.get("context") or {}
-    if context.get("prior_route"):
-        store.append_turn(
-            CONVERSATION_ID,
-            question="Earlier question",
-            answer="",
-            max_turns=settings.agent_conversation_max_turns,
-            context=prior_context(context["prior_route"], season),
-        )
-    if context.get("pending"):
-        pending = context["pending"]
-        store.set_pending_clarification(
-            CONVERSATION_ID,
-            question=pending["question"],
-            query_plan=pending.get("query_plan"),
-            route=pending.get("route"),
-            candidates=pending.get("candidates", ()),
-        )
+    store = route_conversation(case, season, settings.agent_conversation_max_turns)
     agent = StatsAgent(
         settings,
         frozen_repository(settings, source, "complete"),
@@ -664,8 +657,8 @@ def main() -> int:
             "research_family_matches. current mode cannot replay planner choices.",
             "current: scope drops count forbidden routes whose outcome is answer or "
             "unknown, because an unknown planner outcome cannot be ruled out.",
-            "ask: the frozen fixture has no v3 study catalog, so every study reads "
-            "as coverage_pending; outcomes can differ from current mode.",
+            "Both modes use the same frozen attachments. The fixture has no reviewed "
+            "v3 study catalog, so every v3 study reads as coverage_pending.",
             "ask --provider controlled: planner calls return refusals, so outcomes "
             "of turns that called the model are reported as unknown.",
         ],

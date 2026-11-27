@@ -7,6 +7,7 @@ import logging
 import re
 import traceback
 from dataclasses import dataclass
+from typing import Any
 
 import jsonschema
 from pydantic import ValidationError
@@ -14,6 +15,7 @@ from pydantic import ValidationError
 from app.agent.route_labels import route_hint
 from app.agent.scope_policy import (
     explicit_metric_mentions,
+    explicit_phase,
     explicit_scope,
     question_scope,
 )
@@ -57,18 +59,7 @@ class PhaseResolution:
 
 def resolve_phase(question, proposed, kind, previous, prior_user_selected):
     """Derive phase provenance from the request/context, never a model label."""
-    regular = bool(re.search(r"\bregular[ -]season\b", question, re.I))
-    playoffs = bool(re.search(r"\b(?:playoffs?|post[ -]?season)\b", question, re.I))
-    both = bool(re.search(r"\bboth phases\b", question, re.I)) or (regular and playoffs)
-    explicit = (
-        "Both"
-        if both
-        else "Regular Season"
-        if regular
-        else "Playoffs"
-        if playoffs
-        else None
-    )
+    explicit = explicit_phase(question)
     if explicit is not None:
         resolved = PhaseResolution(explicit, "explicit", True)
     elif previous and previous.get("phase") is not None:
@@ -431,6 +422,103 @@ def research_plan_schema():
     }
 
 
+_RESEARCH_ERRORS = (
+    OSError,
+    ValueError,
+    KeyError,
+    StopIteration,
+    ValidationError,
+    SemanticError,
+)
+
+
+@dataclass(frozen=True)
+class _ResearchPrecheck:
+    seasons: list[str] | None = None
+    candidates: list[str] | None = None
+    allow_fallback: bool = False
+    study_entries: list[dict[str, Any]] | None = None
+    direct: dict[str, Any] | None = None
+    refusal: dict[str, Any] | None = None
+
+
+def precheck_research_route(question, season, previous, studies_path, trace=None):
+    stage = "scope"
+    try:
+        seasons = requested_seasons(
+            question,
+            previous.get("season", season) if previous else season,
+        )
+        if len(seasons) != 1:
+            return _ResearchPrecheck(
+                refusal=refusal(
+                    "Research currently requires one explicit season; no cross-season request was approximated.",
+                    reason_code="multi_season",
+                )
+            )
+        allow_fallback = not previous and not has_time_scope(question)
+        candidates = (
+            season_candidates(question, seasons[0]) if allow_fallback else seasons
+        )
+        # A known absence question cannot be answered from box scores alone.
+        # Check published coverage before warehouse work or a paid planning call.
+        absence_pair = named_absence_pair(question)
+        study_entries = None
+        if absence_pair:
+            stage = "study_catalog"
+            study_entries = catalog(studies_path)
+            matched = next(
+                (s for s in study_entries if s["pair_id"] == absence_pair["pair_id"]),
+                None,
+            )
+            if not matched or not matched.get("scope"):
+                return _ResearchPrecheck(
+                    refusal=route_hint(
+                        missing_study(absence_pair, seasons[0], trace),
+                        route="teammate_study",
+                        source="deterministic",
+                    )
+                )
+        direct = direct_study_plan(question, seasons[0]) if not previous else None
+        return _ResearchPrecheck(
+            seasons, candidates, allow_fallback, study_entries, direct
+        )
+    except _RESEARCH_ERRORS as exc:
+        return _ResearchPrecheck(refusal=_research_failure(stage, exc, trace))
+
+
+def _research_failure(stage, exc, trace):
+    location = traceback.extract_tb(exc.__traceback__)[-1]
+    logging.getLogger(__name__).warning(
+        "Research request rejected: stage=%s %s at %s:%s",
+        stage,
+        type(exc).__name__,
+        location.name,
+        location.lineno,
+    )
+    if stage == "study_catalog":
+        return refusal(
+            "The configured teammate-study data could not be loaded or validated. "
+            "The study configuration needs repair before this comparison can run; "
+            "no alternative study was used.",
+            code="study_catalog_unavailable",
+            trace=trace,
+        )
+    if stage == "planning":
+        return refusal(
+            "The research planner returned an invalid request. No statistics were calculated. "
+            "Try stating the player, season, and metric explicitly.",
+            code="invalid_research_plan",
+            trace=trace,
+        )
+    return refusal(
+        "The data needed for this research request could not be loaded or validated. "
+        "No comparison was calculated and your requested scope was not changed.",
+        code="research_evidence_unavailable",
+        trace=trace,
+    )
+
+
 def answer_research(agent, question, provider, model, conversation_id=None, trace=None):
     # "research" until a study or breakdown is chosen; the planner may refuse first.
     decision = {"route": "research"}
@@ -454,35 +542,25 @@ def _answer_research(
     if trace:
         trace.route = "research"
     try:
-        seasons = requested_seasons(
+        checked = precheck_research_route(
             question,
-            previous.get("season", agent.settings.season)
-            if previous
-            else agent.settings.season,
+            agent.settings.season,
+            previous,
+            agent.settings.research_studies_path,
+            trace,
         )
-        if len(seasons) != 1:
-            return refusal(
-                "Research currently requires one explicit season; no cross-season request was approximated.",
-                reason_code="multi_season",
-            )
-        allow_fallback = not previous and not has_time_scope(question)
-        candidates = (
-            season_candidates(question, seasons[0]) if allow_fallback else seasons
+        if checked.refusal is not None:
+            decision.update(checked.refusal.get("ask_route", {}))
+            return checked.refusal
+        seasons, candidates, study_entries = (
+            checked.seasons,
+            checked.candidates,
+            checked.study_entries,
         )
-        # A known absence question cannot be answered from box scores alone.
-        # Check published coverage before warehouse work or a paid planning call.
-        absence_pair = named_absence_pair(question)
-        study_entries = None
-        if absence_pair:
+        assert seasons is not None and candidates is not None
+        allow_fallback = checked.allow_fallback
+        if study_entries is not None:
             stage = "study_catalog"
-            study_entries = catalog(agent.settings.research_studies_path)
-            matched = next(
-                (s for s in study_entries if s["pair_id"] == absence_pair["pair_id"]),
-                None,
-            )
-            if not matched or not matched.get("scope"):
-                decision.update(route="teammate_study", source="deterministic")
-                return missing_study(absence_pair, seasons[0], trace)
         schema = research_plan_schema()
         players = [
             {
@@ -493,7 +571,7 @@ def _answer_research(
             for pair, names in zip(PAIRS, PAIR_NAMES)
             for index, prefix in enumerate(("player", "teammate"))
         ]
-        direct = direct_study_plan(question, seasons[0]) if not previous else None
+        direct = checked.direct
         if direct:
             evidence = None
             evidence_season = seasons[0]
@@ -804,40 +882,5 @@ For descriptive intent, omitted phase resolves server-side to Regular Season; re
                 },
             )
         return payload
-    except (
-        OSError,
-        ValueError,
-        KeyError,
-        StopIteration,
-        ValidationError,
-        SemanticError,
-    ) as exc:
-        location = traceback.extract_tb(exc.__traceback__)[-1]
-        logging.getLogger(__name__).warning(
-            "Research request rejected: stage=%s %s at %s:%s",
-            stage,
-            type(exc).__name__,
-            location.name,
-            location.lineno,
-        )
-        if stage == "study_catalog":
-            return refusal(
-                "The configured teammate-study data could not be loaded or validated. "
-                "The study configuration needs repair before this comparison can run; "
-                "no alternative study was used.",
-                code="study_catalog_unavailable",
-                trace=trace,
-            )
-        if stage == "planning":
-            return refusal(
-                "The research planner returned an invalid request. No statistics were calculated. "
-                "Try stating the player, season, and metric explicitly.",
-                code="invalid_research_plan",
-                trace=trace,
-            )
-        return refusal(
-            "The data needed for this research request could not be loaded or validated. "
-            "No comparison was calculated and your requested scope was not changed.",
-            code="research_evidence_unavailable",
-            trace=trace,
-        )
+    except _RESEARCH_ERRORS as exc:
+        return _research_failure(stage, exc, trace)

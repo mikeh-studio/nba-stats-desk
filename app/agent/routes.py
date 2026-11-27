@@ -16,7 +16,7 @@ from typing import Any, Callable
 from app.agent.appearance_ask import wants_appearances
 from app.agent.availability_ask import availability_followup, wants_availability
 from app.agent.award_lookup import wants_award
-from app.agent.conversation import PendingClarification
+from app.agent.conversation import ConversationStore, PendingClarification
 from app.agent.execution import timed
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
@@ -66,6 +66,12 @@ class RouteContext:
                 re.I,
             )
         )
+
+    @property
+    def study_question(self) -> str:
+        if self.study_followup:
+            return "Using the teammate study: " + self.question
+        return self.question
 
     @property
     def study_requested(self):
@@ -252,6 +258,48 @@ ROUTES = (
 )
 
 
+def prepare_route_context(
+    question: str,
+    *,
+    settings: Any,
+    governed: bool,
+    store: ConversationStore | None,
+    conversation_id: str | None,
+    selected_player: dict[str, Any] | None = None,
+    period_question: str | None = None,
+) -> tuple[RouteContext, bool, bool]:
+    # Resolve dispatch context and release superseded pending clarifications.
+    turns = []
+    pending = None
+    if conversation_id and store:
+        turns = store.get_turns(
+            conversation_id, max_turns=settings.agent_conversation_max_turns
+        )
+        pending = store.get_pending_clarification(conversation_id)
+    context = next((turn.context for turn in reversed(turns) if turn.context), {})
+    routing_question, reference_reply, keep_pending = pending_routing(
+        question, pending, selected_player
+    )
+    abandoned_pending = bool(pending and not keep_pending)
+    if abandoned_pending:
+        assert conversation_id and store
+        store.clear_pending_clarification(conversation_id)
+    return (
+        RouteContext(
+            question,
+            routing_question,
+            context,
+            turns[-1].context if turns else {},
+            settings,
+            governed,
+            reference_reply=reference_reply,
+            period_question=period_question,
+        ),
+        keep_pending,
+        abandoned_pending,
+    )
+
+
 def pending_routing(
     question: str,
     pending: PendingClarification | None,
@@ -272,7 +320,7 @@ def pending_routing(
     pending_question = pending.question
     reference_reply = None
     if reference_kind(pending_question):
-        from app.agent.service import _clarify_reply_name
+        from app.agent.name_matching import _clarify_reply_name
 
         reply = _clarify_reply_name(question)
         new_question = bool(

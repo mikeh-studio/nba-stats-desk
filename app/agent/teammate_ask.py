@@ -9,7 +9,7 @@ from pathlib import Path
 
 from app.agent.performance_overview import scoped_identity_profile
 from app.agent.route_labels import route_hint
-from app.agent.scope_policy import absence_cue_text
+from app.agent.scope_policy import absence_cue_text, has_phase_cue
 from app.agent.semantic_serving import (
     fallback_notice,
     has_time_scope,
@@ -371,29 +371,37 @@ def answer_study(agent, question, provider, model, trace=None):
     )
 
 
-def _answer_study(agent, question, provider, model, trace):
-    path = agent.settings.agent_teammate_study_path
+def precheck_teammate_study_route(question, season, path):
+    """Read the reviewed attachment and check literal scope before planning."""
     if not path:
-        return unavailable(reason_code="study_not_configured")
+        return None, False, unavailable(reason_code="study_not_configured")
     study = load_study(path)
     s = public_scope(study)
-    if re.search(r"\b(?:playoffs?|post[ -]?season)\b", question, re.I):
-        return unavailable(study, reason_code="study_scope_mismatch")
-    requested = requested_seasons(question, agent.settings.season)
+    if has_phase_cue(question, "Playoffs"):
+        return None, False, unavailable(study, reason_code="study_scope_mismatch")
+    requested = requested_seasons(question, season)
     can_fallback = (
-        not has_time_scope(question)
-        and s["season"] in SEASONS
-        and s["season"] < agent.settings.season
+        not has_time_scope(question) and s["season"] in SEASONS and s["season"] < season
     )
     if requested != [s["season"]] and not can_fallback:
-        return unavailable(study, reason_code="study_scope_mismatch")
+        return None, False, unavailable(study, reason_code="study_scope_mismatch")
     # Literal date/season requests cannot be overwritten by model interpretation.
     dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", question)
     seasons = re.findall(r"\b20\d{2}-\d{2}\b(?!-)", question)
     if (dates and sorted(dates) != sorted([s["start"], s["end"]])) or any(
         x != s["season"] for x in seasons
     ):
-        return unavailable(study, reason_code="study_scope_mismatch")
+        return None, False, unavailable(study, reason_code="study_scope_mismatch")
+    return study, can_fallback, None
+
+
+def _answer_study(agent, question, provider, model, trace):
+    study, can_fallback, refusal = precheck_teammate_study_route(
+        question, agent.settings.season, agent.settings.agent_teammate_study_path
+    )
+    if refusal is not None:
+        return refusal
+    s = public_scope(study)
     from app.agent.name_matching import prepare_names
 
     question, _ = prepare_names(

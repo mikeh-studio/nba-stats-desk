@@ -698,6 +698,27 @@ def test_publication_refuses_unverified_scopes_and_league_ranks(production, ques
     assert reads and legacy.calls == []
 
 
+@pytest.mark.parametrize("period", ["full regular season", "entire season"])
+def test_publication_rejects_full_season_overview(production, period):
+    client, _, reads, legacy, _ = production
+    payload = ask(client, f"How is Taylor Example playing for the {period}?")
+    assert payload["status"] == "unsupported_coverage", payload["answer"]
+    assert payload["semantic_evidence"] is None
+    assert "22.5" not in payload["answer"]
+    assert reads and legacy.calls == []
+
+
+def test_publication_rejects_derived_series_for_an_unverified_phase(production):
+    client, _, reads, legacy, _ = production
+    payload = ask(
+        client, f"Taylor Example's points trend in the {DEFAULT_SEASON} playoffs"
+    )
+    assert payload["status"] == "unsupported_coverage", payload["answer"]
+    assert "publication covers only the regular season" in payload["answer"]
+    assert payload["semantic_evidence"] is None
+    assert reads and legacy.calls == []
+
+
 @pytest.mark.parametrize(
     "question",
     [

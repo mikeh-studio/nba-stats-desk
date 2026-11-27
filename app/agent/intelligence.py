@@ -31,6 +31,7 @@ from app.agent.plan_execution import (
 from app.agent.scope_policy import (
     comparison_scope_conflict,
     explicit_metric_mentions,
+    explicit_phase,
     explicit_scope,
 )
 from app.agent.semantic_intent import resolve_aggregation_intent
@@ -173,24 +174,13 @@ def _literal_player_resolutions(question, players):
     Longer matches consume aliases inside them. An ambiguous alias is never
     permission for a provider to select one candidate from the roster.
     """
+    from app.agent.name_matching import longest_player_spans
+
     question = " ".join(question.split())
-    spans = []
-    for player in players:
-        for name in (player["player_name"], *player.get("aliases", [])):
-            name = " ".join(name.split())
-            if name:
-                spans.extend(
-                    (m.start(), m.end(), name)
-                    for m in re.finditer(
-                        r"(?<!\w)" + re.escape(name) + r"(?!\w)", question, re.I
-                    )
-                )
-    occupied = []
-    for start, end, name in sorted(spans, key=lambda s: (-(s[1] - s[0]), s[0])):
-        if any(start < b and end > a for a, b in occupied):
-            continue
-        occupied.append((start, end))
-        yield resolve_entity(name, players)
+    for span in longest_player_spans(
+        question, players, nonoverlapping=True, normalize_spaces=True
+    ):
+        yield resolve_entity(span.name, players)
 
 
 def authorized_players(question, players, prior=None):
@@ -601,10 +591,11 @@ def normalized_plan(
                 replacements[name] = canonical
                 references[canonical] = canonical
     scope = explicit_scope(context.question)
-    regular = bool(re.search(r"\bregular[ -]season\b", context.question, re.I))
-    playoffs = bool(re.search(r"\b(?:playoffs?|postseason)\b", context.question, re.I))
-    if regular != playoffs:
-        scope["season_type"] = "Playoffs" if playoffs else "Regular Season"
+    phase = explicit_phase(
+        context.question, include_both_cues=False, separated_postseason=False
+    )
+    if phase in {"Regular Season", "Playoffs"}:
+        scope["season_type"] = phase
     if plan["status"] == "compare" and comparison_scope_conflict(
         context.question, scope
     ):
