@@ -2,6 +2,8 @@
 
 import copy
 import json
+import subprocess
+import sys
 from collections import defaultdict
 from pathlib import Path
 from statistics import median
@@ -10,6 +12,7 @@ import pytest
 from app.agent.availability_ask import parse_request
 from app.agent.semantic_serving import source_players
 from app.availability import load_availability
+from jsonschema import ValidationError
 from scripts.ask_eval.fixtures import (
     FrozenWarehouse,
     expectation_digest,
@@ -24,6 +27,53 @@ from tests.test_semantic_migration import settings
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE, DOCUMENT = load_inputs(ROOT)
 SCHEMA = json.loads((ROOT / "tests/fixtures/ask/schema.json").read_text())
+
+
+@pytest.mark.parametrize("schema_version", [1, 2])
+def test_supplied_schema_cannot_allow_an_assertion_free_turn(tmp_path, schema_version):
+    case = copy.deepcopy(next(c for c in DOCUMENT["cases"] if c["id"] == "award_mvp"))
+    case["turns"][0]["checks"] = []
+    document = {**DOCUMENT, "schema_version": schema_version, "cases": [case]}
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    (inputs / "cases.json").write_text(json.dumps(document))
+    (inputs / "source.json").write_text(json.dumps(SOURCE))
+    (inputs / "schema.json").write_text('{"type": "object"}')
+
+    with pytest.raises(ValidationError) as error:
+        load_inputs(ROOT, inputs)
+    assert list(error.value.absolute_path) == ["cases", 0, "turns", 0, "checks"]
+
+    output = tmp_path / "output"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/evaluate_ask.py",
+            "--input-dir",
+            str(inputs),
+            "--output",
+            str(output),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=90,
+    )
+    assert result.returncode != 0, result.stdout + result.stderr
+    assert "ValidationError: [] should be non-empty" in result.stderr
+    assert not (output / "results.json").exists()
+
+
+def test_supplied_schema_can_enforce_additional_constraints(tmp_path):
+    case = next(c for c in DOCUMENT["cases"] if c["id"] == "award_mvp")
+    (tmp_path / "cases.json").write_text(json.dumps({**DOCUMENT, "cases": [case]}))
+    (tmp_path / "source.json").write_text(json.dumps(SOURCE))
+    (tmp_path / "schema.json").write_text(
+        '{"required": ["required_by_historical_schema"]}'
+    )
+
+    with pytest.raises(ValidationError, match="required_by_historical_schema"):
+        load_inputs(ROOT, tmp_path)
 
 
 def test_distinct_and_paraphrase_counts_and_parent_contracts():
@@ -153,8 +203,10 @@ def test_inventory_preserves_review_and_reports_missing_critical_selections():
         "distinct": 129,
         "paraphrases": 24,
         "turns": 195,
-        "source_rows": 24,
+        "source_rows": 182,
     }
+    assert summary["source_variants"]["complete"]["source_rows"] == 24
+    assert summary["source_variants"]["rich_league"]["source_rows"] == 158
     assert summary["review_states"] == {"pending": 153}
     assert all(not value["absent"] for value in summary["critical_risks"].values())
     assert DOCUMENT == before
@@ -163,6 +215,66 @@ def test_inventory_preserves_review_and_reports_missing_critical_selections():
             assert summary["cases"][cid]["assertions"]
     subset = {**DOCUMENT, "cases": DOCUMENT["cases"][:1]}
     assert summarize(SOURCE, subset)["critical_risks"]["research"]["absent"]
+
+
+@pytest.mark.parametrize(
+    "case_id,variant,dataset,total,seasons",
+    [
+        ("points_mean", "complete", "rows", 24, {"2024-25": 24}),
+        (
+            "rich_qualified_leader",
+            "rich_league",
+            "rich_league_rows",
+            158,
+            {"2023-24": 48, "2024-25": 110},
+        ),
+    ],
+)
+def test_inventory_reports_selected_variant_rows(
+    case_id, variant, dataset, total, seasons
+):
+    from scripts.ask_eval.coverage import summarize
+
+    case = next(c for c in DOCUMENT["cases"] if c["id"] == case_id)
+    summary = summarize(SOURCE, {**DOCUMENT, "cases": [case]})
+    assert summary["counts"]["source_rows"] == total
+    assert summary["source_variants"] == {
+        variant: {
+            "dataset": dataset,
+            "cases": 1,
+            "source_rows": total,
+            "seasons": seasons,
+        }
+    }
+
+
+def test_inventory_counts_snapshot_rows_once_and_no_rows_for_empty_selection():
+    from scripts.ask_eval.coverage import summarize
+
+    source = {
+        **SOURCE,
+        "source_kind": "production_snapshot",
+        "snapshot": {"rows": SOURCE["rows"][:2]},
+    }
+    cases = [
+        case
+        for case in DOCUMENT["cases"]
+        if case["id"] in {"points_mean", "rich_qualified_leader"}
+    ]
+    summary = summarize(source, {**DOCUMENT, "cases": cases})
+    assert summary["counts"]["source_rows"] == 2
+    assert summary["source_variants"] == {
+        variant: {
+            "dataset": "snapshot",
+            "cases": 1,
+            "source_rows": 2,
+            "seasons": {"2024-25": 2},
+        }
+        for variant in ("complete", "rich_league")
+    }
+    empty = summarize(source, {**DOCUMENT, "cases": []})
+    assert empty["counts"]["source_rows"] == 0
+    assert empty["source_variants"] == {}
 
 
 def test_raw_rows_independently_bind_metric_oracles():

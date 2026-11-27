@@ -7,7 +7,7 @@ import math
 from collections import Counter
 from pathlib import Path
 
-from scripts.ask_eval.fixtures import approval_issue
+from scripts.ask_eval.fixtures import approval_issue, source_dataset_for_variant
 
 # Turn numbers are one-based. These named assertions establish the precise
 # recovery contract; arbitrary assertion presence is insufficient.
@@ -254,7 +254,19 @@ def summarize(source, document):
     if schema_version == 2 and unverified_approved:
         approval_verification += f" Unverified declarations: {unverified_approved} approvals lack valid provenance."
     by_id = {case["id"]: case for case in cases}
-    rows = source.get("rows", source.get("snapshot", {}).get("rows", []))
+    variant_counts = Counter(case["source_variant"] for case in cases)
+    dataset_sizes = {}
+    source_variants = {}
+    for variant, case_count in sorted(variant_counts.items()):
+        dataset, rows = source_dataset_for_variant(source, variant)
+        dataset_sizes[dataset] = len(rows)
+        seasons = Counter(row["season"] for row in rows if "season" in row)
+        source_variants[variant] = {
+            "dataset": dataset,
+            "cases": case_count,
+            "source_rows": len(rows),
+            "seasons": dict(sorted(seasons.items())),
+        }
     inventory = {}
     for case in cases:
         checks = [
@@ -298,9 +310,10 @@ def summarize(source, document):
             "distinct": sum(not c.get("variant_of") for c in cases),
             "paraphrases": sum(bool(c.get("variant_of")) for c in cases),
             "turns": sum(len(c["turns"]) for c in cases),
-            "source_rows": len(rows),
+            "source_rows": sum(dataset_sizes.values()),
         },
         "source_kind": source.get("source_kind", "synthetic"),
+        "source_variants": source_variants,
         "review_states": dict(
             sorted(Counter(c["review"]["status"] for c in cases).items())
         ),

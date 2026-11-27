@@ -283,7 +283,9 @@ The Ask harness stores draft scenarios and linked paraphrases in
 `tests/fixtures/ask/cases.json`, with fictional statistics in
 `tests/fixtures/ask/source.json`. Generate current counts and assertion coverage
 with `python -m scripts.ask_eval.coverage`. The schema validates
-case shape, IDs, structured assertions and review provenance. Expectations cover
+case shape, IDs, structured assertions and review provenance. Run summaries count
+each frozen row dataset once per selection and report case counts and row counts
+by season for each selected source variant. Expectations cover
 identity, phase/date scope, numeric tolerances, missingness, rendered values,
 refusals and multi-turn behavior. Award cases use the existing reviewed catalog.
 Availability/study cases include both missing-source refusals and successful
@@ -811,10 +813,10 @@ Version 2 recordings bind each independent case/turn/JSON-or-SSE call sequence t
 its provider, model, complete semantic request hash, fixture settings, selected
 case contract, source, schema and fixed date. Version 2 binds the manifest hash
 in the terminal record and validates stored request/match hashes and record shape.
-The runner uses `schema.json` from `--input-dir` when supplied. Otherwise, it
-selects the bundled `schema.v1.json` for v1 case documents and `schema.json` for
-current cases. Replay requires the SHA-256 of the exact schema bytes used for
-recording, including whitespace.
+The runner validates each case document against its bundled schema (`schema.v1.json`
+for v1 and `schema.json` for v2) and against `--input-dir/schema.json` when supplied.
+For replay, the SHA-256 binds the exact bytes of the supplied schema if present,
+or the bundled schema otherwise, including whitespace.
 The sole supported v1 bundle is the original reviewed capture, pinned by raw-file
 hashes and canonical cassette hash; arbitrary unverified v1 bundles are rejected.
 Transport timeouts/retries are saved
