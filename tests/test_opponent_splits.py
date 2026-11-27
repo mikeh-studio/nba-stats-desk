@@ -533,8 +533,7 @@ def test_ambiguous_player_selection_preserves_canonical_name_for_followup(
     assert selected["status"] == "ok", selected
     assert selected["opponent_splits"]["player"]["player_id"] == PLAYER["player_id"]
     assert (
-        "Avery Example"
-        in selected["conversation_context"]["opponent_splits_question"]
+        "Avery Example" in selected["conversation_context"]["opponent_splits_question"]
     )
     assert selected["claim_validation"]["status"] == "complete"
 
