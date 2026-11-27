@@ -221,7 +221,7 @@ def _extract_metrics(question: str) -> list[str]:
     catalog = load_semantic_catalog()
     found: list[str] = []
     q = normalize_player_text(question)
-    for metric in catalog.list_metrics():
+    for metric in catalog.list_metrics(tool_only=True):
         names = [metric["key"], metric["label"], *metric.get("aliases", [])]
         if any(_metric_name_in_question(q, name) for name in names):
             key = str(metric["key"])

@@ -478,6 +478,21 @@ def test_catalog_covers_governed_metrics_and_preserves_legacy_tool_scope():
     assert not ({m["key"] for m in percentile_result["valid_metrics"]} & tier5_keys)
 
 
+def test_legacy_planner_excludes_governed_only_metrics_with_min_games():
+    from app.agent.legacy_types import AgentRoute
+    from app.agent.planner import _extract_metrics, deterministic_query_plan
+
+    plan = deterministic_query_plan(
+        "Show LeBron James's points percentile among players with at least 10 games played"
+    )
+    assert plan.route == AgentRoute.PERCENTILE
+    assert plan.metrics == ["pts"]
+    assert plan.min_games == 10
+    assert "fantasy_proxy_weighted" not in _extract_metrics(
+        "Who leads in weighted fantasy points?"
+    )
+
+
 def test_catalog_accepts_legacy_metadata_override(tmp_path):
     path = tmp_path / "catalog.yml"
     path.write_text(
