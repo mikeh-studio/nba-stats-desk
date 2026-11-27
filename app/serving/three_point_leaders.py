@@ -5,7 +5,6 @@ from dataclasses import replace
 import yaml
 
 from app.agent.payload import answer_payload
-from app.agent.plan_execution import leader_game_floor
 from app.agent.reference_planner import LEADER_GAME_SHARE, conversation_leader_plan
 from app.agent.semantic_answer import leader_statement
 from app.agent.semantics import Query, run_query
@@ -78,18 +77,12 @@ def validate_leader_source(scope, accepted, models):
 
 def leader_answer(evidence, manifest):
     scope = manifest["scope"]
-    minimum = leader_game_floor(
-        evidence.rows,
-        {"season": scope["season"], "season_type": scope["phase"]},
-        LEADER_GAME_SHARE,
-    )
     query = Query(
         "fg3m",
         scope["season"],
         "average",
         season_type=scope["phase"],
         operation="rank",
-        min_games=minimum,
         as_of=scope["last"],
     )
     section = run_query(replace(evidence, cohort_complete=True), query)
@@ -117,7 +110,7 @@ def leader_answer(evidence, manifest):
         },
         assumptions=[
             f"{scope['season']} regular season through {scope['last']} · Publication {pid}.",
-            f"Minimum {minimum} games. Per-game rates are ranked before rounding.",
+            "Minimum 65% of team games. Per-game rates are ranked before rounding.",
         ],
         tables=[
             {
