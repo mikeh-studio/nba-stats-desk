@@ -184,9 +184,12 @@ _ROUND_ALIASES = (
     ("first_round", r"(?:first|1st|opening)[ -](?:playoff[ -])?round"),
     (
         "conference_semifinals",
-        r"conference semi[ -]?finals|conference semis|(?:second|2nd)[ -](?:playoff[ -])?round",
+        r"(?:(?:eastern|western|east|west)[ -])?(?:conference semi[ -]?finals|conference semis)|(?:second|2nd)[ -](?:playoff[ -])?round",
     ),
-    ("conference_finals", r"conference finals|(?:third|3rd)[ -](?:playoff[ -])?round"),
+    (
+        "conference_finals",
+        r"(?:(?:eastern|western|east|west)[ -])?conference finals|(?:third|3rd)[ -](?:playoff[ -])?round",
+    ),
     ("nba_finals", r"nba finals|finals"),
 )
 _ROUND_PATTERN = re.compile(

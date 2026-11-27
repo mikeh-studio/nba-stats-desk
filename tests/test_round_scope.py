@@ -53,6 +53,8 @@ def test_round_scope_withholds_before_warehouse_or_planner(scope):
         "in the first round's second game",
         "in the NBA Cup Finals",
         "in the In-Season Tournament Finals",
+        "outside the Eastern Conference Finals",
+        "before the 2024 Western Conference Finals",
     ],
 )
 def test_qualified_round_is_refused_on_governed_route(scope):

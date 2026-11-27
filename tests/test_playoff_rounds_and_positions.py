@@ -12,7 +12,11 @@ from app.agent.historical_positions import GROUPS, MAPPING_VERSION, digest
 from app.agent.overview_percentiles import add_percentiles
 from app.agent.overview_positions import add_position_comparisons, validated_context
 from app.agent.publication_ask_source import PublicationAskSource
-from app.agent.scope_policy import normalize_playoff_round_year, requested_playoff_round
+from app.agent.scope_policy import (
+    normalize_playoff_round_year,
+    playoff_round_planning_question,
+    requested_playoff_round,
+)
 from app.agent.semantics import (
     PLAYOFF_ROUNDS,
     Evidence,
@@ -65,9 +69,13 @@ def test_canonical_playoff_id(game_id, expected):
         ("opening round", "first_round"),
         ("conference semifinals", "conference_semifinals"),
         ("conference semis", "conference_semifinals"),
+        ("Eastern Conference Semifinals", "conference_semifinals"),
+        ("West Conference Semis", "conference_semifinals"),
         ("second round", "conference_semifinals"),
         ("2nd round", "conference_semifinals"),
         ("conference finals", "conference_finals"),
+        ("Eastern Conference Finals", "conference_finals"),
+        ("Western Conference Finals", "conference_finals"),
         ("third round", "conference_finals"),
         ("3rd round", "conference_finals"),
         ("nba finals", "nba_finals"),
@@ -78,6 +86,8 @@ def test_canonical_playoff_id(game_id, expected):
         ("the final score", None),
         ("excluding the first round", None),
         ("before the Finals", None),
+        ("outside the Eastern Conference Finals", None),
+        ("before the 2024 Western Conference Finals", None),
     ],
 )
 def test_round_wording(wording, key):
@@ -88,6 +98,28 @@ def test_round_wording(wording, key):
 def test_round_year_normalization_preserves_named_season(season):
     question = f"points in the {season} NBA Finals"
     assert normalize_playoff_round_year(question) == question
+
+
+def test_conference_round_year_and_planning_rewrite():
+    question = (
+        "How many total points did Luka Doncic score in the 2024 Western Conference Finals?"
+    )
+    normalized = normalize_playoff_round_year(question)
+    assert (
+        normalized
+        == "How many total points did Luka Doncic score in the 2023-24 Western Conference Finals?"
+    )
+    assert (
+        playoff_round_planning_question(normalized)
+        == "Luka Doncic total points in the 2023-24 playoffs?"
+    )
+    assert (
+        playoff_round_planning_question(
+            "How many total points did Luka Doncic score in the Eastern Conference Semifinals?",
+            season="2023-24",
+        )
+        == "Luka Doncic total points in the 2023-24 playoffs?"
+    )
 
 
 def round_rows():
@@ -297,6 +329,16 @@ def test_dispatch_withholds_unbacked_round_and_runs_participation_first():
             "0042300301",
             "conference_finals",
         ),
+        (
+            "How many total points did Regular Player score in the 2024 Western Conference Finals?",
+            "0042300301",
+            "conference_finals",
+        ),
+        (
+            "How many total points did Regular Player score in the 2024 Eastern Conference Semifinals?",
+            "0042300201",
+            "conference_semifinals",
+        ),
     ],
 )
 @pytest.mark.parametrize("archived", [True, False])
@@ -325,7 +367,7 @@ def test_ask_named_round_year_uses_only_the_requested_archive(
     assert result["status"] == "ok", result["answer"]
     evidence = result["semantic_evidence"]
     assert evidence["scope"]["playoff_round"] == round_key
-    if round_key == "nba_finals":
+    if "rows" in evidence:
         assert evidence["rows"][0]["value"] == 17
         assert evidence["rows"][0]["game_ids"] == [game_id]
     else:
