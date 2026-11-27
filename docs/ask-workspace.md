@@ -1307,6 +1307,6 @@ On a publication-enabled host, a standalone regular-season three-point leader
 question uses the active weekly release when it has the
 `ask_three_point_leaders` capability. The answer identifies the release and
 cutoff, and reports makes per game, total makes, and appearances. Qualification
-uses 70% of the largest team game count through that cutoff, rounded up.
+uses 65% of each team’s game count through that cutoff, rounded up.
 Historical seasons continue through the existing historical reader. A release
 without the capability cannot answer this leaderboard.

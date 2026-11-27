@@ -522,7 +522,9 @@ def test_leader_followup_clarifies_filtered_sample_and_retains_playoff_phase():
         == "ok"
     )
     playoffs = agent.answer("Who leads assists?", conversation_id="playoffs")
-    assert playoffs["status"] == "empty_cohort"
+    assert playoffs["status"] == "ok"
+    assert playoffs["semantic_evidence"]["cohort"]["min_games"] == 2
+    assert playoffs["semantic_evidence"]["cohort"]["size"] == 3
     scope = playoffs["semantic_evidence"]["scope"]
     assert (scope["season_type"], scope["team_abbr"]) == ("Playoffs", "AAA")
 

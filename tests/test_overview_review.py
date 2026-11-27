@@ -33,6 +33,7 @@ def source():
                     game_id=f"{season}-{phase}-{day}",
                     season=season,
                     season_type=phase,
+                    team_abbr="AAA" if row["player_id"] <= 15 else "BBB",
                     game_date=f"{month}-{day:02}",
                     pts=row["pts"] + offset,
                     min=[10, 20, 40, 50, 60][day - 1],

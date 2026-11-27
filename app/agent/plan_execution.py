@@ -223,19 +223,14 @@ def execute_plan(
                 raise SemanticError("clarification_required", "Specify the player")
             metric = load_contract().metric(args["metric"])
             args["metric"] = metric.key
-            if plan.get("leader_game_share"):
-                # Serving supplies validated publication appearances instead of
-                # preloading facts. Both paths must use the same qualification.
-                qualification_rows = (
-                    evidence.rows if evidence is not None else appearances
-                )
-                if qualification_rows is None:
-                    raise SemanticError(
-                        "invalid_evidence",
-                        "Leader qualification requires appearance evidence",
-                    )
-                args["min_games"] = leader_game_floor(
-                    qualification_rows, args, plan["leader_game_share"]
+            if (
+                plan.get("leader_game_share")
+                and evidence is None
+                and appearances is None
+            ):
+                raise SemanticError(
+                    "invalid_evidence",
+                    "Leader qualification requires appearance evidence",
                 )
             query = Query(**args)
             if (
