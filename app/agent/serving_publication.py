@@ -13,11 +13,13 @@ from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from datetime import date, datetime
+from itertools import islice
 from pathlib import Path
 from typing import Any, Sequence
 
 import jsonschema
 
+from app.agent.execution import CURRENT, checkpoint
 from app.agent.semantic_source import snapshot_evidence
 from app.agent.semantics import Contract, Evidence, Query, SemanticError, load_contract
 from app.agent.serving_contract import MetricSummary, metric_matrix, summarize_rows
@@ -28,12 +30,18 @@ POLICY = "ask_serving_scope/1"
 MAX_SOURCE_AGE_SECONDS = 300
 
 
-def digest(value: Any) -> str:
-    return hashlib.sha256(
-        json.dumps(
-            value, sort_keys=True, separators=(",", ":"), allow_nan=False
-        ).encode()
-    ).hexdigest()
+def digest(value: Any, *, check_deadline: bool = False) -> str:
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False)
+    if not check_deadline or CURRENT.get() is None:
+        return hashlib.sha256(encoder.encode(value).encode()).hexdigest()
+
+    checkpoint()
+    result = hashlib.sha256()
+    chunks = encoder.iterencode(value)
+    while batch := "".join(islice(chunks, 4096)):
+        result.update(batch.encode())
+        checkpoint()
+    return result.hexdigest()
 
 
 def _plain_mapping(value: Any) -> Any:
@@ -45,12 +53,14 @@ def _plain_mapping(value: Any) -> Any:
 def _summary_records(summaries: Sequence[MetricSummary]) -> list[dict[str, Any]]:
     # JSON hashing immediately consumes these values; normalize Mapping views
     # without copying membership tuples so frozen summaries hash identically.
+    records = []
+    for summary in summaries:
+        checkpoint()
+        records.append(
+            {f.name: _plain_mapping(getattr(summary, f.name)) for f in fields(summary)}
+        )
     return sorted(
-        (
-            {f.name: _plain_mapping(getattr(s, f.name)) for f in fields(s)}
-            for s in summaries
-        ),
-        key=lambda s: (s["season"], s["phase"], s["player_id"], s["metric"]),
+        records, key=lambda s: (s["season"], s["phase"], s["player_id"], s["metric"])
     )
 
 
@@ -110,19 +120,20 @@ def candidate_summaries(
         )
     grouped: dict[tuple, list] = defaultdict(list)
     for row in source.rows:
+        checkpoint()
         grouped[(row["season"], row["season_type"], row["player_id"])].append(row)
     contract = load_contract()
     if any(contract.metric(key).key != key for key in metrics):
         raise SemanticError("invalid_scope", "Canonical metric keys required")
-    return tuple(
-        summarize_rows(
-            sorted(rows, key=lambda r: (str(r["game_date"]), r["game_id"])),
-            contract.metric(key),
-            publication_id,
-        )
-        for _, rows in sorted(grouped.items())
-        for key in sorted(metrics)
-    )
+    ordered_metrics = [contract.metric(key) for key in sorted(metrics)]
+    summaries = []
+    for _, rows in sorted(grouped.items()):
+        ordered_rows = sorted(rows, key=lambda r: (str(r["game_date"]), r["game_id"]))
+        for metric in ordered_metrics:
+            checkpoint()
+            summaries.append(summarize_rows(ordered_rows, metric, publication_id))
+    checkpoint()
+    return tuple(summaries)
 
 
 def candidate_manifest(

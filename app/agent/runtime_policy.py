@@ -56,6 +56,8 @@ class RuntimePolicy:
                 raise ValueError("Runtime authority is incomplete")
 
     def validate_settings(self, settings):
+        from app.agent.source_policy import get_source_policy
+
         if (
             settings.agent_history_enabled
             or settings.agent_trace_enabled
@@ -63,11 +65,14 @@ class RuntimePolicy:
             or settings.agent_position_context_path is not None
         ):
             raise ValueError("Runtime policy forbids optional persistence and sources")
-        if settings.ask_serving_mode != "off" and (
-            settings.ask_serving_mode not in {"shadow", "serve"}
-            or not settings.ask_serving_reference_path
-        ):
-            raise ValueError("Runtime policy requires a trusted serving reference")
+        if settings.ask_serving_mode != "off":
+            if get_source_policy(self.source_policy) is not None:
+                raise ValueError("Runtime source policy requires ASK_SERVING_MODE=off")
+            if (
+                settings.ask_serving_mode not in {"shadow", "serve"}
+                or not settings.ask_serving_reference_path
+            ):
+                raise ValueError("Runtime policy requires a trusted serving reference")
 
     def validate_selection(self, provider, model):
         if provider != "openai" or model != self.model:

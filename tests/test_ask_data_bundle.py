@@ -706,6 +706,62 @@ def test_concurrent_bundle_reads_share_the_request_pin(core_source, settings):
     assert reads == [None]
 
 
+@pytest.mark.parametrize(
+    "binding",
+    ["publication_id", "snapshot_id", "expires_at", "built_at", "source_timestamp"],
+)
+def test_core_bundle_cache_reuses_builds_and_tracks_authority(
+    core_source, settings, monkeypatch, binding
+):
+    active = core_source
+    reads = []
+    builds = []
+    build = AskDataBundle.from_core_publication
+
+    def read(publication_id):
+        reads.append(publication_id)
+        return active
+
+    def count_build(cls, source, **kwargs):
+        builds.append(source)
+        return build(source, **kwargs)
+
+    monkeypatch.setattr(
+        AskDataBundle, "from_core_publication", classmethod(count_build)
+    )
+    warehouse = AskBundleWarehouse(SemanticWarehouse(SnapshotClient()), read)
+    expected = build(core_source, now=NOW)
+    with request_policy(settings, "openai"):
+        original = warehouse.open_bundle(now=NOW)
+        assert original.manifest == expected.manifest
+    with request_policy(settings, "openai"):
+        assert warehouse.open_bundle(now=NOW) is original
+    with request_policy(settings, "openai"):
+        with pytest.raises(SemanticError) as error:
+            warehouse.open_bundle(now=CORE_EXPIRY)
+        assert error.value.code == "invalid_evidence"
+    assert builds == [core_source]
+
+    if binding == "publication_id":
+        active = replace(active, status=dict(active.status, publication_id="core_b"))
+    elif binding == "snapshot_id":
+        active = replace(
+            active, evidence=replace(active.evidence, snapshot_id="core_v2")
+        )
+    else:
+        bound_times = dict(
+            expires_at=CORE_EXPIRY - timedelta(days=1),
+            built_at=NOW - timedelta(seconds=1),
+            source_timestamp=CAPTURE - timedelta(seconds=1),
+        )
+        active = replace(active, **{binding: bound_times[binding].isoformat()})
+    with request_policy(settings, "openai"):
+        refreshed = warehouse.open_bundle(now=NOW)
+        assert refreshed.manifest["bundle_id"] != original.manifest["bundle_id"]
+    assert builds == [core_source, active]
+    assert reads == [None] * 4
+
+
 def test_cold_build_crossing_expiry_is_neither_returned_nor_cached(
     core_source, settings, monkeypatch
 ):

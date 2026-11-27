@@ -19,7 +19,7 @@ from typing import Any, Mapping, Sequence
 
 import yaml
 
-from app.agent.execution import timed
+from app.agent.execution import checkpoint, timed
 from app.agent.formulas import evaluate_formula, extract_formula_variables
 from app.seasons import validate_season
 
@@ -176,6 +176,7 @@ class Evidence:
             )
         seen = set()
         for row in self.rows:
+            checkpoint()
             key = (row.get("season"), row.get("game_id"), row.get("player_id"))
             if any(value is None or value == "" for value in key):
                 raise SemanticError("invalid_data", "Missing player-game key")

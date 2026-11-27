@@ -2,13 +2,17 @@ import json
 import logging
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta
+from itertools import islice
 from types import SimpleNamespace
 
 import pytest
-from app.agent.ask_data_bundle import AskBundleWarehouse
+from app.agent import execution, serving_publication
+from app.agent.ask_data_bundle import AskBundleWarehouse, AskDataBundle
 from app.agent.claims import validate
 from app.agent.execution import request_policy
-from app.agent.semantic_serving import warehouse_for_repository
+from app.agent.runtime_policy import runtime_policy_scope
+from app.agent.semantic_serving import SemanticWarehouse, warehouse_for_repository
+from app.agent.semantic_source import ScopedSemanticSource
 from app.agent.semantics import SemanticError
 from app.agent.serving_runtime import PilotPublication
 from app.agent.serving_warehouse import RefreshingServingWarehouse
@@ -21,6 +25,7 @@ from google.api_core.exceptions import NotFound
 from scripts.ask_eval.cassettes import settings_binding
 from tests.test_production_ask_source import ACTIVE, LAST, source
 from tests.test_runtime_policy import policy
+from tests.test_scoped_source_policy import policy as scoped_source_policy
 from tests.test_semantic_migration import settings
 from tests.test_serving_bigquery import Client, wire
 from tests.test_serving_expansion import make_prepared
@@ -34,8 +39,11 @@ BASELINE = "Compare Regular Player points against league average in 2024-25"
 
 @pytest.fixture(autouse=True)
 def clean_serving_env(monkeypatch):
+    # The launcher may set this variable even when it was initially absent.
+    monkeypatch.setenv("ASK_PUBLICATION_SERVING_MODE", "")
     for name in (
         "ASK_SERVING_MODE",
+        "ASK_PUBLICATION_SERVING_MODE",
         "ASK_SERVING_REFERENCE_PATH",
         "ASK_SERVING_FAMILIES",
         "ASK_LOCAL_ESPN_DEV",
@@ -104,6 +112,40 @@ def test_runtime_accepts_verified_serving_settings(mode):
             ask_serving_reference_path="reference.json",
         )
     )
+
+
+@pytest.mark.parametrize("mode", ["off", "shadow", "serve"])
+def test_runtime_factory_enforces_scoped_source_selection(monkeypatch, mode):
+    import app.main as main
+    from app.repository import BigQueryWarehouseRepository
+
+    restriction = scoped_source_policy()
+    runtime = policy(source_policy=restriction)
+    config = replace(
+        settings(),
+        ask_serving_mode=mode,
+        ask_serving_reference_path="reference.json",
+        performance_cache_prewarm_enabled=False,
+    )
+    repo = BigQueryWarehouseRepository(config, client=object())
+    monkeypatch.setattr(main, "_cached_repository", lambda _: repo)
+    monkeypatch.setitem(
+        main.app.dependency_overrides, main.get_settings, lambda: config
+    )
+
+    with runtime_policy_scope(runtime):
+        if mode != "off":
+            with (
+                pytest.raises(ValueError, match="requires ASK_SERVING_MODE=off"),
+                TestClient(main.app),
+            ):
+                pytest.fail("Startup accepted serving with a scoped source")
+        else:
+            with TestClient(main.app):
+                warehouse = warehouse_for_repository(main._warehouse_repository(config))
+            assert isinstance(warehouse, SemanticWarehouse)
+            assert isinstance(warehouse.source, ScopedSemanticSource)
+            assert warehouse.source.source.source_policy == restriction
 
 
 @pytest.mark.parametrize(
@@ -266,6 +308,33 @@ def test_broken_candidate_fails_closed(prepared, tmp_path, broken):
     assert facts.calls == []
 
 
+@pytest.mark.parametrize("suffix", ["", "/stream"])
+def test_rich_serving_rejects_bound_detail_with_different_coverage(
+    prepared, tmp_path, suffix
+):
+    evidence, publication = prepared
+    metadata = json.loads(publication.metadata_json)
+    record = metadata["data_through"][0]
+    record[2] = (
+        datetime.fromisoformat(record[2]).date() + timedelta(days=1)
+    ).isoformat()
+    mismatched = replace(
+        publication,
+        metadata_json=json.dumps(metadata, sort_keys=True, separators=(",", ":")),
+        metadata_digest=serving_publication.digest(metadata),
+    )
+    assert mismatched.detail_evidence(now=NOW) == evidence
+    with pytest.raises(SemanticError, match="Invalid Pilot Ask publication"):
+        AskDataBundle.from_pilot_publication(mismatched, now=NOW)
+
+    facts = Facts(evidence)
+    candidate = warehouse(tmp_path, facts, mismatched, "serve")
+    result = ask(candidate, BASELINE, suffix)
+    assert result["status"] == "invalid_evidence"
+    assert not result["tables"]
+    assert facts.calls == []
+
+
 def test_uncovered_scope_or_undeclared_detail_uses_whole_fact_request(
     prepared, tmp_path
 ):
@@ -321,11 +390,17 @@ def test_uncovered_overview_baseline_keeps_facts_for_primary_retry(prepared, tmp
 
 
 @pytest.mark.parametrize("override", [None, "off", "shadow", "serve"])
-def test_production_composition_uses_effective_bundle_mode(monkeypatch, override):
+@pytest.mark.parametrize("wire_reference", [False, True])
+def test_production_composition_uses_effective_bundle_mode(
+    monkeypatch, override, wire_reference
+):
+    import app.main as main
     from scripts.serve_production_candidate import attach_publication
 
+    monkeypatch.setattr(main, "_start_cache_prewarm", lambda: None)
     if override is not None:
         monkeypatch.setenv("ASK_SERVING_MODE", override)
+    if wire_reference:
         monkeypatch.setenv("ASK_SERVING_REFERENCE_PATH", "reference.json")
     release = replace(
         source(ACTIVE),
@@ -339,9 +414,12 @@ def test_production_composition_uses_effective_bundle_mode(monkeypatch, override
             state=SimpleNamespace(ask_publication_source=lambda: release)
         ),
     )
-    app = FastAPI()
+    app = FastAPI(lifespan=main._lifespan)
     attach_publication(app, core, lambda: "production")
     config = Settings.from_env()
+    assert config.ask_serving_mode == (
+        (override or "serve") if wire_reference else "off"
+    )
     repo = SimpleNamespace(
         settings=config,
         _governed_warehouse=Facts(release.evidence),
@@ -358,6 +436,63 @@ def test_production_composition_uses_effective_bundle_mode(monkeypatch, override
             assert opened is release
         assert opened.provenance == release.provenance
         adapter.recheck_publication(opened)
+
+
+@pytest.mark.parametrize("phase", ["summaries", "hashing"])
+def test_core_shadow_deadline_preserves_endpoint_answer(monkeypatch, caplog, phase):
+    release = replace(
+        source(ACTIVE),
+        built_at=NOW.isoformat(),
+        expires_at=(NOW + timedelta(days=1)).isoformat(),
+    )
+    monkeypatch.setattr(AskBundleWarehouse, "_utc_now", staticmethod(lambda: NOW))
+    instant = 100.0
+    work = []
+
+    def exceed_shadow_deadline():
+        nonlocal instant
+        work.append(phase)
+        instant = execution.CURRENT.get().deadline + 0.1
+
+    if phase == "summaries":
+        summarize_rows = serving_publication.summarize_rows
+
+        def summarize(*args):
+            exceed_shadow_deadline()
+            return summarize_rows(*args)
+
+        monkeypatch.setattr(serving_publication, "summarize_rows", summarize)
+    else:
+
+        def hash_batch(chunks, size):
+            batch = list(islice(chunks, size))
+            exceed_shadow_deadline()
+            return batch
+
+        monkeypatch.setattr(serving_publication, "islice", hash_batch)
+
+    monkeypatch.setattr(execution, "monotonic", lambda: instant)
+    config = replace(settings(DEFAULT_SEASON), agent_request_deadline_seconds=3)
+    facts = Facts(release.evidence)
+    adapter = AskBundleWarehouse(facts, lambda _: release, publication_mode="shadow")
+    question = "Taylor Example average points"
+    expected = ask(
+        AskBundleWarehouse(facts, lambda _: release), question, "", config=config
+    )
+    caplog.clear()
+    with caplog.at_level(logging.INFO, logger="app.agent"):
+        answer = ask(adapter, question, "", config=config)
+    assert answer["status"] == expected["status"] == "ok"
+    assert answer["semantic_evidence"] == expected["semantic_evidence"]
+    assert answer["publication_id"] == ACTIVE
+    assert work == [phase]
+    assert not adapter._core_bundles
+    assert [
+        item
+        for entry in caplog.records
+        if entry.name == "app.agent" and entry.message.startswith('{"ask_route"')
+        for item in json.loads(entry.message).get("serving_shadow", [])
+    ] == [{"status": "error", "code": "request_timeout"}]
 
 
 @pytest.mark.parametrize("suffix", ["", "/stream"])

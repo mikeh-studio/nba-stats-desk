@@ -256,7 +256,7 @@ The application supports the following settings.
 | Setting | Meaning |
 | --- | --- |
 | `ASK_SERVING_MODE=off\|shadow\|serve` | Select governed facts, optional comparison, or eligible serving execution |
-| `ASK_SERVING_REFERENCE_PATH` | Private trusted reference JSON. Required for explicit `shadow` or `serve` in app settings |
+| `ASK_SERVING_REFERENCE_PATH` | Private trusted Wire reference JSON. Required for Wire `shadow` or `serve` |
 | `ASK_SERVING_FAMILIES=points` | Comma-separated selection of `points`, `metrics`, `rankings`, `detail`, and `rich`. `all` enables all five |
 | `ASK_FORMULA_CACHE_ENABLED=false` | Cache validated expression syntax and variable names, never values |
 | `ASK_COHORT_CACHE_ENABLED=false` | Reuse a bounded full cohort within one validated publication |
@@ -462,8 +462,10 @@ positions, player aliases, and event participation.
   summary-only bundles. Approved points summaries or bound game facts enable
   points. Bound game facts also enable detail and rich capabilities.
 
-`AskBundleWarehouse.open_bundle()` returns a read-only bundle and pins it to the
-governed request. Freshness is checked after cold builds and on cache reads.
+`AskBundleWarehouse.open_bundle()` returns a read-only bundle pinned to the
+governed request. The warehouse reuses Core bundles
+across requests by publication ID, source snapshot ID and authority timestamps.
+Freshness is checked after cold builds and on cache reads.
 Reads require timezone-aware timestamps and fail at expiry or
 when the requested publication differs from the pin. The configured Core reader
 takes precedence for bundle reads. A development serving warehouse exposes its
@@ -491,14 +493,19 @@ routing for new requests. Pinned conversations still require their publication.
 Set `ASK_SERVING_MODE=off` to roll back to governed fact execution, or set
 `ASK_SERVING_MODE=shadow` to return the same fact answers and record optional
 candidate parity outcomes. The override takes effect with the launcher
-environment and requires no bundle rebuild or publication switch. An explicit
-`shadow` or `serve` also requires `ASK_SERVING_REFERENCE_PATH` for app settings.
+environment and requires no bundle rebuild or publication switch. In a Core-only
+deployment, the launcher applies the override to Core and leaves Wire serving
+off. When configuring both sources, `ASK_PUBLICATION_SERVING_MODE` can override
+the launcher's Core mode independently. Wire `shadow` and `serve` require
+`ASK_SERVING_REFERENCE_PATH`. A trusted runtime with a scoped source policy
+requires `ASK_SERVING_MODE=off`.
 `serve` is incompatible with `ASK_LOCAL_ESPN_DEV=true`.
 
 For the Wire reference path, requests outside declared coverage or capabilities
 use a single governed fact source for the full request. Missing or corrupt
 selected references and missing, expired, or corrupt selected bundles return
-`invalid_evidence` or `publication_unavailable`. Shadow mode checks scalar
-results and the complete game-evidence inputs to rich calculations within its
-optional budget. The JSON and SSE graduation suite checks values, denominators,
+`invalid_evidence` or `publication_unavailable`. Rich reads also reject detail
+whose per-scope coverage dates disagree with the Wire core metadata. Shadow mode
+checks scalar results and the complete game-evidence inputs to rich calculations
+within its optional budget. The JSON and SSE graduation suite checks values, denominators,
 claim bindings, and provenance on the same frozen evidence.

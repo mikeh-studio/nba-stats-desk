@@ -339,7 +339,14 @@ class ServingWarehouse:
             return None
         pub = self.bound_detail(core)
         evidence = pub.detail_evidence(now=self.clock())
-        if evidence is None or evidence.covered_scopes != core.approval.scopes:
+        coverage = {
+            (season, phase): day for season, phase, day in metadata["data_through"]
+        }
+        if (
+            evidence is None
+            or evidence.covered_scopes != core.approval.scopes
+            or evidence.data_through != coverage
+        ):
             raise SemanticError("invalid_evidence", "Serving detail coverage differs")
         if {s for s, p in evidence.covered_scopes} != set(seasons):
             from dataclasses import replace

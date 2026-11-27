@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta, timezone
 from functools import cache
 from pathlib import Path
+from threading import Lock
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any
 
@@ -19,6 +21,7 @@ from app.agent.execution import (
     CURRENT,
     ExecutionFailure,
     acquire_timed_lock,
+    checkpoint,
     optional_shadow_budget,
     record_serving_shadow,
 )
@@ -56,6 +59,7 @@ def _bundle_validator() -> jsonschema.Draft202012Validator:
 
 def _json_value(value: Any) -> Any:
     if isinstance(value, Mapping):
+        checkpoint()
         return {key: _json_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_value(item) for item in value]
@@ -155,6 +159,7 @@ def validate_bundle_manifest(
 
 def _freeze(value: Any) -> Any:
     if isinstance(value, Mapping):
+        checkpoint()
         return MappingProxyType({key: _freeze(item) for key, item in value.items()})
     if isinstance(value, (list, tuple)):
         return tuple(_freeze(item) for item in value)
@@ -162,6 +167,7 @@ def _freeze(value: Any) -> Any:
 
 
 def _facts_digest(evidence: Evidence | None) -> str:
+    checkpoint()
     if evidence is None:
         return digest(None)
     return digest(
@@ -180,7 +186,8 @@ def _facts_digest(evidence: Evidence | None) -> str:
                 ),
                 "position_context": evidence.position_context,
             }
-        )
+        ),
+        check_deadline=True,
     )
 
 
@@ -209,6 +216,7 @@ def record_bundle_shadow(
                 outcome = {"status": "match", "code": "capture_provenance_differs"}
             else:
                 outcome = {"status": "match"}
+            checkpoint()
     except Exception as exc:
         outcome = {
             "status": "error",
@@ -338,7 +346,7 @@ class AskDataBundle:
             scope=scope,
             freshness=freshness,
             capabilities=sorted(capabilities),
-            summary_digest=digest(_summary_records(summaries)),
+            summary_digest=digest(_summary_records(summaries), check_deadline=True),
             facts_digest=_facts_digest(evidence),
         )
         manifest["bundle_id"] = digest(manifest)
@@ -356,6 +364,7 @@ class AskDataBundle:
     ) -> AskDataBundle:
         try:
             _require_aware(now)
+            checkpoint()
             if source.status["freshness"] not in {"fresh", "stale_usable"}:
                 raise ValueError("Core publication is unavailable or expired")
             expiry = expires_at if expires_at is not None else source.expires_at
@@ -364,6 +373,8 @@ class AskDataBundle:
                 and _timestamp(expiry) > _timestamp(source.expires_at)
             ):
                 raise ValueError("A bound Core publication expiry is required")
+            if now >= _timestamp(expiry):
+                raise SemanticError("invalid_evidence", "Core Ask bundle expired")
             evidence = source.evidence
             first, last = source.first, source.last
             scope = (source.season, source.phase)
@@ -544,6 +555,10 @@ class AskBundleWarehouse:
         self.read_publication = read_publication
         self._clock = clock
         self.publication_mode = publication_mode
+        self._core_bundle_lock = Lock()
+        self._core_bundles: OrderedDict[
+            tuple[str, str, str | None, str | None, str | None], AskDataBundle
+        ] = OrderedDict()
 
     def __getattr__(self, key: str) -> Any:
         return getattr(self.historical, key)
@@ -615,28 +630,58 @@ class AskBundleWarehouse:
             if self.publication_mode == "shadow":
                 if "shadow_compared" not in state:
                     record_bundle_shadow(
-                        lambda: (
-                            self._core_bundle(state, source, self._utc_now()).evidence
-                        ),
+                        lambda: self._core_bundle(source, state=state).evidence,
                         source.evidence,
                     )
                     state["shadow_compared"] = True
                 return source
-            bundle = self._core_bundle(state, source, self._utc_now())
+            bundle = self._core_bundle(source, state=state)
             if bundle.evidence is None:
                 raise SemanticError("invalid_evidence", "Core bundle facts are missing")
             return replace(source, evidence=bundle.evidence)
 
-    @staticmethod
     def _core_bundle(
-        state: dict[str, Any], source: PublicationAskSource, now: datetime
+        self,
+        source: PublicationAskSource,
+        *,
+        now: datetime | None = None,
+        state: dict[str, Any] | None = None,
     ) -> AskDataBundle:
-        if (bundle := state.get("bundle")) is None:
-            bundle = AskDataBundle.from_core_publication(source, now=now)
-            state["bundle"] = bundle
-        else:
-            validate_bundle_manifest(bundle.manifest, now=now)
-        return bundle
+        if state is not None and (pinned := state.get("bundle")) is not None:
+            validate_bundle_manifest(
+                pinned.manifest, now=now if now is not None else self._utc_now()
+            )
+            return pinned
+        key = (
+            source.publication_id,
+            source.evidence.snapshot_id,
+            source.expires_at,
+            source.built_at,
+            source.source_timestamp,
+        )
+        acquire_timed_lock(self._core_bundle_lock, "core_bundle_wait")
+        try:
+            bundle = self._core_bundles.get(key)
+            if bundle is None or bundle.provenance["freshness"] != source.status.get(
+                "freshness"
+            ):
+                bundle = AskDataBundle.from_core_publication(
+                    source, now=now if now is not None else self._utc_now()
+                )
+            validate_bundle_manifest(
+                bundle.manifest, now=now if now is not None else self._utc_now()
+            )
+            checkpoint()
+            self._core_bundles[key] = bundle
+            self._core_bundles.move_to_end(key)
+            # Match the production reader's bound for active and pinned releases.
+            if len(self._core_bundles) > 2:
+                self._core_bundles.popitem(last=False)
+            if state is not None:
+                state["bundle"] = bundle
+            return bundle
+        finally:
+            self._core_bundle_lock.release()
 
     def recheck_publication(self, source: PublicationAskSource) -> None:
         # Recheck live authority even when request-local reads use pinned evidence.
@@ -655,8 +700,7 @@ class AskBundleWarehouse:
                 "The publication's league coverage could not be reverified. Try again.",
             )
         if self.publication_mode == "serve":
-            with self._request_state() as state:
-                self._core_bundle(state, current, self._utc_now())
+            self._core_bundle(current)
 
     def open_bundle(
         self, publication_id: str | None = None, *, now: datetime | None = None
@@ -694,7 +738,9 @@ class AskBundleWarehouse:
                         "No authorized Ask publication is available.",
                     )
                 bundle = self._core_bundle(
-                    state, source, now if now is not None else authority_clock()
+                    source,
+                    now=now if now is not None else authority_clock(),
+                    state=state,
                 )
             else:
                 read_pilot = getattr(self.historical, "open_pilot_publication", None)
