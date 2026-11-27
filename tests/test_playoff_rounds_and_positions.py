@@ -101,9 +101,7 @@ def test_round_year_normalization_preserves_named_season(season):
 
 
 def test_conference_round_year_and_planning_rewrite():
-    question = (
-        "How many total points did Luka Doncic score in the 2024 Western Conference Finals?"
-    )
+    question = "How many total points did Luka Doncic score in the 2024 Western Conference Finals?"
     normalized = normalize_playoff_round_year(question)
     assert (
         normalized
