@@ -912,26 +912,102 @@ export function claimSchema(payload, component, options = {}) {
 }
 function opponentSplitSchema(payload) {
   const e = payload.opponent_splits;
-  const records = [];
-  payload.tables.forEach((table, ti) => {
+  if (e?.version !== "opponent_splits/1") throw Error("Unknown opponent split evidence");
+  const records = [], base = ["opponent_splits"];
+  const labels = e.display_metrics.map(key => e.metric_definitions[key].label);
+  const splitLabels = e.display_metrics.map(key => {
+    const {label, unit} = e.metric_definitions[key];
+    if (["ratio", "per36", "games"].includes(unit)) return label;
+    return label + (e.aggregation === "total" ? " total" : " / game");
+  });
+  const tables = [
+    ["Opponent splits", ["Opponent", "Games", "W–L", "Struggle score", "Sample", ...splitLabels]],
+    ["Change from the player's baseline", ["Opponent", ...labels]],
+  ];
+  const gameFields = ["game_date", "game_id", "team_abbr", "opponent_abbr", "game_result"];
+  if (e.toughest_opponent_games.length)
+    tables.push(["Games against the toughest opponent", ["Date", "Game ID", "Team", "Opponent", "Result", ...labels]]);
+  const rowCounts = [e.opponents.length, e.opponents.length, e.toughest_opponent_games.length];
+  if (payload.tables?.length !== tables.length || tables.some(([, columns], ti) => {
+    const table = payload.tables[ti];
+    return table?.columns?.length !== columns.length || table?.rows?.length !== rowCounts[ti] ||
+      table.rows.some(row => row?.length !== columns.length);
+  })) throw Error("Opponent split table shape contradicts canonical evidence");
+  function add(ti, selector, source, format = "text", context = {}) {
     const panel = `[data-opponent-split-table="${ti}"]`;
-    const add = (selector, ...source) => records.push({
+    records.push({
       id: `opponent-splits-${records.length}`, component: "opponent_splits",
-      selector: `${panel} ${selector}`, source: ["tables", ti, ...source],
-      format: "text", attribute: null, identity: clone(e.player), scope: clone(e.scope),
+      selector: `${panel} ${selector}`, source, format, context,
+      attribute: null, identity: clone(e.player), scope: clone(e.scope),
     });
-    add(ti === 0 ? "h3" : "summary", "title");
-    table.columns.forEach((_, ci) =>
-      add(`thead th:nth-child(${ci + 1})`, "columns", ci, "label"));
-    table.rows.forEach((row, ri) => row.forEach((_, ci) =>
-      add(`tbody tr:nth-child(${ri + 1}) td:nth-child(${ci + 1})`, "rows", ri, ci)));
+  }
+  function cell(ti, ri, ci, source, format, context) {
+    add(ti, `tbody tr:nth-child(${ri + 1}) td:nth-child(${ci + 1})`, source, format, context);
+  }
+  function metricCell(ti, ri, ci, rowPath, key, field) {
+    const unit = e.metric_definitions[key].unit;
+    cell(ti, ri, ci, [...rowPath, "metrics", key, field], "opponent-number", {
+      digits: field !== "difference" && (key === "gp" || (field === "total" && unit === "count")) ? 0 : 2,
+      ratio: unit === "ratio", difference: field === "difference",
+    });
+  }
+  tables.forEach(([title, columns], ti) => {
+    add(ti, ti === 0 ? "h3" : "summary", null, "opponent-heading", {label: title});
+    columns.forEach((label, ci) =>
+      add(ti, `thead th:nth-child(${ci + 1})`, null, "opponent-heading", {label}));
+  });
+  e.opponents.forEach((row, ri) => {
+    const path = [...base, "opponents", ri];
+    cell(0, ri, 0, [...path, "opponent_abbr"]);
+    cell(0, ri, 1, [...path, "games"]);
+    cell(0, ri, 2, path, "opponent-record");
+    cell(0, ri, 3, [...path, "struggle_score"], "opponent-number", {digits: 2});
+    cell(0, ri, 4, [...path, "sample_label"]);
+    e.display_metrics.forEach((key, i) => {
+      const field = e.aggregation === "total" && Object.hasOwn(row.metrics[key], "total") ? "total" : "value";
+      metricCell(0, ri, i + 5, path, key, field);
+      metricCell(1, ri, i + 1, path, key, "difference");
+    });
+  });
+  e.toughest_opponent_games.forEach((_, ri) => {
+    const path = [...base, "toughest_opponent_games", ri];
+    gameFields.forEach((field, ci) => cell(2, ri, ci, [...path, field], "opponent-game-field"));
+    e.display_metrics.forEach((key, i) => metricCell(2, ri, i + 5, path, key, "value"));
   });
   return records;
 }
 
+function opponentNumber(value, {digits, ratio, difference}) {
+  if (value === null) return "Unavailable";
+  if (!finite(value)) throw Error("Invalid opponent split value");
+  const scaled = ratio && !difference ? value * 100 : value;
+  const magnitude = Math.abs(scaled);
+  // Python fixed-point formatting rounds exact binary ties to the even digit.
+  const halfSteps = magnitude * 2 ** (digits + 1);
+  const factor = 10 ** digits;
+  const lower = Math.floor(magnitude * factor);
+  const rounded = halfSteps % 2 === 1 && lower % 2 === 0
+    ? (lower / factor).toFixed(digits)
+    : magnitude.toFixed(digits);
+  const sign = Number(rounded) === 0 ? "" : scaled < 0 ? "-" : difference ? "+" : "";
+  return sign + rounded + (ratio ? (difference ? " pp" : "%") : "");
+}
+
 export function expectedClaim(payload, record) {
-  if (record.component === "opponent_splits")
-    return formatClaim(claimSource(payload, record.source), record.format);
+  if (record.component === "opponent_splits") {
+    if (record.format === "opponent-heading") return record.context.label;
+    const value = claimSource(payload, record.source);
+    switch (record.format) {
+      case "opponent-number":
+        return opponentNumber(value, record.context);
+      case "opponent-record":
+        return `${value.wins}–${value.losses}${value.unknown_outcomes ? ` (${value.unknown_outcomes} unknown)` : ""}`;
+      case "opponent-game-field":
+        return String(value ?? "Unavailable");
+      default:
+        return formatClaim(value, record.format);
+    }
+  }
   const c = {
     ...record.context,
     evidence: { scope: payload.semantic_evidence.scope },

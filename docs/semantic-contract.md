@@ -303,6 +303,9 @@ season, the last N recorded appearances, and a home or away filter. Venue and
 phase filters apply before selecting the last N appearances. The route uses
 governed game-grain evidence from the selected warehouse, bundle or pinned
 publication. Metric-only follow-ups retain that player and scope.
+Use a numeric game count for recent windows, such as `last 3 games`.
+Single-opponent filters, within-game periods, and league-average comparisons
+require separate requests when combined with opponent splits.
 
 The `opponent_splits/1` evidence includes each opponent's appearance count and
 verified team W–L record, with unknown outcomes counted separately. The default
@@ -324,14 +327,17 @@ usable baseline or zero spread. An opponent needs a value for every remaining
 metric to receive a score. Higher scores indicate tougher observed matchups.
 Scores sort descending, then by more appearances and opponent abbreviation for
 ties. The answer identifies the toughest and best observed matchups only
-when at least two opponents have distinct scores. Opponents with fewer than three
+when the extreme scores differ beyond the numerical tie tolerance of
+`math.isclose` with an absolute tolerance of `1e-9`. Opponents with fewer than three
 games are flagged as small samples. Plus-minus captures team scoring margin
 during the player's minutes, so the score is descriptive. The toughest-opponent
 game log retains dates, game IDs, outcomes and the requested metrics for review.
 
 The prose, matchup stats, baseline changes and game log have claim bindings to
-the scoped evidence. The frontend displays the bound matchup table and lets the
-reader expand the baseline changes and source game log.
+the scoped evidence. Enforcement requires every destination defined by that
+evidence, including every opponent row. The frontend validates table cells
+against canonical evidence and lets the reader expand the baseline changes
+and source game log.
 
 ## League reference and similarity contracts
 

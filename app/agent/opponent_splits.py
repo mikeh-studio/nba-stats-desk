@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from math import isclose
 from statistics import mean, pstdev
 from typing import Any
 
@@ -15,6 +16,7 @@ from app.agent.name_matching import mask_player_tokens
 from app.agent.payload import answer_payload
 from app.agent.player_comparison import comparison_sides
 from app.agent.scope_policy import (
+    COLLECTIVE_MATCHUP,
     explicit_aggregation,
     explicit_metric_mentions,
     explicit_phase,
@@ -42,19 +44,41 @@ SMALL_SAMPLE = 3
 _METRIC_REPLY = "\nOpponent split metrics: "
 _OPPONENT_CUE = re.compile(
     r"\b(?:opponent[ -](?:splits?|breakdown)|(?:split|breakdown)s? (?:by|across) opponent"
-    r"|(?:against|versus|vs\.?)\s+(?:each|every|all)\s+(?:of (?:the|his|her|their) )?(?:opponents?|teams?)"
+    rf"|{COLLECTIVE_MATCHUP}"
     r"|by opponent|(?:toughest|hardest|easiest|best|worst)\s+(?:matchups?|opponents?)"
     r"|(?:which|what) (?:opponent|team)\b[^?\n]*\bstruggl\w*[^?\n]*\bagainst"
     r"|\bstruggl\w*\s+(?:the\s+)?(?:most\s+)?against which (?:opponent|team))\b",
     re.I,
 )
 _LAST_GAMES = re.compile(
-    r"\b(?:last|past|most recent)\s+(\d+)\s+(?:(?:home|away|road|playoffs?|regular[ -]season)\s+)?(?:games?|appearances)\b",
+    r"\b(?:last|past|most recent)\s+(\d+)\s+(?:(?:home|away|road|playoffs?|regular[ -]season)\s+)?(?:games?|appearances?)\b",
+    re.I,
+)
+_UNCONSUMED_GAME_WINDOW = re.compile(
+    r"\b(?:last|past|most recent|first|previous|prior|preceding|next)\s+"
+    r"(?:(?!(?:round|season|games?|appearances?|and|or)\b)[\w-]+\s+){0,4}(?:games?|appearances?)\b",
+    re.I,
+)
+_OPPONENT_FILTER = re.compile(
+    r"\b(?:against|versus|vs\.?)\s+"
+    r"(?!(?:most|the most|which (?:team|opponent)|in|during|over|from|at|on)\b)\w",
+    re.I,
+)
+_LEAGUE_REFERENCE = re.compile(
+    r"\b(?:league(?:'s|’s)?\s+(?:average|baseline)|"
+    r"(?:relative to|compared (?:to|with)|versus|vs\.?)\s+(?:the\s+)?league)\b",
+    re.I,
+)
+_WITHIN_GAME_SCOPE = re.compile(
+    r"\b(?:quarters?|halves|half|overtime|clutch|q[1-4]|[1-4]q"
+    r"|(?:first|second|third|fourth|[1-4](?:st|nd|rd|th))\s+period"
+    r"|period\s+[1-4])\b",
     re.I,
 )
 _UNSUPPORTED_SCOPE = re.compile(
-    r"\b(?:career|all[ -]time|(?:first|previous|prior|preceding|next)\s+\d+\s+games?"
-    r"|(?:last|past|preceding) \d+ weeks?|play[ -]in|preseason|playoff series|NBA Cup"
+    r"\b(?:career|all[ -]time|excluding|except|head[ -]to[ -]head"
+    r"|(?:last|past|preceding) [\w-]+ weeks?|play[ -]in|preseason|playoff series|NBA Cup"
+    r"|(?:in|during|for) (?:playoff )?game [1-7]"
     r"|today|yesterday|tonight|since|before|after|until)\b",
     re.I,
 )
@@ -93,7 +117,27 @@ def opponent_splits_followup(question: str, previous: str | None) -> str | None:
 
 def opponent_split_query(question: str, season: str) -> Query:
     """Resolve scope before starting a governed evidence read."""
-    question = question.partition(_METRIC_REPLY)[0]
+    question = question.partition(_METRIC_REPLY)[0].split("\nSelected player:", 1)[0]
+    if _LEAGUE_REFERENCE.search(question):
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits do not support a league-average comparison. Ask for opponent splits or a league comparison in separate questions.",
+        )
+    scope_text = re.sub(COLLECTIVE_MATCHUP, " ", question, flags=re.I)
+    if _OPPONENT_FILTER.search(scope_text):
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits cover all opponents in the sample. Ask for a separate single-opponent summary.",
+        )
+    if _UNCONSUMED_GAME_WINDOW.search(_LAST_GAMES.sub(" ", question)):
+        raise SemanticError(
+            "unsupported_scope",
+            "Use a numeric last-N-games window, such as last 3 games.",
+        )
+    if _WITHIN_GAME_SCOPE.search(question):
+        raise SemanticError(
+            "unsupported_scope", "Opponent splits are available for whole games only."
+        )
     round_key = requested_playoff_round(question)
     if message := round_scope_message(question, round_coverage=True):
         raise SemanticError("unsupported_scope", message)
@@ -108,7 +152,7 @@ def opponent_split_query(question: str, season: str) -> Query:
             "unsupported_scope",
             "Choose one season or playoff round, an explicit date range, or a last-N-games window.",
         )
-    scope = explicit_scope(question)
+    scope = explicit_scope(scope_text)
     dates = re.findall(r"\b\d{4}-\d{2}-\d{2}\b", question)
     if len(dates) > 2 or (
         dates and not (scope.get("as_of") or re.search(r"\bas[ -]of\b", question, re.I))
@@ -184,6 +228,7 @@ def parse_opponent_splits(
             "clarification_required", "Please name one player for the opponent splits."
         )
     player = next(iter(named.values()))
+    query = query or opponent_split_query(base, season)
     filters = extract_game_filters(base, [player]).query_fields
     # Uppercase stat shorthand can resemble a team code. MIN is a team code.
     team = filters.get("team_abbr", "")
@@ -202,7 +247,6 @@ def parse_opponent_splits(
         if keys
         else DEFAULT_METRICS
     )
-    query = query or opponent_split_query(base, season)
     return OpponentSplitsRequest(
         replace(
             query,
@@ -331,7 +375,10 @@ def compute_opponent_splits(
     )
     toughest = (
         opponents[0]
-        if best and opponents[0]["struggle_score"] != best["struggle_score"]
+        if best
+        and not isclose(
+            opponents[0]["struggle_score"], best["struggle_score"], abs_tol=1e-9
+        )
         else None
     )
     if toughest is None:

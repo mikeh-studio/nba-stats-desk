@@ -3,7 +3,7 @@ from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
-from app.agent.claims import finalize, validate
+from app.agent.claims import expand_claim, finalize, validate
 from app.agent.conversation import InMemoryConversationStore
 from app.agent.name_matching import PlayerNameError
 from app.agent.opponent_splits import (
@@ -13,6 +13,7 @@ from app.agent.opponent_splits import (
     parse_opponent_splits,
     wants_opponent_splits,
 )
+from app.agent.player_comparison import comparison_sides
 from app.agent.routes import RouteContext, select_route, semantic_shape
 from app.agent.semantics import Evidence, SemanticError
 from app.agent.service import StatsAgent
@@ -198,6 +199,7 @@ def facts():
         "Which team did Avery Example struggle against most in 2024-25?",
         "Avery Example's opponent splits",
         "How did Avery Example perform against each opponent?",
+        "Avery Example struggled most against which team?",
         "Show the toughest matchup for Avery Example",
         "Break down Avery Example’s scoring by opponent in the first round",
         "How many games did Avery Example play against each team?",
@@ -209,12 +211,31 @@ def test_opponent_route_cues(question):
 
 
 @pytest.mark.parametrize(
+    "opponents",
+    [
+        "every team",
+        "each team",
+        "all teams",
+        "every opponent",
+        "each opponent",
+        "all opponents",
+        "every NBA team",
+    ],
+)
+def test_collective_opponent_is_not_a_second_player(opponents):
+    question = f"How did Avery Example perform versus {opponents} in 2024-25?"
+    assert comparison_sides(question) is None
+    assert semantic_shape(question) == "opponent_splits"
+
+
+@pytest.mark.parametrize(
     ("question", "route"),
     [
         ("How many points did Avery Example average against BOS?", "metrics"),
         ("How did Avery Example perform against BOS?", "overview"),
         ("Avery Example vs Blair Sample opponent splits", "player_comparison"),
         ("Compare Avery Example and Blair Sample by opponent", "player_comparison"),
+        ("Avery Example vs Blair Sample versus every team", "player_comparison"),
         ("Compare Avery Example at home vs on the road by opponent", "player_split"),
         ("Compare Avery Example in the regular season vs playoffs", "player_split"),
     ],
@@ -261,10 +282,27 @@ def test_ratios_delta_and_score_use_governed_components(facts):
     assert metrics["efg_pct"]["value"] == pytest.approx((9 + 0.5 * 2) / 25)
 
 
+def test_equivalent_opponent_stat_lines_have_no_distinct_score_extremes(facts):
+    # Unequal sample sizes give the same pooled stat lines, with float noise
+    # from summing the shooting denominator over two versus ten appearances.
+    rows = [
+        {**row, "game_id": f"{i:02}", "opponent_abbr": "BOS" if i < 2 else "MIA"}
+        for i, row in enumerate(facts.rows[:2] * 6)
+    ]
+    request = parse_opponent_splits(QUESTION, [PLAYER], SEASON)
+    result = compute_opponent_splits(replace(facts, rows=rows), request)
+    first, second = result["opponents"]
+    assert first["struggle_score"] == pytest.approx(second["struggle_score"])
+    assert result["toughest_opponent"] is None
+    assert result["best_opponent"] is None
+    assert result["toughest_opponent_games"] == []
+
+
 @pytest.mark.parametrize(
     ("scope", "matches"),
     [
         (" first round at home", ["06"]),
+        (" first round home games", ["06"]),
         (" playoffs", ["06", "07", "08"]),
         (" from 2025-01-04 through 2025-01-09 on the road", ["02", "03"]),
         (" last 2 games on the road", ["02", "03"]),
@@ -300,7 +338,7 @@ def test_uppercase_player_alias_and_metric_are_not_team_filters(facts):
     assert result["opponent_splits"]["player"]["player_id"] == PLAYER["player_id"]
     request = parse_opponent_splits(QUESTION + " for PTS", [player], SEASON)
     assert request.metrics == ("pts",)
-    with pytest.raises(SemanticError, match="single home or away"):
+    with pytest.raises(SemanticError, match="single-opponent summary"):
         parse_opponent_splits(QUESTION + " against BOS", [player], SEASON)
 
 
@@ -339,7 +377,27 @@ def test_strict_claims_cover_prose_record_delta_and_drilldown(facts):
     assert finalize(changed, mode="enforce")["status"] == "error"
 
 
-def test_stats_agent_follows_up_without_model_or_legacy(facts, monkeypatch):
+def test_claim_validation_rejects_deleted_opponent_row_and_bindings(facts):
+    payload = answer_opponent_splits(QUESTION, facts, [PLAYER], SEASON)
+    row = len(payload["tables"][0]["rows"]) - 1
+    del payload["tables"][0]["rows"][row]
+    manifest = payload["claim_bindings"]
+    manifest["claims"] = [
+        claim
+        for claim in manifest["claims"]
+        if expand_claim(manifest, claim)["destination"][:4]
+        != ["tables", 0, "rows", row]
+    ]
+    report = validate(payload)
+    assert report["status"] == "invalid", report
+    assert report["unbound_count"] == 0
+    assert any(
+        "Missing required opponent split" in e["reason"] for e in report["errors"]
+    )
+
+
+@pytest.fixture
+def split_agent(facts, monkeypatch):
     config = replace(settings(), ask_claim_enforcement="enforce")
     repository = frozen_repository(config, {"rows": facts.rows}, "complete")
     agent = StatsAgent(
@@ -351,6 +409,46 @@ def test_stats_agent_follows_up_without_model_or_legacy(facts, monkeypatch):
 
     monkeypatch.setattr(agent, "_get_client", unexpected)
     monkeypatch.setattr("app.agent.service.answer_legacy_repository", unexpected)
+    return agent
+
+
+def test_stats_agent_answers_collective_versus_phrase(split_agent):
+    result = split_agent.answer(
+        "How did Avery Example perform versus every team in 2024-25?"
+    )
+    assert result["status"] == "ok", result
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert result["claim_validation"]["status"] == "complete"
+
+
+@pytest.mark.parametrize(
+    ("constraint", "message"),
+    [
+        ("compared to the league average", "league-average comparison"),
+        ("vs league average", "league-average comparison"),
+        ("relative to league", "league-average comparison"),
+        ("against the Celtics", "single-opponent summary"),
+        ("in the first quarter", "whole games only"),
+        ("in the 4th quarter", "whole games only"),
+        ("in the second half", "whole games only"),
+        ("in the last three games", "numeric last-N-games window"),
+        ("in the last 2 games or the last three games", "numeric last-N-games window"),
+    ],
+)
+def test_stats_agent_withholds_unconsumed_opponent_split_constraints(
+    split_agent, constraint, message
+):
+    question = f"Show Avery Example's points by opponent in 2024-25 {constraint}"
+    result = split_agent.answer(question)
+    assert result["status"] == "unsupported_scope", result
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert message in result["answer"]
+    assert not result.get("opponent_splits")
+    assert not result["tables"]
+
+
+def test_stats_agent_follows_up_without_model_or_legacy(split_agent):
+    agent = split_agent
     result = agent.answer(QUESTION + " on the road", conversation_id="splits")
     assert result["status"] == "ok", result
     assert result["claim_validation"]["status"] == "complete"

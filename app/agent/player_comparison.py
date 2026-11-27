@@ -140,6 +140,7 @@ def evaluative_sides(text):
 def comparison_sides(question):
     from app.agent.game_filters import extract_game_filters
     from app.agent.overview_positions import strip_peer_clause
+    from app.agent.scope_policy import COLLECTIVE_MATCHUP, COLLECTIVE_OPPONENT
 
     try:
         question = extract_game_filters(question).cleaned_question
@@ -149,6 +150,7 @@ def comparison_sides(question):
     original = original.split("\nSelected player:", 1)[0]
     if "\nCurrent question:" in original:
         return None  # Do not reinterpret an arbitrary follow-up as the old question.
+    original = re.sub(COLLECTIVE_MATCHUP, " ", original, flags=re.I)
     parts = re.split(r"\s+v(?:s\.?|ersus)\s+", original, flags=re.I)
     if len(parts) != 2:
         match = re.match(r"\s*compare\s+(.+?)\s+(?:and|with|to)\s+(.+)", original, re.I)
@@ -168,6 +170,8 @@ def comparison_sides(question):
     if re.match(r"\s*(?:in\s+)?" + MONTH_PATTERN, parts[1], re.I):
         return None
     if re.match(r"\s*(?:from\s+)?20\d{2}-\d{2}-\d{2}\b", parts[1], re.I):
+        return None
+    if re.match(r"\s*" + COLLECTIVE_OPPONENT, parts[1], re.I):
         return None
     # A baseline is not a second player, regardless of comparison wording.
     if re.match(

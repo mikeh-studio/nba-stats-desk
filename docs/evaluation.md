@@ -562,8 +562,9 @@ cases use the fictional players in `tests/fixtures/ask/source.json`; study-pair
 cases use the public pair identities in `app/research_studies.py`.
 The governed `opponent_splits` cases exercise each-opponent and toughest-matchup
 phrasing. The focused tests in `tests/test_opponent_splits.py` also verify exact
-pooled shooting ratios, scoped score order, metric follow-ups and claim
-enforcement on frozen game-grain evidence.
+pooled shooting ratios, score ties, metric follow-ups, unsupported scope and
+claim enforcement on frozen game-grain evidence. Browser unit tests also
+exercise altered table cells against the canonical evidence.
 
 ```bash
 python scripts/evaluate_ask_routing.py --mode current

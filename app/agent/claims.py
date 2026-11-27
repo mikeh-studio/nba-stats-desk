@@ -690,10 +690,21 @@ def validate(payload: dict) -> dict:
         errors.append(
             {"destination": [], "reason": "Surplus or missing evidence digests"}
         )
-    from app.agent.claim_contexts import guards
+    from app.agent.claim_contexts import guards, opponent_split_contracts
 
     if claims:
         try:
+            if opponent_splits := payload.get("opponent_splits"):
+                required = cache.get("contexts")
+                if required is None:
+                    required = opponent_split_contracts(opponent_splits)
+                if required.keys() - covered:
+                    errors.append(
+                        {
+                            "destination": [],
+                            "reason": "Missing required opponent split claim destinations",
+                        }
+                    )
             for path, expected_label in guards(payload).items():
                 if resolve(payload, list(path)) != expected_label:
                     errors.append(

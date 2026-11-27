@@ -30,6 +30,11 @@ REGULAR_SEASON_CUE = r"\bregular[ -]season\b"
 PLAYOFFS_CUE = r"\b(?:playoffs?|postseason)\b"
 _SEPARATED_PLAYOFFS_CUE = r"\b(?:playoffs?|post[ -]?season)\b"
 _BOTH_PHASES_CUE = r"\bboth phases\b"
+COLLECTIVE_OPPONENT = (
+    r"(?:each|every|all)\s+(?:of\s+(?:(?:the|his|her|their)\s+)?)?"
+    r"(?:NBA\s+)?(?:opponents?|teams?)\b"
+)
+COLLECTIVE_MATCHUP = r"\b(?:against|versus|vs\.?)\s+" + COLLECTIVE_OPPONENT
 
 
 def has_phase_cue(text: str, phase: str, *, separated_postseason: bool = True) -> bool:
