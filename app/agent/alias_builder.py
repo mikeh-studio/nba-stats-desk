@@ -51,12 +51,27 @@ def load_player_aliases(path: str | Path = ALIAS_PATH) -> dict[str, str]:
     return dict(_curated_alias_pairs(path))
 
 
-def build_programmatic_aliases(
+def _folded_raw_surname(spelling: str) -> str:
+    text = unicodedata.normalize("NFKD", str(spelling or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"['’‘ʼ]", "", text)
+    tokens = [
+        re.sub(r"^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$", "", token) for token in text.split()
+    ]
+    tokens = [token for token in tokens if token]
+    if len(tokens) > 2 and tokens[-1].casefold() in _SUFFIXES:
+        tokens = tokens[:-1]
+    if not tokens:
+        return ""
+    return re.sub(r"[^a-zA-Z0-9-]+", "", tokens[-1]).strip("-").casefold()
+
+
+def _programmatic_alias_owners(
     players: Iterable[Mapping[str, Any]],
     *,
     overrides: Mapping[str, str] | None = None,
-) -> dict[str, str]:
-    """Map normalized aliases to canonical names when exactly one ID claims them."""
+) -> dict[str, tuple[Any, str]]:
+    """Map normalized aliases to (owner_id, canonical_name) when unique."""
     claims: dict[str, set[Any]] = defaultdict(set)
     name_owners: dict[str, set[Any]] = defaultdict(set)
     token_owners: dict[str, set[Any]] = defaultdict(set)
@@ -78,9 +93,19 @@ def build_programmatic_aliases(
             # Retain the older spaced spelling for apostrophized names.
             spaced = normalize_player_text(re.sub(r"['’‘ʼ]", " ", spelling))
             parts = base.split()
-            for alias in (key, base, spaced, parts[-1]):
+            raw_surname = _folded_raw_surname(spelling)
+            surname_aliases = (
+                (raw_surname, normalize_player_text(raw_surname)) if raw_surname else ()
+            )
+            for alias in (key, base, spaced, *surname_aliases):
+                if not alias:
+                    continue
+                norm_alias = normalize_player_text(alias)
                 if " " in alias or (
-                    alias not in SCOPE_WORDS and sum(ch.isalpha() for ch in alias) >= 2
+                    alias not in SCOPE_WORDS
+                    and norm_alias not in SCOPE_WORDS
+                    and not all(part in SCOPE_WORDS for part in norm_alias.split())
+                    and sum(ch.isalpha() for ch in alias) >= 2
                 ):
                     claims[alias].add(identity)
             for token in parts:
@@ -99,13 +124,28 @@ def build_programmatic_aliases(
         if key and targets:
             claims[key].update(targets)
 
-    result = {}
+    result: dict[str, tuple[Any, str]] = {}
     for alias, owners in sorted(claims.items()):
         # A one-word alias must also respect other canonical name tokens.
         owners = owners | token_owners.get(alias, set())
         if len(owners) == 1:
-            result[alias] = min(canonical_names[next(iter(owners))])
+            owner = next(iter(owners))
+            result[alias] = (owner, min(canonical_names[owner]))
     return result
+
+
+def build_programmatic_aliases(
+    players: Iterable[Mapping[str, Any]],
+    *,
+    overrides: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Map normalized aliases to canonical names when exactly one ID claims them."""
+    return {
+        alias: target
+        for alias, (_, target) in _programmatic_alias_owners(
+            players, overrides=overrides
+        ).items()
+    }
 
 
 def player_aliases_for_cohort(
@@ -115,17 +155,22 @@ def player_aliases_for_cohort(
 ) -> list[dict[str, Any]]:
     """Attach safe aliases while retaining existing identity spellings."""
     roster = list(players)
-    by_name: dict[str, set[str]] = defaultdict(set)
-    for alias, target in build_programmatic_aliases(
+    by_identity: dict[Any, set[str]] = defaultdict(set)
+    for alias, (owner, _) in _programmatic_alias_owners(
         roster, overrides=overrides
     ).items():
-        by_name[target].add(alias)
-    return [
-        {
-            **player,
-            "aliases": sorted(
-                set(player.get("aliases", ())) | by_name[player["player_name"]]
-            ),
-        }
-        for player in roster
-    ]
+        by_identity[owner].add(alias)
+    result = []
+    for player in roster:
+        identity = player.get("player_id")
+        if identity is None:
+            identity = player["player_name"]
+        result.append(
+            {
+                **player,
+                "aliases": sorted(
+                    set(player.get("aliases", ())) | by_identity[identity]
+                ),
+            }
+        )
+    return result

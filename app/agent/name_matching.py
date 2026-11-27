@@ -116,7 +116,7 @@ def _spans(question, players):
             if not key or key.isdigit() or key in _SCOPE_WORDS:
                 continue
             for m in re.finditer(
-                r"(?<!\w)" + re.escape(name) + r"(?!\w)", question, re.I
+                r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", question, re.I
             ):
                 exact.append((m.start(), m.end()))
     exact = sorted(set(exact), key=lambda s: (s[0], -(s[1] - s[0])))
@@ -577,7 +577,7 @@ def longest_player_spans(
             hits.extend(
                 PlayerSpan(match.start(), match.end(), name, player)
                 for match in re.finditer(
-                    r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I
+                    r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text, re.I
                 )
             )
     if nonoverlapping:

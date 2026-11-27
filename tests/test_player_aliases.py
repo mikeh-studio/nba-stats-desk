@@ -7,8 +7,14 @@ from app.agent.alias_builder import (
     build_programmatic_aliases,
     player_aliases_for_cohort,
 )
-from app.agent.name_matching import PlayerNameError, mask_player_tokens, prepare_names
+from app.agent.name_matching import (
+    PlayerNameError,
+    longest_player_spans,
+    mask_player_tokens,
+    prepare_names,
+)
 from app.agent.player_resolver import PlayerResolver
+from app.agent.player_suggestions import resolve_player_name
 from app.agent.semantic_serving import players_from_rows
 
 
@@ -184,3 +190,80 @@ def test_governed_rows_and_repository_resolver_share_aliases():
     assert resolver.resolve("Doncic").player.player_name == "Luka Dončić"
     assert resolver.resolve("steph").player.player_name == "Stephen Curry"
     assert resolver.resolve("curry").status == "ambiguous"
+
+
+def test_unique_aliases_do_not_leak_between_identical_display_names():
+    players = [
+        {
+            "player_id": 1,
+            "player_name": "Avery Finch",
+            "observed_names": ("Avery Finch Jr.",),
+        },
+        {"player_id": 2, "player_name": "Avery Finch"},
+    ]
+    governed = player_aliases_for_cohort(players, overrides={})
+    by_id = {player["player_id"]: player for player in governed}
+    assert "avery finch jr" in by_id[1]["aliases"]
+    assert "avery finch jr" not in by_id[2]["aliases"]
+    assert prepare_names("Avery Finch Jr points", governed)[0] == "Avery Finch points"
+    assert (
+        resolve_player_name("Avery Finch Jr.", governed)["matches"][0]["player_id"] == 1
+    )
+    with pytest.raises(PlayerNameError) as error:
+        prepare_names("Avery Finch points", governed)
+    assert error.value.result["status"] == "clarification_required"
+    assert {p["player_id"] for p in error.value.result["matches"]} == {1, 2}
+
+
+def test_historical_suffixed_spelling_clarifies_on_base_name():
+    players = player_aliases_for_cohort(
+        [
+            {"player_id": 1, "player_name": "Avery Finch"},
+            {
+                "player_id": 2,
+                "player_name": "Avery Renamed",
+                "observed_names": ("Avery Finch Jr.",),
+            },
+        ],
+        overrides={},
+    )
+    result = resolve_player_name("Avery Finch", players)
+    assert result["status"] == "clarification_required"
+    assert {p["player_id"] for p in result["matches"]} == {1, 2}
+
+    both_suffixed = player_aliases_for_cohort(
+        [
+            {"player_id": 1, "player_name": "Avery Finch II"},
+            {
+                "player_id": 2,
+                "player_name": "Avery Renamed",
+                "observed_names": ("Avery Finch Jr.",),
+            },
+        ],
+        overrides={},
+    )
+    result = resolve_player_name("Avery Finch", both_suffixed)
+    assert result["status"] == "clarification_required"
+    assert {p["player_id"] for p in result["matches"]} == {1, 2}
+
+
+def test_hyphenated_surname_generates_compound_alias_and_blocks_partial_match():
+    players = player_aliases_for_cohort(
+        roster("Kentavious Caldwell-Pope", "Avery Pope"), overrides={}
+    )
+    aliases = build_programmatic_aliases(players, overrides={})
+    assert aliases["caldwell-pope"] == "Kentavious Caldwell-Pope"
+    assert aliases["caldwell pope"] == "Kentavious Caldwell-Pope"
+    assert "pope" not in aliases
+    assert prepare_names("Caldwell-Pope points", players)[0] == (
+        "Kentavious Caldwell-Pope points"
+    )
+    with pytest.raises(PlayerNameError) as error:
+        prepare_names("Avery Caldwell-Pope points", players)
+    assert error.value.result["status"] != "ok"
+    assert all(p["player_id"] in {1, 2} for p in error.value.result["matches"])
+
+    pope_only = player_aliases_for_cohort(roster("Avery Pope"), overrides={})
+    assert longest_player_spans("Example Caldwell-Pope points", pope_only) == []
+    with pytest.raises(PlayerNameError):
+        mask_player_tokens("Example Caldwell-Pope points", pope_only)

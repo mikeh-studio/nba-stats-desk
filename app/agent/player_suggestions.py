@@ -178,9 +178,11 @@ def resolve_player_name(name, players):
     # A suffix-free exact name must not hide a same-base suffixed identity.
     if key and name_base(key) == key:
         variants = {
-            p["player_id"]: p for p in players if name_base(p["player_name"]) == key
+            p["player_id"]: p
+            for p in players
+            if any(name_base(spelling) == key for spelling in observed_player_names(p))
         }
-        if matches:
+        if matches or len(variants) > 1:
             matches.update(variants)
     # Shared exact surnames must clarify even when a surname is too short
     # for fuzzy suggestions. Existing one-word aliases also honor name tokens.

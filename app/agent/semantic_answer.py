@@ -1835,6 +1835,7 @@ class SemanticAsk:
                     turn.seasons[0],
                     turn.conversation_id,
                     evidence=turn.evidence,
+                    players=turn.players,
                     include_curated=turn.publication is None,
                 )
                 if participation is not None:

@@ -429,7 +429,10 @@ class StatsAgent:
             from app.agent.participation import answer_known_nonparticipation
 
             participation = answer_known_nonparticipation(
-                cleaned_question, self.settings.season, conversation_id
+                cleaned_question,
+                self.settings.season,
+                conversation_id,
+                source_policy=getattr(self.repo, "source_policy", None),
             )
             if participation is not None and not publication_id:
                 if routing is not None:
