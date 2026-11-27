@@ -89,3 +89,13 @@ test("opponent split validation rejects a corrupt preformatted games cell", () =
   assert.deepEqual(report.errors[0].source, ["opponent_splits", "opponents", 0, "games"]);
   assert.equal(report.errors[0].reason, "Rendered destination contradicts canonical evidence");
 });
+
+test("opponent split validation rejects a corrupt Table 1 opponent cell", () => {
+  const corrupted = structuredClone(payload);
+  corrupted.tables[1].rows[0][0] = "LAL";
+  const report = validateTables(corrupted);
+  assert.equal(report.status, "invalid");
+  assert.equal(report.errors.length, 1);
+  assert.deepEqual(report.errors[0].source, ["opponent_splits", "opponents", 0, "opponent_abbr"]);
+  assert.equal(report.errors[0].reason, "Rendered destination contradicts canonical evidence");
+});

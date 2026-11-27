@@ -12,7 +12,7 @@ from typing import Any
 
 from app.agent.catalog import load_semantic_catalog
 from app.agent.game_filters import extract_game_filters
-from app.agent.name_matching import mask_player_tokens
+from app.agent.name_matching import mask_player_tokens, prepare_names
 from app.agent.payload import answer_payload
 from app.agent.player_comparison import comparison_sides
 from app.agent.scope_policy import (
@@ -209,6 +209,7 @@ class OpponentSplitsRequest:
     player: dict[str, Any]
     metrics: tuple[str, ...]
     aggregation: str = "average"
+    canonical_question: str = ""
 
 
 def parse_opponent_splits(
@@ -222,14 +223,17 @@ def parse_opponent_splits(
         raise SemanticError("invalid_scope", "Use a player name.")
     base, _, metric_reply = question.partition(_METRIC_REPLY)
     base = base.split("\nSelected player:", 1)[0]
-    masked, named = mask_player_tokens(base, players)
+    canonical_base, scoped_players = prepare_names(base, players)
+    masked, named = mask_player_tokens(canonical_base, scoped_players)
     if len(named) != 1:
         raise SemanticError(
             "clarification_required", "Please name one player for the opponent splits."
         )
     player = next(iter(named.values()))
-    query = query or opponent_split_query(base, season)
-    filters = extract_game_filters(base, [player]).query_fields
+    query = query or opponent_split_query(canonical_base, season)
+    filters = extract_game_filters(
+        re.sub(COLLECTIVE_MATCHUP, " ", canonical_base, flags=re.I), [player]
+    ).query_fields
     # Uppercase stat shorthand can resemble a team code. MIN is a team code.
     team = filters.get("team_abbr", "")
     if team != "MIN" and explicit_metric_mentions(team):
@@ -258,6 +262,7 @@ def parse_opponent_splits(
         "total"
         if explicit_aggregation(metric_reply or masked) == "total"
         else "average",
+        canonical_base,
     )
 
 
@@ -463,9 +468,10 @@ def answer_opponent_splits(
 
     request = parse_opponent_splits(question, players, season, query=query)
     result = compute_opponent_splits(evidence, request)
-    prior_question = question.partition(_METRIC_REPLY)[0].split(
-        "\nSelected player:", 1
-    )[0]
+    prior_question = (
+        request.canonical_question
+        or question.partition(_METRIC_REPLY)[0].split("\nSelected player:", 1)[0]
+    )
     if request.query.season not in prior_question:
         prior_question += f" ({request.query.season})"
     if not request.query.playoff_round and not explicit_phase(prior_question):

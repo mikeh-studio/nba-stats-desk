@@ -963,6 +963,7 @@ function opponentSplitSchema(payload) {
     cell(0, ri, 2, path, "opponent-record");
     cell(0, ri, 3, [...path, "struggle_score"], "opponent-number", {digits: 2});
     cell(0, ri, 4, [...path, "sample_label"]);
+    cell(1, ri, 0, [...path, "opponent_abbr"]);
     e.display_metrics.forEach((key, i) => {
       const field = e.aggregation === "total" && Object.hasOwn(row.metrics[key], "total") ? "total" : "value";
       metricCell(0, ri, i + 5, path, key, field);

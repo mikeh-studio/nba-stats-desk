@@ -480,8 +480,9 @@ def question_scope(
         )
     from app.agent.game_filters import extract_game_filters
 
+    filter_question = re.sub(COLLECTIVE_MATCHUP, " ", question, flags=re.I)
     try:
-        supported = extract_game_filters(question) if kind != "venue" else None
+        supported = extract_game_filters(filter_question) if kind != "venue" else None
     except SemanticError as exc:
         return dict(kind="game_filter", status=exc.code, message=str(exc))
     question = supported.cleaned_question if supported else question

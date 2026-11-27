@@ -10,6 +10,7 @@ from app.agent.opponent_splits import (
     DEFAULT_METRICS,
     answer_opponent_splits,
     compute_opponent_splits,
+    opponent_splits_followup,
     parse_opponent_splits,
     wants_opponent_splits,
 )
@@ -421,6 +422,25 @@ def test_stats_agent_answers_collective_versus_phrase(split_agent):
     assert result["claim_validation"]["status"] == "complete"
 
 
+def test_stats_agent_answers_home_filter_before_collective_versus_phrase(
+    facts, split_agent
+):
+    question = "How did Avery Example perform at home versus every team in 2024-25?"
+    request = parse_opponent_splits(question, [PLAYER], SEASON)
+    assert request.query.home_away == "HOME"
+    evidence = compute_opponent_splits(facts, request)
+    assert sorted(evidence["baseline"]["metrics"]["pts"]["game_ids"]) == [
+        "01",
+        "04",
+        "05",
+    ]
+    result = split_agent.answer(question)
+    assert result["status"] == "ok", result
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert result["opponent_splits"]["scope"]["home_away"] == "HOME"
+    assert result["claim_validation"]["status"] == "complete"
+
+
 @pytest.mark.parametrize(
     ("constraint", "message"),
     [
@@ -463,6 +483,67 @@ def test_stats_agent_follows_up_without_model_or_legacy(split_agent):
     assert reply["opponent_splits"]["scope"] == result["opponent_splits"]["scope"]
     assert reply["opponent_splits"]["display_metrics"] == ["ft_pct"]
     assert reply["claim_validation"]["status"] == "complete"
+
+
+def test_ambiguous_player_selection_preserves_canonical_name_for_followup(
+    facts, monkeypatch
+):
+    direct = answer_opponent_splits(
+        "Show Avery's opponent splits", facts, [PLAYER], SEASON
+    )
+    stored_question = direct["conversation_context"]["opponent_splits_question"]
+    assert "Avery Example" in stored_question
+    followup_query = opponent_splits_followup("What about FT%?", stored_question)
+    assert followup_query is not None
+    parsed_followup = parse_opponent_splits(followup_query, [PLAYER, OTHER], SEASON)
+    assert parsed_followup.player["player_id"] == PLAYER["player_id"]
+    assert parsed_followup.metrics == ("ft_pct",)
+
+    other_rows = [
+        {
+            **row,
+            "game_id": f"other-{row['game_id']}",
+            "player_id": OTHER["player_id"],
+            "player_name": OTHER["player_name"],
+            "team_abbr": "MIA",
+        }
+        for row in facts.rows[:2]
+    ]
+    config = replace(settings(), ask_claim_enforcement="enforce")
+    repository = frozen_repository(
+        config, {"rows": [*facts.rows, *other_rows]}, "complete"
+    )
+    agent = StatsAgent(
+        config, repository, conversation_store=InMemoryConversationStore()
+    )
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Opponent splits must use the governed game rows directly")
+
+    monkeypatch.setattr(agent, "_get_client", unexpected)
+    monkeypatch.setattr("app.agent.service.answer_legacy_repository", unexpected)
+
+    clarify = agent.answer("Show Avery's opponent splits", conversation_id="ambiguous")
+    assert clarify["status"] == "clarification_required", clarify
+    assert {opt["player_id"] for opt in clarify["clarification_options"]} == {
+        PLAYER["player_id"],
+        OTHER["player_id"],
+    }
+    selected = agent.answer("Avery Example", conversation_id="ambiguous")
+    assert selected["status"] == "ok", selected
+    assert selected["opponent_splits"]["player"]["player_id"] == PLAYER["player_id"]
+    assert (
+        "Avery Example"
+        in selected["conversation_context"]["opponent_splits_question"]
+    )
+    assert selected["claim_validation"]["status"] == "complete"
+
+    followup = agent.answer("What about FT%?", conversation_id="ambiguous")
+    assert followup["status"] == "ok", followup
+    assert followup["ask_route"]["source"] == "prior_route"
+    assert followup["opponent_splits"]["player"]["player_id"] == PLAYER["player_id"]
+    assert followup["opponent_splits"]["display_metrics"] == ["ft_pct"]
+    assert followup["claim_validation"]["status"] == "complete"
 
 
 def test_without_governed_evidence_refuses_before_legacy(monkeypatch):
