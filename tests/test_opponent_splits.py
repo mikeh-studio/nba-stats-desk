@@ -626,10 +626,16 @@ def test_unsupported_game_and_opponent_filters_rejected_before_computing(
 
 def test_conference_playoff_round_still_succeeds(split_agent):
     result = split_agent.answer(
-        "Break down Avery Example's scoring by opponent in the Western Conference Finals in 2024-25"
+        "Break down Avery Example's scoring by opponent in the Conference Finals in 2024-25"
     )
     assert result["status"] in {"ok", "unsupported_coverage"}, result
     assert result["ask_route"]["route"] == "opponent_splits"
+
+    qualified = split_agent.answer(
+        "Break down Avery Example's scoring by opponent in the Western Conference Finals in 2024-25"
+    )
+    assert qualified["status"] == "unsupported_scope", qualified
+    assert qualified["ask_route"]["reason_code"] == "unsupported_round"
 
 
 def test_last_n_appearance_window_preserves_venue(facts, split_agent):
