@@ -45,6 +45,7 @@ const routes = new Set([
   "league_baseline",
   "award",
   "player_split",
+  "opponent_splits",
   "player_comparison",
   "player_overview",
   "governed_metrics",
@@ -58,6 +59,7 @@ const routes = new Set([
   "legacy:clarify",
 ]);
 const surfaces = new Set([
+  "opponent_splits",
   "overview",
   "comparison",
   "comparison-chart",

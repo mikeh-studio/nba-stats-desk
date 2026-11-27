@@ -28,6 +28,7 @@ import {
 import {
   dateLabel,
   overviewPresentation,
+  opponentSplitsPresentation,
   overviewMetricsTable,
   overviewTakeaways,
   metricAbbreviation,
@@ -1246,14 +1247,17 @@ function renderAuxiliaryPayload(
     return;
   }
   const overview = game ? null : overviewPresentation(payload);
+  const opponentSplits = opponentSplitsPresentation(payload, renderTable);
+  if (opponentSplits && tableHeading) tableHeading.textContent = "Matchup breakdown";
   tableCard.hidden = tables.length === 0;
-  tableEl.innerHTML = overview
+  tableEl.innerHTML = opponentSplits ?? (overview
     ? renderOverviewTable(overview)
     : tables
         .map((table, index) => payload.study_id
           ? `<details><summary>See the stat comparison</summary>${renderTable(referenceTable(table, payload))}</details>`
           : renderMetricTable(table, payload, index))
-        .join("");
+        .join(""));
+  if (opponentSplits) bindRenderedClaims(tableEl, payload, "opponent_splits");
 
   chartCard.hidden = charts.length === 0;
   if (overview) { bindRenderedClaims(tableEl, payload, "overview", {}, overview.claimEvidence); bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }

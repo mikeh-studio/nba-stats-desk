@@ -94,6 +94,30 @@
       "category": "route"
     },
     {
+      "id": "control_toughest_opponent",
+      "questions": [
+        "Which team did Avery Example struggle against most in 2024-25?",
+        "What was the toughest matchup for Avery Example in 2024-25?",
+        "Show Avery Example's opponent splits for 2024-25"
+      ],
+      "context": {"prior_route": null, "pending": null},
+      "expected": {"ask_route.route": "opponent_splits", "ask_route.source": "deterministic"},
+      "forbidden": {"ask_route.route": ["player_split", "player_comparison", "governed_metrics"]},
+      "category": "control"
+    },
+    {
+      "id": "control_opponent_metric_followup",
+      "questions": [
+        "What about FT%?",
+        "Show assists",
+        "How about true shooting?"
+      ],
+      "context": {"prior_route": "opponent_splits", "pending": null},
+      "expected": {"ask_route.route": "opponent_splits", "ask_route.source": "prior_route"},
+      "forbidden": {"ask_route.route": ["player_split", "player_comparison", "governed_metrics"]},
+      "category": "followup"
+    },
+    {
       "id": "m6_research_followup_game_log",
       "finding": "M6",
       "questions": [

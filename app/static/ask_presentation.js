@@ -67,6 +67,14 @@ export function ordinal(value) {
   const n=Math.round(value), last=n%100;
   return `${n}${last>=11 && last<=13 ? 'th' : {1:'st',2:'nd',3:'rd'}[n%10] || 'th'}`;
 }
+export function opponentSplitsPresentation(payload, renderTable) {
+  if (payload?.opponent_splits?.version !== "opponent_splits/1" || !Array.isArray(payload.tables)) return null;
+  // The backend binds the formatted table cells to opponent and game evidence.
+  return payload.tables.map((table, index) =>
+    `<div data-opponent-split-table="${index}">${renderTable({...table, collapsible: index > 0})}</div>`
+  ).join("");
+}
+
 export function overviewPresentation(payload) {
   const evidence=payload?.semantic_evidence;
   if (!Array.isArray(evidence?.metrics) || !evidence.scope?.start) return null;

@@ -25,7 +25,7 @@ what which where when why are am will should let us we our your get find count
 many much number appearances appeared appearance log logs totals total rate rates
 percent percentage percentile percentiles ranking rankings rank ranked top bottom
 league nba baseline peer peers similar similarity most least best worst median
-career split splits home away road wins losses win loss won lost against opponent
+career split splits toughest hardest easiest struggle struggled matchup matchups home away road wins losses win loss won lost against opponent
 opponents teammate teammates without out absent absence missed miss sat sitting
 sidelined injury injured unavailable availability both together also only include
 exclude including excluding while not no yes same different higher lower more less
@@ -166,10 +166,12 @@ def _spans(question, players):
             continue
         if any(normalize_player_text(m.group()) in _SCOPE_WORDS for m in (left, right)):
             continue
-        pair = (left.start(), right.end())
+        right_end = right.end() - (
+            2 if re.search(r"['’]s$", right.group(), re.I) else 0
+        )
+        pair = (left.start(), right_end)
         if any(
-            s in {(left.start(), left.end()), (right.start(), right.end())}
-            for s in exact
+            s in {(left.start(), left.end()), (right.start(), right_end)} for s in exact
         ) and not any(a <= pair[0] and b >= pair[1] for a, b in exact):
             exact.append(pair)
     exact = [
@@ -368,8 +370,13 @@ def apply_name_notices(payload):
     notes = [n for n in dict.fromkeys(session.notices) if n not in applied]
     if notes:
         prefix = " ".join(notes)
-        payload["answer"] = prefix + "\n\n" + payload["answer"]
-        payload.setdefault("assumptions", []).extend(notes)
+        if payload.get("opponent_splits"):
+            from app.agent.claim_renderers import add_opponent_split_disclosures
+
+            add_opponent_split_disclosures(payload, notes, identity_notice=prefix)
+        else:
+            payload["answer"] = prefix + "\n\n" + payload["answer"]
+            payload.setdefault("assumptions", []).extend(notes)
         applied.extend(notes)
         if payload.get("appearance_evidence"):
             payload.setdefault("claim_evidence", {})["name_resolution_notice"] = (

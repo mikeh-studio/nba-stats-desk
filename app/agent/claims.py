@@ -24,6 +24,7 @@ EVIDENCE_ROOTS = {
     "appearance_evidence",
     "research",
     "claim_evidence",
+    "opponent_splits",
 }
 VISIBLE_ROOTS = (
     "answer",
@@ -264,6 +265,23 @@ def descriptor(payload, sources, context):
         "unit": ("unit", "label"),
         "aggregation": ("aggregation", "label"),
     }
+    if sources[0][0] == "opponent_splits":
+        if sources[0][1] in ("assumptions", "scope_assumptions"):
+            return "scope_note", "label"
+        if field in ("wins", "losses", "unknown_outcomes", "n"):
+            return field, "games"
+        if field in ("first_game_date", "last_game_date"):
+            return field, "date"
+        if field == "struggle_score":
+            return field, "dimensionless"
+        if field in (
+            "toughest_opponent",
+            "best_opponent",
+            "sample_label",
+            "game_result",
+            "identity_notice",
+        ):
+            return field, "label"
     if type(field) is int and "groups" in sources[0]:
         return "group_label", "label"
     if field in fixed:
@@ -684,6 +702,8 @@ def validate(payload: dict) -> dict:
                             "reason": "Presentation label contradicts renderer contract",
                         }
                     )
+                elif payload.get("opponent_splits"):
+                    covered.add(path)
         except (ValueError, TypeError, KeyError, IndexError, AttributeError):
             errors.append(
                 {"destination": [], "reason": "Malformed bound route context"}
@@ -713,6 +733,13 @@ def validate(payload: dict) -> dict:
         if root in evidence:
             inventory(evidence[root], ["semantic_evidence", root])
     unbound_count = sum(counts.values())
+    if payload.get("opponent_splits") and (unbound_count or not claims):
+        errors.append(
+            {
+                "destination": [],
+                "reason": "Opponent splits require complete claim bindings",
+            }
+        )
     return {
         "version": VERSION,
         "status": "invalid"

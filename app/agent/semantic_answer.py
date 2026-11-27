@@ -30,6 +30,11 @@ from app.agent.name_matching import (
     name_matching_entrypoint,
     prepare_names,
 )
+from app.agent.opponent_splits import (
+    answer_opponent_splits,
+    opponent_split_query,
+    opponent_splits_followup,
+)
 from app.agent.overview_clarification import OverviewClarification, resume_overview
 from app.agent.performance_overview import (
     build_overview,
@@ -87,6 +92,7 @@ if TYPE_CHECKING:
 SEMANTIC_LABELS = {
     "award": "award",
     "player_split": "player_split",
+    "opponent_splits": "opponent_splits",
     "player_comparison": "player_comparison",
     "overview": "player_overview",
     "metrics": "governed_metrics",
@@ -909,6 +915,7 @@ class _SemanticTurnState:
     period_options: list[dict[str, Any]] = field(default_factory=list)
     planner_original: str = ""
     split: str | None = None
+    opponent_query: Query | None = None
     comparison: list[str] | None = None
     overview: dict[str, Any] | None = None
     seasons: list[str] = field(default_factory=list)
@@ -1120,14 +1127,26 @@ class SemanticAsk:
             from app.agent.player_splits import split_followup
 
             question = split_followup(question, context["split_question"])
-        question, inherited = resolve_followup(question, context)
+        opponent_followup = (
+            opponent_splits_followup(question, context.get("opponent_splits_question"))
+            if not pending and not selected_player
+            else None
+        )
+        inherited: dict[str, Any]
+        if opponent_followup:
+            question, inherited = opponent_followup, {}
+        else:
+            question, inherited = resolve_followup(question, context)
         # Route labels for payload/trace; the semantic shape is filled in below.
         route_shape = "award" if award_request else None
         route_source = (
             "pending_clarification"
             if pending or resumed_overview
             else "prior_route"
-            if inherited or leader_plan or context.get("split_question")
+            if opponent_followup
+            or inherited
+            or leader_plan
+            or context.get("split_question")
             else "deterministic"
         )
         if selected_player and not re.search(r"\nSelected player:", question):
@@ -1234,6 +1253,7 @@ class SemanticAsk:
         turn.publication_stat = (
             parse_publication_stat(turn.question.partition("\nSelected player: ")[0])
             if open_publication
+            and semantic_shape(turn.question) != "opponent_splits"
             and not turn.inherited
             and not turn.award
             and (not turn.pending or turn.selected_player)
@@ -1328,6 +1348,11 @@ class SemanticAsk:
         shape = "metrics" if turn.publication_stat else semantic_shape(turn.question)
         turn.route_shape = "award" if turn.award_request else shape
         turn.split = split_kind(turn.question) if shape == "player_split" else None
+        if shape == "opponent_splits":
+            turn.opponent_query = opponent_split_query(
+                turn.question, self.settings.season
+            )
+
         if turn.split and turn.playoff_round:
             raise SemanticError(
                 "unsupported_scope", "Ask about the playoff round as a single scope."
@@ -1359,7 +1384,9 @@ class SemanticAsk:
         if turn.overview and not turn.comparison:
             turn.overview["comparison_intent"] = turn.requested_comparison
         turn.seasons = (
-            turn.overview["seasons"]
+            [turn.opponent_query.season]
+            if turn.opponent_query
+            else turn.overview["seasons"]
             if turn.overview
             else requested_seasons(turn.question, self.settings.season)
         )
@@ -1393,7 +1420,7 @@ class SemanticAsk:
             from app.agent.player_splits import split_seasons
 
             turn.seasons = split_seasons(turn.question, self.settings.season)
-        if turn.inherited.get("seasons") and not turn.overview:
+        if turn.inherited.get("seasons") and not (turn.overview or turn.opponent_query):
             turn.seasons = [s for s in turn.inherited["seasons"] if s]
         turn.named_seasons = bool(
             re.search(
@@ -1401,7 +1428,7 @@ class SemanticAsk:
                 turn.question,
             )
         )
-        if not turn.overview and not turn.split:
+        if not (turn.overview or turn.split or turn.opponent_query):
             from app.agent.game_performance import parse_game_question
 
             turn.game_question = parse_game_question(turn.question)
@@ -1486,7 +1513,23 @@ class SemanticAsk:
                         "unsupported_coverage",
                         "This publication covers part of the season. Ask for a period within its verified dates.",
                     )
-                if turn.overview:
+                if turn.opponent_query:
+                    if not turn.opponent_query.playoff_round and not explicit_phase(
+                        turn.question
+                    ):
+                        turn.opponent_query = replace(
+                            turn.opponent_query, season_type=turn.publication.phase
+                        )
+                    turn.publication.check_phase([turn.opponent_query.season_type])
+                    turn.publication.check_window(
+                        turn.opponent_query.start_date, turn.opponent_query.as_of
+                    )
+                    if turn.opponent_query.window in ("last_n_days", "last_n_months"):
+                        raise SemanticError(
+                            "unsupported_coverage",
+                            "Use an explicit date range within this publication or a last-N-games window.",
+                        )
+                elif turn.overview:
                     explicit_phases = bool(
                         turn.playoff_round
                         or re.search(
@@ -1576,6 +1619,7 @@ class SemanticAsk:
         turn.allow_fallback = (
             turn.publication is None
             and not turn.playoff_round
+            and not turn.opponent_query
             and not has_time_scope(turn.question)
             and not turn.inherited
             and not turn.pending
@@ -1646,6 +1690,7 @@ class SemanticAsk:
             and hasattr(self.warehouse, "prepare")
             and not turn.overview
             and not turn.split
+            and not turn.opponent_query
             and not turn.award
             and not turn.playoff_round
             and not turn.pending
@@ -1712,7 +1757,12 @@ class SemanticAsk:
             else (
                 lambda requested: self.warehouse.load_for_request(
                     requested,
-                    rich=bool(turn.overview or turn.split or turn.playoff_round),
+                    rich=bool(
+                        turn.overview
+                        or turn.split
+                        or turn.opponent_query
+                        or turn.playoff_round
+                    ),
                 )
             )
             if hasattr(self.warehouse, "load_for_request")
@@ -1973,6 +2023,17 @@ class SemanticAsk:
 
         evidence = turn.evidence
         assert evidence is not None
+        if turn.opponent_query:
+            turn.payload = answer_opponent_splits(
+                turn.question,
+                evidence,
+                turn.players,
+                turn.opponent_query.season,
+                query=turn.opponent_query,
+            )
+            turn.plan = turn.payload["semantic_plan"]
+            turn.result = {"status": turn.payload["status"]}
+            return
         extracted = extract_game_filters(turn.question) if not turn.split else None
         series_plan = (
             turn.retained_series_plan
@@ -2357,9 +2418,14 @@ class SemanticAsk:
                 + turn.award["season_basis"]
                 + ". Performance is computed from warehouse game records."
             )
-        if turn.time_assumptions and payload.get("status") in (
-            "ok",
-            "unsupported_coverage",
+        if (
+            not turn.opponent_query
+            and turn.time_assumptions
+            and payload.get("status")
+            in (
+                "ok",
+                "unsupported_coverage",
+            )
         ):
             payload.setdefault("scope_assumptions", []).extend(turn.time_assumptions)
             payload["period_options"] = turn.period_options
@@ -2383,13 +2449,26 @@ class SemanticAsk:
                 or payload["status"] == "not_found"
                 or payload.get("semantic_plan", {}).get("name_matching")
             )
-            if not identity_clarification and turn.publication is None:
+            if (
+                not turn.opponent_query
+                and not identity_clarification
+                and turn.publication is None
+            ):
                 payload["answer"] = note + "\n\n" + payload["answer"]
                 payload.setdefault("scope_assumptions", []).extend(
                     turn.snapshot.get("scope_assumptions", [])
                 )
-            payload["assumptions"].extend(turn.snapshot["coverage_notes"])
+            if not turn.opponent_query:
+                payload["assumptions"].extend(turn.snapshot["coverage_notes"])
             payload["source_coverage"] = turn.snapshot.get("review_metadata")
+        if turn.opponent_query:
+            from app.agent.claim_renderers import add_opponent_split_disclosures
+
+            add_opponent_split_disclosures(
+                payload,
+                [*turn.time_assumptions, *turn.snapshot.get("coverage_notes", [])],
+                scope_notes=turn.time_assumptions,
+            )
         payload["source_query"] = {
             k: v for k, v in turn.snapshot.get("capture", {}).items() if k != "sql"
         }

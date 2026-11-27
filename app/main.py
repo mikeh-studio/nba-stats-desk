@@ -91,7 +91,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261128-ask-playoff-rounds"
+STATIC_VERSION = "20261128-ask-opponent-splits"
 
 
 def _static_js_modules() -> tuple[str, ...]:

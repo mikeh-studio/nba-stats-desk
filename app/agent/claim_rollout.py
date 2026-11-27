@@ -24,6 +24,7 @@ ENUMS = {
         "overview",
         "comparison",
         "comparison-chart",
+        "opponent_splits",
         "drawer",
         "unknown",
     },
@@ -49,7 +50,14 @@ ORIGIN_ENUMS = {
     },
     "browser": {
         "kind": {"assessment", "first_invalid"},
-        "surface": {"overview", "comparison", "comparison-chart", "drawer", "unknown"},
+        "surface": {
+            "overview",
+            "comparison",
+            "comparison-chart",
+            "opponent_splits",
+            "drawer",
+            "unknown",
+        },
         "contract": {"ask_ui_claim_bindings/1"},
         "reason": {
             "none",

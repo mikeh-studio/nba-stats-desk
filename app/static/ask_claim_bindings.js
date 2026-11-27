@@ -99,7 +99,10 @@ export function claimSource(document, path) {
 export function prepareClaimEvidence(payload) {
   return clone(
     Object.fromEntries(
-      ["semantic_evidence", "player_profile", "player_profiles"]
+      [
+        "semantic_evidence", "player_profile", "player_profiles",
+        ...(payload.opponent_splits ? ["opponent_splits", "tables"] : []),
+      ]
         .filter((k) => Object.hasOwn(payload, k))
         .map((k) => [k, payload[k]]),
     ),
@@ -114,6 +117,7 @@ export const UI_CLAIM_GAPS = {
   drawer: [
     "Freeform percentile methodology note and legacy missing sample-count fields; data-source truth and statistical methodology remain separate from presentation fidelity",
   ],
+  opponent_splits: [],
   legacy: [
     "Other routes, generic charts/tables, comparison explorer, standalone Research",
   ],
@@ -355,6 +359,7 @@ export function formatClaim(v, f, c = {}) {
 // Descriptors cannot select an equal-valued different metric/player/side/format.
 export function claimSchema(payload, component, options = {}) {
   const e = payload.semantic_evidence;
+  if (component === "opponent_splits") return opponentSplitSchema(payload);
   if (!e?.metrics) return [];
   if (
     component === "overview" &&
@@ -905,7 +910,28 @@ export function claimSchema(payload, component, options = {}) {
   }
   return records;
 }
+function opponentSplitSchema(payload) {
+  const e = payload.opponent_splits;
+  const records = [];
+  payload.tables.forEach((table, ti) => {
+    const panel = `[data-opponent-split-table="${ti}"]`;
+    const add = (selector, ...source) => records.push({
+      id: `opponent-splits-${records.length}`, component: "opponent_splits",
+      selector: `${panel} ${selector}`, source: ["tables", ti, ...source],
+      format: "text", attribute: null, identity: clone(e.player), scope: clone(e.scope),
+    });
+    add(ti === 0 ? "h3" : "summary", "title");
+    table.columns.forEach((_, ci) =>
+      add(`thead th:nth-child(${ci + 1})`, "columns", ci, "label"));
+    table.rows.forEach((row, ri) => row.forEach((_, ci) =>
+      add(`tbody tr:nth-child(${ri + 1}) td:nth-child(${ci + 1})`, "rows", ri, ci)));
+  });
+  return records;
+}
+
 export function expectedClaim(payload, record) {
+  if (record.component === "opponent_splits")
+    return formatClaim(claimSource(payload, record.source), record.format);
   const c = {
     ...record.context,
     evidence: { scope: payload.semantic_evidence.scope },
@@ -938,7 +964,10 @@ export function validateRenderedClaims(root, payload, session) {
   if (
     !equal(session.evidence.semantic_evidence, payload.semantic_evidence) ||
     !equal(session.evidence.player_profiles, payload.player_profiles) ||
-    !equal(session.evidence.player_profile, payload.player_profile)
+    !equal(session.evidence.player_profile, payload.player_profile) ||
+    (session.component === "opponent_splits" &&
+      (!equal(session.evidence.opponent_splits, payload.opponent_splits) ||
+       !equal(session.evidence.tables, payload.tables)))
   )
     errors.push({ reason: "Canonical identity/metric/scope/source changed" });
   for (const r of schema) {
@@ -983,7 +1012,7 @@ export function validateRenderedClaims(root, payload, session) {
       errors.push({ id, reason: "Missing or duplicate claim destination" });
   return {
     version: UI_CLAIM_VERSION,
-    status: errors.length ? "invalid" : "incomplete",
+    status: errors.length ? "invalid" : session.component === "opponent_splits" ? "complete" : "incomplete",
     checked: schema.length,
     errors,
     gaps:

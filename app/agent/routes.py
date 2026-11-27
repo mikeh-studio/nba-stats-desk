@@ -18,6 +18,7 @@ from app.agent.availability_ask import availability_followup, wants_availability
 from app.agent.award_lookup import wants_award
 from app.agent.conversation import ConversationStore, PendingClarification
 from app.agent.execution import timed
+from app.agent.opponent_splits import opponent_splits_followup, wants_opponent_splits
 from app.agent.performance_overview import wants_overview
 from app.agent.player_comparison import comparison_sides
 from app.agent.reference_ask import reference_followup, reference_kind
@@ -49,6 +50,14 @@ class RouteContext:
     governed: bool
     reference_reply: str | None = None
     period_question: str | None = None
+
+    @cached_property
+    def opponent_followup(self):
+        if self.question == self.routing_question:
+            return opponent_splits_followup(
+                self.question, self.context.get("opponent_splits_question")
+            )
+        return None
 
     @property
     def research_followup(self):
@@ -159,6 +168,20 @@ ROUTES = (
         ),
         "none",
         "Reject unavailable playoff round scope",
+    ),
+    Route(
+        "opponent_splits",
+        "semantic",
+        lambda c: (
+            not wants_award(c.routing_question)
+            and not split_kind(c.routing_question)
+            and (
+                c.opponent_followup is not None
+                or wants_opponent_splits(c.routing_question)
+            )
+        ),
+        "opponent_splits/1",
+        "One player's governed performance grouped by opponent",
     ),
     Route(
         "playoff_round",
@@ -422,6 +445,7 @@ def dispatch_source(context: RouteContext, route: Route) -> str:
         )
 
     sticky: dict[str, Callable[[], bool]] = {
+        "opponent_splits": lambda: context.opponent_followup is not None,
         "research": lambda: (
             context.research_followup and not wants_research(context.question)
         ),
@@ -452,6 +476,13 @@ def semantic_shape(question: str) -> str:
     return next(
         route.key
         for route in ROUTES
-        if route.key in {"player_split", "player_comparison", "overview", "metrics"}
+        if route.key
+        in {
+            "player_split",
+            "opponent_splits",
+            "player_comparison",
+            "overview",
+            "metrics",
+        }
         and route.matches(context)
     )

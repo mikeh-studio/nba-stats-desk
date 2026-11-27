@@ -927,7 +927,7 @@ warehouse; the production BigQuery path does not fall back to it on errors.
 
 Every Ask payload carries `ask_route: {route, source, reason_code}`
 ([`app/agent/route_labels.py`](../app/agent/route_labels.py)). `route` names the
-answer path: `player_overview`, `player_comparison`, `player_split`, `award`,
+answer path: `player_overview`, `player_comparison`, `player_split`, `opponent_splits`, `award`,
 `governed_metrics` (the metrics planner), `similarity`, `league_baseline`,
 `availability`, `appearances`, `research_breakdown`, `teammate_study` (v3
 catalog), `teammate_study_v1`, `research` (research handler reached, no sub-route
