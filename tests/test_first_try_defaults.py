@@ -125,8 +125,10 @@ def test_league_leader_is_planned_without_the_model(question, metric, phase):
     assert query["season"] == "2025-26"
     assert (query["metric"], query["season_type"]) == (metric, phase)
     assert (query["operation"], query["aggregation"]) == ("rank", "average")
-    # Regular-season leaders use the NBA's share-of-team-games standard.
-    assert plan.get("leader_game_share") == (0.7 if phase == "Regular Season" else None)
+    # Regular-season leaders use the project’s share-of-team-games rule.
+    assert plan.get("leader_game_share") == (
+        0.65 if phase == "Regular Season" else None
+    )
 
 
 @pytest.mark.parametrize(
@@ -311,3 +313,30 @@ def test_leaderboard_answer_names_the_leader(on_date):
 )
 def test_fantasy_advice_needs_fantasy_or_roster_wording(question, fantasy):
     assert (question_scope(question)["kind"] == "fantasy_decision") is fantasy
+
+
+def test_range_based_minimum_uses_each_team_schedule_and_explicit_override():
+    from app.agent.semantics import Query, range_minimums
+
+    appearances = [
+        dict(
+            player_id=pid,
+            season="2024-25",
+            team_abbr=team,
+            game_id=f"{team}-{i}",
+            game_date=f"2025-01-{i + 1:02}",
+        )
+        for pid, team, games in [
+            (1, "AAA", 3),
+            (2, "BBB", 4),
+            (3, "AAA", 1),
+            (4, "CCC", 10),
+            (5, "DDD", 20),
+        ]
+        for i in range(games)
+    ]
+    query = Query("pts", "2024-25", "average", operation="rank")
+    assert range_minimums(appearances, query) == {1: 2, 2: 3, 3: 2, 4: 7, 5: 13}
+    from dataclasses import replace
+
+    assert range_minimums(appearances, replace(query, min_games=1)) == {}

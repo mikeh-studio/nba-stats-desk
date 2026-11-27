@@ -433,3 +433,42 @@ def test_query_phase_default_comes_from_contract(monkeypatch):
     monkeypatch.setattr(semantics, "load_contract", lambda: contract)
     assert Query("pts", "2024-25", "average").season_type == "Playoffs"
     assert Query("pts", "2024-25", "average", season_type="Both").season_type == "Both"
+
+
+def test_weekly_rank_and_percentile_share_team_specific_eligibility(evidence):
+    template = evidence.rows[0]
+    rows = []
+    for team, schedule, pid, played in [("AAA", 3, 10, 2), ("BBB", 4, 20, 2)]:
+        for n in range(schedule):
+            row = dict(
+                template,
+                team_abbr=team,
+                game_date=f"2024-11-{10 + n}",
+                game_id=f"{team}{n}",
+                player_id=pid + 1,
+                pts=5,
+            )
+            rows.append(row)
+            if n < played:
+                rows.append(dict(row, player_id=pid, pts=20))
+        rows.append(dict(row, game_date="2024-11-01", game_id=f"{team}-old"))
+    scoped = replace(evidence, rows=rows)
+    query = Query(
+        "pts",
+        template["season"],
+        "average",
+        operation="rank",
+        window="last_n_days",
+        n=7,
+        as_of="2024-11-15",
+    )
+    ranks = run_query(scoped, query)
+    assert ranks["rows"][0]["player_id"] == 10
+    assert ranks["rows"][0]["rank"] == 1
+    assert ranks["rows"][0]["percentile"] == 100
+    assert ranks["rows"][0]["required_games"] == 2
+    other = replace(query, operation="percentile", player_id=20)
+    excluded = run_query(scoped, other)["rows"][0]
+    assert excluded["required_games"] == 3
+    assert excluded["percentile"] is None
+    assert run_query(scoped, replace(other, min_games=2))["rows"][0]["rank"] == 1

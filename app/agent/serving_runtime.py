@@ -33,6 +33,7 @@ from app.agent.semantics import (
     SemanticError,
     finish_summaries,
     load_contract,
+    range_minimums,
     run_query,
 )
 from app.agent.serving_contract import (
@@ -234,12 +235,15 @@ class PilotPublication:
                 grouped.setdefault(summary.player_id, []).append(summary)
         summaries = []
         minimum = query.min_games if query.min_games is not None else contract.min_games
+        floors = range_minimums(appearances, query)
         for player, group in grouped.items():
             checkpoint()
             value = aggregate_summaries(group, metric, query.aggregation)
             value["game_ids"].sort(key=lambda g: (dates[(player, g)], g), reverse=True)
             reasons = []
-            if value["valid_games"] < minimum:
+            if floors:
+                value["required_games"] = floors[player]
+            if value["valid_games"] < floors.get(player, minimum):
                 reasons.append("insufficient_games")
             if value["missing_component_games"]:
                 reasons.append("incomplete_components")

@@ -99,7 +99,8 @@ export function semanticTable(table, payload, index) {
   const displayRows = rows.map(r => indices.map(i => mergeGames && incomplete && i === observed ? `${r[valid]} of ${r[observed]}` : r[i]));
   const qualifications = [];
   if (!gameLog && cohort) {
-    if (cohort.min_games != null) qualifications.push(`Minimum ${cohort.min_games} games`);
+    if (cohort.team_game_percent) qualifications.push(`Minimum ${cohort.team_game_percent}% of team games`);
+    else if (cohort.min_games != null) qualifications.push(`Minimum ${cohort.min_games} games`);
     if (cohort.min_attempts != null) qualifications.push(`Minimum ${cohort.min_attempts} ${metricName({key:cohort.attempt_field}).toLowerCase()}`);
     if (cohort.size != null) qualifications.push(`${cohort.size} qualifying players`);
     if (ranking && count < scope.limit) qualifications.push(`${count} of ${scope.limit} requested results available`);

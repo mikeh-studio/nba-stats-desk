@@ -67,13 +67,10 @@ averages are described as lower rather than an overall playmaking advantage.
 
 ## Qualification and supported answers
 
-The default count-ranking threshold is five appearances, a project policy rather
-than official NBA qualification. A question that is exactly “who led/leads the
-league in <counting stat> [season] [phase]” is planned without the model as a
-per-game ranking; regular-season leaders require appearances in at least 70% of
-the most games any team has in the scoped evidence (58 of 82), the NBA's
-per-game leader standard. Facts and aggregate serving use the same qualification;
-serving derives the game count from its validated publication appearance metadata.
+Per-game averages use 65% of each team's games in the selected range, rounded
+up, for Ask rank and percentile eligibility. Explicit minimums take precedence.
+For players changing teams, the first recorded appearance with the new team
+starts the next stint. Facts and aggregate serving share the calculation.
 A model plan that compares two seasons' leaderboards for a one-period question
 without comparison wording keeps the selected season only when it is the sole
 requested season. Explicit multiple seasons are preserved for validation, including
