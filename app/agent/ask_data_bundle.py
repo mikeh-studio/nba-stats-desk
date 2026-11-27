@@ -68,7 +68,7 @@ def _timestamp(value: str) -> datetime:
 def validate_bundle_manifest(
     manifest: Mapping[str, Any], *, now: datetime | None = None
 ) -> None:
-    """Validate the JSON manifest and enforce freshness at the supplied instant."""
+    """Validate the JSON manifest, its content ID, and freshness at read time."""
     try:
         document = (
             _json_value(manifest)
@@ -79,6 +79,17 @@ def validate_bundle_manifest(
         scope = document["scope"]
         if date.fromisoformat(scope["first"]) > date.fromisoformat(scope["last"]):
             raise ValueError("Unordered scope dates")
+        if "covered_scopes" in scope:
+            covered = scope["covered_scopes"]
+            pairs = {(item["season"], item["phase"]) for item in covered}
+            if (
+                len(pairs) != len(covered)
+                or {season for season, _ in pairs} != set(scope["seasons"])
+                or {phase for _, phase in pairs} != set(scope["phases"])
+            ):
+                raise ValueError(
+                    "Covered scopes differ from the declared seasons and phases"
+                )
         freshness = document["freshness"]
         source = _timestamp(freshness["source_timestamp"])
         built = _timestamp(freshness["built_at"])
@@ -93,6 +104,11 @@ def validate_bundle_manifest(
             _require_aware(now)
             if not built <= now.astimezone(timezone.utc) < expiry:
                 raise ValueError("Bundle is expired or was built after the read time")
+        if (
+            digest({k: v for k, v in document.items() if k != "bundle_id"})
+            != document["bundle_id"]
+        ):
+            raise ValueError("Bundle ID differs from manifest content")
     except (ValueError, OSError, OverflowError, jsonschema.ValidationError) as exc:
         if isinstance(exc, SemanticError):
             raise
@@ -244,6 +260,13 @@ class AskDataBundle:
                 scope=dict(
                     seasons=[source.season],
                     phases=[source.phase],
+                    covered_scopes=[
+                        dict(
+                            season=source.season,
+                            phase=source.phase,
+                            data_through=evidence.data_through[scope],
+                        )
+                    ],
                     first=first.isoformat(),
                     last=last.isoformat(),
                     cohort_complete=evidence.cohort_complete,
@@ -289,7 +312,9 @@ class AskDataBundle:
                 != approval.scopes
             ):
                 raise ValueError("Pilot metadata and approved scopes differ")
-            capabilities = ["points"]
+            capabilities = []
+            if "pts" in approval.metrics or publication.detail_json is not None:
+                capabilities.append("points")
             if metadata["capability_version"] == "ask_serving_expansion/1":
                 capabilities.extend(["metrics", "rankings"])
             elif metadata["capability_version"] != "ask_serving_points/1":
@@ -311,6 +336,10 @@ class AskDataBundle:
                 scope=dict(
                     seasons=sorted({season for season, _ in approval.scopes}),
                     phases=sorted({phase for _, phase in approval.scopes}),
+                    covered_scopes=[
+                        dict(season=season, phase=phase, data_through=day)
+                        for (season, phase), day in sorted(coverage.items())
+                    ],
                     first=min(row["game_date"] for row in appearances),
                     last=max(coverage.values()),
                     cohort_complete=True,
@@ -484,6 +513,9 @@ class AskBundleWarehouse:
                 bundle = AskDataBundle.from_pilot_publication(
                     publication, now=now if now is not None else clock()
                 )
+            validate_bundle_manifest(
+                bundle.manifest, now=now if now is not None else clock()
+            )
             state["bundle"] = bundle
             return bundle
 

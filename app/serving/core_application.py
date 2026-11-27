@@ -238,16 +238,15 @@ def create_core_application(
         return leader_answer(evidence, manifest)
 
     def require_production_authority():
-        if (
-            production_authority is None
-            or production_authority.check(manifest, binding) is not True
-            or authorized() is not True
-        ):
+        if production_authority is None:
+            raise ValueError("Publication authority unavailable")
+        policy, registry = production_authority.verify_release(manifest, binding)
+        if authorized() is not True:
             raise ValueError("Publication authority unavailable")
         current = status()
         if current["freshness"] not in {"fresh", "stale_usable"}:
             raise ValueError("Publication freshness unavailable")
-        return current
+        return current, policy, registry
 
     def ask_publication_source():
         from dataclasses import replace
@@ -255,7 +254,7 @@ def create_core_application(
         from app.agent.publication_ask_source import PublicationAskSource
         from app.serving.weekly_profile import BOUND_THREES_PROFILE
 
-        current = require_production_authority()
+        current, policy, registry = require_production_authority()
         if "ask_player_stats" not in current["capabilities"]:
             raise ValueError("Publication does not authorize player statistics for Ask")
         cohort_proof = (
@@ -265,12 +264,18 @@ def create_core_application(
         )
         if cohort_proof:
             current = {**current, "cohort_proof": cohort_proof}
+        deadlines = [manifest["freshness"]["expires_at"]]
+        deadlines.extend(
+            doc["valid_until"]
+            for doc in (policy, registry)
+            if doc.get("valid_until") is not None
+        )
         return PublicationAskSource(
             replace(evidence, cohort_complete=bool(cohort_proof)),
             current,
             source_timestamp=manifest["freshness"]["discovery_verified_at"],
             built_at=manifest["built_at"],
-            expires_at=manifest["freshness"]["expires_at"],
+            expires_at=min(deadlines, key=timestamp),
         )
 
     app.state.ask_publication_source = ask_publication_source

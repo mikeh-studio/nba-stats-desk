@@ -403,15 +403,26 @@ class RefreshingServingWarehouse:
         self._last_shadow: ServingShadow | FailedShadow | None = None
 
     def _reference(self):
+        policy = CURRENT.get()
+        if policy is None:
+            return self._read_reference()
+        # Bundle reads already hold this reentrant lock. Routing must join the
+        # same critical section before it can read or set the reference pin.
+        acquire_timed_lock(policy.bundle_lock, "serving_reference_wait")
+        try:
+            state = policy.serving_state.setdefault(self, {})
+            if "reference" not in state:
+                state["reference"] = self._read_reference()
+            return state["reference"]
+        finally:
+            policy.bundle_lock.release()
+
+    def _read_reference(self):
         import json
         import stat
 
         from app.agent.serving_bigquery import ServingReference
 
-        policy = CURRENT.get()
-        state = policy.serving_state.setdefault(self, {}) if policy else None
-        if state is not None and "reference" in state:
-            return state["reference"]
         with stage("serving_reference"):
             try:
                 if not stat.S_ISREG(self.path.stat().st_mode):
@@ -428,8 +439,6 @@ class RefreshingServingWarehouse:
                 raise SemanticError(
                     "invalid_evidence", "Serving reference unavailable or invalid"
                 ) from exc
-        if state is not None:
-            state["reference"] = reference
         return reference
 
     def _select(self) -> ServingWarehouse:
@@ -442,6 +451,8 @@ class RefreshingServingWarehouse:
         reference = self._reference()
         acquire_timed_lock(self._lock, "serving_version_wait", 5)
         try:
+            if state is not None and "target" in state:
+                return state["target"]
             target = self._versions.get(reference)
             if target is None:
                 target = ServingWarehouse(

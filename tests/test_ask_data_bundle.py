@@ -7,6 +7,7 @@ from threading import Event
 from types import SimpleNamespace
 
 import pytest
+from app.agent import serving_warehouse
 from app.agent.ask_data_bundle import (
     BUNDLE_SCHEMA_VERSION,
     AskBundleWarehouse,
@@ -14,6 +15,7 @@ from app.agent.ask_data_bundle import (
     validate_bundle_manifest,
 )
 from app.agent.execution import request_policy
+from app.agent.performance_overview import build_overview, overview_scope
 from app.agent.publication_ask_source import (
     ProductionAskWarehouse,
     PublicationAskSource,
@@ -21,12 +23,15 @@ from app.agent.publication_ask_source import (
 from app.agent.semantic_serving import SemanticWarehouse, warehouse_for_repository
 from app.agent.semantic_source import BigQuerySemanticSource, snapshot_digest
 from app.agent.semantics import Evidence, Query, SemanticError, run_query
+from app.agent.serving_bigquery import ServingReference, encode_publication
 from app.agent.serving_contract import MetricSummary
 from app.agent.serving_publication import candidate_summaries, digest
 from app.agent.serving_runtime import PilotPublication
 from app.agent.serving_warehouse import RefreshingServingWarehouse
 from google.api_core.exceptions import NotFound
+from tests.test_overview_positions import fixture as position_fixture
 from tests.test_semantic_source import Client as SnapshotClient
+from tests.test_semantic_source import source_rows
 from tests.test_serving_bigquery import Client as WireClient
 from tests.test_serving_bigquery import wire
 
@@ -38,30 +43,38 @@ SEASON, PHASE = "2024-25", "Regular Season"
 FIRST, LAST = "2024-10-22", "2025-04-13"
 
 
+def seal_manifest(document):
+    document["bundle_id"] = digest(
+        {k: v for k, v in document.items() if k != "bundle_id"}
+    )
+    return document
+
+
 @pytest.fixture
 def manifest():
-    return {
-        "schema_version": BUNDLE_SCHEMA_VERSION,
-        "bundle_id": "a" * 64,
-        "publication_id": "pub_fixture",
-        "source_snapshot_id": "source_fixture",
-        "scope": {
-            "seasons": [SEASON],
-            "phases": [PHASE],
-            "first": FIRST,
-            "last": LAST,
-            "cohort_complete": True,
-        },
-        "freshness": {
-            "policy": "dev_300s",
-            "source_timestamp": CAPTURE.isoformat(),
-            "built_at": NOW.isoformat(),
-            "expires_at": DEV_EXPIRY.isoformat(),
-        },
-        "capabilities": ["points", "playoff_rounds"],
-        "summary_digest": "b" * 64,
-        "facts_digest": "c" * 64,
-    }
+    return seal_manifest(
+        {
+            "schema_version": BUNDLE_SCHEMA_VERSION,
+            "publication_id": "pub_fixture",
+            "source_snapshot_id": "source_fixture",
+            "scope": {
+                "seasons": [SEASON],
+                "phases": [PHASE],
+                "first": FIRST,
+                "last": LAST,
+                "cohort_complete": True,
+            },
+            "freshness": {
+                "policy": "dev_300s",
+                "source_timestamp": CAPTURE.isoformat(),
+                "built_at": NOW.isoformat(),
+                "expires_at": DEV_EXPIRY.isoformat(),
+            },
+            "capabilities": ["points", "playoff_rounds"],
+            "summary_digest": "b" * 64,
+            "facts_digest": "c" * 64,
+        }
+    )
 
 
 def test_schema_validates_both_policies_and_optional_slots(manifest):
@@ -80,7 +93,7 @@ def test_schema_validates_both_policies_and_optional_slots(manifest):
             )
         )
     }
-    validate_bundle_manifest(manifest, now=DEV_EXPIRY)
+    validate_bundle_manifest(seal_manifest(manifest), now=DEV_EXPIRY)
 
 
 @pytest.mark.parametrize(
@@ -123,8 +136,44 @@ def test_schema_validates_both_policies_and_optional_slots(manifest):
 )
 def test_schema_rejects_invalid_manifests(manifest, section, change):
     (manifest if section is None else manifest[section]).update(change)
+    if "bundle_id" not in change:
+        seal_manifest(manifest)
     with pytest.raises(SemanticError) as error:
         validate_bundle_manifest(manifest)
+    assert error.value.code == "invalid_evidence"
+
+
+def test_manifest_rejects_tampered_scope_with_original_bundle_id(manifest):
+    manifest["scope"]["last"] = "2025-04-12"
+    with pytest.raises(SemanticError) as error:
+        validate_bundle_manifest(manifest, now=NOW)
+    assert error.value.code == "invalid_evidence"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"seasons": [SEASON, "2023-24"]},
+        {"phases": ["Playoffs"]},
+        {
+            "covered_scopes": [
+                {"season": SEASON, "phase": PHASE, "data_through": "2025-02-30"}
+            ]
+        },
+        {
+            "covered_scopes": [
+                dict(season=SEASON, phase=PHASE, data_through=LAST),
+                dict(season=SEASON, phase=PHASE, data_through=FIRST),
+            ]
+        },
+    ],
+)
+def test_manifest_rejects_invalid_covered_scopes(manifest, change):
+    scope = manifest["scope"]
+    scope["covered_scopes"] = [dict(season=SEASON, phase=PHASE, data_through=LAST)]
+    scope.update(change)
+    with pytest.raises(SemanticError) as error:
+        validate_bundle_manifest(seal_manifest(manifest), now=NOW)
     assert error.value.code == "invalid_evidence"
 
 
@@ -220,6 +269,9 @@ def test_core_publication_preserves_values_and_provenance(core_source, cohort_co
             candidate_summaries(evidence, "core_a", ["pts"])
     assert set(bundle.manifest["capabilities"]) == capabilities
     assert bundle.manifest["scope"]["cohort_complete"] is cohort_complete
+    assert bundle.manifest["scope"]["covered_scopes"] == (
+        dict(season=SEASON, phase=PHASE, data_through=LAST),
+    )
     assert bundle.manifest["freshness"] == {
         "policy": "authority_backed",
         "source_timestamp": source.source_timestamp,
@@ -233,6 +285,37 @@ def test_core_publication_preserves_values_and_provenance(core_source, cohort_co
         source.load([SEASON])[1], query
     )
     validate_bundle_manifest(bundle.manifest, now=NOW)
+
+
+def test_frozen_bundle_preserves_position_group_cohort(core_source):
+    grouped, context = position_fixture()
+    evidence = replace(
+        core_source.evidence,
+        rows=[row for rows in grouped.values() for row in rows],
+        position_context=context,
+    )
+    bundle = AskDataBundle.from_core_publication(
+        replace(core_source, evidence=evidence), now=NOW, metrics=["pts"]
+    )
+    question = "How was Example 1's scoring performance in the 2024-25 regular season among guards?"
+    scope = overview_scope(question, SEASON)
+    players = [{"player_id": 1, "player_name": "Example 1"}]
+
+    def points_comparison(source):
+        result = build_overview(question, source, players, scope)
+        points = next(
+            metric
+            for metric in result["semantic_evidence"]["metrics"]
+            if metric["key"] == "pts"
+        )
+        return points["peer_comparison"]
+
+    original = points_comparison(evidence)
+    assert original["kind"] == "position"
+    assert original["group"] == "Guard"
+    assert original["cohort_size"] == 20
+    assert original["evidence_id"] == context["sha256"]
+    assert points_comparison(bundle.evidence) == original
 
 
 def test_bundle_is_immutable_and_digests_are_canonical(core_source):
@@ -310,6 +393,8 @@ def pilot(snapshot, *, metrics=None, detail=False, publication_id="pilot_a"):
     ("metrics", "detail", "capabilities"),
     [
         (None, False, {"points"}),
+        (["ast"], False, {"metrics", "rankings"}),
+        (["ast"], True, {"points", "metrics", "rankings", "detail", "rich"}),
         (["pts", "ast"], False, {"points", "metrics", "rankings"}),
         (["pts", "ast"], True, {"points", "metrics", "rankings", "detail", "rich"}),
     ],
@@ -341,6 +426,30 @@ def test_pilot_publication_preserves_approved_summaries(
     with pytest.raises(SemanticError) as error:
         AskDataBundle.from_pilot_publication(publication, now=DEV_EXPIRY)
     assert error.value.code == "invalid_evidence"
+
+
+def test_pilot_bundle_preserves_sparse_season_phase_coverage():
+    rows = source_rows()
+    for row in rows:
+        if row["season_type"] == PHASE:
+            row["season"] = "2023-24"
+            row["game_date"] = row["game_date"].replace("2025-", "2024-")
+    snapshot = BigQuerySemanticSource(
+        SnapshotClient(rows), project="test-project"
+    ).capture(["2023-24", "2024-25"])
+    snapshot["source_timestamp"] = CAPTURE.isoformat()
+    snapshot["sha256"] = snapshot_digest(snapshot)
+    publication = pilot(snapshot)
+    scope = AskDataBundle.from_pilot_publication(publication, now=NOW).manifest["scope"]
+    assert scope["seasons"] == ("2023-24", "2024-25")
+    assert scope["phases"] == ("Playoffs", "Regular Season")
+    assert scope["covered_scopes"] == tuple(
+        dict(season=season, phase=phase, data_through=day)
+        for season, phase, day in (
+            ("2023-24", "Regular Season", "2024-01-07"),
+            ("2024-25", "Playoffs", "2025-04-01"),
+        )
+    )
 
 
 @pytest.fixture
@@ -417,6 +526,100 @@ def test_concurrent_bundle_reads_share_the_request_pin(core_source, settings):
             release.set()
         assert first.result(timeout=5) is second.result(timeout=5)
     assert reads == [None]
+
+
+def test_cold_build_crossing_expiry_is_neither_returned_nor_cached(
+    core_source, settings, monkeypatch
+):
+    warehouse = AskBundleWarehouse(
+        SemanticWarehouse(SnapshotClient()), lambda _: core_source
+    )
+    times = iter([NOW, CORE_EXPIRY])
+    monkeypatch.setattr(warehouse, "_utc_now", lambda: next(times))
+    with request_policy(settings, "openai") as policy:
+        with pytest.raises(SemanticError) as error:
+            warehouse.open_bundle()
+        assert error.value.code == "invalid_evidence"
+        assert "bundle" not in policy.serving_state[warehouse]
+
+
+def test_concurrent_prepare_and_open_bundle_share_wire_pin(
+    pilot_snapshot, settings, tmp_path, monkeypatch
+):
+    first, first_records = wire(pilot(pilot_snapshot))
+    second_table = "ask_serving_" + "b" * 32
+    header, second_records = encode_publication(
+        pilot(pilot_snapshot, publication_id="pilot_b"),
+        now=NOW,
+        relation_id=second_table,
+    )
+    second = replace(first, table=second_table, manifest_digest=digest(header))
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps(asdict(first)))
+
+    class VersionedClient(WireClient):
+        def query(self, sql, **kwargs):
+            self.records = second_records if second.table in sql else first_records
+            return super().query(sql, **kwargs)
+
+    warehouse = RefreshingServingWarehouse(
+        SemanticWarehouse(SnapshotClient()),
+        VersionedClient(first_records),
+        path,
+        lambda: NOW,
+        project=first.project,
+        mode="serve",
+    )
+    first_read, release_first, prepare_waiting_or_done = Event(), Event(), Event()
+    relation = ServingReference.relation
+
+    def pause_first_read(reference):
+        if reference.table == first.table and not first_read.is_set():
+            first_read.set()
+            assert release_first.wait(timeout=5)
+        return relation(reference)
+
+    monkeypatch.setattr(ServingReference, "relation", pause_first_read)
+
+    def planner(_players, _teams):
+        return {"status": "compare"}
+
+    with (
+        request_policy(settings, "openai") as policy,
+        ThreadPoolExecutor(max_workers=2) as pool,
+    ):
+        acquire_lock = serving_warehouse.acquire_timed_lock
+
+        def observe_prepare_lock(lock, *args):
+            if lock is policy.bundle_lock and first_read.is_set():
+                prepare_waiting_or_done.set()
+            return acquire_lock(lock, *args)
+
+        monkeypatch.setattr(
+            serving_warehouse, "acquire_timed_lock", observe_prepare_lock
+        )
+        bundle_read = pool.submit(copy_context().run, warehouse.open_bundle)
+        try:
+            assert first_read.wait(timeout=5)
+            promoted = tmp_path / "promoted.json"
+            promoted.write_text(json.dumps(asdict(second)))
+            promoted.replace(path)
+            prepared = pool.submit(
+                copy_context().run, warehouse.prepare, planner, seasons=[SEASON]
+            )
+            prepared.add_done_callback(lambda _: prepare_waiting_or_done.set())
+            assert prepare_waiting_or_done.wait(timeout=5)
+        finally:
+            release_first.set()
+        bundle = bundle_read.result(timeout=5)
+        attempt = prepared.result(timeout=5)
+        assert (
+            attempt.source_query["publication_id"]
+            == bundle.manifest["publication_id"]
+            == "pilot_a"
+        )
+    with request_policy(settings, "openai"):
+        assert warehouse.open_bundle().manifest["publication_id"] == "pilot_b"
 
 
 def test_refreshing_warehouse_exposes_wire_bundle_and_keeps_core_separate(

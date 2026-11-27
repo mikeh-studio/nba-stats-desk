@@ -35,11 +35,17 @@ class ProviderAuthorities:
         raise ValueError("production source authority unavailable")
 
     def check(self, manifest, binding):
+        return self._release_authority(manifest).check(manifest, binding)
+
+    def verify_release(self, manifest, binding):
+        return self._release_authority(manifest).verify_release(manifest, binding)
+
+    def _release_authority(self, manifest):
         provider = manifest["scope"]["provider"]
         authority = self.authorities.get(provider)
         if authority is None:
             raise ValueError("production source authority unavailable")
-        return authority.check(manifest, binding)
+        return authority
 
     def authorize_scope(self, use, scope):
         scope = weekly_scope(scope)
@@ -174,12 +180,17 @@ class SourceAuthority:
         return policy, registry
 
     def check(self, manifest, binding):
+        self.verify_release(manifest, binding)
+        return True
+
+    def verify_release(self, manifest, binding):
+        """Return the exact policy and registry that authorized this release."""
         try:
-            return self._check(manifest, binding)
+            return self._verify_release(manifest, binding)
         except (OSError, KeyError, TypeError, ValueError) as exc:
             raise ValueError("production release authority unavailable") from exc
 
-    def _check(self, manifest, binding):
+    def _verify_release(self, manifest, binding):
         policy, registry = self.policy("serving")
         validate_binding(binding, manifest)
         if (
@@ -224,7 +235,8 @@ class SourceAuthority:
             < min(
                 timestamp(manifest["freshness"]["expires_at"]),
                 timestamp(policy["valid_until"]),
+                timestamp(registry["valid_until"]),
             )
         ):
             raise ValueError("production source expired")
-        return True
+        return policy, registry

@@ -484,7 +484,12 @@ def test_cancelled_async_publication_waits_release_admission(
 
 
 @pytest.fixture
-def production(tmp_path):
+def policy_valid_until():
+    return "2027-07-01T00:00:00Z"
+
+
+@pytest.fixture
+def production(tmp_path, policy_valid_until):
     original = synthetic_bundle()
     accepted = original["accepted"]
     accepted.update(
@@ -503,7 +508,7 @@ def production(tmp_path):
         permitted_uses=["collect", "build", "promote", "serving"],
         scope={**accepted["scope"], "last": "2027-06-30"},
         valid_from="2026-10-01T00:00:00Z",
-        valid_until="2027-07-01T00:00:00Z",
+        valid_until=policy_valid_until,
     )
     policy_path, registry_path = tmp_path / "policy.json", tmp_path / "registry.json"
     policy_path.write_text(json.dumps(policy))
@@ -644,10 +649,51 @@ def test_rolling_publication_ask_preserves_player_facts_without_a_league_certifi
         )
         assert bundle.summaries
         assert "rankings" not in bundle.manifest["capabilities"]
-        assert (
-            bundle.manifest["freshness"]["expires_at"]
-            == production.envelope["manifest"]["freshness"]["expires_at"]
-        )
+
+
+@pytest.mark.parametrize(
+    ("earliest", "policy_valid_until", "registry_valid_until"),
+    [
+        ("release", "2027-07-01T00:00:00Z", "2027-07-01T00:00:00Z"),
+        ("policy", "2026-11-01T17:00:00Z", "2027-07-01T00:00:00Z"),
+        ("registry", "2027-07-01T00:00:00Z", "2026-11-01T17:00:00Z"),
+    ],
+)
+def test_core_ask_bundle_expires_at_the_earliest_verified_deadline(
+    production, earliest, registry_valid_until
+):
+    from app.agent.ask_data_bundle import AskBundleWarehouse
+    from app.agent.execution import request_policy
+    from app.agent.semantics import SemanticError
+
+    p = production
+    p.registry["valid_until"] = registry_valid_until
+    p.registry_path.write_text(json.dumps(p.registry))
+    p.app.authority = ProviderAuthorities(
+        {"espn": p.authority}, clock=p.authority.clock
+    )
+    deadlines = {
+        "release": p.envelope["manifest"]["freshness"]["expires_at"],
+        "policy": p.policy["valid_until"],
+        "registry": registry_valid_until,
+    }
+    deadline = deadlines[earliest]
+    assert timestamp(deadline) == min(map(timestamp, deadlines.values()))
+    settings = SimpleNamespace(
+        agent_request_deadline_seconds=20, agent_max_tool_calls=1
+    )
+
+    def read_source(publication_id):
+        return p.app.application(publication_id).state.ask_publication_source()
+
+    warehouse = AskBundleWarehouse(None, read_source)
+    with request_policy(settings, "openai"):
+        bundle = warehouse.open_bundle(now=timestamp(NOW))
+        assert bundle.manifest["freshness"]["expires_at"] == deadline
+        p.clock[0] = deadline
+        with pytest.raises(SemanticError) as error:
+            warehouse.open_bundle(now=timestamp(p.clock[0]))
+        assert error.value.code == "invalid_evidence"
 
 
 def test_rolling_production_routes_and_pinned_rollback(production):
