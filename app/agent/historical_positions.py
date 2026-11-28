@@ -41,6 +41,12 @@ def digest(context):
     ).hexdigest()
 
 
+def _mapping_dict(value):
+    if isinstance(value, Mapping):
+        return dict(value)
+    raise TypeError(f"Unsupported position context value: {type(value).__name__}")
+
+
 def season_valid(season):
     return (
         isinstance(season, str)

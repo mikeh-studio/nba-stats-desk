@@ -39,6 +39,7 @@ ROUTE_SOURCES = ("deterministic", "prior_route", "pending_clarification", "model
 # Registry keys whose payload label differs; other keys are already labels.
 DISPATCH_LABELS = {
     "unsupported_round": "unsupported",
+    "playoff_round": "governed_metrics",
     "teammate_study": "teammate_study_v1",
     "overview": "player_overview",
     "metrics": "governed_metrics",

@@ -3,6 +3,7 @@
 from statistics import median
 
 from app.agent.overview_insights import insight_paragraphs
+from app.agent.semantics import PLAYOFF_ROUND_LABELS
 
 
 def game_insights(rows):
@@ -34,6 +35,8 @@ def summary_paragraphs(
         .replace("Playoffs", "playoff")
         .replace(" + ", " and ")
     )
+    if round_key := scope.get("playoff_round"):
+        phase = PLAYOFF_ROUND_LABELS[round_key]
     if not appearances:
         return [
             "No recorded appearances are available in the requested dates and phases."

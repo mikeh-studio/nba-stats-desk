@@ -6,6 +6,7 @@ from datetime import date
 
 from app.agent.clock import today as semantic_today
 from app.agent.overview_calendar import MONTH_PATTERN, MONTHS, literal_date_intervals
+from app.agent.scope_policy import normalize_playoff_round_year
 from app.agent.semantics import SemanticError
 from app.seasons import SEASONS, most_recent_season, season_bounds
 
@@ -53,6 +54,7 @@ def resolve_time_defaults(question, today=None, context=None):
             ) from exc
     context = context or {}
     question, notes = resolve_recent_season(question, today)
+    question = normalize_playoff_round_year(question)
     original = question
     alternatives = []
     # Explicit ranges and clarification replies already have their own validators.

@@ -154,6 +154,7 @@ def split_kind(question: str) -> str | None:
         and re.search(r"regular[ -]season", text)
         and re.search(r"\b(?:playoffs?|postseason)\b", text)
         and not re.search(r"\b(?:both|combined|including)\b", text)
+        and not requested_playoff_round(text)
     ):
         return "phase"
     if (
@@ -173,15 +174,216 @@ def split_kind(question: str) -> str | None:
     return None
 
 
-def round_scope_message(question: str) -> str | None:
-    """No round dimension exists: never pool a series request into a season."""
-    if re.search(
-        r"\b(?:finals|(?:nba|conference) final|the final(?!\s+(?:\d+|score|games?))|"
-        r"championship series|semi[ -]?finals?|conference semis|"
-        r"(?:first|second|third|1st|2nd|3rd|early|earlier|opening|final)[ -](?:playoff[ -])?rounds?|"
-        r"round[ -](?:one|two|three|[1-4]))\b",
-        question,
-        re.I,
+_DRAFT_ROUND_SUFFIX = (
+    r"(?![ -]+(?:(?:of[ -]+(?:the[ -]+)?)?(?:nba[ -]+)?draft|"
+    r"(?:draft[ -]+)?(?:picks?|selections?|choices?))\b)"
+)
+_ROUND_CUES = re.compile(
+    r"\b(?:finals|(?:nba|conference) final|the final(?!\s+(?:\d+|score|games?))|"
+    r"championship series|semi[ -]?finals?|conference semis|"
+    r"(?:finals|series|game|round|playoff)[ -]openers?|opening[ -]games?|"
+    r"(?:close[- ]?out|elimination|deciding|clinching|must[- ]win|do[- ]or[- ]die)(?:[ -]+games?)?|"
+    r"clinchers?|"
+    r"(?:first|second|third|1st|2nd|3rd|early|earlier|opening|final)[ -](?:playoff[ -])?rounds?"
+    + _DRAFT_ROUND_SUFFIX
+    + r"|round[ -](?:one|two|three|[1-4]))\b",
+    re.I,
+)
+_ROUND_ALIASES = (
+    (
+        "first_round",
+        r"(?:first|1st|opening)[ -](?:playoff[ -])?round" + _DRAFT_ROUND_SUFFIX,
+    ),
+    (
+        "conference_semifinals",
+        r"conference semi[ -]?finals|conference semis|"
+        r"(?:second|2nd)[ -](?:playoff[ -])?round" + _DRAFT_ROUND_SUFFIX,
+    ),
+    (
+        "conference_finals",
+        r"conference finals|"
+        r"(?:third|3rd)[ -](?:playoff[ -])?round" + _DRAFT_ROUND_SUFFIX,
+    ),
+    ("nba_finals", r"nba finals|finals"),
+)
+_CONFERENCE_QUALIFIED_ROUND = re.compile(
+    r"\b(?:eastern|western|east|west)[ -](?:"
+    r"conference\b|"
+    r"semi[ -]?finals?\b|"
+    r"semis\b|"
+    r"finals?\b|"
+    r"(?:first|1st|opening|second|2nd|third|3rd)[ -](?:playoff[ -])?rounds?"
+    + _DRAFT_ROUND_SUFFIX
+    + r")",
+    re.I,
+)
+_ROUND_PATTERN = re.compile(
+    r"\b(?:"
+    + "|".join(f"(?P<{key}>{pattern})" for key, pattern in _ROUND_ALIASES)
+    + r")\b",
+    re.I,
+)
+_NON_PLAYOFF_EVENT = re.compile(
+    r"\b(?:nba[ -]cup|in[ -]season[ -]tournament|"
+    r"g[ -]?league|d[ -]?league|wnba|ncaa[wmb]?|march[ -]+madness|euro[ -]?(?:league|cup)|olympics?|"
+    r"summer[ -]?league|fiba|big[ -]?3|play-?in|play in tournament|(?:the|nba) play in|"
+    r"pre[ -]?season|all[ -]?star)\b",
+    re.I,
+)
+_SUBGAME_SCOPE = re.compile(
+    r"\b(?:q[1-4]|(?:(?:first|second|third|fourth|1st|2nd|3rd|4th|final|last|opening|early|late)[ -]+)?(?:quarters?|qtrs?)|"
+    r"(?:first|second|1st|2nd)[ -]+half|halves|halftime|half[ -]time|"
+    r"(?:first|second|third|fourth|1st|2nd|3rd|4th)[ -]+period|periods?[ -]+[1-4]|"
+    r"overtime|\d+ot|(?:in|during|for|only)[ -]+ot)\b",
+    re.I,
+)
+_SERIES_GAME = re.compile(
+    r"\b(?:games?[ -](?:nos?\.\s+)?(?:#?\d+|one|two|three|four|five|six|seven)|"
+    r"(?:first|second|third|fourth|fifth|sixth|seventh|final|last|opening|"
+    r"\d+(?:st|nd|rd|th))[ -](?:(?:one|two|three|four|five|six|seven|\d+|few)[ -])?games?|"
+    r"(?:(?:finals|series|game|round|playoff)[ -])?openers?|opening[ -]games?|"
+    r"(?:close[- ]?out|elimination|deciding|clinching|must[- ]win|do[- ]or[- ]die)(?:[ -]+games?)?|"
+    r"clinchers?)\b",
+    re.I,
+)
+_QUALIFIED_ROUND_PREFIX = re.compile(
+    r"(?:\bnon[-–\s]+(?:(?:the|any|an?)\s+)?(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?[-–\s]+)?|"
+    r"\b(?:before|after|through|until|since|past|prior to|leading up to|up to|as of|"
+    r"except(?: for)?|excluding|without(?: counting| including)?|"
+    r"outside(?: of)?|other than|apart from|aside from|besides|barring|minus|"
+    r"not(?:\s+(?:counting|including|just|only))?)\s+"
+    r"(?:(?:playoffs?|postseason|games?|for|in|during|from|of|the|any|an?|this|that|those|these)\s+){0,6}"
+    r"(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?\s+)?)$",
+    re.I,
+)
+_QUALIFIED_ROUND_SUFFIX = re.compile(
+    r"^\s*(?:excluded|omitted|onwards?|and (?:onwards?|later|earlier|afterwards?)|or (?:later|earlier))\b",
+    re.I,
+)
+_ROUND_OR_PHASE = (
+    r"(?:"
+    + "|".join(pattern for _, pattern in _ROUND_ALIASES)
+    + r"|playoffs?|postseason)"
+)
+_ROUND_YEAR = re.compile(
+    r"(?<![-–/])\b(?P<leading>(?:19|20)\d{2})(?=\)?\s+(?:nba\s+)?"
+    + _ROUND_OR_PHASE
+    + r"\b)|(?P<prefix>\b"
+    + _ROUND_OR_PHASE
+    + r"(?:\s+(?:of|in)|,)?\s+\(?)(?P<trailing>(?:19|20)\d{2})\b(?![-–/]\d)",
+    re.I,
+)
+
+
+def _replace_round_year(match: re.Match[str]) -> str:
+    year = match["leading"] or match["trailing"]
+    season = f"{int(year) - 1}-{year[-2:]}"
+    return f"{match['prefix']}{season}" if match["prefix"] else season
+
+
+_COMPARE_SPLIT_RE = re.compile(
+    r"\s+(?:vs\.?|versus|compared\s+(?:with|to|against))\s+", re.I
+)
+
+
+def comparison_operands(question: str) -> tuple[str, str] | None:
+    cleaned = (
+        question.split("\nSelected player:", 1)[0]
+        .split("\nClarification:", 1)[0]
+        .strip()
+        .rstrip("?.!")
+    )
+    parts = _COMPARE_SPLIT_RE.split(cleaned)
+    if len(parts) == 2 and all(part.strip() for part in parts):
+        return parts[0].strip(), parts[1].strip()
+    match = re.match(r"^\s*compare\s+(.+?)\s+(?:and|with|to)\s+(.+)$", cleaned, re.I)
+    if match and match[1].strip() and match[2].strip():
+        return match[1].strip(), match[2].strip()
+    return None
+
+
+def requested_playoff_round(question: str) -> str | None:
+    """Recognize one canonical round, with no vague or conflicting round cues."""
+    matches = list(_ROUND_PATTERN.finditer(question))
+    if (
+        len(matches) != 1
+        or _CONFERENCE_QUALIFIED_ROUND.search(question)
+        or _NON_PLAYOFF_EVENT.search(question)
+        or _SUBGAME_SCOPE.search(question)
+        or _SERIES_GAME.search(question)
+    ):
+        return None
+    match = matches[0]
+    if _QUALIFIED_ROUND_PREFIX.search(
+        question[: match.start()]
+    ) or _QUALIFIED_ROUND_SUFFIX.search(question[match.end() :]):
+        return None
+    if _ROUND_CUES.search(question[: match.start()] + " " + question[match.end() :]):
+        return None
+    if has_phase_cue(question, "Both"):
+        return None
+    if has_phase_cue(question, "Regular Season"):
+        operands = comparison_operands(question)
+        if operands is None or any(
+            _ROUND_PATTERN.search(part) and has_phase_cue(part, "Regular Season")
+            for part in operands
+        ):
+            return None
+    return match.lastgroup
+
+
+def normalize_playoff_round_year(question: str) -> str:
+    """Convert a calendar year naming a round to the season that ends that year."""
+    if not requested_playoff_round(question):
+        return question
+    return _ROUND_YEAR.sub(_replace_round_year, question)
+
+
+def playoff_round_planning_question(question: str, *, season: str | None = None) -> str:
+    """Present the phase to existing planners; the host binds the round itself."""
+    if not requested_playoff_round(question):
+        return question
+    wording = re.sub(
+        r"\bplayoffs (?:of (?:the )?)?((?:(?:19|20)\d{2}-\d{2} )?playoffs?)\b",
+        r"\1",
+        _ROUND_PATTERN.sub("playoffs", question),
+        flags=re.I,
+    )
+    wording = re.sub(
+        r"\bplayoffs(?:\s+(?:of|in)|,)?\s+\(?((?:19|20)\d{2}-\d{2})\)?",
+        r"\1 playoffs",
+        wording,
+        flags=re.I,
+    )
+    wording = re.sub(
+        r"\s+in the playoffs(?=\s+\(Playoffs\)\s*$)",
+        "",
+        wording,
+        flags=re.I,
+    )
+    if season and not re.search(r"\b(?:19|20)\d{2}\b", wording):
+        wording = re.sub(
+            r"(?<!\()\bplayoffs\b", f"{season} playoffs", wording, count=1, flags=re.I
+        )
+    if match := re.fullmatch(
+        r"how many total points did (.+?) score ((?:in|during|for) .+)", wording, re.I
+    ):
+        wording = f"{match[1]} total points {match[2]}"
+    return wording
+
+
+def subgame_scope_message(question: str) -> str | None:
+    if _SUBGAME_SCOPE.search(question):
+        return (
+            "Quarter, half, period, and overtime statistics are not supported by the connected "
+            "whole-game box scores. Ask for a whole-game or full-period statistic instead."
+        )
+    return None
+
+
+def round_scope_message(question: str, *, round_coverage: bool = False) -> str | None:
+    if _ROUND_CUES.search(question) and not (
+        round_coverage and requested_playoff_round(question)
     ):
         return (
             "Finals and individual playoff rounds cannot be isolated with the connected data, and I do not have a verified participation record for this request. "
@@ -262,7 +464,9 @@ def screen_assists_message(question: str) -> str | None:
     return None
 
 
-def question_scope(question: str) -> dict[str, str | None]:
+def question_scope(
+    question: str, *, round_coverage: bool = False
+) -> dict[str, str | None]:
     """Enforce representable scope before dispatch; no production route selection."""
     if decision := fantasy_decision(question):
         return decision
@@ -277,6 +481,12 @@ def question_scope(question: str) -> dict[str, str | None]:
             kind="negated_scope",
             status="clarification_required",
             message="Please state the intended aggregation and season phase affirmatively.",
+        )
+    if message := subgame_scope_message(question):
+        return dict(
+            kind="subgame_scope",
+            status="unsupported_scope",
+            message=message,
         )
     if re.search(
         r"\bhow many (?:points|pts)\b", question, re.I
@@ -311,7 +521,7 @@ def question_scope(question: str) -> dict[str, str | None]:
             status="unsupported_scope",
             message="This prediction, causal calculation or additional game filter is not supported by the connected statistics.",
         )
-    if message := round_scope_message(question):
+    if message := round_scope_message(question, round_coverage=round_coverage):
         return dict(
             kind="unavailable_round", status="unsupported_scope", message=message
         )

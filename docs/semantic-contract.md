@@ -25,6 +25,23 @@ metric discoverability alone does not imply every question or operation is suppo
   have a distinct scope: unqualified phase includes both regular season and
   playoffs; explicit trailing calendar windows end today and can combine supported
   archives. Answers disclose their dates and phases.
+- The optional `playoff_round` filter requires Playoffs scope and selects one
+  of `first_round`, `conference_semifinals`, `conference_finals`, or
+  `nba_finals`. Ask uses explicit round evidence or canonical 10-digit NBA
+  playoff game IDs. Ask withholds round statistics when the selected season
+  lacks round evidence or any in-scope playoff appearance has an unresolved
+  round. A year naming a round identifies the season ending in that year.
+  Verified nonparticipation can still answer the request. Gold game and
+  player-game models expose round and series fields only for canonical playoff
+  games. The round number and name use the same resolved round.
+- `dim_player_season_position` has one row per season and player with a listed
+  position, `position_groups/2` membership, and source provenance. The current
+  player-reference feed supplies dated profile observations, so the model
+  marks them unverified and emits no historical profile copies. Ask peer
+  comparisons require verified season roster or dated team-document evidence
+  in the active snapshot or bundle, along with 95% classification coverage.
+  Season-position records require a checksummed context with explicit season
+  approval and a source reference, SHA-256, date, and locator on each record.
 - Appearance windows use recorded appearances; calendar windows preserve their
   dates even when there are no observations. Missing appearances are not zero
   production, and a small sample is not automatically missing source data.

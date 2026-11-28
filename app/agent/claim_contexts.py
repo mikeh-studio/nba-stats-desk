@@ -279,6 +279,10 @@ def contracts(payload):
                     scope,
                     [mp],
                 )
+        if section["scope"].get("playoff_round"):
+            template += f" · {{{len(sources)}}}"
+            sources.append(scope + ["playoff_round"])
+            formats.append("playoff_round")
         # The reference composition intentionally replaces the ordinary title.
         if not payload.get("reference_evidence"):
             add(

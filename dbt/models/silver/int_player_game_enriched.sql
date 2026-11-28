@@ -38,6 +38,9 @@ select
         when {{ regex_contains('matchup', "'vs\\\\.'") }} then 'HOME'
         else 'UNKNOWN'
     end) as home_away,
+    {% for field in playoff_round_columns() %}
+    logs.{{ field }},
+    {% endfor %}
     logs.ingested_at_utc
 from {{ ref('stg_game_logs_clean') }} logs
 left join {{ ref('stg_schedule_clean') }} schedule

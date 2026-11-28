@@ -49,6 +49,14 @@ models:
           - accepted_values:
               arguments:
                 values: ['Regular Season', 'Playoffs']
+      - name: playoff_round_number
+        description: Canonical playoff round from 1 through 4.
+      - name: playoff_round_name
+        description: Canonical display name of the playoff round.
+      - name: playoff_series_id
+        description: Playoff series identifier, defaulting to the first nine characters of the NBA game ID.
+      - name: playoff_series_game_number
+        description: Game number in the playoff series, from 1 through 7.
       - name: game_date
         tests: [not_null]
       - name: matchup
@@ -102,6 +110,25 @@ models:
           - accepted_values:
               arguments:
                 values: ["{{ var('nba_season', var('nba_current_season')) }}"]
+  - name: dim_player_season_position
+    description: Listed positions from dated player-reference profiles at season and player grain. Historical builds cannot reuse current profiles.
+    columns:
+      - name: season
+        tests: [not_null]
+      - name: player_id
+        tests: [not_null]
+      - name: player_name
+      - name: listed_position
+        description: Normalized listed position code.
+      - name: position_groups
+        description: Guard, Wing or Big membership using position_groups/2. Dual positions belong to both groups.
+      - name: position_source
+        description: Provenance of the listed position.
+      - name: source_ref
+        description: NBA player profile reference.
+      - name: is_verified_season_roster
+        description: False for current profiles, which do not certify a season roster.
+      - name: ingested_at_utc
   - name: dim_team
     columns:
       - name: team_abbr
@@ -135,6 +162,15 @@ models:
           - accepted_values:
               arguments:
                 values: ["{{ var('nba_season', var('nba_current_season')) }}"]
+      - name: season_type
+      - name: playoff_round_number
+        description: Canonical playoff round from 1 through 4.
+      - name: playoff_round_name
+        description: Canonical display name of the playoff round.
+      - name: playoff_series_id
+        description: Playoff series identifier, defaulting to the first nine characters of the NBA game ID.
+      - name: playoff_series_game_number
+        description: Game number in the playoff series, from 1 through 7.
       - name: home_team_abbr
         tests:
           - not_null

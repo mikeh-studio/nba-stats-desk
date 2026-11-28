@@ -14,6 +14,9 @@ select
     matchup,
     season,
     season_type,
+    {% for field in playoff_round_columns() %}
+    {{ field }},
+    {% endfor %}
     wl,
     min,
     cast(fgm as {{ int64_type() }}) as fgm,

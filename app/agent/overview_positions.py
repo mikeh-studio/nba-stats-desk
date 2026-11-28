@@ -4,6 +4,8 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
+from datetime import date
+from typing import Any
 
 from app.agent.historical_positions import (
     GROUPS,
@@ -33,10 +35,17 @@ def requested_group(question):
     return groups[0] if len(groups) == 1 else None
 
 
+_BASELINE_ROUND_PHASE = (
+    r"(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?\s+)?"
+    r"(?:(?:first|1st|opening)[ -](?:playoff[ -])?round|conference semi[ -]?finals|"
+    r"conference semis|(?:second|2nd)[ -](?:playoff[ -])?round|conference finals|"
+    r"(?:third|3rd)[ -](?:playoff[ -])?round|nba finals|finals|"
+    r"regular[ -]season|playoffs?|postseason)"
+)
 BASELINE_CLAUSE = re.compile(
-    r"\b(?:compared?|comparing)\s+(?:with|to|against)\s+"
+    r"\b(?:(?:compared?|comparing)\s+(?:with|to|against)|v(?:s\.?|ersus))\s+"
     r"(?:(?:his|the|their)\s+)?"
-    r"(?P<period>(?:prior|previous|last)\s+season|regular[ -]season)\b"
+    r"(?P<period>(?:prior|previous|last)\s+season|" + _BASELINE_ROUND_PHASE + r")\b"
     r"(?:['’]s)?(?:\s+(?P<phase>regular[ -]season|playoffs?|postseason)\b)?",
     re.I,
 )
@@ -52,29 +61,52 @@ def strip_peer_clause(question):
     )
 
 
+def _baseline_phases(baseline):
+    if not baseline:
+        return None
+    period = baseline["period"].lower().replace("-", " ")
+    phase = (baseline["phase"] or "").lower().replace("-", " ")
+    if "regular season" in period or phase == "regular season":
+        return ["Regular Season"]
+    if (
+        "playoff" in period
+        or "postseason" in period
+        or "finals" in period
+        or "round" in period
+        or "semis" in period
+        or phase in ("playoff", "playoffs", "postseason")
+    ):
+        return ["Playoffs"]
+    return None
+
+
 def comparison_intent(question):
+    from app.agent.scope_policy import requested_playoff_round
+    from app.seasons import extract_seasons
+
     group = requested_group(question)
-    baseline = BASELINE_CLAUSE.search(question) if group else None
+    baseline = BASELINE_CLAUSE.search(question)
+    period = baseline["period"].lower().replace("-", " ") if baseline else ""
+    baseline_round = requested_playoff_round(baseline["period"]) if baseline else None
+    baseline_seasons = []
+    if baseline:
+        try:
+            baseline_seasons = extract_seasons(baseline["period"])
+        except ValueError:
+            baseline_seasons = []
     return {
         "requested_group": group,
         "requested_groups": requested_groups(question),
         "baseline_period": (
-            "same_season"
-            if baseline["period"].lower().replace("-", " ") == "regular season"
-            else "prior_season"
+            "prior_season"
+            if re.fullmatch(r"(?:prior|previous|last)\s+season", period)
+            else "same_season"
         )
         if baseline
         else None,
-        "baseline_phases": (
-            ["Regular Season"]
-            if baseline["period"].lower().replace("-", " ") == "regular season"
-            or (baseline["phase"] or "").lower().replace("-", " ") == "regular season"
-            else ["Playoffs"]
-            if baseline["phase"]
-            else None
-        )
-        if baseline
-        else None,
+        "baseline_phases": _baseline_phases(baseline),
+        "baseline_playoff_round": baseline_round,
+        "baseline_season": baseline_seasons[0] if len(baseline_seasons) == 1 else None,
         "baseline_requested": bool(
             baseline
             or re.search(
@@ -98,6 +130,82 @@ def peer_question(question):
     return re.sub(r"^\s*compare\s+", "Give me an overview of ", text, flags=re.I)
 
 
+def _approved_seasons(context):
+    if (
+        not isinstance(context, Mapping)
+        or context.get("mapping_version") != MAPPING_VERSION
+    ):
+        return set()
+    approved = context.get("approved_seasons", [])
+    if not isinstance(approved, (list, tuple)) or any(
+        not season_valid(s) for s in approved
+    ):
+        return set()
+    try:
+        return set(approved) if context.get("sha256") == digest(context) else set()
+    except (TypeError, ValueError, RecursionError):
+        return set()
+
+
+def _has_position_provenance(record, source):
+    source_date = record.get("source_date")
+    source_hash = record.get("source_sha256")
+    source_ref = record.get("source_ref")
+    locator = record.get("source_locator")
+    if (
+        source not in ("season_roster", "dated_team_document")
+        or not isinstance(source_hash, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", source_hash)
+        or not isinstance(source_ref, str)
+        or not re.fullmatch(r"https://[^\s/]+(?:/[^\s]*)?", source_ref)
+        or not isinstance(locator, str)
+        or not locator.strip()
+        or not isinstance(source_date, str)
+        or not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", source_date)
+    ):
+        return False
+    try:
+        date.fromisoformat(source_date)
+    except ValueError:
+        return False
+    return True
+
+
+def verified_season_positions(context: Any) -> list[dict[str, Any]]:
+    """Validate the reviewed context and every season-position record."""
+    approved = _approved_seasons(context)
+    if not approved:
+        return []
+    records = context.get("season_positions")
+    if not isinstance(records, (list, tuple)) or len(records) > 5000:
+        return []
+    verified = []
+    seen = set()
+    for record in records:
+        if not isinstance(record, Mapping):
+            return []
+        season, player_id = record.get("season"), record.get("player_id")
+        position = record.get("listed_position")
+        expected = GROUPS.get(position) if isinstance(position, str) else None
+        groups = record.get("position_groups")
+        if (
+            not season_valid(season)
+            or season not in approved
+            or type(player_id) is not int
+            or player_id <= 0
+            or (season, player_id) in seen
+            or record.get("is_verified_season_roster") is not True
+            or not _has_position_provenance(record, record.get("position_source"))
+            or expected is None
+            or not isinstance(groups, (tuple, list))
+            or tuple(groups) != expected
+        ):
+            return []
+        seen.add((season, player_id))
+        verified.append(dict(record))
+    return sorted(verified, key=lambda r: (r["season"], r["player_id"]))
+
+
 def validated_context(context):
     """Only operator-reviewed, season-effective bundles can enable grouping.
 
@@ -105,16 +213,17 @@ def validated_context(context):
     an operator assertion backed by retained source/audit evidence, not inferred
     from a season label. Unapproved or malformed optional evidence fails closed.
     """
-    if (
-        not isinstance(context, Mapping)
-        or context.get("mapping_version") != MAPPING_VERSION
-        or context.get("sha256") != digest(context)
-    ):
-        return {}, set()
-    approved = context.get("approved_seasons", [])
-    if not isinstance(approved, (list, tuple)) or any(
-        not season_valid(s) for s in approved
-    ):
+    if isinstance(context, Mapping) and "season_positions" in context:
+        records = verified_season_positions(context)
+        return (
+            {
+                (r["season"], r["player_id"]): GROUPS[r["listed_position"]]
+                for r in records
+            },
+            {r["season"] for r in records},
+        )
+    approved = _approved_seasons(context)
+    if not approved:
         return {}, set()
     records = context.get("records", [])
     if not isinstance(records, (list, tuple)) or len(records) > 5000:
@@ -128,19 +237,13 @@ def validated_context(context):
         if not isinstance(key[0], str) or type(key[1]) is not int or key in seen:
             return {}, set()
         seen.add(key)
-        if (
-            r.get("provenance") not in ("season_roster", "dated_team_document")
-            or not re.fullmatch(r"[0-9a-f]{64}", str(r.get("source_sha256", "")))
-            or not isinstance(r.get("source_locator"), str)
-            or not r["source_locator"]
-            or not re.fullmatch(r"20\d{2}-\d{2}-\d{2}", str(r.get("source_date", "")))
-            or not isinstance(r.get("source_ref"), str)
-            or not r["source_ref"].startswith("https://")
+        if key[0] not in approved or not _has_position_provenance(
+            r, r.get("provenance")
         ):
             continue
         position = r.get("position")
         result[key] = GROUPS.get(position) if isinstance(position, str) else None
-    return result, set(approved)
+    return result, approved
 
 
 def standing(cohort, player_id, direction):

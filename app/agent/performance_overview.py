@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from dataclasses import replace
 from datetime import date, timedelta
 
 from app.agent.clock import today as semantic_today
@@ -19,6 +20,7 @@ from app.agent.overview_policy import (
     strip_focus,
 )
 from app.agent.overview_positions import (
+    BASELINE_CLAUSE,
     add_position_comparisons,
     comparison_intent,
     peer_question,
@@ -26,8 +28,19 @@ from app.agent.overview_positions import (
 )
 from app.agent.overview_summary import game_insights, summary_paragraphs
 from app.agent.scope_policy import absence_cue_text, has_specific_metric
-from app.agent.semantics import SemanticError, aggregate, load_contract
-from app.seasons import SEASONS, coverage_bounds, season_bounds
+from app.agent.semantics import (
+    PLAYOFF_ROUND_LABELS,
+    SemanticError,
+    aggregate,
+    load_contract,
+)
+from app.seasons import (
+    SEASON_TOKEN_RE,
+    SEASONS,
+    coverage_bounds,
+    extract_seasons,
+    season_bounds,
+)
 
 METRICS = (
     ("pts", "Points"),
@@ -91,14 +104,16 @@ def wants_overview(question):
         and not bool(
             re.search(
                 r"\b(fantasy|rank|top|compare|versus|vs|opponent|against|home|away|road|who|which|leaders?|led|best|most|highest|percentages?|game[ -]logs?|game[ -]by[ -]game)\b",
-                original,
+                BASELINE_CLAUSE.sub("", original),
                 re.I,
             )
         )
     )
 
 
-def overview_scope(question, selected_season, today=None, *, comparison=None):
+def overview_scope(
+    question, selected_season, today=None, *, comparison=None, playoff_round=None
+):
     from app.agent.game_filters import extract_game_filters
 
     extracted = extract_game_filters(question)
@@ -117,15 +132,23 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         )
     if first:
         question = re.sub(r"\bfirst (?:two|2) appearances\b", "", question, flags=re.I)
-        if not re.search(r"playoffs?|regular season", question, re.I):
+        if not playoff_round and not re.search(
+            r"playoffs?|regular season", question, re.I
+        ):
             question += " regular season"
-    from app.agent.scope_policy import round_scope_message
+    from app.agent.scope_policy import (
+        requested_playoff_round,
+        round_scope_message,
+        subgame_scope_message,
+    )
 
-    if message := round_scope_message(question):
+    if message := round_scope_message(question, round_coverage=bool(playoff_round)):
         raise SemanticError("unsupported_scope", message)
+    if message := subgame_scope_message(question):
+        raise SemanticError("unsupported_coverage", message)
     if not re.search(MONTH_PATTERN, question, re.I):
         question = re.sub(
-            r"\b(20\d{2})\s+(playoffs?|postseason)\b",
+            r"\b((?:19|20)\d{2})\s+(playoffs?|postseason)\b",
             lambda m: f"{int(m[1]) - 1}-{m[1][-2:]} {m[2]}",
             question,
             flags=re.I,
@@ -164,11 +187,14 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             "clarification_required",
             "Please specify a single calendar window or date range.",
         )
-    if trailing and re.search(r"\b20\d{2}[-/]\d{2}\b(?![-/]\d)", question):
+    if trailing and SEASON_TOKEN_RE.search(question):
         raise SemanticError(
             "clarification_required",
             "Please use explicit start and end dates when combining a trailing window with a named season.",
         )
+    baseline_playoff_round = comparison.get("baseline_playoff_round")
+    phase_text = BASELINE_CLAUSE.sub("", question)
+    season_text = phase_text if playoff_round else question
     if explicit:
         try:
             start, end = (date.fromisoformat(d) for d in explicit.groups())
@@ -196,13 +222,24 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
                 "clarification_required",
                 "Please specify a date range (from YYYY-MM-DD through YYYY-MM-DD) or a number of days, weeks, or months.",
             )
-        named = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
+        try:
+            named = extract_seasons(season_text)
+        except ValueError as exc:
+            raise SemanticError("unsupported_coverage", str(exc)) from exc
         if len(set(named)) > 1:
             raise SemanticError(
                 "clarification_required",
                 "For a combined overview, please specify the start and end dates.",
             )
-        season = named[0] if named else selected_season
+        season = (
+            named[0]
+            if named
+            else comparison.get("baseline_season")
+            if playoff_round
+            and comparison.get("baseline_season")
+            and not re.search(r"\b(?:19|20)\d{2}\b", phase_text)
+            else selected_season
+        )
         if recent and as_of and not named:
             candidates = [
                 s
@@ -228,7 +265,10 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             previous = SEASONS[min(SEASONS.index(season) + 1, len(SEASONS) - 1)]
             start = season_bounds(previous)[0]
         end = min(end, today, date.fromisoformat(as_of[1]) if as_of else today)
-    named_seasons = re.findall(r"\b20\d{2}-\d{2}\b(?!-\d)", question)
+    try:
+        named_seasons = extract_seasons(season_text)
+    except ValueError as exc:
+        raise SemanticError("unsupported_coverage", str(exc)) from exc
     if calendar_scope and any(
         start < season_bounds(season)[0] or end > season_bounds(season)[1]
         for season in named_seasons
@@ -254,9 +294,10 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
             "clarification_required",
             "Please state the included phase: regular season, playoffs, or both.",
         )
-    if re.search(r"\b(regular[ -]season|playoffs?|postseason)\b", question, re.I):
-        regular = bool(re.search(r"regular[ -]season", question, re.I))
-        playoffs = bool(re.search(r"playoffs?|postseason", question, re.I))
+    phase_text = BASELINE_CLAUSE.sub("", question)
+    if re.search(r"\b(regular[ -]season|playoffs?|postseason)\b", phase_text, re.I):
+        regular = bool(re.search(r"regular[ -]season", phase_text, re.I))
+        playoffs = bool(re.search(r"playoffs?|postseason", phase_text, re.I))
         phases = (["Regular Season"] if regular else []) + (
             ["Playoffs"] if playoffs else []
         )
@@ -274,6 +315,10 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         previous_end = start - timedelta(days=1)
     elif calendar_scope and re.search(r"\bpast month\b", question, re.I):
         previous_start = shift_months(previous_end, 1) + timedelta(days=1)
+    if baseline_playoff_round:
+        playoff_round = requested_playoff_round(phase_text)
+    if playoff_round:
+        phases = ["Playoffs"]
     previous_phases = list(phases)
     if not trailing and not explicit and not calendar_scope:
         if phases == ["Playoffs"]:
@@ -288,19 +333,26 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         previous_start, previous_end = start, end
         previous_phases = list(phases)
     if comparison.get("baseline_period"):
-        previous_start, previous_end = (
-            (shift_months(start, 12), shift_months(end, 12))
-            if comparison["baseline_period"] == "prior_season"
-            else (start, end)
-        )
+        if comparison.get("baseline_season"):
+            b_start, b_end = season_bounds(comparison["baseline_season"])
+            previous_start, previous_end = b_start, min(b_end, today)
+        else:
+            previous_start, previous_end = (
+                (shift_months(start, 12), shift_months(end, 12))
+                if comparison["baseline_period"] == "prior_season"
+                else (start, end)
+            )
         previous_phases = comparison.get("baseline_phases") or list(phases)
     comparison_label = (
-        f"{' + '.join(previous_phases)} from {previous_start} through {previous_end}"
+        f"{PLAYOFF_ROUND_LABELS[baseline_playoff_round]} from {previous_start} through {previous_end}"
+        if baseline_playoff_round
+        else f"{' + '.join(previous_phases)} from {previous_start} through {previous_end}"
     )
     seasons = [
         s
         for s in SEASONS
-        if season_bounds(s)[0] <= end and season_bounds(s)[1] >= previous_start
+        if season_bounds(s)[0] <= max(end, previous_end)
+        and season_bounds(s)[1] >= min(start, previous_start)
     ]
     if not seasons or start < season_bounds(SEASONS[-1])[0]:
         raise SemanticError(
@@ -309,6 +361,12 @@ def overview_scope(question, selected_season, today=None, *, comparison=None):
         )
     return dict(
         **extracted.query_fields,
+        **({"playoff_round": playoff_round} if playoff_round else {}),
+        **(
+            {"baseline_playoff_round": baseline_playoff_round}
+            if baseline_playoff_round
+            else {}
+        ),
         comparison_intent=comparison,
         recent_appearances=10 if recent else None,
         first_appearances=2 if first else None,
@@ -521,10 +579,24 @@ def build_overview(question, evidence, players, scope, selected=None):
         }
     player = candidates[0]
     from app.agent.game_filters import filter_description, filter_scope
-    from app.agent.semantics import Query, apply_game_filters
+    from app.agent.semantics import (
+        PLAYOFF_ROUND_LABELS,
+        Query,
+        _apply_game_filters_with_status,
+        apply_game_filters,
+    )
 
     predicates = filter_scope(scope)
-    filter_query = Query("pts", scope["seasons"][0], "average", **predicates)
+    playoff_round = scope.get("playoff_round")
+    filter_query = Query(
+        "pts",
+        scope["seasons"][0],
+        "average",
+        season_type="Playoffs" if playoff_round else "Both",
+        player_id=player["player_id"] if playoff_round else None,
+        playoff_round=playoff_round,
+        **predicates,
+    )
     filter_query.validate(load_contract().metric("pts"))
     if scope.get("recent_appearances") or scope.get("first_appearances"):
         scope = dict(scope)
@@ -572,22 +644,50 @@ def build_overview(question, evidence, players, scope, selected=None):
             scope["chart_grain"] = "daily"
     start, end = scope["start"], scope["end"]
 
-    def rows_between(lo, hi, phases):
-        return apply_game_filters(
+    def rows_between(lo, hi, phases, query=filter_query):
+        return _apply_game_filters_with_status(
             [
                 r
                 for r in evidence.rows
                 if r["season_type"] in phases
                 and lo <= date.fromisoformat(str(r["game_date"])) <= hi
             ],
-            filter_query,
+            query,
         )
 
-    current = rows_between(start, end, scope["phases"])
+    current, current_cohort_complete = rows_between(start, end, scope["phases"])
     previous_phases = scope.get("previous_phases", scope["phases"])
-    previous = rows_between(
-        scope["previous_start"], scope["previous_end"], previous_phases
+    comparison_spec = scope.get("comparison_intent") or {}
+    optional_baseline = not (
+        comparison_spec.get("baseline_period") or comparison_spec.get("baseline_phases")
     )
+    baseline_playoff_round = scope.get("baseline_playoff_round")
+    previous_query = (
+        replace(
+            filter_query,
+            season_type="Playoffs",
+            player_id=player["player_id"],
+            playoff_round=baseline_playoff_round,
+        )
+        if baseline_playoff_round
+        else replace(filter_query, playoff_round=None)
+        if previous_phases == ["Regular Season"]
+        or (playoff_round and comparison_spec.get("baseline_phases") == ["Playoffs"])
+        else filter_query
+    )
+    baseline_round_unavailable = False
+    try:
+        previous, _ = rows_between(
+            scope["previous_start"],
+            scope["previous_end"],
+            previous_phases,
+            previous_query,
+        )
+    except SemanticError as exc:
+        if exc.code != "unsupported_scope" or not optional_baseline:
+            raise
+        previous = []
+        baseline_round_unavailable = True
     own = [r for r in current if r["player_id"] == player["player_id"]]
     prior = [r for r in previous if r["player_id"] == player["player_id"]]
     contract = load_contract()
@@ -597,7 +697,8 @@ def build_overview(question, evidence, players, scope, selected=None):
         else None
     )
     baseline_covered = (
-        scope.get("baseline_coverage_available", True)
+        not baseline_round_unavailable
+        and scope.get("baseline_coverage_available", True)
         and scope["previous_start"] >= season_bounds(SEASONS[-1])[0]
     )
     for season in scope["seasons"]:
@@ -678,11 +779,16 @@ def build_overview(question, evidence, players, scope, selected=None):
                 **({"monthly": points} if grain == "monthly" else {}),
             }
         )
-    phase = " + ".join(scope["phases"])
+    phase = (
+        PLAYOFF_ROUND_LABELS[playoff_round]
+        if playoff_round
+        else " + ".join(scope["phases"])
+    )
     extra = context_metrics(own, prior, baseline_covered=baseline_covered)
     from app.agent.overview_percentiles import add_percentiles
 
-    cohort = grouped if evidence.cohort_complete else {}
+    overview_cohort_complete = evidence.cohort_complete and current_cohort_complete
+    cohort = grouped if overview_cohort_complete else {}
     add_percentiles(metrics + extra, cohort, player["player_id"], contract.min_games)
     add_position_comparisons(
         metrics + extra,
@@ -701,6 +807,9 @@ def build_overview(question, evidence, players, scope, selected=None):
         "previous_appearances": len(prior),
         "comparison_intent": scope.get(
             "comparison_intent", comparison_intent(question)
+        ),
+        **(
+            {"baseline_coverage_available": False} if baseline_round_unavailable else {}
         ),
     }
     paragraphs = summary_paragraphs(
@@ -822,7 +931,9 @@ def build_overview(question, evidence, players, scope, selected=None):
             f"Comparison: {scope.get('comparison_label', str(scope['previous_start']) + ' through ' + str(scope['previous_end']))}."
             + (
                 (
-                    " The full-period baseline is outside the verified publication."
+                    " The optional comparison is unavailable because playoff rounds could not be isolated for that baseline."
+                    if baseline_round_unavailable
+                    else " The full-period baseline is outside the verified publication."
                     if scope.get("baseline_coverage_available") is False
                     else " Baseline extends outside available archives; changes are unavailable."
                 )
@@ -831,8 +942,10 @@ def build_overview(question, evidence, players, scope, selected=None):
             ),
             (
                 f"Percentiles compare qualified players in the same dates and phases, with at least {contract.min_games} appearances and complete components. Shooting ranks require 100 FGA for FG%/TS%/eFG%, 50 FTA for FT%, or 50 3PA for 3P%. TOV ranks favor fewer turnovers; MIN describes exposure. Ties share the percentage of other qualified players strictly worse. These provisional project rules are not NBA official qualification."
-                if evidence.cohort_complete
+                if overview_cohort_complete
                 else "League ranks and percentiles are unavailable for this source."
+                if not evidence.cohort_complete
+                else "League ranks and percentiles are withheld because playoff-round coverage is incomplete across peers."
             ),
             f"Source: {evidence.source}; data through {max(evidence.data_through.values())}. No games or missing values are fabricated.",
             "Charts show "
@@ -885,5 +998,6 @@ def build_overview(question, evidence, players, scope, selected=None):
             "source": evidence.source,
             "data_through": str(max(evidence.data_through.values())),
             "min_games": contract.min_games,
+            "cohort_complete": overview_cohort_complete,
         },
     }

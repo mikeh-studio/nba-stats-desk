@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 from app.agent.payload import answer_payload
+from app.agent.scope_policy import normalize_playoff_round_year
 from app.agent.semantic_serving import requested_seasons
 from app.agent.semantics import SemanticError
 
@@ -34,6 +35,7 @@ def load_participation_catalog():
 def answer_known_nonparticipation(question, season, conversation_id=None):
     # Only unambiguous NBA Finals requests, never conference finals, comparisons,
     # hypothetical questions or a request about other seasons/players.
+    question = normalize_playoff_round_year(question)
     text = question.lower()
     if re.search(
         r"\b(?:conference|east|west|if|would|could|versus|vs|compare|before|after)\b",
@@ -58,7 +60,7 @@ def answer_known_nonparticipation(question, season, conversation_id=None):
         text = re.sub(r"20\d{2}[-–/]\d{2,4}", " ", text)
         text = re.sub(r"[’']s\b", " ", text)
         text = re.sub(
-            r"\b(?:nba|finals?|in|the|this|season|did|does|play|participate|reach|make|it|to|how|many|what|were|was|his|points?|pts|rebounds?|assists?|stats|statistics|per|game|score|scored|average)\b",
+            r"\b(?:nba|finals?|in|of|the|this|season|did|does|play|participate|reach|make|it|to|how|many|what|were|was|his|points?|pts|rebounds?|assists?|stats|statistics|per|game|score|scored|average)\b",
             " ",
             text,
         )

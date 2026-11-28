@@ -12,6 +12,7 @@ from app.agent.player_comparison import (
 from app.agent.semantic_answer import SemanticAsk
 from app.agent.semantic_serving import source_players
 from app.agent.semantics import COMPONENTS, Evidence, SemanticError
+from tests.test_semantic_migration import settings
 
 
 @pytest.fixture
@@ -267,6 +268,35 @@ def test_service_uses_no_model_and_saves_both_players(evidence, monkeypatch):
     assert result["status"] == "ok"
     assert result["semantic_plan"]["model_calls"] == 0
     assert "Victor Wembanyama" in store.get_turns("compare", max_turns=1)[0].question
+
+
+def test_round_comparison_followup_and_saved_question_preserve_round(evidence):
+    for row in evidence.rows:
+        first_round = row["game_date"] <= "2026-05-03"
+        row["playoff_round"] = "first_round" if first_round else "conference_semifinals"
+        row["pts"] = 20 if first_round else 80
+
+    def load(seasons):
+        assert seasons == ["2025-26"]
+        return {"capture": {}}, evidence
+
+    store = InMemoryConversationStore()
+    agent = SemanticAsk(settings("2025-26"), SimpleNamespace(load=load), store)
+    options = dict(client=None, model="unused", conversation_id="round-compare")
+    question = (
+        "Jalen Brunson vs Wemby from 2026-05-01 through 2026-05-06 in the first round"
+    )
+    first = agent.answer(question, **options)
+    assert first["status"] == "ok", first["answer"]
+    saved = store.get_turns("round-compare", max_turns=1)[0]
+    assert "First Round" in saved.question
+    assert saved.context["scope"]["playoff_round"] == "first_round"
+    followup = agent.answer(first["followups"][0], **options)
+    assert followup["status"] == "ok", followup["answer"]
+    scope_evidence = followup["semantic_evidence"]
+    assert scope_evidence["scope"]["playoff_round"] == "first_round"
+    points = next(row for row in scope_evidence["metrics"] if row["key"] == "pts")
+    assert points["left"]["value"] == points["right"]["value"] == 20
 
 
 def test_comparison_distributions_use_exact_player_and_date_scope(evidence):

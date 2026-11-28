@@ -29,7 +29,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field, StrictInt
+from pydantic import BaseModel, Field, StrictInt, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from app.agent.capacity import CapacityExceeded, Delivery, admission
@@ -91,7 +91,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261126-ask-saved-retry"
+STATIC_VERSION = "20261128-ask-playoff-rounds"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -174,6 +174,15 @@ class PriorScope(BaseModel):
     start_date: date | None = None
     as_of: date | None = None
     season_type: Literal["Regular Season", "Playoffs", "Both"] | None = None
+    playoff_round: (
+        Literal[
+            "first_round",
+            "conference_semifinals",
+            "conference_finals",
+            "nba_finals",
+        ]
+        | None
+    ) = None
     phases: list[Literal["Regular Season", "Playoffs", "Both"]] = Field(
         default_factory=list, max_length=2
     )
@@ -202,6 +211,15 @@ class PriorScope(BaseModel):
     ) = None
     n: StrictInt | None = Field(default=None, ge=1, le=10000)
     seasons: list[str] | None = Field(default=None, max_length=4)
+
+    @model_validator(mode="after")
+    def _validate_playoff_round_phase(self) -> PriorScope:
+        if self.playoff_round is not None and (
+            self.season_type not in (None, "Playoffs")
+            or any(phase != "Playoffs" for phase in self.phases)
+        ):
+            raise ValueError("playoff_round requires Playoffs scope")
+        return self
 
 
 class PriorAvailability(BaseModel):

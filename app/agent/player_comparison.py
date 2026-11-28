@@ -12,7 +12,12 @@ from app.agent.performance_overview import (
     overview_scope,
     resolve_overview_player,
 )
-from app.agent.semantics import SemanticError, aggregate, load_contract
+from app.agent.semantics import (
+    PLAYOFF_ROUND_LABELS,
+    SemanticError,
+    aggregate,
+    load_contract,
+)
 from app.seasons import season_bounds
 
 COMPARISON_SECTIONS = (
@@ -174,16 +179,21 @@ def comparison_sides(question):
     return parts
 
 
-def comparison_scope(question, season, today=None):
+def comparison_scope(question, season, today=None, *, playoff_round=None):
     from app.agent.game_filters import extract_game_filters
 
     extracted = extract_game_filters(question)
     question = extracted.cleaned_question
+    from app.agent.scope_policy import playoff_round_planning_question
+
+    guard_question = (
+        playoff_round_planning_question(question) if playoff_round else question
+    )
     # Never silently turn round, clutch, per-minute or last-N-game requests into
     # a whole-season average. Those need their own governed scope.
     if re.search(
         r"\b(round|finals?|clutch|home|away|wins?|losses|against|opponent|before|after|per\s+(?:36|48|100)|last\s+\d+\s+games?)\b",
-        question,
+        guard_question,
         re.I,
     ):
         raise SemanticError(
@@ -196,7 +206,7 @@ def comparison_scope(question, season, today=None):
     if playoff_year:
         year = int(playoff_year[1])
         question += f" {year - 1}-{str(year)[-2:]}"
-    scope = overview_scope(question, season, today)
+    scope = overview_scope(question, season, today, playoff_round=playoff_round)
     scope.update(extracted.query_fields)
     scope["seasons"] = [
         s
@@ -382,7 +392,12 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
         )
     # Optional impact measures stay absent until a verified matching-scope source is connected.
     impact = []
-    canonical = f"{names[0]} vs {names[1]} from {scope['start']} through {scope['end']} ({' + '.join(scope['phases'])})"
+    phase_label = (
+        PLAYOFF_ROUND_LABELS[scope["playoff_round"]]
+        if scope.get("playoff_round")
+        else " + ".join(scope["phases"])
+    )
+    canonical = f"{names[0]} vs {names[1]} from {scope['start']} through {scope['end']} ({phase_label})"
     if note := filter_question(scope):
         canonical += " " + note
     return {
@@ -409,6 +424,11 @@ def build_comparison(question, evidence, players, scope, selected=None, choices=
             f"Source: {evidence.source}; snapshot {evidence.snapshot_id}. Warehouse coverage is not independent proof of complete NBA coverage.",
             "Comparisons describe recorded box-score production, not isolated player impact.",
             "Additional sections retain each metric's valid/observed appearances. Partial inputs suppress differences. Shooting rates use aggregate attempts, not averaged game percentages; per-36 rates use total minutes.",
+            *(
+                [f"Playoff round: {PLAYOFF_ROUND_LABELS[scope['playoff_round']]}."]
+                if scope.get("playoff_round")
+                else []
+            ),
             *([filter_description(scope)] if filter_description(scope) else []),
         ],
         "semantic_evidence": {

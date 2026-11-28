@@ -105,6 +105,8 @@ def transform(values: list, spec: dict) -> Any:
             raise ValueError("Invalid nominal p")
         return "<0.001" if values[0] < 0.001 else f"{values[0]:.3f}"
     if op == "template":
+        from app.agent.semantics import PLAYOFF_ROUND_LABELS
+
         template = spec["template"]
         # Only numbered slots; no attribute/index traversal or arbitrary format.
         if re.search(r"\{(?!\d+\})|(?<!\{)\}", re.sub(r"\{\d+\}", "", template)):
@@ -122,6 +124,7 @@ def transform(values: list, spec: dict) -> Any:
                 "join_comma",
                 "signed2",
                 "phase_lower",
+                "playoff_round",
                 "words",
                 "warnings",
             )
@@ -133,6 +136,8 @@ def transform(values: list, spec: dict) -> Any:
             if f == "join_comma" and isinstance(v, list)
             else ("regular season and playoffs" if v == "Both" else v.lower())
             if f == "phase_lower"
+            else PLAYOFF_ROUND_LABELS[v]
+            if f == "playoff_round"
             else v.replace("_", " ")
             if f == "words"
             else ("; ".join(v) or "—")
@@ -244,6 +249,7 @@ def descriptor(payload, sources, context):
         "game_date": ("game_date", "label"),
         "game_id": ("game_id", "label"),
         "season_type": ("season_type", "label"),
+        "playoff_round": ("playoff_round", "label"),
         "team_abbr": ("team_abbr", "label"),
         "opponent_abbr": ("opponent_abbr", "label"),
         "observed_games": ("observed_games", "games"),

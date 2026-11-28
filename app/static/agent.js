@@ -2194,6 +2194,7 @@ function buildAskBody(question, selection, conversationId = activeConversationId
         start_date: scope.start_date || null,
         as_of: scope.as_of || null,
         season_type: scope.season_type || null,
+        playoff_round: scope.playoff_round || null,
         team_abbr: scope.team_abbr || null,
         opponent_abbr: scope.opponent_abbr || null,
         home_away: scope.home_away || null,

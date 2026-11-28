@@ -25,8 +25,16 @@ from app.agent.execution import (
     optional_shadow_budget,
     record_serving_shadow,
 )
+from app.agent.historical_positions import MAPPING_VERSION
+from app.agent.historical_positions import digest as position_digest
+from app.agent.overview_positions import verified_season_positions
 from app.agent.semantic_source import capture_timestamp
-from app.agent.semantics import Evidence, SemanticError, load_contract
+from app.agent.semantics import (
+    Evidence,
+    SemanticError,
+    load_contract,
+    playoff_round_seasons,
+)
 from app.agent.serving_contract import MetricSummary
 from app.agent.serving_publication import (
     MAX_SOURCE_AGE_SECONDS,
@@ -166,10 +174,29 @@ def _freeze(value: Any) -> Any:
     return value
 
 
+def _scoped_position_context(context, seasons):
+    records = [r for r in verified_season_positions(context) if r["season"] in seasons]
+    if not records:
+        return None
+    scoped = dict(
+        mapping_version=MAPPING_VERSION,
+        approved_seasons=sorted({r["season"] for r in records}),
+        season_positions=records,
+    )
+    scoped["sha256"] = position_digest(scoped)
+    return scoped
+
+
 def _facts_digest(evidence: Evidence | None) -> str:
     checkpoint()
     if evidence is None:
         return digest(None)
+    position_context = evidence.position_context
+    if isinstance(position_context, Mapping) and "season_positions" in position_context:
+        seasons = {season for season, _ in evidence.covered_scopes}
+        position_context = (
+            _scoped_position_context(position_context, seasons) or position_context
+        )
     return digest(
         _json_value(
             {
@@ -184,7 +211,7 @@ def _facts_digest(evidence: Evidence | None) -> str:
                     evidence.game_participants,
                     key=lambda row: (row["game_id"], row["player_id"]),
                 ),
-                "position_context": evidence.position_context,
+                "position_context": position_context,
             }
         ),
         check_deadline=True,
@@ -324,6 +351,36 @@ class AskDataBundle:
                             "invalid_evidence",
                             "Bundle evidence data_through falls outside manifest bounds",
                         )
+        declared_slots = self.manifest.get("auxiliary")
+        if declared_slots is None:
+            declared_slots = {}
+        elif not isinstance(declared_slots, Mapping):
+            raise ValueError("Bundle auxiliary manifest must be a mapping")
+        if set(self.auxiliary) != set(declared_slots):
+            raise ValueError("Bundle auxiliary slots differ from manifest")
+        if (
+            "season_positions" in (self.manifest.get("capabilities") or ())
+            and "season_positions" not in declared_slots
+        ):
+            raise ValueError(
+                "Bundle season_positions capability requires auxiliary slot"
+            )
+        for slot, metadata in declared_slots.items():
+            records = self.auxiliary.get(slot)
+            if not isinstance(records, (list, tuple)):
+                raise ValueError(f"Bundle auxiliary slot {slot} must be a sequence")
+            if (
+                not isinstance(metadata, Mapping)
+                or type(metadata.get("record_count")) is not int
+                or metadata.get("record_count") != len(records)
+            ):
+                raise ValueError(
+                    f"Bundle auxiliary slot {slot} record_count differs from payload"
+                )
+            if metadata.get("digest") != digest(_json_value(records)):
+                raise ValueError(
+                    f"Bundle auxiliary slot {slot} digest differs from payload"
+                )
 
     @classmethod
     def _build(
@@ -338,7 +395,31 @@ class AskDataBundle:
         evidence: Evidence | None,
         provenance: dict[str, Any],
         now: datetime,
+        season_positions: Mapping[str, Any] | None = None,
     ) -> AskDataBundle:
+        auxiliary = {}
+        slots = {}
+        if evidence is not None:
+            if playoff_round_seasons(evidence.rows):
+                capabilities.append("playoff_rounds")
+            context = _scoped_position_context(
+                evidence.position_context
+                if season_positions is None
+                else season_positions,
+                scope["seasons"],
+            )
+            if context:
+                records = context["season_positions"]
+                capabilities.append("season_positions")
+                auxiliary["season_positions"] = records
+                checksum = digest(_json_value(records))
+                slots["season_positions"] = dict(
+                    digest=checksum, record_count=len(records)
+                )
+                evidence = replace(
+                    evidence,
+                    position_context=context,
+                )
         manifest = dict(
             schema_version=BUNDLE_SCHEMA_VERSION,
             publication_id=publication_id,
@@ -348,10 +429,11 @@ class AskDataBundle:
             capabilities=sorted(capabilities),
             summary_digest=digest(_summary_records(summaries), check_deadline=True),
             facts_digest=_facts_digest(evidence),
+            **({"auxiliary": slots} if slots else {}),
         )
         manifest["bundle_id"] = digest(manifest)
         validate_bundle_manifest(manifest, now=now)
-        return cls(manifest, summaries, evidence, provenance)
+        return cls(manifest, summaries, evidence, provenance, auxiliary)
 
     @classmethod
     def from_core_publication(
@@ -361,6 +443,7 @@ class AskDataBundle:
         now: datetime,
         metrics: list[str] | None = None,
         expires_at: str | None = None,
+        season_positions: Mapping[str, Any] | None = None,
     ) -> AskDataBundle:
         try:
             _require_aware(now)
@@ -432,6 +515,7 @@ class AskDataBundle:
                 evidence=evidence,
                 provenance=source.provenance,
                 now=now,
+                season_positions=season_positions,
             )
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
             if isinstance(exc, SemanticError) and exc.code == "invalid_evidence":

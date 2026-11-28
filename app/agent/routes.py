@@ -30,6 +30,7 @@ from app.agent.scope_policy import (
     name_reply,
     name_tokens,
     names_other_player,
+    requested_playoff_round,
     round_scope_message,
     split_kind,
     starts_new_question,
@@ -152,9 +153,23 @@ ROUTES = (
     Route(
         "unsupported_round",
         "scope_refusal",
-        lambda c: not wants_award(c.question) and bool(round_scope_message(c.question)),
+        lambda c: (
+            not wants_award(c.question)
+            and bool(round_scope_message(c.routing_question, round_coverage=c.governed))
+        ),
         "none",
         "Reject unavailable playoff round scope",
+    ),
+    Route(
+        "playoff_round",
+        "semantic",
+        lambda c: (
+            c.governed
+            and not wants_award(c.question)
+            and requested_playoff_round(c.routing_question) is not None
+        ),
+        "governed game facts",
+        "Verify and filter an individual playoff round",
     ),
     Route(
         "appearances",

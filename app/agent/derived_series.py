@@ -273,6 +273,39 @@ def derived_series_plan(
     return None
 
 
+def _comparison_round_or_phase(phrase: str) -> tuple[dict[str, Any], str | None] | None:
+    """Parse a round or bare phase operand inside an explicit round comparison."""
+    from app.agent.scope_policy import requested_playoff_round
+    from app.seasons import SEASON_TOKEN_RE, normalize_season
+
+    cleaned = re.sub(r"^(?:in|for|during|over) (?:the )?", "", phrase.strip())
+    round_key = requested_playoff_round(cleaned)
+    season_match = SEASON_TOKEN_RE.search(cleaned)
+    season = normalize_season(*season_match.groups()) if season_match else None
+    if round_key:
+        stripped = SEASON_TOKEN_RE.sub(" ", cleaned)
+        stripped = re.sub(
+            r"\b(?:first|1st|opening|second|2nd|third|3rd)[ -](?:playoff[ -])?round\b|"
+            r"\bconference semi[ -]?finals\b|\bconference semis\b|\bconference finals\b|"
+            r"\bnba finals\b|\bfinals\b",
+            " ",
+            stripped,
+            flags=re.I,
+        )
+        stripped = re.sub(r"\b(?:of|in|the)\b", " ", stripped, flags=re.I)
+        if re.sub(r"[\s,()]+", "", stripped):
+            return None
+        return {"season_type": "Playoffs", "playoff_round": round_key}, season
+    bare = re.sub(r"^the\s+", "", cleaned)
+    if match := re.fullmatch(
+        rf"(?:(?P<s1>{_SEASON})\s+)?(?P<phase>{_PHASE})(?:\s+(?:of|in)\s+(?:the\s+)?(?P<s2>{_SEASON}))?",
+        bare,
+    ):
+        phase_season = match["s1"] or match["s2"]
+        return {"season_type": _PHASES[match["phase"]]}, phase_season
+    return None
+
+
 def period_comparison_plan(
     question: str, selected_season: str, player_names: Sequence[str]
 ) -> dict[str, Any] | None:
@@ -288,7 +321,19 @@ def period_comparison_plan(
         left = explicit_period(match["left"], selected_season)
         right = explicit_period(match["right"], selected_season)
         if left is None or right is None:
-            return None
+            left_round = _comparison_round_or_phase(match["left"])
+            right_round = _comparison_round_or_phase(match["right"])
+            if not left_round or not right_round:
+                return None
+            left_spec, left_season = left_round
+            right_spec, right_season = right_round
+            if bool(left_spec.get("playoff_round")) == bool(
+                right_spec.get("playoff_round")
+            ):
+                return None
+            resolved_season = left_season or right_season or selected_season
+            left = {**left_spec, "season": left_season or resolved_season}
+            right = {**right_spec, "season": right_season or resolved_season}
         metric = load_contract().metric(METRICS[match["metric"]])
         if metric.denominator and match["mode"] is not None:
             return None

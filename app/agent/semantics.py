@@ -29,6 +29,56 @@ COMPONENTS = frozenset(
 )
 OPTIONAL_COMPONENTS = frozenset({"oreb", "dreb", "pf"})
 PHASES = ("Regular Season", "Playoffs")
+PLAYOFF_ROUNDS = (
+    "first_round",
+    "conference_semifinals",
+    "conference_finals",
+    "nba_finals",
+)
+PLAYOFF_ROUND_LABELS = dict(
+    zip(
+        PLAYOFF_ROUNDS,
+        ("First Round", "Conference Semifinals", "Conference Finals", "NBA Finals"),
+        strict=True,
+    )
+)
+_PLAYOFF_GAME_ID = re.compile(r"004[0-9]{2}00([1-4])[0-9][1-7]")
+_PLAYOFF_ROUND_KEYS = {
+    label.casefold(): key for key, label in PLAYOFF_ROUND_LABELS.items()
+}
+
+
+def playoff_round_from_game_id(game_id: object) -> str | None:
+    match = _PLAYOFF_GAME_ID.fullmatch(game_id) if isinstance(game_id, str) else None
+    return PLAYOFF_ROUNDS[int(match[1]) - 1] if match else None
+
+
+def row_playoff_round(row: Mapping[str, Any]) -> str | None:
+    if row.get("season_type") != "Playoffs":
+        return None
+    if row.get("playoff_round_conflict") is True:
+        return None
+    source = row.get("playoff_round_source")
+    if isinstance(source, str) and source.strip().casefold() in {"conflict", "none"}:
+        return None
+    for field in ("playoff_round", "playoff_round_name"):
+        value = row.get(field)
+        if isinstance(value, str) and value.strip():
+            normalized = value.strip().casefold()
+            if normalized in PLAYOFF_ROUNDS:
+                return normalized
+            if normalized in _PLAYOFF_ROUND_KEYS:
+                return _PLAYOFF_ROUND_KEYS[normalized]
+            return None
+    if row.get("has_playoff_round_column") is True:
+        return None
+    return playoff_round_from_game_id(row.get("game_id"))
+
+
+def playoff_round_seasons(rows: Sequence[Mapping[str, Any]]) -> set[str]:
+    return {row["season"] for row in rows if row_playoff_round(row) is not None}
+
+
 STAT_FILTER_OPERATORS = {
     "gt": operator.gt,
     "gte": operator.ge,
@@ -234,8 +284,15 @@ class Query:
     game_result: str | None = None
     weekdays: list[int] | None = None
     stat_filters: list[dict[str, Any]] | None = None
+    playoff_round: str | None = None
 
     def validate(self, metric: Metric) -> None:
+        if self.playoff_round is not None and (
+            self.playoff_round not in PLAYOFF_ROUNDS or self.season_type != "Playoffs"
+        ):
+            raise SemanticError(
+                "invalid_scope", "Select a canonical round within Playoffs scope"
+            )
         for name in ("team_abbr", "opponent_abbr"):
             value = getattr(self, name)
             if value is not None and (
@@ -475,6 +532,114 @@ def _matches_stat_filter(row: Mapping[str, Any], predicate: dict[str, Any]) -> b
     )
 
 
+def _valid_filter_field(row: Mapping[str, Any], field: str) -> bool:
+    value = _game_result(row) if field == "game_result" else row.get(field)
+    if field in ("team_abbr", "opponent_abbr"):
+        return isinstance(value, str) and bool(re.fullmatch(r"[A-Z]{2,4}", value))
+    if field == "home_away":
+        return value in ("HOME", "AWAY")
+    return value in ("W", "L")
+
+
+def _apply_game_filters_with_status(
+    rows: Sequence[Mapping[str, Any]], query: Query
+) -> tuple[list[Mapping[str, Any]], bool]:
+    """Apply round exclusions, then validated predicates, tracking peer completeness."""
+    fields = (
+        ("team_abbr", query.team_abbr),
+        ("opponent_abbr", query.opponent_abbr),
+        ("home_away", query.home_away),
+        ("game_result", query.game_result),
+    )
+    requested_fields = [(field, value) for field, value in fields if value is not None]
+    player_scope = (
+        query.player_id
+        if query.player_id is not None and query.operation in ("summary", "game_log")
+        else None
+    )
+    if query.playoff_round is None:
+        candidate_rows: list[tuple[Mapping[str, Any], str | None]] = [
+            (row, None) for row in rows
+        ]
+    else:
+        candidate_rows = []
+        for row in rows:
+            if row["season_type"] != "Playoffs":
+                continue
+            round_key = row_playoff_round(row)
+            if round_key is not None and round_key != query.playoff_round:
+                continue
+            candidate_rows.append((row, round_key))
+    cohort_complete = True
+    if not requested_fields and query.weekdays is None and query.stat_filters is None:
+        selected_with_rounds = candidate_rows
+    else:
+        relevant = (
+            [row for row, _ in candidate_rows]
+            if player_scope is None
+            else [row for row, _ in candidate_rows if row["player_id"] == player_scope]
+        )
+        for row in relevant:
+            for field, _ in requested_fields:
+                if not _valid_filter_field(row, field):
+                    label = "Home/away" if field == "home_away" else field
+                    raise SemanticError(
+                        "incomplete_evidence",
+                        f"{label} is missing or unknown for games in this scope",
+                    )
+            for predicate in query.stat_filters or []:
+                if _number(row.get(predicate["component"])) is None:
+                    raise SemanticError(
+                        "incomplete_evidence",
+                        f"{predicate['component']} filter component is missing for games in this scope",
+                    )
+        selected_with_rounds = []
+        for row, round_key in candidate_rows:
+            if player_scope is not None and row["player_id"] != player_scope:
+                if any(
+                    not _valid_filter_field(row, field) for field, _ in requested_fields
+                ) or any(
+                    _number(row.get(predicate["component"])) is None
+                    for predicate in query.stat_filters or []
+                ):
+                    cohort_complete = False
+                    continue
+            matches = True
+            for field, requested in requested_fields:
+                value = _game_result(row) if field == "game_result" else row.get(field)
+                if value != requested:
+                    matches = False
+                    break
+            if not matches:
+                continue
+            if (
+                query.weekdays is not None
+                and _date(row["game_date"]).weekday() not in query.weekdays
+            ):
+                continue
+            if not all(
+                _matches_stat_filter(row, predicate)
+                for predicate in query.stat_filters or []
+            ):
+                continue
+            selected_with_rounds.append((row, round_key))
+    if query.playoff_round is None:
+        return [row for row, _ in selected_with_rounds], cohort_complete
+    round_rows = []
+    for row, round_key in selected_with_rounds:
+        if round_key is None and row["season_type"] == "Playoffs":
+            if player_scope is None or row["player_id"] == player_scope:
+                raise SemanticError(
+                    "unsupported_scope",
+                    "Playoff rounds cannot be isolated with the connected data.",
+                )
+            cohort_complete = False
+            continue
+        if round_key == query.playoff_round:
+            round_rows.append(row)
+    return round_rows, cohort_complete
+
+
 def apply_game_filters(
     rows: Sequence[Mapping[str, Any]], query: Query
 ) -> list[Mapping[str, Any]]:
@@ -483,65 +648,7 @@ def apply_game_filters(
     Supply rows already restricted to the relevant dates/identities. Missing box
     scores remain partial metric evidence when their components are not filters.
     """
-    fields = (
-        ("team_abbr", query.team_abbr),
-        ("opponent_abbr", query.opponent_abbr),
-        ("home_away", query.home_away),
-        ("game_result", query.game_result),
-    )
-    requested_fields = [(field, value) for field, value in fields if value is not None]
-    if not requested_fields and query.weekdays is None and query.stat_filters is None:
-        return list(rows)
-    relevant = (
-        [row for row in rows if row["player_id"] == query.player_id]
-        if query.player_id is not None and query.operation in ("summary", "game_log")
-        else rows
-    )
-    for row in relevant:
-        for field, _ in requested_fields:
-            value = _game_result(row) if field == "game_result" else row.get(field)
-            if field in ("team_abbr", "opponent_abbr"):
-                valid = isinstance(value, str) and bool(
-                    re.fullmatch(r"[A-Z]{2,4}", value)
-                )
-            elif field == "home_away":
-                valid = value in ("HOME", "AWAY")
-            else:
-                valid = value in ("W", "L")
-            if not valid:
-                label = "Home/away" if field == "home_away" else field
-                raise SemanticError(
-                    "incomplete_evidence",
-                    f"{label} is missing or unknown for games in this scope",
-                )
-        for predicate in query.stat_filters or []:
-            if _number(row.get(predicate["component"])) is None:
-                raise SemanticError(
-                    "incomplete_evidence",
-                    f"{predicate['component']} filter component is missing for games in this scope",
-                )
-    selected = []
-    for row in rows:
-        matches = True
-        for field, requested in requested_fields:
-            value = _game_result(row) if field == "game_result" else row.get(field)
-            if value != requested:
-                matches = False
-                break
-        if not matches:
-            continue
-        if (
-            query.weekdays is not None
-            and _date(row["game_date"]).weekday() not in query.weekdays
-        ):
-            continue
-        if not all(
-            _matches_stat_filter(row, predicate)
-            for predicate in query.stat_filters or []
-        ):
-            continue
-        selected.append(row)
-    return selected
+    return _apply_game_filters_with_status(rows, query)[0]
 
 
 @dataclass(frozen=True)
@@ -553,6 +660,7 @@ class QuerySelection:
     anchor: date
     start: date | None
     end: date
+    cohort_complete: bool = True
 
 
 def select_query_rows(
@@ -576,6 +684,13 @@ def select_query_rows(
     phases = PHASES if query.season_type == "Both" else (query.season_type,)
     seasons = query.seasons or [query.season]
     scopes = [(season, phase) for season in seasons for phase in phases]
+    if query.playoff_round is not None and not set(seasons) <= playoff_round_seasons(
+        evidence.rows
+    ):
+        raise SemanticError(
+            "unsupported_scope",
+            "Playoff rounds cannot be isolated with the connected data.",
+        )
     if any(
         s not in evidence.covered_scopes or s not in evidence.data_through
         for s in scopes
@@ -600,14 +715,17 @@ def select_query_rows(
         if _date(row["game_date"]) <= end
         and (start is None or _date(row["game_date"]) >= start)
     ]
-    selected = apply_game_filters(dated, query)
-    qualification_rows = (
-        apply_game_filters(dated, replace(query, stat_filters=None))
-        if query.stat_filters
+    selected, selected_cohort_complete = _apply_game_filters_with_status(dated, query)
+    if (
+        query.stat_filters
         and query.aggregation == "average"
         and query.min_games is None
-        else selected
-    )
+    ):
+        qualification_rows, qual_cohort_complete = _apply_game_filters_with_status(
+            dated, replace(query, stat_filters=None)
+        )
+    else:
+        qualification_rows, qual_cohort_complete = selected, selected_cohort_complete
     grouped: dict[int, list[Mapping[str, Any]]] = {}
     for row in selected:
         grouped.setdefault(row["player_id"], []).append(row)
@@ -620,7 +738,18 @@ def select_query_rows(
             rows = rows[offset : offset + query.n]
         selected.extend(rows)
     return QuerySelection(
-        qualification_rows, selected, scopes, seasons, anchor, start, end
+        qualification_rows,
+        selected,
+        scopes,
+        seasons,
+        anchor,
+        start,
+        end,
+        cohort_complete=(
+            evidence.cohort_complete
+            and selected_cohort_complete
+            and qual_cohort_complete
+        ),
     )
 
 
@@ -807,7 +936,7 @@ def run_query(
         evidence.source,
         evidence.snapshot_id,
         evidence.model_built_at,
-        evidence.cohort_complete,
+        selection.cohort_complete,
     )
 
 
@@ -896,7 +1025,9 @@ def finish_summaries(
             "attempt_field": metric.attempt_field,
             "direction": direction,
             "excluded_players": len(summaries) - len(cohort),
+            "cohort_complete": cohort_complete,
         },
+        "cohort_complete": cohort_complete,
         "rows": output[: query.limit],
         "warnings": warnings,
         "provenance": {
