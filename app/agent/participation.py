@@ -242,7 +242,7 @@ def _completed_round_teams(
         else:
             results_by_game[gid] = gr
 
-    series: dict[tuple[str, str], list[tuple[date, int, str, str]]] = defaultdict(list)
+    series: dict[tuple[str, str], list[tuple[date, int, str]]] = defaultdict(list)
     for game_id, rows in games.items():
         teams = set()
         observed_teams = set()
@@ -314,20 +314,21 @@ def _completed_round_teams(
             or bool(expected_not_played & observed_pairs)
         ):
             return set()
-        series[teams.pop()].append((game_date, game_number, game_id, winner))
+        series[teams.pop()].append((game_date, game_number, winner))
 
     teams_in_round = {team for pair in series for team in pair}
     if len(series) != expected_series or len(teams_in_round) != 2 * expected_series:
         return set()
     for series_games in series.values():
-        _, _, _, final_winner = max(series_games, key=lambda g: (g[0], g[2]))
-        wins = sum(winner == final_winner for _, _, _, winner in series_games)
-        game_numbers = [num for _, num, _, _ in series_games]
+        ordered_games = sorted(series_games)
+        final_winner = ordered_games[-1][2]
+        wins = sum(winner == final_winner for _, _, winner in ordered_games)
+        game_numbers = [number for _, number, _ in ordered_games]
         if (
             not 4 <= len(series_games) <= 7
             or wins != 4
-            or len(set(game_numbers)) != len(series_games)
-            or set(game_numbers) != set(range(1, len(series_games) + 1))
+            or game_numbers != list(range(1, len(series_games) + 1))
+            or len({day for day, _, _ in ordered_games}) != len(series_games)
         ):
             return set()
     return teams_in_round

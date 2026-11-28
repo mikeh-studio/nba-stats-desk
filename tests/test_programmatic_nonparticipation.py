@@ -252,8 +252,8 @@ def test_losing_team_opponent_labels_do_not_substitute_for_player_rows():
     assert not derive_nonparticipation_records(evidence)
 
 
-@pytest.mark.parametrize("clinching_date", ["2025-06-04", "2025-06-06"])
-def test_series_must_end_on_the_clinching_win(clinching_date):
+@pytest.mark.parametrize("case", ["after_clinch", "out_of_order", "same_day", "valid"])
+def test_series_must_end_on_the_clinching_win(case):
     evidence = completed_evidence()
     last_game_rows = [row for row in evidence.rows if row["game_id"] == "0042400404"]
     extra_game = [
@@ -261,7 +261,11 @@ def test_series_must_end_on_the_clinching_win(clinching_date):
             **{k: v for k, v in row.items() if k != "game_result"},
             "game_date": "2025-06-05",
             "game_id": "0042400405",
-            "wl": "L" if row.get("game_result") == "W" else "W",
+            "wl": (
+                "W"
+                if (row.get("game_result") == "W") == (case in {"same_day", "valid"})
+                else "L"
+            ),
         }
         for row in last_game_rows
     ]
@@ -275,10 +279,18 @@ def test_series_must_end_on_the_clinching_win(clinching_date):
         }
         for row in extra_game
     ]
-    rows = [
-        {**row, "game_date": clinching_date} if row["game_id"] == "0042400404" else row
-        for row in evidence.rows
-    ]
+    fourth_game_date = {
+        "out_of_order": "2025-06-06",
+        "same_day": "2025-06-05",
+    }.get(case, "2025-06-04")
+    rows = []
+    for row in evidence.rows:
+        if row["game_id"] == "0042400404":
+            row = {**row, "game_date": fourth_game_date}
+            if case in {"same_day", "valid"}:
+                result = row.pop("game_result", row.get("wl"))
+                row["wl"] = "L" if result == "W" else "W"
+        rows.append(row)
     records = derive_nonparticipation_records(
         replace(
             evidence,
@@ -287,7 +299,7 @@ def test_series_must_end_on_the_clinching_win(clinching_date):
         )
     )
     assert [record["player_id"] for record in records] == (
-        [1] if clinching_date == "2025-06-06" else []
+        [1] if case == "valid" else []
     )
 
 
@@ -493,6 +505,8 @@ def _insert_dbt_game_participants_from_stats(
         ("one_sided_game", False),
         ("missing_game_two", False),
         ("game_after_clinch", False),
+        ("out_of_order_game", False),
+        ("same_day_games", False),
         ("valid_five_game_series", True),
     ],
 )
@@ -514,9 +528,16 @@ def test_dbt_event_model_requires_coverage_and_a_chronological_clinch(case, veri
             ]
         else:
             games = [(f"004240040{n}", f"2025-06-0{n}", n, "ATL") for n in range(1, 5)]
-            if case in {"game_after_clinch", "valid_five_game_series"}:
-                if verified:
-                    games[-1] = ("0042400404", "2025-06-06", 4, "ATL")
+            if case in {"same_day_games", "valid_five_game_series"}:
+                fourth_date = "2025-06-05" if case == "same_day_games" else "2025-06-04"
+                games[-1] = ("0042400404", fourth_date, 4, "BOS")
+                games.append(("0042400405", "2025-06-05", 5, "ATL"))
+            elif case in {"game_after_clinch", "out_of_order_game"}:
+                fourth_date = {
+                    "game_after_clinch": "2025-06-04",
+                    "out_of_order_game": "2025-06-06",
+                }[case]
+                games[-1] = ("0042400404", fourth_date, 4, "ATL")
                 games.append(("0042400405", "2025-06-05", 5, "BOS"))
         for game_id, game_date, game_num, winner in games:
             db.execute(
@@ -604,6 +625,8 @@ def test_dbt_event_model_requires_coverage_and_a_chronological_clinch(case, veri
             "incomplete_team_players",
             "one_sided_game",
             "missing_game_two",
+            "out_of_order_game",
+            "same_day_games",
         }:
             db.execute(
                 """

@@ -362,8 +362,11 @@ interchangeable with the season-profile score.
 `event_participation/1` carries curated participation records with their original
 reason and source. `event_participation/2` can verify nonparticipation from a
 complete season cohort that covers the regular season and playoffs, with source,
-snapshot, and round-game IDs. Every observed round game must have player rows
-for both teams. Each expected series must end with the winner's fourth win.
+snapshot, and round-game IDs. Every observed round game needs an independent
+participant manifest that agrees with its player rows for both teams. Each
+expected series needs consecutive game numbers in date order and must end with
+the winner's fourth win. A source without a round's manifests leaves absence
+unverified.
 The player needs a regular-season or earlier-playoff
 appearance, and neither the player nor any recorded season team can have appeared
 in the round. Curated records take precedence for matching requests. Verified

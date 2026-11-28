@@ -1901,7 +1901,7 @@ class SemanticAsk:
         turn.players = (
             self.warehouse.players(evidence)
             if hasattr(self.warehouse, "players")
-            else source_players(evidence, source_policy=turn.source_policy)
+            else source_players(evidence)
         )
         if turn.source_policy is not None:
             check_evidence_source_policy(evidence, turn.source_policy)

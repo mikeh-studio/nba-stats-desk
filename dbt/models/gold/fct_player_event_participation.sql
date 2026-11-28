@@ -177,7 +177,11 @@ series_games as (
         row_number() over (
             partition by season, round_number, team_a, team_b
             order by game_date desc, game_id desc
-        ) as reverse_game_order
+        ) as reverse_game_order,
+        lag(game_date) over (
+            partition by season, round_number, team_a, team_b
+            order by series_game_number, game_id
+        ) as previous_game_date
     from round_games
 ),
 series_results as (
@@ -193,6 +197,7 @@ series_results as (
         count(distinct case when series_game_number between 1 and 7 then series_game_number end) as distinct_game_numbers,
         min(series_game_number) as min_game_number,
         max(series_game_number) as max_game_number,
+        sum(case when previous_game_date >= game_date then 1 else 0 end) as out_of_order_games,
         sum(case when both_teams_observed then 1 else 0 end) as covered_games,
         sum(case when winning_team_abbr = team_a then 1 else 0 end) as team_a_wins,
         sum(case when winning_team_abbr = team_b then 1 else 0 end) as team_b_wins,
@@ -262,6 +267,7 @@ completed_rounds as (
             and s.games = s.distinct_game_numbers
             and s.min_game_number = 1
             and s.max_game_number = s.games
+            and s.out_of_order_games = 0
             and s.games = s.covered_games
             and s.games = s.team_a_wins + s.team_b_wins
             and ((s.final_winner = s.team_a and s.team_a_wins = 4)
