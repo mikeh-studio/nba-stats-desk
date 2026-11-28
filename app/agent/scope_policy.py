@@ -154,6 +154,7 @@ def split_kind(question: str) -> str | None:
         and re.search(r"regular[ -]season", text)
         and re.search(r"\b(?:playoffs?|postseason)\b", text)
         and not re.search(r"\b(?:both|combined|including)\b", text)
+        and not requested_playoff_round(text)
     ):
         return "phase"
     if (
@@ -224,8 +225,8 @@ _ROUND_PATTERN = re.compile(
 )
 _NON_PLAYOFF_EVENT = re.compile(
     r"\b(?:nba[ -]cup|in[ -]season[ -]tournament|"
-    r"g[ -]?league|d[ -]?league|wnba|ncaa|euro[ -]?league|olympics?|"
-    r"summer[ -]?league|fiba|big[ -]?3|play[ -]?in(?:[ -]+tournament)?|"
+    r"g[ -]?league|d[ -]?league|wnba|ncaa[wmb]?|march[ -]+madness|euro[ -]?(?:league|cup)|olympics?|"
+    r"summer[ -]?league|fiba|big[ -]?3|play-?in|play in tournament|(?:the|nba) play in|"
     r"pre[ -]?season|all[ -]?star)\b",
     re.I,
 )
@@ -247,16 +248,16 @@ _SERIES_GAME = re.compile(
 )
 _QUALIFIED_ROUND_PREFIX = re.compile(
     r"(?:\bnon[-–\s]+(?:(?:the|any|an?)\s+)?(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?[-–\s]+)?|"
-    r"\b(?:before|after|through|until|since|prior to|leading up to|up to|"
+    r"\b(?:before|after|through|until|since|past|prior to|leading up to|up to|as of|"
     r"except(?: for)?|excluding|without(?: counting| including)?|"
     r"outside(?: of)?|other than|apart from|aside from|besides|barring|minus|"
     r"not(?:\s+(?:counting|including|just|only))?)\s+"
-    r"(?:(?:playoff|postseason)\s+)?(?:games?\s+)?(?:(?:for|in|during|from|of)\s+)?(?:(?:the|any|an?|this|that|those|these)\s+)?"
+    r"(?:(?:playoffs?|postseason|games?|for|in|during|from|of|the|any|an?|this|that|those|these)\s+){0,6}"
     r"(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?\s+)?)$",
     re.I,
 )
 _QUALIFIED_ROUND_SUFFIX = re.compile(
-    r"^\s*(?:excluded|omitted)\b",
+    r"^\s*(?:excluded|omitted|onwards?|and (?:onwards?|later|earlier|afterwards?)|or (?:later|earlier))\b",
     re.I,
 )
 _ROUND_OR_PHASE = (
@@ -280,6 +281,27 @@ def _replace_round_year(match: re.Match[str]) -> str:
     return f"{match['prefix']}{season}" if match["prefix"] else season
 
 
+_COMPARE_SPLIT_RE = re.compile(
+    r"\s+(?:vs\.?|versus|compared\s+(?:with|to|against))\s+", re.I
+)
+
+
+def comparison_operands(question: str) -> tuple[str, str] | None:
+    cleaned = (
+        question.split("\nSelected player:", 1)[0]
+        .split("\nClarification:", 1)[0]
+        .strip()
+        .rstrip("?.!")
+    )
+    parts = _COMPARE_SPLIT_RE.split(cleaned)
+    if len(parts) == 2 and all(part.strip() for part in parts):
+        return parts[0].strip(), parts[1].strip()
+    match = re.match(r"^\s*compare\s+(.+?)\s+(?:and|with|to)\s+(.+)$", cleaned, re.I)
+    if match and match[1].strip() and match[2].strip():
+        return match[1].strip(), match[2].strip()
+    return None
+
+
 def requested_playoff_round(question: str) -> str | None:
     """Recognize one canonical round, with no vague or conflicting round cues."""
     matches = list(_ROUND_PATTERN.finditer(question))
@@ -298,8 +320,15 @@ def requested_playoff_round(question: str) -> str | None:
         return None
     if _ROUND_CUES.search(question[: match.start()] + " " + question[match.end() :]):
         return None
-    if has_phase_cue(question, "Regular Season") or has_phase_cue(question, "Both"):
+    if has_phase_cue(question, "Both"):
         return None
+    if has_phase_cue(question, "Regular Season"):
+        operands = comparison_operands(question)
+        if operands is None or any(
+            _ROUND_PATTERN.search(part) and has_phase_cue(part, "Regular Season")
+            for part in operands
+        ):
+            return None
     return match.lastgroup
 
 
@@ -455,7 +484,7 @@ def question_scope(
         )
     if message := subgame_scope_message(question):
         return dict(
-            kind="unavailable_grain",
+            kind="subgame_scope",
             status="unsupported_scope",
             message=message,
         )

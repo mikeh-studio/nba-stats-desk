@@ -424,8 +424,10 @@ comparison phases are recorded and displayed; missing baseline coverage
 withholds changes. A single named playoff round requires round evidence for
 every in-scope playoff appearance. For example, the 2024 NBA Finals use the
 2023–24 archive. Ask withholds requests for round exclusions, specific games
-within a series, NBA Cup Finals, and comparisons between rounds. Suggested
-scorecard follow-ups retain the selected round.
+within a series, NBA Cup Finals, and comparisons between rounds. In a
+comparison with a full regular-season or playoff period, the round filter and
+round-coverage requirement apply only to the period that names the round.
+Suggested scorecard follow-ups retain the selected round.
 
 Game insights use the same scoped player appearances: scoring minimum, maximum,
 median, 20-point game count and a dated high (ties disclosed). Any missing scoring
