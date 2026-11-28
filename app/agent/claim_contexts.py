@@ -2,6 +2,8 @@
 
 
 def contracts(payload):
+    if payload.get("opponent_splits"):
+        return opponent_split_contracts(payload["opponent_splits"])
     if (payload.get("semantic_evidence") or {}).get(
         "kind"
     ) == "observed_pts_comparison_shadow":
@@ -301,6 +303,15 @@ def guards(payload):
     """Formatting constants are structural checks, not statistical evidence."""
     e = payload.get("semantic_evidence") or {}
     result = {}
+    if payload.get("opponent_splits"):
+        from app.agent.claim_rules import opponent_split_layout
+
+        for ti, (title, columns) in enumerate(
+            opponent_split_layout(payload["opponent_splits"])
+        ):
+            result["tables", ti, "title"] = title
+            for ci, label in enumerate(columns):
+                result["tables", ti, "columns", ci, "label"] = label
     if e.get("kind") == "player_split":
         columns = {0: "Metric", 3: "Difference"}
         for ci, label in columns.items():
@@ -349,3 +360,147 @@ def bind_contexts(payload):
             context=context,
             spec=spec,
         )
+
+
+def opponent_split_contracts(e):
+    """Resolve displayed claims by opponent, metric and game coordinates."""
+    base = ["opponent_splits"]
+    identity, scope = base + ["player"], base + ["scope"]
+    result = {}
+
+    def add(destination, sources, context=(), spec=None):
+        result[tuple(destination)] = (
+            sources,
+            identity,
+            scope,
+            list(context),
+            spec or {"op": "identity"},
+        )
+
+    def template(destination, sources, text, formats=None, context=()):
+        spec = {"op": "template", "template": text}
+        if formats:
+            spec["formats"] = formats
+        add(destination, sources, context, spec)
+
+    sources = [
+        identity + ["player_name"],
+        scope + ["season"],
+        scope + ["season_type"],
+        scope + ["first_game_date"],
+        scope + ["last_game_date"],
+        base + ["baseline", "games"],
+    ]
+    formats = [
+        "identity",
+        "identity",
+        "phase_lower",
+        "identity",
+        "identity",
+        "identity",
+    ]
+    game_unit = "game" if e["baseline"]["games"] == 1 else "games"
+    summary = f"{{0}} played {{5}} {game_unit} in the sampled {{1}} {{2}}, from {{3}} through {{4}}."
+    if e["scope"]["playoff_round"]:
+        summary += " The sample covers the {6}."
+        sources.append(scope + ["playoff_round"])
+        formats.append("playoff_round")
+    if e["scope"]["home_away"]:
+        summary += f" The sample is limited to {{{len(sources)}}} games."
+        sources.append(scope + ["home_away"])
+        formats.append("phase_lower")
+    if e["scope"]["window"] == "date_range" and (
+        e["scope"]["start_date"],
+        e["scope"]["as_of"],
+    ) != (e["scope"]["first_game_date"], e["scope"]["last_game_date"]):
+        summary += f" The requested dates run from {{{len(sources)}}} through {{{len(sources) + 1}}}."
+        sources.extend([scope + ["start_date"], scope + ["as_of"]])
+        formats.extend(["identity", "identity"])
+    if e["scope"]["n"] is not None:
+        unit = {
+            "last_n_games": "games",
+            "last_n_days": "days",
+            "last_n_months": "months",
+        }[e["scope"]["window"]]
+        if (
+            e["scope"]["window"] == "last_n_games"
+            and e["baseline"]["games"] < e["scope"]["n"]
+        ):
+            summary += f" The sample contains fewer than the requested {{{len(sources)}}} appearances."
+        else:
+            summary += (
+                f" The requested window is the last {{{len(sources)}}} {unit} in scope."
+            )
+        sources.append(scope + ["n"])
+        formats.append("identity")
+    if e["toughest_opponent"]:
+        summary += f" {{{len(sources)}}} was the toughest opponent by struggle score, and {{{len(sources) + 1}}} was the best matchup."
+        sources.extend([base + ["toughest_opponent"], base + ["best_opponent"]])
+        formats.extend(["identity", "identity"])
+    else:
+        summary += " The sample does not support distinct toughest and best opponents."
+    if "identity_notice" in e:
+        summary = f"{{{len(sources)}}}\n\n" + summary
+        sources.append(base + ["identity_notice"])
+        formats.append("identity")
+    template(["answer"], sources, summary, formats)
+
+    for field in ("assumptions", "scope_assumptions"):
+        for i in range(len(e.get(field, ()))):
+            add([field, i], [base + [field, i]])
+
+    def cell(ti, ri, ci, path, context=(), spec=None):
+        add(["tables", ti, "rows", ri, ci], [path], context, spec)
+
+    def metric_cell(ti, ri, ci, key, row, field):
+        definition = base + ["metric_definitions", key]
+        ratio = e["metric_definitions"][key]["unit"] == "ratio"
+        spec = {"digits": 2, "null": "Unavailable", "normalize_zero": True}
+        if field == "difference":
+            spec.update(signed=True, unsigned_zero=True, suffix=" pp" if ratio else "")
+        elif ratio:
+            spec.update(scale=100, suffix="%")
+        elif key == "gp" or (
+            field == "total" and e["metric_definitions"][key]["unit"] == "count"
+        ):
+            spec["digits"] = 0
+        cell(ti, ri, ci, row + ["metrics", key, field], [definition], spec)
+
+    for ri, row in enumerate(e["opponents"]):
+        rp = base + ["opponents", ri]
+        opponent = rp + ["opponent_abbr"]
+        cell(0, ri, 0, opponent)
+        cell(0, ri, 1, rp + ["games"])
+        counts = [rp + ["wins"], rp + ["losses"]]
+        record = "{0}–{1}"
+        if row["unknown_outcomes"]:
+            counts.append(rp + ["unknown_outcomes"])
+            record += " ({2} unknown)"
+        template(["tables", 0, "rows", ri, 2], counts, record, context=[opponent])
+        cell(
+            0,
+            ri,
+            3,
+            rp + ["struggle_score"],
+            [opponent],
+            {"digits": 2, "null": "Unavailable", "normalize_zero": True},
+        )
+        cell(0, ri, 4, rp + ["sample_label"])
+        cell(1, ri, 0, opponent)
+        for i, key in enumerate(e["display_metrics"]):
+            field = (
+                "total"
+                if e["aggregation"] == "total" and "total" in row["metrics"][key]
+                else "value"
+            )
+            metric_cell(0, ri, i + 5, key, rp, field)
+            metric_cell(1, ri, i + 1, key, rp, "difference")
+    for ri, _ in enumerate(e["toughest_opponent_games"]):
+        rp = base + ["toughest_opponent_games", ri]
+        for ci, field in enumerate(
+            ("game_date", "game_id", "team_abbr", "opponent_abbr", "game_result")
+        ):
+            cell(2, ri, ci, rp + [field], [rp + ["game_id"]], {"null": "Unavailable"})
+        for ci, key in enumerate(e["display_metrics"], 5):
+            metric_cell(2, ri, ci, key, rp, "value")
+    return result

@@ -294,6 +294,58 @@ or composite impact calculation is introduced. Distribution claims require compl
 scoring coverage. Round-specific requests fail closed before querying evidence;
 season-wide observations cannot stand in for a requested Finals or playoff round.
 
+### Opponent splits
+
+The `opponent_splits` Ask route groups a single resolved player's recorded
+appearances by opponent. It defaults to the selected regular season and also
+supports Playoffs, a verified playoff round, an inclusive date range within one
+season, the last N recorded appearances, and a home or away filter. Venue and
+phase filters apply before selecting the last N appearances. The route uses
+governed game-grain evidence from the selected warehouse, bundle or pinned
+publication. Metric-only follow-ups retain that player and scope.
+Specify an NBA season as `YYYY-YY` or give explicit dates for a calendar
+period. A standalone year in a season request needs clarification when its
+meaning is ambiguous.
+Use a numeric game count for recent windows, such as `last 3 games`. The
+answer discloses when fewer verified appearances are available in the
+requested scope.
+Single-opponent filters, within-game periods, and league-average comparisons
+require separate requests when combined with opponent splits.
+
+The `opponent_splits/1` evidence includes each opponent's appearance count and
+verified team W–L record, with unknown outcomes counted separately. The default
+view shows PTS, TS%, FG%, 3P%, AST, REB and plus-minus. Counting stats expose
+totals and per-game averages. Explicit metric requests require a complete
+match to supported metrics. A qualifier such as “in the paint” requires
+its own connected statistic. Shooting ratios retain their summed inputs,
+numerator, denominator and valid-game counts. For example, TS% uses summed
+points divided by `2 × (sum(FGA) + 0.44 × sum(FTA))`. FG%, 3P% and FT% pool makes
+and attempts, and eFG% pools `FGM + 0.5 × 3PM` over FGA. Games missing a required
+input are omitted for that metric. A zero denominator yields an unavailable
+rate. Changes use the player's entire in-scope sample as the baseline, including
+the opponent's games. Count-stat changes are per-game differences and shooting
+changes are in percentage points.
+
+The struggle score is the equal-weight mean of the standardized deficits in
+PTS per game, pooled TS%, and plus-minus per game. For each metric, subtract the
+opponent's value from the in-scope baseline and divide by the population standard
+deviation of valid individual-game values. The score omits metrics with no
+usable baseline or zero spread. An opponent needs a value for every remaining
+metric to receive a score. Higher scores indicate tougher observed matchups.
+Scores sort descending, then by more appearances and opponent abbreviation for
+ties. The answer identifies the toughest and best observed matchups only
+when the extreme scores differ beyond the numerical tie tolerance of
+`math.isclose` with an absolute tolerance of `1e-9`. Opponents with fewer than three
+games are flagged as small samples. Plus-minus captures team scoring margin
+during the player's minutes, so the score is descriptive. The toughest-opponent
+game log retains dates, game IDs, outcomes and the requested metrics for review.
+
+The prose, matchup stats, baseline changes and game log have claim bindings to
+the scoped evidence. Enforcement requires every destination defined by that
+evidence, including every opponent row. The frontend validates table cells
+against canonical evidence and lets the reader expand the baseline changes
+and source game log.
+
 ## League reference and similarity contracts
 
 `league_baseline/2` compares a governed individual summary with pooled player

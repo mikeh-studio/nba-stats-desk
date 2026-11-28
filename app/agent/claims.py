@@ -24,6 +24,7 @@ EVIDENCE_ROOTS = {
     "appearance_evidence",
     "research",
     "claim_evidence",
+    "opponent_splits",
 }
 VISIBLE_ROOTS = (
     "answer",
@@ -264,6 +265,33 @@ def descriptor(payload, sources, context):
         "unit": ("unit", "label"),
         "aggregation": ("aggregation", "label"),
     }
+    if sources[0][0] == "opponent_splits":
+        if sources[0][1] in ("assumptions", "scope_assumptions"):
+            return "scope_note", "label"
+        if field == "n":
+            window = resolve(payload, [*sources[0][:-1], "window"])
+            unit = {
+                "last_n_games": "games",
+                "last_n_days": "days",
+                "last_n_months": "months",
+            }.get(window)
+            if unit is None:
+                raise ValueError("Unsupported window unit for n")
+            return field, unit
+        if field in ("wins", "losses", "unknown_outcomes"):
+            return field, "games"
+        if field in ("first_game_date", "last_game_date"):
+            return field, "date"
+        if field == "struggle_score":
+            return field, "dimensionless"
+        if field in (
+            "toughest_opponent",
+            "best_opponent",
+            "sample_label",
+            "game_result",
+            "identity_notice",
+        ):
+            return field, "label"
     if type(field) is int and "groups" in sources[0]:
         return "group_label", "label"
     if field in fixed:
@@ -672,10 +700,21 @@ def validate(payload: dict) -> dict:
         errors.append(
             {"destination": [], "reason": "Surplus or missing evidence digests"}
         )
-    from app.agent.claim_contexts import guards
+    from app.agent.claim_contexts import guards, opponent_split_contracts
 
     if claims:
         try:
+            if opponent_splits := payload.get("opponent_splits"):
+                required = cache.get("contexts")
+                if required is None:
+                    required = opponent_split_contracts(opponent_splits)
+                if required.keys() - covered:
+                    errors.append(
+                        {
+                            "destination": [],
+                            "reason": "Missing required opponent split claim destinations",
+                        }
+                    )
             for path, expected_label in guards(payload).items():
                 if resolve(payload, list(path)) != expected_label:
                     errors.append(
@@ -684,6 +723,8 @@ def validate(payload: dict) -> dict:
                             "reason": "Presentation label contradicts renderer contract",
                         }
                     )
+                elif payload.get("opponent_splits"):
+                    covered.add(path)
         except (ValueError, TypeError, KeyError, IndexError, AttributeError):
             errors.append(
                 {"destination": [], "reason": "Malformed bound route context"}
@@ -713,6 +754,22 @@ def validate(payload: dict) -> dict:
         if root in evidence:
             inventory(evidence[root], ["semantic_evidence", root])
     unbound_count = sum(counts.values())
+    is_ok_opponent_splits = (
+        payload.get("status") == "ok"
+        and (payload.get("ask_route") or {}).get("route") == "opponent_splits"
+    )
+    if (payload.get("opponent_splits") or is_ok_opponent_splits) and (
+        not payload.get("opponent_splits")
+        or manifest is None
+        or not claims
+        or unbound_count
+    ):
+        errors.append(
+            {
+                "destination": [],
+                "reason": "Opponent splits require complete claim bindings",
+            }
+        )
     return {
         "version": VERSION,
         "status": "invalid"

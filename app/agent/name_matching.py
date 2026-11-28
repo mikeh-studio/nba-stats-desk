@@ -135,9 +135,12 @@ def _spans(question, players):
             continue
         if any(normalize_player_text(m.group()) in _SCOPE_WORDS for m in (left, right)):
             continue
-        pair = (left.start(), right.end())
+        right_end = right.end() - (
+            2 if re.search(r"['’]s$", right.group(), re.I) else 0
+        )
+        pair = (left.start(), right_end)
         if any(
-            s in {(left.start(), left.end()), (right.start(), right.end())}
+            s in {(left.start(), left.end()), (right.start(), right_end)}
             for s in standalone
         ) and not any(a <= pair[0] and b >= pair[1] for a, b in exact):
             exact.append(pair)
@@ -320,8 +323,13 @@ def apply_name_notices(payload):
     notes = [n for n in dict.fromkeys(session.notices) if n not in applied]
     if notes:
         prefix = " ".join(notes)
-        payload["answer"] = prefix + "\n\n" + payload["answer"]
-        payload.setdefault("assumptions", []).extend(notes)
+        if payload.get("opponent_splits"):
+            from app.agent.claim_renderers import add_opponent_split_disclosures
+
+            add_opponent_split_disclosures(payload, notes, identity_notice=prefix)
+        else:
+            payload["answer"] = prefix + "\n\n" + payload["answer"]
+            payload.setdefault("assumptions", []).extend(notes)
         applied.extend(notes)
         if payload.get("appearance_evidence"):
             payload.setdefault("claim_evidence", {})["name_resolution_notice"] = (

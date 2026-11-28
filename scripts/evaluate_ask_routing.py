@@ -123,6 +123,10 @@ PRIOR_CONTEXTS: dict[str, dict[str, Any]] = {
         }
     },
     "teammate_study_v1": {"teammate_study": True},
+    "opponent_splits": {
+        "opponent_splits_question": "Show Avery Example's opponent splits in 2024-25",
+        "players": [{"player_id": 101, "player_name": "Avery Example"}],
+    },
     "governed_metrics": {
         "players": [{"player_id": 101, "player_name": "Avery Example"}],
         "metrics": ["pts"],
@@ -306,7 +310,7 @@ def current_route(
             frozen_repository(
                 settings, attachments.source, "complete"
             )._governed_warehouse
-            if route.key == "playoff_round"
+            if route.key in ("playoff_round", "opponent_splits")
             else None
         )
         payload = SemanticAsk(settings, warehouse, store).preview_route(

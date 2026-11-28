@@ -598,3 +598,40 @@ def cached_assumptions(payload, cache):
     if "assumptions" not in cache:
         cache["assumptions"] = metric_assumption_contracts(payload)
     return cache["assumptions"]
+
+
+def opponent_split_layout(evidence):
+    """Ordered headings for the opponent, baseline-change, and game tables."""
+    metrics = evidence["display_metrics"]
+    definitions = evidence["metric_definitions"]
+    averages = []
+    for key in metrics:
+        label, unit = (definitions[key][field] for field in ("label", "unit"))
+        if unit not in ("ratio", "per36", "games"):
+            label += " total" if evidence["aggregation"] == "total" else " / game"
+        averages.append(label)
+    tables = [
+        (
+            "Opponent splits",
+            ["Opponent", "Games", "W–L", "Struggle score", "Sample", *averages],
+        ),
+        (
+            "Change from the player's baseline",
+            ["Opponent", *[definitions[key]["label"] for key in metrics]],
+        ),
+    ]
+    if evidence["toughest_opponent_games"]:
+        tables.append(
+            (
+                "Games against the toughest opponent",
+                [
+                    "Date",
+                    "Game ID",
+                    "Team",
+                    "Opponent",
+                    "Result",
+                    *[definitions[key]["label"] for key in metrics],
+                ],
+            )
+        )
+    return tables

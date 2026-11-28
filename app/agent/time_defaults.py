@@ -65,7 +65,8 @@ def resolve_time_defaults(question, today=None, context=None):
         r"\b(?:this|current) year\b",
         r"\b(?:past|preceding) year\b|\b(?:past|last|preceding) \d+ years?\b",
         r"\b(?:recently|lately)\b",
-        r"\b(?:in|during|calendar year) (20\d{2})\b(?![-/–]\d)(?!\s+(?:playoffs?|postseason))",
+        r"\b(?:in|during|calendar year) (20\d{2})\b(?![-/–]\d)"
+        r"(?!\s+(?:NBA\s+)?(?:playoffs?|post[ -]?season))",
     ]
     matches = [m for pattern in patterns for m in re.finditer(pattern, question, re.I)]
     if len(matches) > 1 or (

@@ -30,6 +30,11 @@ REGULAR_SEASON_CUE = r"\bregular[ -]season\b"
 PLAYOFFS_CUE = r"\b(?:playoffs?|postseason)\b"
 _SEPARATED_PLAYOFFS_CUE = r"\b(?:playoffs?|post[ -]?season)\b"
 _BOTH_PHASES_CUE = r"\bboth phases\b"
+COLLECTIVE_OPPONENT = (
+    r"(?:each|every|all)\s+(?:of\s+(?:(?:the|his|her|their)\s+)?)?"
+    r"(?:NBA\s+)?(?:opponents?|teams?)\b"
+)
+COLLECTIVE_MATCHUP = r"\b(?:against|versus|vs\.?)\s+" + COLLECTIVE_OPPONENT
 
 
 def has_phase_cue(text: str, phase: str, *, separated_postseason: bool = True) -> bool:
@@ -145,7 +150,7 @@ def metric_terms(question: str) -> frozenset[str]:
 def split_kind(question: str) -> str | None:
     from app.agent.overview_positions import peer_question
 
-    text = peer_question(question).lower()
+    text = re.sub(r"\baway[- ]from[- ]home\b", "away", peer_question(question).lower())
     compare = re.search(
         r"\b(?:vs\.?|versus|compare|compared|difference|gap|between)\b", text
     )
@@ -504,8 +509,9 @@ def question_scope(
         )
     from app.agent.game_filters import extract_game_filters
 
+    filter_question = re.sub(COLLECTIVE_MATCHUP, " ", question, flags=re.I)
     try:
-        supported = extract_game_filters(question) if kind != "venue" else None
+        supported = extract_game_filters(filter_question) if kind != "venue" else None
     except SemanticError as exc:
         return dict(kind="game_filter", status=exc.code, message=str(exc))
     question = supported.cleaned_question if supported else question

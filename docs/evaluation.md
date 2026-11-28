@@ -559,8 +559,12 @@ reversed study roles and research refusal classes. Each case has three phrasings
 an `expected` map (dotted paths; a list means any of), `forbidden` routes and a
 `category` (`route`, `scope_drop`, `followup`, `refusal`, `control`). Generic
 cases use the fictional players in `tests/fixtures/ask/source.json`; study-pair
-cases use the public pair identities in `app/research_studies.py`. `opponent_splits`
-is a planned route with no handler yet, valid only as an expectation.
+cases use the public pair identities in `app/research_studies.py`.
+The governed `opponent_splits` cases exercise each-opponent and toughest-matchup
+phrasing. The focused tests in `tests/test_opponent_splits.py` also verify exact
+pooled shooting ratios, score ties, metric follow-ups, unsupported scope and
+claim enforcement on frozen game-grain evidence. Browser unit tests also
+exercise altered table cells against the canonical evidence.
 
 ```bash
 python scripts/evaluate_ask_routing.py --mode current

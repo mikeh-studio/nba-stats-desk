@@ -28,6 +28,7 @@ import {
 import {
   dateLabel,
   overviewPresentation,
+  opponentSplitsPresentation,
   overviewMetricsTable,
   overviewTakeaways,
   metricAbbreviation,
@@ -1246,14 +1247,17 @@ function renderAuxiliaryPayload(
     return;
   }
   const overview = game ? null : overviewPresentation(payload);
+  const opponentSplits = opponentSplitsPresentation(payload, renderTable);
+  if (opponentSplits && tableHeading) tableHeading.textContent = "Matchup breakdown";
   tableCard.hidden = tables.length === 0;
-  tableEl.innerHTML = overview
+  tableEl.innerHTML = opponentSplits ?? (overview
     ? renderOverviewTable(overview)
     : tables
         .map((table, index) => payload.study_id
           ? `<details><summary>See the stat comparison</summary>${renderTable(referenceTable(table, payload))}</details>`
           : renderMetricTable(table, payload, index))
-        .join("");
+        .join(""));
+  if (opponentSplits) bindRenderedClaims(tableEl, payload, "opponent_splits");
 
   chartCard.hidden = charts.length === 0;
   if (overview) { bindRenderedClaims(tableEl, payload, "overview", {}, overview.claimEvidence); bindMetricHelp(tableEl); bindMetricDrawer(tableEl, overview); }
@@ -2164,23 +2168,31 @@ function buildAskBody(question, selection, conversationId = activeConversationId
     const evidence = payload.semantic_evidence || {};
     const canonical = payload.conversation_context;
     const availability = canonical?.availability_scope || payload.availability_scope;
-    const scope = canonical?.scope || (availability ? {season: availability.season, start: availability.start, end: availability.end, phases: [availability.phase]} : evidence.scope) || {};
+    const scope = canonical?.scope || (availability ? {season: availability.season, start: availability.start, end: availability.end, phases: [availability.phase]} : payload.opponent_splits?.scope || evidence.scope) || {};
     const profiles = payload.player_profiles || [
       payload.player_profile || payload.reference_player,
     ];
     body.previous_context = {
       question: previous.question.slice(0, 4000),
-      players: canonical?.players?.slice(0, 2) || profiles
-        .filter((p) => p?.player?.player_id && p.player.player_name)
-        .slice(0, 2)
-        .map((p) => ({
-          player_id: p.player.player_id,
-          player_name: p.player.player_name.slice(0, 80),
-        })),
+      players: canonical?.players?.slice(0, 2) || (
+        payload.opponent_splits?.player?.player_id && payload.opponent_splits?.player?.player_name
+          ? [{
+              player_id: payload.opponent_splits.player.player_id,
+              player_name: payload.opponent_splits.player.player_name.slice(0, 80),
+            }]
+          : profiles
+              .filter((p) => p?.player?.player_id && p.player.player_name)
+              .slice(0, 2)
+              .map((p) => ({
+                player_id: p.player.player_id,
+                player_name: p.player.player_name.slice(0, 80),
+              }))
+      ),
       analysis_type: canonical?.analysis_type || (availability ? "availability" : null),
       ...(canonical?.publication_id ? {publication_id: canonical.publication_id} : {}),
       availability_scope: availability || null,
       split_question: canonical?.split_question?.slice(0, 4000) || null,
+      opponent_splits_question: canonical?.opponent_splits_question?.slice(0, 4000) || null,
       reference_question: canonical?.reference_question?.slice(0, 4000) || null,
       award_reference: canonical?.award_evidence ? {
         award_key: canonical.award_evidence.award_key,

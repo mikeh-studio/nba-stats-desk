@@ -700,5 +700,98 @@ def test_transform_registry_preserves_exact_scalar_types():
     assert validate(payload)["status"] == "invalid"
 
 
+@pytest.mark.parametrize(
+    ("window_phrase", "expected_window", "expected_unit"),
+    [
+        ("last 2 games", "last_n_games", "games"),
+        ("last 10 days", "last_n_days", "days"),
+        ("last 1 months", "last_n_months", "months"),
+    ],
+)
+def test_opponent_split_window_operand_uses_scope_window_unit(
+    window_phrase, expected_window, expected_unit
+):
+    from app.agent.claims import expand_claim
+    from app.agent.opponent_splits import answer_opponent_splits
+    from app.agent.semantics import Evidence
+
+    rows = [
+        {
+            "season": "2024-25",
+            "season_type": "Regular Season",
+            "playoff_round": None,
+            "game_id": game_id,
+            "game_date": game_date,
+            "player_id": 101,
+            "player_name": "Avery Example",
+            "team_abbr": "NYK",
+            "opponent_abbr": opponent,
+            "home_away": "HOME",
+            "wl": "W",
+            "pts": pts,
+            "fga": 10,
+            "fgm": 5,
+            "fg3a": 2,
+            "fg3m": 1,
+            "fta": 2,
+            "ftm": 2,
+            "ast": 4,
+            "reb": 5,
+            "plus_minus": pm,
+        }
+        for game_id, game_date, opponent, pts, pm in [
+            ("01", "2025-01-03", "BOS", 12, -4),
+            ("02", "2025-01-10", "MIA", 28, 12),
+        ]
+    ]
+    through = {("2024-25", "Regular Season"): "2025-01-10"}
+    evidence = Evidence(
+        rows, frozenset(through), "fixture", "fixture-v1", through, complete=True
+    )
+    payload = answer_opponent_splits(
+        f"Show Avery Example's opponent splits in the {window_phrase} in 2024-25",
+        evidence,
+        [{"player_id": 101, "player_name": "Avery Example"}],
+        "2024-25",
+    )
+    assert payload["opponent_splits"]["scope"]["window"] == expected_window
+    assert validate(payload)["status"] == "complete"
+    manifest = payload["claim_bindings"]
+    answer_claim = next(
+        expand_claim(manifest, claim)
+        for claim in manifest["claims"]
+        if expand_claim(manifest, claim)["destination"] == ["answer"]
+    )
+    n_index = answer_claim["sources"].index(["opponent_splits", "scope", "n"])
+    assert answer_claim["operands"][n_index] == ["n", expected_unit]
+
+
+def test_opponent_splits_route_requires_evidence_and_manifest_on_ok():
+    payload = {
+        "status": "ok",
+        "ask_route": {"route": "opponent_splits", "source": "deterministic"},
+        "answer": "Unverified opponent splits text.",
+        "tables": [],
+    }
+    report = validate(payload)
+    assert report["status"] == "invalid"
+    assert any(
+        "Opponent splits require complete claim bindings" in err["reason"]
+        for err in report["errors"]
+    )
+    enforced = finalize(payload, mode="enforce")
+    assert enforced["status"] == "error"
+    assert enforced["reason_code"] == "claim_binding_mismatch"
+
+    refusal = {
+        "status": "unsupported_scope",
+        "ask_route": {"route": "opponent_splits", "source": "deterministic"},
+        "answer": "Unsupported scope.",
+        "tables": [],
+    }
+    refusal_report = validate(refusal)
+    assert refusal_report["errors"] == []
+
+
 # Public orchestration tests use authored plans through the provider contract.
 pytestmark = pytest.mark.usefixtures("scripted_intelligence")

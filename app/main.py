@@ -91,7 +91,7 @@ from app.telemetry import instrument_compare_view, instrument_player_view
 from app.what_changed import ComparisonPeriod, SeasonPhase, WhatChangedUnavailable
 
 BASE_DIR = Path(__file__).resolve().parent
-STATIC_VERSION = "20261128-ask-playoff-rounds"
+STATIC_VERSION = "20261128-ask-opponent-metric-scope"
 
 
 def _static_js_modules() -> tuple[str, ...]:
@@ -263,6 +263,7 @@ class PriorAnalysis(BaseModel):
     metrics: list[str] = Field(default_factory=list, max_length=24)
     availability_scope: PriorAvailability | None = None
     split_question: str | None = Field(default=None, max_length=4000)
+    opponent_splits_question: str | None = Field(default=None, max_length=4000)
     reference_question: str | None = Field(default=None, max_length=4000)
     award_reference: PriorAward | None = None
     analysis_type: (
@@ -272,6 +273,7 @@ class PriorAnalysis(BaseModel):
             "comparison",
             "appearances",
             "player_split",
+            "opponent_splits",
             "derived_series",
             "game_log",
             "game_performance",
@@ -1284,6 +1286,7 @@ def _restore_agent_context(
     ):
         context = payload.previous_context.model_dump(mode="json", exclude_none=True)
         from app.agent.award_lookup import hydrate_award_context
+        from app.agent.opponent_splits import hydrate_opponent_splits_context
         from app.agent.semantics import SemanticError
 
         try:
@@ -1292,6 +1295,13 @@ def _restore_agent_context(
             raise HTTPException(
                 status_code=400,
                 detail="Saved award context could not be validated. Restate the award and season.",
+            ) from exc
+        try:
+            context = hydrate_opponent_splits_context(context, current_season())
+        except (ValueError, KeyError, SemanticError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Saved opponent splits context could not be validated. Restate the player and scope.",
             ) from exc
         if payload.previous_context.availability_scope:
             # Preserve nullable filters when rebuilding an availability request.

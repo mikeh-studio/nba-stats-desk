@@ -320,7 +320,12 @@ class StatsAgent:
                 time_scope=time_scope,
             )
             time_notes = time_scope["assumptions"]
-        payload.setdefault("assumptions", []).extend(time_notes)
+        if payload.get("opponent_splits"):
+            from app.agent.claim_renderers import add_opponent_split_disclosures
+
+            add_opponent_split_disclosures(payload, time_notes)
+        else:
+            payload.setdefault("assumptions", []).extend(time_notes)
         payload = finish_route(
             payload,
             route=routing["route"],
@@ -565,6 +570,12 @@ class StatsAgent:
                     raise
                 except Exception as exc:
                     raise AgentExecutionError("Teammate study request failed") from exc
+            if route.key == "opponent_splits" and self.semantic_agent is None:
+                return answer_payload(
+                    "Opponent splits require a governed source with player-game box scores.",
+                    status="unsupported_coverage",
+                    conversation_id=conversation_id,
+                )
             if route.handler == "semantic":
                 try:
                     assert self.semantic_agent is not None
@@ -573,7 +584,7 @@ class StatsAgent:
                     )
 
                     if (
-                        route.key != "playoff_round"
+                        route.key not in ("playoff_round", "opponent_splits")
                         and (
                             payload := try_published_three_point_leaders(
                                 self,
@@ -592,6 +603,7 @@ class StatsAgent:
                         cleaned_question,
                         client=self._get_client(provider_name)
                         if intelligence.descriptor.requires_model
+                        and route.key != "opponent_splits"
                         else None,
                         model=selected_model,
                         conversation_id=conversation_id,

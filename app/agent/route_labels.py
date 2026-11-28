@@ -27,13 +27,14 @@ ROUTE_LABELS = (
     "league_baseline",
     "award",
     "player_split",
+    "opponent_splits",
     "player_comparison",
     "player_overview",
     "governed_metrics",
 )
 LEGACY_LABELS = tuple(f"legacy:{route.value}" for route in AgentRoute)
 # Intended routes with no handler yet; valid only as route-evaluation expectations.
-PLANNED_LABELS = ("opponent_splits",)
+PLANNED_LABELS: tuple[str, ...] = ()
 ROUTE_SOURCES = ("deterministic", "prior_route", "pending_clarification", "model")
 
 # Registry keys whose payload label differs; other keys are already labels.

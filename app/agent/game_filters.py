@@ -300,8 +300,11 @@ def extract_game_filters(question: str, players=()) -> GameFilterExtraction:
     # Team labels are literal abbreviations; loaded source evidence authorizes
     # them at execution. A comparison's "against league" is never a team token.
     for key, pattern in (
-        ("opponent_abbr", r"\b(?:against|versus|vs\.?|opponent)\s+([A-Z]{2,3})(?!\w)"),
-        ("team_abbr", r"\b(?:for|on|with)\s+(?:the\s+)?([A-Z]{2,3})(?!\w)"),
+        (
+            "opponent_abbr",
+            r"\b(?:against|versus|vs\.?|opponent)\s+([A-Z]{2,3})(?!\w|\s*%)",
+        ),
+        ("team_abbr", r"\b(?:for|on|with)\s+(?:the\s+)?([A-Z]{2,3})(?!\w|\s*%)"),
     ):
         for match in re.finditer(pattern, text):
             bind(key, match[1], match)

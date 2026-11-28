@@ -24,7 +24,8 @@ what which where when why are am will should let us we our your get find count
 many much number appearances appeared appearance log logs totals total rate rates
 percent percentage percentile percentiles ranking rankings rank ranked top bottom
 league nba baseline peer peers similar similarity most least best worst median
-career split splits home away road wins losses win loss won lost against opponent
+career split splits toughest hardest easiest struggle struggled matchup matchups
+home away road wins losses win loss won lost against opponent
 opponents teammate teammates without out absent absence missed miss sat sitting
 sidelined injury injured unavailable availability both together also only include
 exclude including excluding while not no yes same different higher lower more less

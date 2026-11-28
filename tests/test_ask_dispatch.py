@@ -488,6 +488,12 @@ def test_evaluator_reports_a_route_for_every_fixture_question(mode):
     # Controls that both modes route deterministically.
     assert by_id[("control_vs_scorecard", 0)]["route_correct"]
     assert by_id[("control_unavailable_playoff_round", 0)]["route_correct"]
+    for case in (
+        "m5_each_opponent",
+        "control_toughest_opponent",
+        "control_opponent_metric_followup",
+    ):
+        assert all(by_id[(case, i)]["passed"] for i in range(3))
     # Known misroute today (M3): the v1 study path answers "not configured".
     m3 = by_id[("m3_teammate_impact_phrase", 0)]
     assert m3["actual"]["ask_route"]["route"] == "teammate_study_v1"

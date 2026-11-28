@@ -99,7 +99,10 @@ export function claimSource(document, path) {
 export function prepareClaimEvidence(payload) {
   return clone(
     Object.fromEntries(
-      ["semantic_evidence", "player_profile", "player_profiles"]
+      [
+        "semantic_evidence", "player_profile", "player_profiles",
+        ...(payload.opponent_splits ? ["opponent_splits", "tables"] : []),
+      ]
         .filter((k) => Object.hasOwn(payload, k))
         .map((k) => [k, payload[k]]),
     ),
@@ -114,6 +117,7 @@ export const UI_CLAIM_GAPS = {
   drawer: [
     "Freeform percentile methodology note and legacy missing sample-count fields; data-source truth and statistical methodology remain separate from presentation fidelity",
   ],
+  opponent_splits: [],
   legacy: [
     "Other routes, generic charts/tables, comparison explorer, standalone Research",
   ],
@@ -355,6 +359,7 @@ export function formatClaim(v, f, c = {}) {
 // Descriptors cannot select an equal-valued different metric/player/side/format.
 export function claimSchema(payload, component, options = {}) {
   const e = payload.semantic_evidence;
+  if (component === "opponent_splits") return opponentSplitSchema(payload);
   if (!e?.metrics) return [];
   if (
     component === "overview" &&
@@ -905,7 +910,105 @@ export function claimSchema(payload, component, options = {}) {
   }
   return records;
 }
+function opponentSplitSchema(payload) {
+  const e = payload.opponent_splits;
+  if (e?.version !== "opponent_splits/1") throw Error("Unknown opponent split evidence");
+  const records = [], base = ["opponent_splits"];
+  const labels = e.display_metrics.map(key => e.metric_definitions[key].label);
+  const splitLabels = e.display_metrics.map(key => {
+    const {label, unit} = e.metric_definitions[key];
+    if (["ratio", "per36", "games"].includes(unit)) return label;
+    return label + (e.aggregation === "total" ? " total" : " / game");
+  });
+  const tables = [
+    ["Opponent splits", ["Opponent", "Games", "W–L", "Struggle score", "Sample", ...splitLabels]],
+    ["Change from the player's baseline", ["Opponent", ...labels]],
+  ];
+  const gameFields = ["game_date", "game_id", "team_abbr", "opponent_abbr", "game_result"];
+  if (e.toughest_opponent_games.length)
+    tables.push(["Games against the toughest opponent", ["Date", "Game ID", "Team", "Opponent", "Result", ...labels]]);
+  const rowCounts = [e.opponents.length, e.opponents.length, e.toughest_opponent_games.length];
+  if (payload.tables?.length !== tables.length || tables.some(([, columns], ti) => {
+    const table = payload.tables[ti];
+    return table?.columns?.length !== columns.length || table?.rows?.length !== rowCounts[ti] ||
+      table.rows.some(row => row?.length !== columns.length);
+  })) throw Error("Opponent split table shape contradicts canonical evidence");
+  function add(ti, selector, source, format = "text", context = {}) {
+    const panel = `[data-opponent-split-table="${ti}"]`;
+    records.push({
+      id: `opponent-splits-${records.length}`, component: "opponent_splits",
+      selector: `${panel} ${selector}`, source, format, context,
+      attribute: null, identity: clone(e.player), scope: clone(e.scope),
+    });
+  }
+  function cell(ti, ri, ci, source, format, context) {
+    add(ti, `tbody tr:nth-child(${ri + 1}) td:nth-child(${ci + 1})`, source, format, context);
+  }
+  function metricCell(ti, ri, ci, rowPath, key, field) {
+    const unit = e.metric_definitions[key].unit;
+    cell(ti, ri, ci, [...rowPath, "metrics", key, field], "opponent-number", {
+      digits: field !== "difference" && (key === "gp" || (field === "total" && unit === "count")) ? 0 : 2,
+      ratio: unit === "ratio", difference: field === "difference",
+    });
+  }
+  tables.forEach(([title, columns], ti) => {
+    add(ti, ti === 0 ? "h3" : "summary", null, "opponent-heading", {label: title});
+    columns.forEach((label, ci) =>
+      add(ti, `thead th:nth-child(${ci + 1})`, null, "opponent-heading", {label}));
+  });
+  e.opponents.forEach((row, ri) => {
+    const path = [...base, "opponents", ri];
+    cell(0, ri, 0, [...path, "opponent_abbr"]);
+    cell(0, ri, 1, [...path, "games"]);
+    cell(0, ri, 2, path, "opponent-record");
+    cell(0, ri, 3, [...path, "struggle_score"], "opponent-number", {digits: 2});
+    cell(0, ri, 4, [...path, "sample_label"]);
+    cell(1, ri, 0, [...path, "opponent_abbr"]);
+    e.display_metrics.forEach((key, i) => {
+      const field = e.aggregation === "total" && Object.hasOwn(row.metrics[key], "total") ? "total" : "value";
+      metricCell(0, ri, i + 5, path, key, field);
+      metricCell(1, ri, i + 1, path, key, "difference");
+    });
+  });
+  e.toughest_opponent_games.forEach((_, ri) => {
+    const path = [...base, "toughest_opponent_games", ri];
+    gameFields.forEach((field, ci) => cell(2, ri, ci, [...path, field], "opponent-game-field"));
+    e.display_metrics.forEach((key, i) => metricCell(2, ri, i + 5, path, key, "value"));
+  });
+  return records;
+}
+
+function opponentNumber(value, {digits, ratio, difference}) {
+  if (value === null) return "Unavailable";
+  if (!finite(value)) throw Error("Invalid opponent split value");
+  const scaled = ratio && !difference ? value * 100 : value;
+  const magnitude = Math.abs(scaled);
+  // Python fixed-point formatting rounds exact binary ties to the even digit.
+  const halfSteps = magnitude * 2 ** (digits + 1);
+  const factor = 10 ** digits;
+  const lower = Math.floor(magnitude * factor);
+  const rounded = halfSteps % 2 === 1 && lower % 2 === 0
+    ? (lower / factor).toFixed(digits)
+    : magnitude.toFixed(digits);
+  const sign = Number(rounded) === 0 ? "" : scaled < 0 ? "-" : difference ? "+" : "";
+  return sign + rounded + (ratio ? (difference ? " pp" : "%") : "");
+}
+
 export function expectedClaim(payload, record) {
+  if (record.component === "opponent_splits") {
+    if (record.format === "opponent-heading") return record.context.label;
+    const value = claimSource(payload, record.source);
+    switch (record.format) {
+      case "opponent-number":
+        return opponentNumber(value, record.context);
+      case "opponent-record":
+        return `${value.wins}–${value.losses}${value.unknown_outcomes ? ` (${value.unknown_outcomes} unknown)` : ""}`;
+      case "opponent-game-field":
+        return String(value ?? "Unavailable");
+      default:
+        return formatClaim(value, record.format);
+    }
+  }
   const c = {
     ...record.context,
     evidence: { scope: payload.semantic_evidence.scope },
@@ -938,7 +1041,10 @@ export function validateRenderedClaims(root, payload, session) {
   if (
     !equal(session.evidence.semantic_evidence, payload.semantic_evidence) ||
     !equal(session.evidence.player_profiles, payload.player_profiles) ||
-    !equal(session.evidence.player_profile, payload.player_profile)
+    !equal(session.evidence.player_profile, payload.player_profile) ||
+    (session.component === "opponent_splits" &&
+      (!equal(session.evidence.opponent_splits, payload.opponent_splits) ||
+       !equal(session.evidence.tables, payload.tables)))
   )
     errors.push({ reason: "Canonical identity/metric/scope/source changed" });
   for (const r of schema) {
@@ -981,9 +1087,80 @@ export function validateRenderedClaims(root, payload, session) {
   for (const id of wanted)
     if (counts.get(id) !== 1)
       errors.push({ id, reason: "Missing or duplicate claim destination" });
+  if (session.component === "opponent_splits" && Array.isArray(payload.tables)) {
+    const totalRows = payload.tables.reduce(
+      (sum, table) => sum + (table.rows?.length || 0),
+      0,
+    );
+    const totalCols = payload.tables.reduce(
+      (sum, table) => sum + (table.columns?.length || 0),
+      0,
+    );
+    const totalCells = payload.tables.reduce(
+      (sum, table) =>
+        sum + (table.columns?.length || 0) * (table.rows?.length || 0),
+      0,
+    );
+    const structureValid =
+      root.querySelectorAll("[data-opponent-split-table]").length ===
+        payload.tables.length &&
+      root.querySelectorAll("table").length === payload.tables.length &&
+      root.querySelectorAll("tr").length === payload.tables.length + totalRows &&
+      root.querySelectorAll("tbody tr").length === totalRows &&
+      root.querySelectorAll("tfoot, tfoot tr").length === 0 &&
+      root.querySelectorAll("th").length === totalCols &&
+      root.querySelectorAll("td").length === totalCells &&
+      payload.tables.every((table, ti) => {
+        const panel = `[data-opponent-split-table="${ti}"]`;
+        const colCount = table.columns?.length || 0;
+        const rowCount = table.rows?.length || 0;
+        const tables = root.querySelectorAll(`${panel} table`);
+        if (tables.length !== 1) return false;
+        const tableNode = tables[0];
+        if (typeof tableNode?.querySelectorAll === "function") {
+          if (
+            tableNode.querySelectorAll("tr").length !== 1 + rowCount ||
+            tableNode.querySelectorAll("tfoot, tfoot tr").length !== 0 ||
+            tableNode.querySelectorAll("thead").length !== 1 ||
+            tableNode.querySelectorAll("tbody").length !== 1 ||
+            tableNode.querySelectorAll("th").length !== colCount ||
+            tableNode.querySelectorAll("td").length !== colCount * rowCount
+          ) {
+            return false;
+          }
+        }
+        return (
+          root.querySelectorAll(`${panel} table tr`).length === 1 + rowCount &&
+          root.querySelectorAll(`${panel} tfoot, ${panel} tfoot tr`).length ===
+            0 &&
+          root.querySelectorAll(`${panel} thead`).length === 1 &&
+          root.querySelectorAll(`${panel} tbody`).length === 1 &&
+          root.querySelectorAll(`${panel} thead tr`).length === 1 &&
+          root.querySelectorAll(`${panel} thead th`).length === colCount &&
+          root.querySelectorAll(`${panel} thead td`).length === 0 &&
+          root.querySelectorAll(`${panel} tbody tr`).length === rowCount &&
+          root.querySelectorAll(`${panel} table th`).length === colCount &&
+          root.querySelectorAll(`${panel} table td`).length ===
+            colCount * rowCount &&
+          table.rows.every(
+            (_, ri) =>
+              root.querySelectorAll(
+                `${panel} tbody tr:nth-child(${ri + 1}) td`,
+              ).length === colCount &&
+              root.querySelectorAll(
+                `${panel} tbody tr:nth-child(${ri + 1}) th`,
+              ).length === 0,
+          )
+        );
+      });
+    if (!structureValid)
+      errors.push({
+        reason: "Rendered opponent split table structure contradicts canonical evidence",
+      });
+  }
   return {
     version: UI_CLAIM_VERSION,
-    status: errors.length ? "invalid" : "incomplete",
+    status: errors.length ? "invalid" : session.component === "opponent_splits" ? "complete" : "incomplete",
     checked: schema.length,
     errors,
     gaps:

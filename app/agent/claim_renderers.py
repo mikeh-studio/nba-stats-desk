@@ -629,3 +629,57 @@ def leaderboard_reference(payload):
             context=[base + ["metric"]],
             spec=spec,
         )
+
+
+def opponent_splits_tables(payload):
+    """Materialize the deterministic answer, tables and matching claim manifest."""
+    from app.agent.claim_contexts import opponent_split_contracts
+    from app.agent.claim_rules import opponent_split_layout
+    from app.agent.claims import resolve, transform
+
+    e = payload["opponent_splits"]
+    layout = opponent_split_layout(e)
+    row_counts = [len(e["opponents"])] * 2 + [len(e["toughest_opponent_games"])]
+    payload["tables"] = [
+        {
+            "title": title,
+            "columns": [{"label": label} for label in columns],
+            "rows": [[None] * len(columns) for _ in range(row_counts[i])],
+        }
+        for i, (title, columns) in enumerate(layout)
+    ]
+    for field in ("assumptions", "scope_assumptions"):
+        if field in e:
+            payload[field] = [None] * len(e[field])
+    payload.pop("claim_bindings", None)
+    for dest, (sources, identity, scope, context, spec) in opponent_split_contracts(
+        e
+    ).items():
+        target = resolve(payload, list(dest[:-1])) if len(dest) > 1 else payload
+        target[dest[-1]] = transform([resolve(payload, path) for path in sources], spec)
+        bind(
+            payload,
+            sources=sources,
+            destination=list(dest),
+            metric="opponent_splits",
+            unit="label",
+            identity=identity,
+            scope=scope,
+            context=context,
+            spec=spec,
+        )
+
+
+def add_opponent_split_disclosures(
+    payload, notes, *, scope_notes=(), identity_notice=None
+):
+    """Attach host-derived disclosures before regenerating their claim bindings."""
+    if not (notes or scope_notes or identity_notice):
+        return
+    evidence = payload["opponent_splits"]
+    evidence["assumptions"].extend(notes)
+    if scope_notes:
+        evidence.setdefault("scope_assumptions", []).extend(scope_notes)
+    if identity_notice:
+        evidence["identity_notice"] = identity_notice
+    opponent_splits_tables(payload)
