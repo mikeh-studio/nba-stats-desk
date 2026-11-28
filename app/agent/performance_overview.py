@@ -194,7 +194,7 @@ def overview_scope(
         )
     baseline_playoff_round = comparison.get("baseline_playoff_round")
     phase_text = BASELINE_CLAUSE.sub("", question)
-    season_text = phase_text if baseline_playoff_round else question
+    season_text = phase_text if playoff_round else question
     if explicit:
         try:
             start, end = (date.fromisoformat(d) for d in explicit.groups())
@@ -235,7 +235,7 @@ def overview_scope(
             named[0]
             if named
             else comparison.get("baseline_season")
-            if baseline_playoff_round
+            if playoff_round
             and comparison.get("baseline_season")
             and not re.search(r"\b(?:19|20)\d{2}\b", phase_text)
             else selected_season

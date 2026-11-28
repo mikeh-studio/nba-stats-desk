@@ -47,6 +47,7 @@ from app.agent.player_splits import answer_split
 from app.agent.route_labels import route_hint, status_reason
 from app.agent.routes import semantic_shape, supersedes_pending
 from app.agent.scope_policy import (
+    comparison_operands,
     explicit_phase,
     explicit_scope,
     has_phase_cue,
@@ -76,7 +77,7 @@ from app.agent.semantics import (
     run_query,
 )
 from app.agent.source_policy import get_source_policy
-from app.seasons import DEFAULT_SEASON, season_bounds
+from app.seasons import DEFAULT_SEASON, SEASON_TOKEN_RE, season_bounds
 
 if TYPE_CHECKING:
     from app.agent.derived_series import DerivedSeriesPlan
@@ -132,146 +133,67 @@ def plain_scoped_overview(question: str) -> bool:
     return False
 
 
-_COMPARE_SPLIT_RE = re.compile(
-    r"\s+(?:vs\.?|versus|compared\s+(?:with|to|against))\s+",
-    re.I,
-)
-_ALL_PLAYOFFS_LABELS = frozenset(
-    {"playoffs", "all playoffs", "all-playoffs", "postseason", "regular season"}
-)
-
-
-def _comparison_operands(question: str) -> tuple[str, str] | None:
-    cleaned = (
-        question.split("\nSelected player:", 1)[0]
-        .split("\nClarification:", 1)[0]
-        .strip()
-        .rstrip("?.!")
-    )
-    parts = _COMPARE_SPLIT_RE.split(cleaned)
-    if len(parts) == 2 and all(part.strip() for part in parts):
-        return parts[0].strip(), parts[1].strip()
-    match = re.match(r"^\s*compare\s+(.+?)\s+(?:and|with|to)\s+(.+)$", cleaned, re.I)
-    if match and match[1].strip() and match[2].strip():
-        return match[1].strip(), match[2].strip()
+def _round_comparison(question: str, playoff_round: str) -> tuple[int, str, str] | None:
+    operands = comparison_operands(question)
+    if operands is not None:
+        for index, operand in enumerate(operands):
+            other = operands[1 - index]
+            if (
+                requested_playoff_round(operand) == playoff_round
+                and requested_playoff_round(other) is None
+                and (explicit_phase(other) or SEASON_TOKEN_RE.search(other))
+            ):
+                return index, operand, other
     return None
 
 
 def _bind_comparison_playoff_round(
     queries: list[dict[str, Any]],
-    question: str,
+    comparison: tuple[int, str, str] | None,
     playoff_round: str,
 ) -> None:
-    """Bind playoff_round only to the comparison operand that names it."""
-    if len(queries) != 2:
-        raise SemanticError(
-            "clarification_required",
-            "Specify two comparison periods independently when filtering by a playoff round.",
-        )
-    if any(query.get("playoff_round") for query in queries):
-        for query in queries:
-            if query.get("playoff_round"):
-                label = str(query.get("label") or "").strip().casefold()
-                if (
-                    query.get("season_type") == "Regular Season"
-                    or label in _ALL_PLAYOFFS_LABELS
-                ):
-                    raise SemanticError(
-                        "invalid_scope",
-                        "Playoff round requires Playoffs scope.",
-                    )
-                query["season_type"] = "Playoffs"
-        return
-
-    labels = [str(query.get("label") or "").strip().casefold() for query in queries]
-    if any(labels):
-        round_label = PLAYOFF_ROUND_LABELS.get(playoff_round, "").casefold()
-        labeled_round = [
-            i
-            for i, label in enumerate(labels)
-            if label
-            and label not in _ALL_PLAYOFFS_LABELS
-            and (
-                label == round_label or requested_playoff_round(label) == playoff_round
-            )
-        ]
-        if len(labeled_round) == 1:
-            round_idx = labeled_round[0]
-            other_idx = 1 - round_idx
-            if queries[round_idx].get("season_type") != "Regular Season" and (
-                labels[other_idx] in _ALL_PLAYOFFS_LABELS
-                or queries[other_idx].get("season_type") == "Regular Season"
-            ):
-                queries[round_idx].update(
-                    season_type="Playoffs", playoff_round=playoff_round
-                )
-                return
-
-    operands = _comparison_operands(question)
-    if operands is None:
-        raise SemanticError(
-            "clarification_required",
-            "Specify both comparison periods independently when comparing with a playoff round.",
-        )
-    left, right = operands
-    left_round = requested_playoff_round(left)
-    right_round = requested_playoff_round(right)
-    if (left_round == playoff_round) == (right_round == playoff_round) or (
-        left_round not in (None, playoff_round)
-        or right_round not in (None, playoff_round)
-    ):
-        raise SemanticError(
-            "clarification_required",
-            "Specify both comparison periods independently when comparing with a playoff round.",
-        )
-    round_idx = 0 if left_round == playoff_round else 1
-    other_idx = 1 - round_idx
-    round_text = left if round_idx == 0 else right
-    other_text = right if round_idx == 0 else left
-    other_is_regular = has_phase_cue(
-        other_text, "Regular Season"
-    ) and not has_phase_cue(other_text, "Playoffs")
-    other_is_playoffs = has_phase_cue(other_text, "Playoffs") and not has_phase_cue(
-        other_text, "Regular Season"
-    )
+    """Bind the named round to the matching user-authored comparison operand."""
     from app.seasons import extract_seasons
 
-    try:
-        other_seasons = extract_seasons(other_text)
-        round_seasons = extract_seasons(round_text)
-    except ValueError as exc:
-        raise SemanticError("unsupported_coverage", str(exc)) from exc
-    if not (other_is_regular or other_is_playoffs or other_seasons):
+    if len(queries) != 2 or comparison is None:
         raise SemanticError(
             "clarification_required",
             "Specify both comparison periods independently when comparing with a playoff round.",
         )
+    round_idx, round_text, other_text = comparison
     round_query = queries[round_idx]
-    other_query = queries[other_idx]
+    other_query = queries[1 - round_idx]
+    other_phase = explicit_phase(other_text) or "Regular Season"
     if (
-        round_query.get("season_type") == "Regular Season"
-        or labels[round_idx] in _ALL_PLAYOFFS_LABELS
-        or (other_is_regular and other_query.get("season_type") == "Playoffs")
-        or (other_is_playoffs and other_query.get("season_type") == "Regular Season")
+        round_query.get("season_type") != "Playoffs"
+        or round_query.get("playoff_round") not in (None, playoff_round)
+        or other_query.get("playoff_round") is not None
+        or other_query.get("season_type") != other_phase
     ):
         raise SemanticError(
             "clarification_required",
             "Comparison operands conflict with the requested playoff round.",
         )
+    try:
+        round_seasons = extract_seasons(round_text)
+        other_seasons = extract_seasons(other_text)
+    except ValueError as exc:
+        raise SemanticError("unsupported_coverage", str(exc)) from exc
     if (
-        len(round_seasons) == 1
-        and len(other_seasons) == 1
-        and round_seasons[0] != other_seasons[0]
-        and (
-            round_query.get("season") != round_seasons[0]
-            or other_query.get("season") != other_seasons[0]
+        len(round_seasons) > 1
+        or len(other_seasons) > 1
+        or (round_seasons and round_query.get("season") != round_seasons[0])
+        or (other_seasons and other_query.get("season") != other_seasons[0])
+        or (
+            (not round_seasons or not other_seasons)
+            and round_query.get("season") != other_query.get("season")
         )
     ):
         raise SemanticError(
             "clarification_required",
             "Comparison seasons conflict with the requested playoff round.",
         )
-    round_query.update(season_type="Playoffs", playoff_round=playoff_round)
+    round_query["playoff_round"] = playoff_round
 
 
 def normalize_metric_plan_scope(
@@ -289,8 +211,17 @@ def normalize_metric_plan_scope(
     validated_points_scope = plan.pop("validated_points_scope", None)
     queries = plan.get("queries", [])
     is_comparison = plan.get("status") == "compare" or len(queries) > 1
-    if playoff_round and queries and is_comparison:
-        _bind_comparison_playoff_round(queries, question, playoff_round)
+    if playoff_round and queries:
+        comparison = _round_comparison(question, playoff_round)
+        if is_comparison or comparison:
+            if metric_window.get("window") == "date_range" and not plan.get(
+                "explicit_period_operands"
+            ):
+                raise SemanticError(
+                    "clarification_required",
+                    "Specify the dates of both comparison periods independently.",
+                )
+            _bind_comparison_playoff_round(queries, comparison, playoff_round)
     for query in queries:
         if metric_window.get("window") == "date_range" and not plan.get(
             "explicit_period_operands"
@@ -1341,6 +1272,15 @@ class SemanticAsk:
         turn.comparison = (
             comparison_sides(turn.question) if shape == "player_comparison" else None
         )
+        if (
+            turn.comparison
+            and turn.playoff_round
+            and turn.requested_comparison.get("baseline_period")
+        ):
+            raise SemanticError(
+                "clarification_required",
+                "Compare two players within one shared playoff-round scope.",
+            )
         round_scope = (
             {"playoff_round": turn.playoff_round} if turn.playoff_round else {}
         )
@@ -1817,14 +1757,31 @@ class SemanticAsk:
         if turn.playoff_round:
             assert turn.evidence is not None
             turn.evidence.validate()
-            seasons = (
-                self._window_seasons(
-                    turn, str(turn.overview["start"]), str(turn.overview["end"])
+            if turn.overview:
+                round_seasons = set()
+                if turn.overview.get("playoff_round"):
+                    round_seasons.update(
+                        self._window_seasons(
+                            turn, str(turn.overview["start"]), str(turn.overview["end"])
+                        )
+                    )
+                if turn.overview.get("baseline_playoff_round"):
+                    round_seasons.update(
+                        self._window_seasons(
+                            turn,
+                            str(turn.overview["previous_start"]),
+                            str(turn.overview["previous_end"]),
+                        )
+                    )
+            else:
+                # Each comparison operand is validated against its own scope
+                # by the metric executor after the plan has been bound.
+                round_seasons = (
+                    set()
+                    if _round_comparison(turn.question, turn.playoff_round)
+                    else set(turn.seasons)
                 )
-                if turn.overview
-                else turn.seasons
-            )
-            if not set(seasons) <= playoff_round_seasons(turn.evidence.rows):
+            if not round_seasons <= playoff_round_seasons(turn.evidence.rows):
                 raise SemanticError(
                     "unsupported_scope",
                     round_scope_message(turn.question)
@@ -2102,12 +2059,8 @@ class SemanticAsk:
         selected_season = (
             turn.seasons[0] if len(turn.seasons) == 1 else self.settings.season
         )
-        is_round_comparison = bool(
-            turn.playoff_round
-            and (
-                _COMPARE_SPLIT_RE.search(turn.question)
-                or re.match(r"^\s*compare\b", turn.question, re.I)
-            )
+        is_round_comparison = turn.playoff_round and _round_comparison(
+            turn.question, turn.playoff_round
         )
         planning_question = (
             turn.question

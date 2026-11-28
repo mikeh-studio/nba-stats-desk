@@ -12,6 +12,10 @@
     {{ return(['First Round', 'Conference Semifinals', 'Conference Finals', 'NBA Finals']) }}
 {% endmacro %}
 
+{% macro canonical_playoff_game_id(game_id) -%}
+    {{ regex_contains(game_id, "'^004[0-9]{2}00[1-4][0-9][1-7]$'") }}
+{%- endmacro %}
+
 {% macro playoff_round_name(round_number) -%}
     case {{ round_number }}
         {% for label in playoff_round_labels() %}
@@ -131,10 +135,8 @@
 {% macro playoff_round_resolved_columns(game_id, season_type, round_expr, series_id_expr, series_game_expr, conflict_expr='false') -%}
     {% set fallback_round = 'cast(substr(' ~ game_id ~ ', 8, 1) as ' ~ int64_type() ~ ')' %}
     {% set resolved_round = 'coalesce(' ~ round_expr ~ ', ' ~ fallback_round ~ ')' %}
-    {% set is_canonical_playoff = (
-        season_type ~ " = 'Playoffs' and "
-        ~ regex_contains(game_id, "'^004[0-9]{2}00[1-4][0-9][1-7]$'")
-    ) %}
+    {% set is_canonical_id = canonical_playoff_game_id(game_id) %}
+    {% set is_canonical_playoff = season_type ~ " = 'Playoffs' and " ~ is_canonical_id %}
     {% set is_valid_playoff = (
         is_canonical_playoff
         ~ " and not coalesce(" ~ conflict_expr ~ ", false)"
@@ -144,9 +146,8 @@
     case when {{ is_valid_playoff }} then coalesce({{ series_id_expr }}, substr({{ game_id }}, 1, 9)) end as playoff_series_id,
     case when {{ is_valid_playoff }} then coalesce({{ series_game_expr }}, cast(substr({{ game_id }}, 10, 1) as {{ int64_type() }})) end as playoff_series_game_number,
     case
-        when {{ season_type }} is distinct from 'Playoffs' then 'none'
-        when coalesce({{ conflict_expr }}, false) then 'conflict'
-        when not ({{ is_canonical_playoff }}) then 'none'
+        when not coalesce({{ is_canonical_id }}, false) then 'none'
+        when {{ season_type }} is distinct from 'Playoffs' or coalesce({{ conflict_expr }}, false) then 'conflict'
         when ({{ round_expr }}) is not null then 'explicit'
         else 'game_id'
     end as playoff_round_source

@@ -33,7 +33,11 @@ with source_rows as (
         cast({{ 'game_time_utc' if 'game_time_utc' in schedule_columns else 'null' }} as timestamp) as scheduled_start_utc,
         cast({{ 'ingested_at_utc' if 'ingested_at_utc' in schedule_columns else 'null' }} as timestamp) as ingested_at_utc,
         cast(source_updated_at_utc as timestamp) as source_updated_at_utc,
-        {{ "coalesce(nullif(trim(cast(season_type as " ~ varchar_type() ~ ")), ''), 'Playoffs')" if 'season_type' in schedule_columns else "'Playoffs'" }} as round_season_type,
+        {% if 'season_type' in schedule_columns %}
+        coalesce(nullif(trim(cast(season_type as {{ varchar_type() }})), ''), 'Playoffs') as round_season_type,
+        {% else %}
+        'Playoffs' as round_season_type,
+        {% endif %}
         {{ playoff_round_explicit_inputs(schedule_columns) }}
     from {{ source('bronze', 'raw_schedule') }}
     where cast(schedule_date as date) between date('{{ warehouse_season_start() }}') and date('{{ warehouse_season_end() }}')
@@ -64,8 +68,10 @@ game_round_inputs as (
             or count(distinct explicit_playoff_series_id) > 1
             or count(distinct explicit_playoff_series_game_number) > 1
             or count(distinct round_season_type) > 1
+            or min(round_season_type) is distinct from 'Playoffs'
         ) as has_round_conflict
     from source_rows
+    where {{ canonical_playoff_game_id('game_id') }}
     group by 1
 ),
 game_rounds as (
@@ -99,9 +105,13 @@ select
     r.explicit_playoff_round_number,
     r.explicit_playoff_series_id,
     r.explicit_playoff_series_game_number,
-    r.playoff_round_conflict,
+    coalesce(r.playoff_round_conflict, false) as playoff_round_conflict,
     {% for field in playoff_round_columns() %}
-    r.{{ field }}{% if not loop.last %},{% endif %}
+    {% if field == 'playoff_round_source' %}
+    coalesce(r.playoff_round_source, 'none') as playoff_round_source
+    {% else %}
+    r.{{ field }},
+    {% endif %}
     {% endfor %}
 from source_rows s
 left join game_rounds r on s.game_id = r.game_id
