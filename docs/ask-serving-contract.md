@@ -402,18 +402,18 @@ after acquisition. A timeout cannot strand a process-wide reader, publication,
 cohort or version-cache lock. A remaining SQL allowance below 10 MiB fails with
 `query_budget_exceeded` before attempting an invalid BigQuery byte ceiling.
 
-Shadow candidates load lazily only when scalar execution actually compares a
-result. Overviews, splits, reference and similarity routes do not issue unused
-candidate reads. Resolved query family gates apply before candidate selection;
-known disabled question requirements also select facts before catalog reads.
+Shadow candidates load lazily for eligible scalar results and rich fact
+comparisons. Resolved query family gates apply before candidate selection.
+Known disabled question requirements select facts before catalog reads.
 Generic reference and similarity routes always retain facts, even with rich enabled.
 Points summaries retain the narrow A2 predicate independently of other enabled
 families; expiry and binding errors remain visible integrity failures.
 
-Optional shadow execution has a 15-second ceiling with one second reserved for
-answer delivery and a two-second negative cache after errors. This is opt-in
-measurement work, not a foreground speed promise. Its separate optional ledger
-uses at most 50 MB of the remaining 100 MB request cap and reconciles every charge
+Optional shadow execution has a 15-second ceiling that includes time waiting
+for the bundle and warehouse locks. It reserves one second for answer delivery.
+Scalar shadow comparisons use a two-second negative cache after errors.
+The optional ledger uses at most 50 MB of the remaining 100 MB request cap
+and reconciles every charge
 into the parent ledger, including unknown billed attempts. Failed in-flight jobs
 receive best-effort bounded cancellation; cancellation is not proof of zero billing.
 Any ordinary candidate exception becomes a bounded shadow error and preserves the

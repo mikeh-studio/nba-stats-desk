@@ -223,7 +223,7 @@ def record_bundle_shadow(
 ) -> dict[str, str]:
     """Compare the complete inputs to a governed fact calculation."""
     try:
-        with optional_shadow_budget():
+        with optional_shadow_budget(acquire_bundle=True):
             candidate = read_candidate()
             if candidate is None:
                 outcome = {"status": "ineligible"}
