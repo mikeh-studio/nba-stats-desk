@@ -92,13 +92,20 @@ def test_canonical_playoff_id(game_id, expected):
         ("1st-round pick", None),
         ("early playoff rounds", None),
         ("first round and Finals", None),
-        ("regular season vs Finals", None),
+        ("regular season vs Finals", "nba_finals"),
+        ("regular season and Finals", None),
+        ("playoffs vs regular season and Finals", None),
         ("the final score", None),
         ("excluding the first round", None),
         ("excluding the Finals", None),
+        ("excluding the postseason Finals", None),
+        ("except for the playoffs games in the Finals", None),
         ("except the Finals", None),
         ("not counting the NBA Finals", None),
         ("before the Finals", None),
+        ("the first round onwards", None),
+        ("the first round and later", None),
+        ("EuroCup Finals", None),
         ("outside the Eastern Conference Finals", None),
         ("before the 2024 Western Conference Finals", None),
         ("Finals opener", None),
@@ -1277,3 +1284,78 @@ def test_finals_vs_playoffs_comparison_binds_only_finals_operand():
             inherited={},
             playoff_round="nba_finals",
         )
+
+
+@pytest.mark.parametrize("overview", [False, True])
+@pytest.mark.parametrize("round_first", [False, True])
+@pytest.mark.parametrize("other_phase", ["playoffs", "regular season"])
+def test_round_comparison_uses_round_coverage_only_in_its_own_season(
+    overview, round_first, other_phase
+):
+    rows = round_rows()
+    phase = PLAYOFFS if other_phase == "playoffs" else REGULAR
+    day = "2024-06-17" if phase == PLAYOFFS else "2024-03-17"
+    rows.append(
+        {
+            **rows[-1],
+            "season": "2023-24",
+            "season_type": phase,
+            "game_date": day,
+            "game_id": "older-archive-appearance-without-round",
+            "pts": 10,
+        }
+    )
+    ask, model, warehouse = ask_fixture(rows)
+    warehouse.coverage.append(("2023-24", phase, day))
+    periods = ["the 2024-25 NBA Finals", f"the 2023-24 {other_phase}"]
+    if not round_first:
+        periods.reverse()
+    result = ask.answer(
+        f"How did Regular Player perform in {periods[0]} compared with {periods[1]}?"
+        if overview
+        else f"Regular Player points per game in {periods[0]} vs {periods[1]}"
+    )
+    assert result["status"] == "ok", result["answer"]
+    evidence = result["semantic_evidence"]
+    if overview:
+        points = next(m for m in evidence["metrics"] if m["key"] == "pts")
+        current, baseline = points["value"], points["previous"]["value"]
+        assert points["change"] == current - baseline
+    else:
+        current = evidence["current"]["rows"][0]["value"]
+        baseline = evidence["baseline"]["rows"][0]["value"]
+        assert evidence["difference"] == current - baseline
+    assert (current, baseline) == ((99, 10) if round_first else (10, 99))
+    assert not model.calls
+
+
+@pytest.mark.parametrize("bad_plan", ["dropped_operand", "moved_round", "wrong_season"])
+def test_normalizer_withholds_plan_that_rewrites_round_comparison(bad_plan):
+    from app.agent.semantic_answer import normalize_metric_plan_scope
+
+    query = {
+        "metric": "pts",
+        "season": "2024-25",
+        "season_type": "Playoffs",
+        "aggregation": "average",
+    }
+    baseline = {**query, "season": "2023-24"}
+    queries = [query, baseline]
+    if bad_plan == "dropped_operand":
+        queries.pop()
+    elif bad_plan == "moved_round":
+        baseline["playoff_round"] = "nba_finals"
+    else:
+        query["season"] = "2023-24"
+    with pytest.raises(SemanticError, match="comparison|Comparison") as error:
+        normalize_metric_plan_scope(
+            {"status": "compare" if len(queries) == 2 else "query", "queries": queries},
+            metric_window={},
+            appearances=[],
+            question="Regular Player points per game in the 2024-25 NBA Finals vs the 2023-24 playoffs",
+            time_assumptions=[],
+            window_seasons=lambda s, e: ["2024-25"],
+            inherited={},
+            playoff_round="nba_finals",
+        )
+    assert error.value.code == "clarification_required"
