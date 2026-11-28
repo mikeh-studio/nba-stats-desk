@@ -399,7 +399,8 @@ def opponent_split_contracts(e):
         "identity",
         "identity",
     ]
-    summary = "{0} played {5} games in the sampled {1} {2}, from {3} through {4}."
+    game_unit = "game" if e["baseline"]["games"] == 1 else "games"
+    summary = f"{{0}} played {{5}} {game_unit} in the sampled {{1}} {{2}}, from {{3}} through {{4}}."
     if e["scope"]["playoff_round"]:
         summary += " The sample covers the {6}."
         sources.append(scope + ["playoff_round"])
@@ -421,9 +422,15 @@ def opponent_split_contracts(e):
             "last_n_days": "days",
             "last_n_months": "months",
         }[e["scope"]["window"]]
-        summary += (
-            f" The requested window is the last {{{len(sources)}}} {unit} in scope."
-        )
+        if (
+            e["scope"]["window"] == "last_n_games"
+            and e["baseline"]["games"] < e["scope"]["n"]
+        ):
+            summary += f" The sample contains fewer than the requested {{{len(sources)}}} appearances."
+        else:
+            summary += (
+                f" The requested window is the last {{{len(sources)}}} {unit} in scope."
+            )
         sources.append(scope + ["n"])
         formats.append("identity")
     if e["toughest_opponent"]:

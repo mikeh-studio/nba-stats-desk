@@ -448,11 +448,25 @@ def test_stats_agent_answers_home_filter_before_collective_versus_phrase(
         ("vs league average", "league-average comparison"),
         ("relative to league", "league-average comparison"),
         ("against the Celtics", "single-opponent summary"),
-        ("in the first quarter", "whole games only"),
-        ("in the 4th quarter", "whole games only"),
-        ("in the second half", "whole games only"),
+        ("in the first quarter", "whole-game box scores"),
+        ("in the 4th quarter", "whole-game box scores"),
+        ("in the second half", "whole-game box scores"),
         ("in the last three games", "numeric last-N-games window"),
         ("in the last 2 games or the last three games", "numeric last-N-games window"),
+        ("in non-home games", "affirmatively"),
+        ("in non-playoff games", "affirmatively"),
+        ("through the trade deadline", "explicit date range"),
+        ("above 20 points", "stat thresholds"),
+        ("with a +/- above zero", "stat thresholds"),
+        ("only opponents with a winning record", "cannot filter opponents"),
+        ("on a winning streak", "game outcomes"),
+        ("for the Knicks", "teams and arenas"),
+        ("as a Knick", "player-role filters"),
+        ("at Madison Square Garden", "teams and arenas"),
+        ("limited to BOS and MIA", "teams and arenas"),
+        ("in games decided by three points or fewer", "additional game"),
+        ("in tournament games", "competition"),
+        ("as a rookie", "player-role filters"),
     ],
 )
 def test_stats_agent_withholds_unconsumed_opponent_split_constraints(
@@ -462,9 +476,53 @@ def test_stats_agent_withholds_unconsumed_opponent_split_constraints(
     result = split_agent.answer(question)
     assert result["status"] == "unsupported_scope", result
     assert result["ask_route"]["route"] == "opponent_splits"
-    assert message in result["answer"]
+    assert message.casefold() in result["answer"].casefold()
     assert not result.get("opponent_splits")
     assert not result["tables"]
+
+
+@pytest.mark.parametrize(
+    "metric",
+    [
+        "two-point field goal percentage",
+        "2PT% and 3PT%",
+        "FG% and 2FG%",
+        "season-high points",
+        "peak points",
+        "rebounds and assists per 36",
+    ],
+)
+def test_refuses_incompletely_supported_metric_requests(split_agent, metric):
+    result = split_agent.answer(f"Avery Example's {metric} by opponent in 2024-25")
+    assert result["status"] == "unsupported_scope", result
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert not result["tables"]
+
+
+@pytest.mark.parametrize(
+    ("metric", "keys"),
+    [
+        ("games played", ["gp"]),
+        ("3-point shots attempted", ["fg3a"]),
+        ("free throw shooting %", ["ft_pct"]),
+        ("FT %", ["ft_pct"]),
+        ("points and assists per 36", ["pts_per36", "ast_per36"]),
+        ("points per game and assists per 36", ["pts", "ast_per36"]),
+    ],
+)
+def test_preserves_compound_metric_meaning(split_agent, metric, keys):
+    result = split_agent.answer(f"Avery Example's {metric} by opponent in 2024-25")
+    assert result["status"] == "ok", result
+    assert result["opponent_splits"]["display_metrics"] == keys
+    assert result["claim_validation"]["status"] == "complete"
+
+
+def test_discloses_short_last_n_sample(split_agent):
+    result = split_agent.answer(f"{QUESTION} in the last 10 games")
+    assert result["status"] == "ok", result
+    assert result["opponent_splits"]["baseline"]["games"] == 5
+    assert "fewer than the requested 10 appearances" in result["answer"]
+    assert result["claim_validation"]["status"] == "complete"
 
 
 def test_stats_agent_follows_up_without_model_or_legacy(split_agent):

@@ -303,7 +303,9 @@ season, the last N recorded appearances, and a home or away filter. Venue and
 phase filters apply before selecting the last N appearances. The route uses
 governed game-grain evidence from the selected warehouse, bundle or pinned
 publication. Metric-only follow-ups retain that player and scope.
-Use a numeric game count for recent windows, such as `last 3 games`.
+Use a numeric game count for recent windows, such as `last 3 games`. The
+answer discloses when fewer verified appearances are available in the
+requested scope.
 Single-opponent filters, within-game periods, and league-average comparisons
 require separate requests when combined with opponent splits.
 
