@@ -191,6 +191,7 @@ def test_manifest_rejects_invalid_covered_scopes(manifest, change):
     "changes",
     [
         {"capabilities": ["rankings"], "scope": {"cohort_complete": False}},
+        {"capabilities": ["rankings"], "facts_digest": digest(None)},
         {"capabilities": ["detail"], "facts_digest": digest(None)},
         {"capabilities": ["rich"], "facts_digest": digest(None)},
     ],
@@ -201,6 +202,19 @@ def test_manifest_rejects_inconsistent_capabilities(manifest, changes):
             manifest[key].update(value)
         else:
             manifest[key] = value
+    with pytest.raises(SemanticError) as error:
+        validate_bundle_manifest(seal_manifest(manifest), now=NOW)
+    assert error.value.code == "invalid_evidence"
+
+
+def test_manifest_rejects_covered_scope_data_through_outside_season_bounds(manifest):
+    scope = manifest["scope"]
+    scope["seasons"] = ["2023-24", SEASON]
+    scope["first"] = "2023-10-24"
+    scope["covered_scopes"] = [
+        dict(season="2023-24", phase=PHASE, data_through="2025-04-01"),
+        dict(season=SEASON, phase=PHASE, data_through=LAST),
+    ]
     with pytest.raises(SemanticError) as error:
         validate_bundle_manifest(seal_manifest(manifest), now=NOW)
     assert error.value.code == "invalid_evidence"
@@ -384,6 +398,24 @@ def test_bundle_is_immutable_and_digests_are_canonical(core_source):
     ):
         with pytest.raises(ValueError, match="digest"):
             replace(bundle, **tampered)
+    bad_manifest = dict(bundle.manifest)
+    bad_manifest["publication_id"] = "tampered"
+    with pytest.raises(SemanticError) as error:
+        replace(bundle, manifest=bad_manifest)
+    assert error.value.code == "invalid_evidence"
+    for tampered_evidence in (
+        replace(bundle.evidence, cohort_complete=False),
+        replace(bundle.evidence, snapshot_id="other_snapshot"),
+        replace(
+            bundle.evidence,
+            covered_scopes=frozenset({(SEASON, "Playoffs")}),
+            data_through={(SEASON, "Playoffs"): LAST},
+        ),
+        replace(bundle.evidence, data_through={(SEASON, PHASE): FIRST}),
+    ):
+        with pytest.raises(SemanticError) as error:
+            replace(bundle, evidence=tampered_evidence)
+        assert error.value.code == "invalid_evidence"
 
 
 def test_core_partial_timestamps_bound_legacy_source_timestamp_by_built_at(
@@ -569,20 +601,27 @@ def settings():
     )
 
 
-def test_request_pins_core_source_and_rechecks_authority(core_source, settings):
+def test_request_pins_core_source_and_rechecks_authority(
+    core_source, settings, monkeypatch
+):
     next_source = replace(
         core_source, status={**core_source.status, "publication_id": "core_b"}
     )
     reads = []
     active = core_source
 
-    def read(publication_id):
-        reads.append(publication_id)
-        return active
+    class Reader:
+        def read(self, publication_id):
+            reads.append(publication_id)
+            return active
 
+    reader = Reader()
+    monkeypatch.setattr(AskBundleWarehouse, "_utc_now", staticmethod(lambda: NOW))
     facts = SemanticWarehouse(SnapshotClient())
     repo = SimpleNamespace(
-        settings=settings, _governed_warehouse=facts, ask_publication_source=read
+        settings=settings,
+        _governed_warehouse=facts,
+        ask_publication_source=reader.read,
     )
     warehouse = warehouse_for_repository(repo)
     assert isinstance(warehouse, AskBundleWarehouse)
@@ -592,7 +631,10 @@ def test_request_pins_core_source_and_rechecks_authority(core_source, settings):
     with request_policy(settings, "openai"):
         assert warehouse.open_publication() is core_source
         active = next_source
-        bundle = warehouse_for_repository(repo).open_bundle("core_a", now=NOW)
+        repo.ask_publication_source = reader.read
+        reused = warehouse_for_repository(repo)
+        assert reused is warehouse
+        bundle = reused.open_bundle("core_a", now=NOW)
         assert warehouse.open_bundle(now=NOW) is bundle
         assert warehouse.open_publication("core_a") is core_source
         with pytest.raises(SemanticError) as error:
@@ -609,6 +651,32 @@ def test_request_pins_core_source_and_rechecks_authority(core_source, settings):
     with request_policy(settings, "openai"):
         assert warehouse.open_bundle(now=NOW).manifest["publication_id"] == "core_b"
         assert warehouse.open_publication() is next_source
+    repo.ask_publication_source = Reader().read
+    assert warehouse_for_repository(repo) is not warehouse
+
+
+def test_core_authority_clock_blocks_expired_reads_even_with_explicit_now(
+    core_source, settings
+):
+    clock = NOW
+    warehouse = AskBundleWarehouse(
+        SemanticWarehouse(SnapshotClient()),
+        lambda _: core_source,
+        clock=lambda: clock,
+    )
+    with request_policy(settings, "openai") as policy:
+        bundle = warehouse.open_bundle(now=NOW)
+        assert warehouse.open_bundle(now=NOW) is bundle
+        clock = CORE_EXPIRY
+        with pytest.raises(SemanticError) as error:
+            warehouse.open_bundle(now=NOW)
+        assert error.value.code == "invalid_evidence"
+    clock = CORE_EXPIRY
+    with request_policy(settings, "openai") as policy:
+        with pytest.raises(SemanticError) as error:
+            warehouse.open_bundle(now=NOW)
+        assert error.value.code == "invalid_evidence"
+        assert "bundle" not in policy.serving_state[warehouse]
 
 
 def test_concurrent_bundle_reads_share_the_request_pin(core_source, settings):
@@ -622,7 +690,9 @@ def test_concurrent_bundle_reads_share_the_request_pin(core_source, settings):
         assert release.wait(timeout=5)
         return core_source
 
-    warehouse = AskBundleWarehouse(SemanticWarehouse(SnapshotClient()), read)
+    warehouse = AskBundleWarehouse(
+        SemanticWarehouse(SnapshotClient()), read, clock=lambda: NOW
+    )
     with request_policy(settings, "openai"), ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(copy_context().run, warehouse.open_bundle, now=NOW)
         try:
@@ -731,7 +801,7 @@ def test_concurrent_prepare_and_open_bundle_share_wire_pin(
 
 
 def test_refreshing_warehouse_exposes_wire_bundle_and_keeps_core_separate(
-    pilot_snapshot, core_source, settings, tmp_path
+    pilot_snapshot, core_source, settings, tmp_path, monkeypatch
 ):
     publication = pilot(pilot_snapshot, detail=True)
     reference, records = wire(publication)
@@ -747,6 +817,7 @@ def test_refreshing_warehouse_exposes_wire_bundle_and_keeps_core_separate(
         project=reference.project,
         mode="serve",
     )
+    monkeypatch.setattr(AskBundleWarehouse, "_utc_now", staticmethod(lambda: NOW))
     repo = SimpleNamespace(
         settings=settings,
         _governed_warehouse=historical,
@@ -890,9 +961,9 @@ def test_warehouse_fails_closed_for_unavailable_or_expired_core(core_source):
 
     for reader in (None, unavailable, lambda _: None):
         with pytest.raises(SemanticError) as error:
-            AskBundleWarehouse(facts, reader).open_bundle(now=NOW)
+            AskBundleWarehouse(facts, reader, clock=lambda: NOW).open_bundle(now=NOW)
         assert error.value.code == "publication_unavailable"
-    warehouse = AskBundleWarehouse(facts, lambda _: core_source)
+    warehouse = AskBundleWarehouse(facts, lambda _: core_source, clock=lambda: NOW)
     with pytest.raises(SemanticError) as error:
         warehouse.open_bundle("absent", now=NOW)
     assert error.value.code == "publication_unavailable"
@@ -901,5 +972,83 @@ def test_warehouse_fails_closed_for_unavailable_or_expired_core(core_source):
     assert error.value.code == "invalid_evidence"
     legacy = replace(core_source, expires_at=None)
     with pytest.raises(SemanticError) as error:
-        AskBundleWarehouse(facts, lambda _: legacy).open_bundle(now=NOW)
+        AskBundleWarehouse(facts, lambda _: legacy, clock=lambda: NOW).open_bundle(
+            now=NOW
+        )
     assert error.value.code == "invalid_evidence"
+
+
+def test_lazy_shadow_starts_optional_deadline_before_bundle_lock(
+    pilot_snapshot, settings, tmp_path, monkeypatch
+):
+    from app.agent import execution
+    from app.agent.execution import CURRENT
+
+    publication = pilot(pilot_snapshot)
+    reference, records = wire(publication)
+    path = tmp_path / "reference.json"
+    path.write_text(json.dumps(asdict(reference)))
+    now_monotonic = [100.0]
+    monkeypatch.setattr(execution, "monotonic", lambda: now_monotonic[0])
+    monkeypatch.setattr(serving_warehouse, "monotonic", lambda: now_monotonic[0])
+
+    observed_deadlines = []
+    client = WireClient(records)
+    warehouse = RefreshingServingWarehouse(
+        SemanticWarehouse(
+            BigQuerySemanticSource(SnapshotClient(), project="test-project")
+        ),
+        client,
+        path,
+        lambda: NOW,
+        project=reference.project,
+        mode="shadow",
+    )
+    query = Query(metric="pts", aggregation="average", season=SEASON, player_id=1)
+
+    acquire_lock = serving_warehouse.acquire_timed_lock
+
+    def slow_bundle_lock(lock, *args):
+        result = acquire_lock(lock, *args)
+        if lock is policy.bundle_lock:
+            if not observed_deadlines:
+                now_monotonic[0] += 2.0
+            observed_deadlines.append(("lock", CURRENT.get().deadline))
+        return result
+
+    monkeypatch.setattr(serving_warehouse, "acquire_timed_lock", slow_bundle_lock)
+    original_compare = serving_warehouse.ServingWarehouse.candidate_shadow
+
+    def observe_compare(self, evidence=None):
+        observed_deadlines.append(("compare", CURRENT.get().deadline))
+        return original_compare(self, evidence)
+
+    monkeypatch.setattr(
+        serving_warehouse.ServingWarehouse, "candidate_shadow", observe_compare
+    )
+
+    short_settings = SimpleNamespace(
+        agent_request_deadline_seconds=5,
+        agent_max_tool_calls=1,
+        ask_local_espn_dev=False,
+    )
+    with request_policy(short_settings, "openai") as policy:
+        _, evidence = warehouse.load([SEASON])
+        shadow = warehouse.serving_shadow
+        reference_result = run_query(evidence, query)
+        # Foreground remaining is 5.0s; optional budget reserves 1.0s -> deadline 104.0.
+        shadow.compare(query, reference_result)
+        assert observed_deadlines == [
+            ("lock", 104.0),
+            ("lock", 104.0),
+            ("compare", 104.0),
+        ]
+        assert shadow.outcomes == [
+            {"status": "match", "code": "capture_provenance_differs"}
+        ]
+        # Remaining <= 1.0s fails immediately with optional_timeout before bundle_lock.
+        now_monotonic[0] = 104.0
+        observed_deadlines.clear()
+        shadow.compare(query, reference_result)
+        assert observed_deadlines == []
+        assert shadow.outcomes[-1] == {"status": "error", "code": "optional_timeout"}

@@ -263,6 +263,16 @@ def players_from_rows(rows, *, source_policy=None) -> list[dict[str, Any]]:
 _factory_lock = Lock()
 
 
+def _same_reader(left: Any, right: Any) -> bool:
+    left_owner = getattr(left, "__self__", None)
+    right_owner = getattr(right, "__self__", None)
+    if left_owner is not None or right_owner is not None:
+        return left_owner is right_owner and getattr(left, "__func__", left) == getattr(
+            right, "__func__", right
+        )
+    return left is right
+
+
 def warehouse_for_repository(repo: Any) -> Any:
     with _factory_lock:
         policy = get_source_policy(getattr(repo, "source_policy", None))
@@ -329,7 +339,7 @@ def warehouse_for_repository(repo: Any) -> Any:
                 if (
                     adapter is None
                     or adapter.historical is not warehouse
-                    or adapter.read_publication is not publication_reader
+                    or not _same_reader(adapter.read_publication, publication_reader)
                 ):
                     adapter = AskBundleWarehouse(warehouse, publication_reader)
                     repo._ask_bundle_warehouse = adapter

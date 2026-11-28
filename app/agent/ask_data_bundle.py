@@ -25,6 +25,7 @@ from app.agent.serving_publication import (
     candidate_summaries,
     digest,
 )
+from app.seasons import season_bounds
 
 if TYPE_CHECKING:
     from app.agent.publication_ask_source import PublicationAskSource
@@ -56,7 +57,7 @@ def _json_value(value: Any) -> Any:
 
 
 def _require_aware(instant: datetime) -> None:
-    if instant.utcoffset() is None:
+    if not isinstance(instant, datetime) or instant.utcoffset() is None:
         raise SemanticError("invalid_evidence", "Bundle timestamps require a timezone")
 
 
@@ -94,13 +95,15 @@ def validate_bundle_manifest(
                     "Covered scopes differ from the declared seasons and phases"
                 )
             for item in covered:
-                if (
-                    not first_day
-                    <= date.fromisoformat(item["data_through"])
-                    <= last_day
-                ):
+                day = date.fromisoformat(item["data_through"])
+                season_start, season_end = season_bounds(item["season"])
+                if not first_day <= day <= last_day:
                     raise ValueError(
                         "Covered scope data_through falls outside scope bounds"
+                    )
+                if not season_start <= day <= season_end:
+                    raise ValueError(
+                        "Covered scope data_through falls outside season bounds"
                     )
         capabilities = set(document["capabilities"])
         if "rankings" in capabilities and scope["cohort_complete"] is not True:
@@ -110,6 +113,14 @@ def validate_bundle_manifest(
         ):
             raise ValueError("Detail and rich capabilities require bound game facts")
         freshness = document["freshness"]
+        if (
+            freshness["policy"] == "dev_300s"
+            and "rankings" in capabilities
+            and document["facts_digest"] == digest(None)
+        ):
+            raise ValueError(
+                "Development rankings capability requires bound game facts"
+            )
         source = _timestamp(freshness["source_timestamp"])
         built = _timestamp(freshness["built_at"])
         expiry = _timestamp(freshness["expires_at"])
@@ -206,12 +217,63 @@ class AskDataBundle:
                     game_participants=_freeze(self.evidence.game_participants),
                 ),
             )
+        validate_bundle_manifest(self.manifest)
         if self.manifest.get("summary_digest") != digest(
             _summary_records(self.summaries)
         ):
             raise ValueError("Bundle summary_digest differs from summaries")
         if self.manifest.get("facts_digest") != _facts_digest(self.evidence):
             raise ValueError("Bundle facts_digest differs from evidence")
+        if self.evidence is not None:
+            scope = self.manifest["scope"]
+            if self.evidence.snapshot_id != self.manifest["source_snapshot_id"]:
+                raise SemanticError(
+                    "invalid_evidence",
+                    "Bundle evidence snapshot_id differs from manifest",
+                )
+            if self.evidence.cohort_complete is not scope["cohort_complete"]:
+                raise SemanticError(
+                    "invalid_evidence",
+                    "Bundle evidence cohort_complete differs from manifest",
+                )
+            if "covered_scopes" in scope:
+                expected_through = {
+                    (item["season"], item["phase"]): item["data_through"]
+                    for item in scope["covered_scopes"]
+                }
+                if (
+                    self.evidence.covered_scopes != frozenset(expected_through)
+                    or dict(self.evidence.data_through) != expected_through
+                ):
+                    raise SemanticError(
+                        "invalid_evidence",
+                        "Bundle evidence coverage differs from manifest",
+                    )
+            else:
+                if (
+                    set(self.evidence.data_through) != self.evidence.covered_scopes
+                    or {s for s, _ in self.evidence.covered_scopes}
+                    != set(scope["seasons"])
+                    or {p for _, p in self.evidence.covered_scopes}
+                    != set(scope["phases"])
+                ):
+                    raise SemanticError(
+                        "invalid_evidence",
+                        "Bundle evidence coverage differs from manifest",
+                    )
+                first_day = date.fromisoformat(scope["first"])
+                last_day = date.fromisoformat(scope["last"])
+                for (season, _), day_text in self.evidence.data_through.items():
+                    day = date.fromisoformat(day_text)
+                    season_start, season_end = season_bounds(season)
+                    if (
+                        not first_day <= day <= last_day
+                        or not season_start <= day <= season_end
+                    ):
+                        raise SemanticError(
+                            "invalid_evidence",
+                            "Bundle evidence data_through falls outside manifest bounds",
+                        )
 
     @classmethod
     def _build(
@@ -422,9 +484,11 @@ class AskBundleWarehouse:
         historical: SemanticWarehouse | RefreshingServingWarehouse,
         read_publication: Callable[[str | None], PublicationAskSource | None]
         | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.historical = historical
         self.read_publication = read_publication
+        self._clock = clock
 
     def __getattr__(self, key: str) -> Any:
         return getattr(self.historical, key)
@@ -514,22 +578,23 @@ class AskBundleWarehouse:
     ) -> AskDataBundle:
         if now is not None:
             _require_aware(now)
-        warehouse_clock: Callable[[], datetime] | None = (
-            getattr(self.historical, "clock", None)
-            if self.read_publication is None
-            else None
-        )
-        clock: Callable[[], datetime] = (
-            warehouse_clock if warehouse_clock is not None else self._utc_now
+        authority_clock: Callable[[], datetime] = (
+            self._clock
+            if self._clock is not None
+            else (
+                getattr(self.historical, "clock", None)
+                if self.read_publication is None
+                else None
+            )
+            or self._utc_now
         )
 
         def validate_read_freshness(manifest: Mapping[str, Any]) -> None:
             if now is None:
-                validate_bundle_manifest(manifest, now=clock())
+                validate_bundle_manifest(manifest, now=authority_clock())
                 return
             validate_bundle_manifest(manifest, now=now)
-            if warehouse_clock is not None:
-                validate_bundle_manifest(manifest, now=warehouse_clock())
+            validate_bundle_manifest(manifest, now=authority_clock())
 
         with self._request_state() as state:
             if (bundle := state.get("bundle")) is not None:
@@ -544,7 +609,7 @@ class AskBundleWarehouse:
                         "No authorized Ask publication is available.",
                     )
                 bundle = AskDataBundle.from_core_publication(
-                    source, now=now if now is not None else clock()
+                    source, now=now if now is not None else authority_clock()
                 )
             else:
                 read_pilot = getattr(self.historical, "open_pilot_publication", None)
@@ -564,7 +629,7 @@ class AskBundleWarehouse:
                     ) from exc
                 self._check_pin(publication_id, publication.approval.publication_id)
                 bundle = AskDataBundle.from_pilot_publication(
-                    publication, now=now if now is not None else clock()
+                    publication, now=now if now is not None else authority_clock()
                 )
             validate_read_freshness(bundle.manifest)
             state["bundle"] = bundle

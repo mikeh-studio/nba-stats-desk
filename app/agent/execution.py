@@ -52,6 +52,7 @@ class RequestPolicy:
     warehouse_lock: Any = field(default_factory=RLock)
     warehouse_byte_limit: int = 100_000_000
     bundle_lock: Any = field(default_factory=RLock)
+    optional: bool = False
 
     def remaining(self) -> float:
         remaining = self.deadline - monotonic()
@@ -136,11 +137,16 @@ def optional_model_budget(seconds: float, reserve_seconds: float = 1.0):
     if policy is None:
         yield
         return
-    allowance = min(seconds, policy.remaining() - reserve_seconds)
-    if allowance <= 0:
-        raise ExecutionFailure("optional_timeout")
+    if policy.optional:
+        allowance = min(seconds, policy.remaining())
+        deadline = min(policy.deadline, monotonic() + allowance)
+    else:
+        allowance = min(seconds, policy.remaining() - reserve_seconds)
+        if allowance <= 0:
+            raise ExecutionFailure("optional_timeout")
+        deadline = monotonic() + allowance
     token = CURRENT.set(
-        replace(policy, deadline=monotonic() + allowance, retry_limit=0)
+        replace(policy, deadline=deadline, retry_limit=0, optional=True)
     )
     try:
         yield
@@ -531,24 +537,41 @@ def acquire_timed_lock(lock, name, seconds=120):
 
 
 @contextmanager
-def optional_shadow_budget(seconds=15.0):
+def optional_shadow_budget(seconds=15.0, *, acquire_warehouse=True):
     """Isolate optional execution while accounting all spend in the request cap."""
     policy = CURRENT.get()
     if policy is None:
         yield
+        return
+    if policy.optional:
+        allowance = min(seconds, policy.remaining())
+        deadline = min(policy.deadline, monotonic() + allowance)
+    else:
+        allowance = min(seconds, policy.remaining() - 1.0)
+        if allowance <= 0:
+            raise ExecutionFailure("optional_timeout")
+        deadline = monotonic() + allowance
+    if not acquire_warehouse:
+        token = CURRENT.set(
+            replace(policy, deadline=deadline, retry_limit=0, optional=True)
+        )
+        try:
+            yield
+        finally:
+            CURRENT.reset(token)
         return
     acquire_timed_lock(policy.warehouse_lock, "warehouse_queue_wait")
     child = None
     token = None
     try:
         limit = warehouse_budget(50_000_000)
-        allowance = min(seconds, policy.remaining() - 1.0)
-        if allowance <= 0:
+        if deadline <= monotonic():
             raise ExecutionFailure("optional_timeout")
         child = replace(
             policy,
-            deadline=monotonic() + allowance,
+            deadline=deadline,
             retry_limit=0,
+            optional=True,
             warehouse_ledger={"bytes_used": 0},
             warehouse_byte_limit=limit,
         )

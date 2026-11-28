@@ -686,11 +686,16 @@ def test_core_ask_bundle_expires_at_the_earliest_verified_deadline(
     def read_source(publication_id):
         return p.app.application(publication_id).state.ask_publication_source()
 
-    warehouse = AskBundleWarehouse(None, read_source)
+    warehouse = AskBundleWarehouse(
+        None, read_source, clock=lambda: timestamp(p.clock[0])
+    )
     with request_policy(settings, "openai"):
         bundle = warehouse.open_bundle(now=timestamp(NOW))
         assert bundle.manifest["freshness"]["expires_at"] == deadline
         p.clock[0] = deadline
+        with pytest.raises(SemanticError) as error:
+            warehouse.open_bundle(now=timestamp(NOW))
+        assert error.value.code == "invalid_evidence"
         with pytest.raises(SemanticError) as error:
             warehouse.open_bundle(now=timestamp(p.clock[0]))
         assert error.value.code == "invalid_evidence"

@@ -598,25 +598,27 @@ class LazyShadow:
                     "shadow_retry_deferred", "Recent optional shadow failure"
                 )
             # Match open_bundle()'s bundle_lock -> warehouse_lock order across
-            # reference selection and cold cache loading.
+            # reference selection and cold cache loading while keeping the
+            # optional deadline active across bundle_lock contention.
             policy = CURRENT.get()
-            if policy is not None:
-                acquire_timed_lock(policy.bundle_lock, "serving_reference_wait")
-            try:
-                with optional_shadow_budget(15.0):
-                    target = (
-                        warehouse._select()
-                        if hasattr(warehouse, "_select")
-                        else warehouse
-                    )
-                    shadow = target.candidate_shadow(self.evidence)
-                    shadow.compare(query, reference)
-                    self.outcomes.extend(shadow.outcomes)
-                    if shadow.outcomes and shadow.outcomes[-1]["status"] == "error":
-                        warehouse._shadow_failed_until = monotonic() + 2.0
-            finally:
+            with optional_shadow_budget(15.0, acquire_warehouse=False):
                 if policy is not None:
-                    policy.bundle_lock.release()
+                    acquire_timed_lock(policy.bundle_lock, "serving_reference_wait")
+                try:
+                    with optional_shadow_budget(15.0):
+                        target = (
+                            warehouse._select()
+                            if hasattr(warehouse, "_select")
+                            else warehouse
+                        )
+                        shadow = target.candidate_shadow(self.evidence)
+                        shadow.compare(query, reference)
+                        self.outcomes.extend(shadow.outcomes)
+                        if shadow.outcomes and shadow.outcomes[-1]["status"] == "error":
+                            warehouse._shadow_failed_until = monotonic() + 2.0
+                finally:
+                    if policy is not None:
+                        policy.bundle_lock.release()
         except Exception as exc:
             warehouse._shadow_failed_until = monotonic() + 2.0
             failure = FailedShadow(
