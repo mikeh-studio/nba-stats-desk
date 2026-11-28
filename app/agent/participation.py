@@ -216,7 +216,11 @@ def _completed_round_teams(
                 team = entry.get("team_abbr")
                 played = entry.get("played")
                 if played is True:
-                    if type(pid) is not int or team not in observed_teams:
+                    if (
+                        type(pid) is not int
+                        or not isinstance(team, str)
+                        or team not in observed_teams
+                    ):
                         return set()
                     expected_played.add((pid, team))
                 elif played is False and type(pid) is int and isinstance(team, str):
