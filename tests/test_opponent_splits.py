@@ -1195,3 +1195,220 @@ def test_browser_recovery_requires_exact_player_id_agreement(facts):
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)
+
+
+@pytest.mark.parametrize(
+    ("phrase", "expected_metric", "expected_bos_value"),
+    [
+        ("3-point shooting percentage", "fg3_pct", 2 / 10),
+        ("three-point shooting percentage", "fg3_pct", 2 / 10),
+        ("3pt shooting percentage", "fg3_pct", 2 / 10),
+        ("free-throw shooting percentage", "ft_pct", 3 / 9),
+        ("free throw percentage", "ft_pct", 3 / 9),
+        ("field-goal shooting percentage", "fg_pct", 9 / 25),
+    ],
+)
+def test_compound_shooting_metrics_resolve_to_specific_metric(
+    split_agent, phrase, expected_metric, expected_bos_value
+):
+    result = split_agent.answer(f"Show Avery Example's {phrase} by opponent in 2024-25")
+    assert result["status"] == "ok", result
+    assert result["opponent_splits"]["display_metrics"] == [expected_metric]
+    bos = next(
+        row
+        for row in result["opponent_splits"]["opponents"]
+        if row["opponent_abbr"] == "BOS"
+    )
+    assert bos["metrics"][expected_metric]["value"] == pytest.approx(expected_bos_value)
+
+
+@pytest.mark.parametrize(
+    "unsupported_phrase",
+    [
+        "assist percentage",
+        "rebound percentage",
+        "turnover percentage",
+        "steal percentage",
+        "block percentage",
+        "usage percentage",
+        "offensive rebound percentage",
+        "free throw attempt rate",
+        "2-point shooting percentage",
+        "box plus-minus",
+        "assist-to-turnover ratio",
+    ],
+)
+def test_unsupported_compound_rates_rejected_before_component_match(
+    split_agent, unsupported_phrase
+):
+    result = split_agent.answer(
+        f"Show Avery Example's {unsupported_phrase} by opponent in 2024-25"
+    )
+    assert result["status"] == "unsupported_scope", (unsupported_phrase, result)
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert not result.get("opponent_splits")
+
+    first = split_agent.answer(QUESTION, conversation_id=f"unsup-{unsupported_phrase}")
+    assert first["status"] == "ok"
+    followup = split_agent.answer(
+        f"What about {unsupported_phrase}?",
+        conversation_id=f"unsup-{unsupported_phrase}",
+    )
+    assert followup["status"] == "unsupported_scope", (unsupported_phrase, followup)
+
+
+def test_slash_date_ranges_normalize_and_unresolved_ranges_require_clarification(
+    split_agent,
+):
+    result = split_agent.answer(
+        "Show Avery Example's opponent splits from 2025/01/03 through 2025/01/05"
+    )
+    assert result["status"] == "ok", result
+    scope = result["opponent_splits"]["scope"]
+    assert scope["window"] == "date_range"
+    assert scope["start_date"] == "2025-01-03"
+    assert scope["as_of"] == "2025-01-05"
+    assert sorted(
+        result["opponent_splits"]["baseline"]["metrics"]["pts"]["game_ids"]
+    ) == [
+        "01",
+        "02",
+    ]
+
+    between_slash = split_agent.answer(
+        "Show Avery Example's opponent splits between 2025/01/03 and 2025/01/05"
+    )
+    assert between_slash["status"] == "ok", between_slash
+    assert between_slash["opponent_splits"]["scope"]["start_date"] == "2025-01-03"
+    assert between_slash["opponent_splits"]["scope"]["as_of"] == "2025-01-05"
+
+    for unresolved in (
+        "from 2025-01-03 until 2025-01-05",
+        "from 2025/1/3 through 2025/1/5",
+        "from 01/03/2025 to 01/05/2025",
+        "between January 3 and January 10",
+    ):
+        clarify = split_agent.answer(
+            f"Show Avery Example's opponent splits {unresolved}"
+        )
+        assert clarify["status"] == "clarification_required", (unresolved, clarify)
+        assert not clarify.get("opponent_splits")
+
+
+@pytest.mark.parametrize(
+    "season_phrase",
+    [
+        "in the 1999-00 season",
+        "in 1999-2000",
+        "in the 1998 playoffs",
+        "in the 1999 season",
+        "in the 2030-31 season",
+    ],
+)
+def test_unavailable_seasons_do_not_fall_back_to_selected_season(
+    split_agent, season_phrase
+):
+    result = split_agent.answer(f"Show Avery Example's opponent splits {season_phrase}")
+    assert result["status"] == "unsupported_coverage", (season_phrase, result)
+    assert not result.get("opponent_splits")
+
+
+@pytest.mark.parametrize(
+    "multi_season_phrase",
+    [
+        "over the last two seasons",
+        "past 3 seasons",
+        "across multiple seasons",
+        "in both seasons",
+        "across seasons",
+        "career",
+        "all-time",
+    ],
+)
+def test_multi_season_expressions_do_not_fall_back_to_selected_season(
+    split_agent, multi_season_phrase
+):
+    result = split_agent.answer(
+        f"Show Avery Example's opponent splits {multi_season_phrase}"
+    )
+    assert result["status"] in {"unsupported_scope", "clarification_required"}, (
+        multi_season_phrase,
+        result,
+    )
+    assert not result.get("opponent_splits")
+
+
+@pytest.mark.parametrize(
+    "threshold_clause",
+    [
+        "among opponents he played at least 3 times",
+        "among opponents with minimum 3 games",
+        "with minimum 3 matchups",
+        "played 3+ times",
+        "with >= 3 games",
+        "with at least 3 games",
+    ],
+)
+def test_opponent_appearance_thresholds_rejected_before_scoring(
+    split_agent, threshold_clause
+):
+    result = split_agent.answer(
+        f"Show the toughest opponent for Avery Example in 2024-25 {threshold_clause}"
+    )
+    assert result["status"] == "unsupported_scope", (threshold_clause, result)
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert not result.get("opponent_splits")
+
+
+def test_venue_normalization_win_loss_rejection_and_unresolved_venue_clarification(
+    split_agent,
+):
+    for phrase, expected_venue, expected_ids in [
+        ("away only", "AWAY", ["02", "03"]),
+        ("away from home", "AWAY", ["02", "03"]),
+        ("road only", "AWAY", ["02", "03"]),
+        ("home only", "HOME", ["01", "04", "05"]),
+    ]:
+        result = split_agent.answer(
+            f"Show Avery Example's opponent splits {phrase} in 2024-25"
+        )
+        assert result["status"] == "ok", (phrase, result)
+        assert result["opponent_splits"]["scope"]["home_away"] == expected_venue
+        assert (
+            sorted(result["opponent_splits"]["baseline"]["metrics"]["pts"]["game_ids"])
+            == expected_ids
+        )
+
+    away_from_home_vs = split_agent.answer(
+        "How did Avery Example perform away from home versus every team in 2024-25?"
+    )
+    assert away_from_home_vs["status"] == "ok", away_from_home_vs
+    assert away_from_home_vs["ask_route"]["route"] == "opponent_splits"
+    assert away_from_home_vs["opponent_splits"]["scope"]["home_away"] == "AWAY"
+
+    for outcome_phrase in (
+        "in away wins",
+        "in home losses",
+        "in road wins",
+        "away wins",
+    ):
+        rejected = split_agent.answer(
+            f"Show Avery Example's opponent splits {outcome_phrase} in 2024-25"
+        )
+        assert rejected["status"] == "unsupported_scope", (outcome_phrase, rejected)
+        assert not rejected.get("opponent_splits")
+
+    for unresolved_venue in (
+        "home or away",
+        "on a neutral site",
+        "on road",
+        "at home and away",
+    ):
+        clarify = split_agent.answer(
+            f"Show Avery Example's opponent splits {unresolved_venue} in 2024-25"
+        )
+        assert clarify["status"] == "clarification_required", (
+            unresolved_venue,
+            clarify,
+        )
+        assert not clarify.get("opponent_splits")

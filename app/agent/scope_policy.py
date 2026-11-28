@@ -150,7 +150,7 @@ def metric_terms(question: str) -> frozenset[str]:
 def split_kind(question: str) -> str | None:
     from app.agent.overview_positions import peer_question
 
-    text = peer_question(question).lower()
+    text = re.sub(r"\baway[- ]from[- ]home\b", "away", peer_question(question).lower())
     compare = re.search(
         r"\b(?:vs\.?|versus|compare|compared|difference|gap|between)\b", text
     )

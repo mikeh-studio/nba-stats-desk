@@ -22,7 +22,11 @@ from app.agent.name_matching import (
     mask_player_tokens,
     prepare_names,
 )
-from app.agent.overview_calendar import MONTH_PATTERN, literal_date_intervals
+from app.agent.overview_calendar import (
+    ISO_INTERVAL_PATTERN,
+    MONTH_PATTERN,
+    literal_date_intervals,
+)
 from app.agent.payload import answer_payload
 from app.agent.player_comparison import comparison_sides
 from app.agent.player_resolver import normalize_player_text
@@ -68,7 +72,39 @@ _LAST_GAMES = re.compile(
     r"(?:(home|away|road|playoffs?|regular[ -]season)\s+)?(?:games?|appearances?)\b",
     re.I,
 )
-_VENUE_APPEARANCES = re.compile(r"\b(home|away|road)\s+appearances\b", re.I)
+_AWAY_FROM_HOME = re.compile(r"\baway[- ]from[- ]home\b", re.I)
+_VENUE_ONLY_OR_NOUN = re.compile(
+    r"\b(?:(?P<home>home)|(?P<away>away|road))\s+"
+    r"(?:only|appearances?|matchups?|contests?|splits?)\b"
+    r"|\bonly\s+(?:(?P<only_home>home)|(?P<only_away>away|road))\b",
+    re.I,
+)
+_RESOLVED_VENUE = re.compile(
+    r"\bat\s+home\b|\bon\s+the\s+road\b"
+    r"|\b(?:in\s+)?(?:home|away|road)\s+games\b|\bgames\s+away\b",
+    re.I,
+)
+_UNRESOLVED_VENUE = re.compile(
+    r"\b(?:home|away|road|neutral(?:[- ]site)?)\b",
+    re.I,
+)
+_SLASH_DATE = re.compile(r"\b(\d{4})/(\d{2})/(\d{2})\b")
+_UNRESOLVED_RANGE = re.compile(
+    r"\bfrom\s+(?:(?!(?:\bfrom\b|\bbetween\b|[?!.])).)+?\s+"
+    r"(?:through|until|to(?=\s+(?!(?:see|find|check|know|determine|evaluate"
+    r"|understand|measure|identify|assess|compare|show|get|answer)\b)))\b"
+    r"|\bbetween\s+(?:(?!(?:\bfrom\b|\bbetween\b|[?!.])).)+?\s+and\b",
+    re.I,
+)
+_MULTI_SEASON = re.compile(
+    r"\b(?:(?:last|past|previous|prior|preceding|most recent|next)\s+(?:[\w-]+\s+){0,2}seasons"
+    r"|(?:multiple|several|many|both|all|every|each|various|different|consecutive|combined)\s+seasons"
+    r"|(?:across|over)\s+(?:the\s+)?(?:(?:last|past|previous|prior|multiple|several)\s+)?seasons"
+    r"|multi[- ]?seasons?"
+    r"|(?:every|each)\s+season"
+    r"|(?:multiple|several|many|both|all)\s+years)\b",
+    re.I,
+)
 _UNCONSUMED_GAME_WINDOW = re.compile(
     r"\b(?:last|past|most recent|first|previous|prior|preceding|next)\s+"
     r"(?:(?!(?:round|season|games?|appearances?|and|or)\b)[\w-]+\s+){0,4}(?:games?|appearances?)\b",
@@ -124,12 +160,26 @@ _UNSUPPORTED_OPPONENT_GROUP = re.compile(
     r"|\b(?:top|bottom)[- ]?\d+\s+(?:teams?|opponents?|defenses?|offenses?)\b",
     re.I,
 )
+_OPPONENT_APPEARANCE_THRESHOLD = re.compile(
+    r"\b(?:at least|more than|over|under|less than|fewer than|at most|no more than"
+    r"|minimum(?:\s+of)?|min(?:\s+of)?)\s+"
+    r"(?:\d+(?:\.\d+)?\+?|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(?:times?|games?|matchups?|appearances?|meetings?|contests?)\b"
+    r"|(?:(?<!\w)(?:>=|<=|>|<|=)\s*\d+(?:\.\d+)?)\s*"
+    r"(?:times?|games?|matchups?|appearances?|meetings?|contests?)\b"
+    r"|\b\d+\+\s*(?:times?|games?|matchups?|appearances?|meetings?|contests?)\b"
+    r"|\b\d+\s+or\s+(?:more|fewer|less)\s+"
+    r"(?:times?|games?|matchups?|appearances?|meetings?|contests?)\b"
+    r"|\b(?:minimum|min|at least)\s+(?:a\s+)?\d+[- ](?:game|matchup|appearance)\b",
+    re.I,
+)
 _UNSUPPORTED_GAME_PREDICATE = re.compile(
     r"\b(?:(?:winning|losing)\s+(?:games|efforts)|(?:won|lost)\s+games"
     r"|(?:after|following)\s+(?:a\s+)?(?:win|loss)"
     r"|when\s+(?:(?:his|her|their|the)\s+team\s+)?(?:won|wins|lost|loses|winning|losing)"
     r"|only\s+(?:wins|losses)|(?:wins|losses)\s+only"
-    r"|in\s+team\s+(?:wins|losses)"
+    r"|(?:in|during|for)\s+(?:the\s+)?(?:(?:home|away|road|team|his|her|their)\s+)?(?:wins|losses|victories|defeats)"
+    r"|(?:home|away|road)\s+(?:wins|losses|victories|defeats)"
     r"|back[- ]to[- ]backs?|b2bs?|zero[- ]rest|no rest|well[- ]rested|rested games?"
     r"|on\s+(?:\d+|zero|no|one|two|three)\+?\s+days?(?:\s+of)?\s+rest"
     r"|\d+\+?\s+days?(?:\s+of)?\s+rest|days?\s+off|rest\s+(?:advantage|disadvantage)"
@@ -196,7 +246,7 @@ _UNSUPPORTED_AGGREGATION_PATTERNS = (
     ),
 )
 _UNSUPPORTED_METRIC_PHRASE = re.compile(
-    r"\busage(?:\s+(?:rate|percentage|pct))?\b|\busg%?"
+    r"\busage(?:\s+(?:rate|percentage|percent|pct))?\b|\busg%?"
     r"|\bplayer\s+efficiency\s+rating\b"
     r"|(?-i:\bPER\b)(?!\s*(?:36|100|48|game|min|appearance|opponent|team))"
     r"|\bper\b(?=\s*(?:$|[,&?]|and\b|by\s+opponent\b))"
@@ -206,13 +256,16 @@ _UNSUPPORTED_METRIC_PHRASE = re.compile(
     r"|\b(?:net|offensive|defensive)\s+(?:rating|rtg)\b|\b[nod]rtg\b|\b(?:off|def)\s+rtg\b"
     r"|\b(?:pace|player\s+impact\s+estimate|pie|game\s+score|gmsc)\b"
     r"|\b(?:assist[- ]to[- ]turnover|ast/tov|a/to)(?:\s+ratio)?\b"
-    r"|\b(?:turnover|assist|rebound|offensive\s+rebound|defensive\s+rebound"
-    r"|steal|block|free\s+throw|three[- ]?point(?:er)?\s+attempt)\s+(?:rate|percentage|pct)\b"
+    r"|\b(?:turnovers?|assists?|rebounds?|offensive\s+rebounds?|defensive\s+rebounds?"
+    r"|steals?|blocks?|tov|ast|reb|oreb|dreb|stl|blk)\s+(?:rate|percentage|percent|pct)\b"
+    r"|\b(?:free[- ]?throw\s+(?:attempt\s+(?:rate|percentage|percent|pct)|rate)"
+    r"|(?:three|3)[- ]?(?:point(?:er)?|pt)\s+attempt\s+(?:rate|percentage|percent|pct))\b"
     r"|(?<!\w)(?:tov|ast|reb|oreb|dreb|orb|drb|stl|blk)%"
     r"|\b(?:ftr|3par)\b"
     r"|\bper[- ]?(?:100|48|36)\b"
     r"|\b(?:fgm|ftm|field\s+goals?\s+made|free\s+throws?\s+made|2pm|2pa|2p%"
-    r"|two[- ]?pointers?|two[- ]?point\s+(?:percentage|percent|makes|made|attempts))\b"
+    r"|(?:two|2)[- ]?(?:pointers?|pt\s+(?:shooting\s+)?(?:percentage|percent|pct|makes?|made|attempts?)"
+    r"|point\s+(?:shooting\s+)?(?:percentage|percent|pct|makes?|made|attempts?)))\b"
     r"|\b(?:raptor|epm|darko|dpm|estimated\s+plus[- ]minus|deflections?"
     r"|screen\s+assists?|contested\s+shots?|potential\s+assists?|secondary\s+assists?"
     r"|hockey\s+assists?|box[- ]?outs?|charges\s+drawn|rim\s+protection"
@@ -270,17 +323,79 @@ def _metric_alias_patterns() -> tuple[tuple[re.Pattern[str], str], ...]:
             "ast per36",
         ),
         "fg3_pct": (
+            "three point shooting percentage",
+            "three point shooting percent",
+            "three point shooting pct",
+            "three point shooting%",
+            "3 point shooting percentage",
+            "3 point shooting percent",
+            "3 point shooting pct",
+            "3 point shooting%",
+            "3pt shooting percentage",
+            "3pt shooting percent",
+            "3pt shooting pct",
+            "3pt shooting%",
+            "3p shooting percentage",
+            "3p shooting percent",
+            "3p shooting pct",
+            "3p shooting%",
+            "three pt shooting percentage",
+            "three pt shooting percent",
+            "three pt shooting pct",
             "three point percent",
+            "three point%",
             "3 point percentage",
             "3 point percent",
+            "3 point%",
             "3pt percentage",
             "3pt percent",
+            "3pt%",
             "3p%",
+            "fg3%",
         ),
-        "fg_pct": ("field goal percent", "fg%"),
-        "ft_pct": ("free throw percent", "ft%"),
-        "ts_pct": ("true shooting percent", "true shooting%", "ts%"),
+        "fg_pct": (
+            "field goal shooting percentage",
+            "field goal shooting percent",
+            "field goal shooting pct",
+            "field goal shooting%",
+            "fg shooting percentage",
+            "fg shooting percent",
+            "fg shooting pct",
+            "fg shooting%",
+            "field goal percent",
+            "field goal%",
+            "shooting percent",
+            "shooting pct",
+            "shooting%",
+            "fg%",
+        ),
+        "ft_pct": (
+            "free throw shooting percentage",
+            "free throw shooting percent",
+            "free throw shooting pct",
+            "free throw shooting%",
+            "ft shooting percentage",
+            "ft shooting percent",
+            "ft shooting pct",
+            "ft shooting%",
+            "free throw percent",
+            "free throw%",
+            "ft%",
+        ),
+        "ts_pct": (
+            "true shooting percent",
+            "true shooting pct",
+            "true shooting%",
+            "ts shooting percentage",
+            "ts%",
+        ),
         "efg_pct": (
+            "effective field goal shooting percentage",
+            "effective field goal shooting percent",
+            "effective field goal shooting pct",
+            "effective fg shooting percentage",
+            "effective fg shooting percent",
+            "effective fg shooting pct",
             "effective field goal percent",
             "effective field goal%",
             "effective fg percent",
@@ -314,27 +429,55 @@ def _metric_alias_patterns() -> tuple[tuple[re.Pattern[str], str], ...]:
     return tuple((_compile_metric_alias(raw), key) for raw, key in deduped)
 
 
-def _extract_catalog_metrics(text: str) -> tuple[str, set[str], list[str]]:
-    """Consume catalog metric aliases longest-non-overlapping first."""
-    candidates: list[tuple[int, int, str, str]] = []
+def _normalize_venue_phrases(text: str) -> str:
+    text = _AWAY_FROM_HOME.sub("away games", text)
+    return _VENUE_ONLY_OR_NOUN.sub(
+        lambda m: "home games" if (m["home"] or m["only_home"]) else "away games",
+        text,
+    )
+
+
+def _extract_metric_spans(
+    text: str,
+) -> tuple[str, set[str], list[str], list[str]]:
+    """Consume supported and unsupported metric phrases longest-non-overlapping first."""
+    candidates: list[tuple[int, int, str, str, str]] = []
     for pattern, key in _metric_alias_patterns():
         for match in pattern.finditer(text):
-            candidates.append((match.start(), match.end(), key, match.group(0)))
-    selected: list[tuple[int, int, str, str]] = []
-    for start, end, key, matched in sorted(
-        candidates, key=lambda item: (-(item[1] - item[0]), item[0])
+            candidates.append(
+                (match.start(), match.end(), "supported", key, match.group(0))
+            )
+    for match in _UNSUPPORTED_METRIC_PHRASE.finditer(text):
+        candidates.append(
+            (match.start(), match.end(), "unsupported", "", match.group(0))
+        )
+    selected: list[tuple[int, int, str, str, str]] = []
+    for start, end, kind, key, matched in sorted(
+        candidates,
+        key=lambda item: (
+            -(item[1] - item[0]),
+            item[0],
+            0 if item[2] == "unsupported" else 1,
+        ),
     ):
-        if not any(a < end and start < b for a, b, _, _ in selected):
-            selected.append((start, end, key, matched))
+        if not any(a < end and start < b for a, b, _, _, _ in selected):
+            selected.append((start, end, kind, key, matched))
     selected.sort(key=lambda item: item[0])
     remaining = text
-    for start, end, _, _ in reversed(selected):
+    for start, end, _, _, _ in reversed(selected):
         remaining = remaining[:start] + " " + remaining[end:]
     return (
         remaining,
-        {key for _, _, key, _ in selected},
-        [matched for _, _, _, matched in selected],
+        {key for _, _, kind, key, _ in selected if kind == "supported"},
+        [matched for _, _, kind, _, matched in selected if kind == "supported"],
+        [matched for _, _, kind, _, matched in selected if kind == "unsupported"],
     )
+
+
+def _extract_catalog_metrics(text: str) -> tuple[str, set[str], list[str]]:
+    """Consume catalog metric aliases longest-non-overlapping first."""
+    remaining, keys, matched, _ = _extract_metric_spans(text)
+    return remaining, keys, matched
 
 
 def _resolve_opponent_aggregation(text: str) -> str | None:
@@ -385,18 +528,16 @@ def opponent_splits_followup(
     ).strip(" ?.!")
     if not metric_text:
         return None
-    rest, keys, _ = _extract_catalog_metrics(metric_text)
+    rest, keys, _, unsupported_metrics = _extract_metric_spans(metric_text)
     rest_clean = _AGGREGATION_WORDS.sub(" ", rest)
-    unsupported_metrics = _UNSUPPORTED_METRIC_PHRASE.findall(rest_clean)
-    rest_after_unsupported = _UNSUPPORTED_METRIC_PHRASE.sub(" ", rest_clean)
     unsupported_aggs = [
         match.group(0)
         for pattern in _UNSUPPORTED_AGGREGATION_PATTERNS
-        for match in pattern.finditer(rest_after_unsupported)
+        for match in pattern.finditer(rest_clean)
     ]
     for pattern in _UNSUPPORTED_AGGREGATION_PATTERNS:
-        rest_after_unsupported = pattern.sub(" ", rest_after_unsupported)
-    leftover = re.sub(r"\b(?:and|of)\b|[\s,&/]", "", rest_after_unsupported, flags=re.I)
+        rest_clean = pattern.sub(" ", rest_clean)
+    leftover = re.sub(r"\b(?:and|of)\b|[\s,&/]", "", rest_clean, flags=re.I)
     if not leftover and (keys or unsupported_metrics or unsupported_aggs):
         prior = previous
         if (
@@ -436,10 +577,12 @@ def _reject_unsupported_predicates(
     question: str, scope_text: str, round_key: str | None
 ) -> None:
     round_stripped = _ROUND_PATTERN.sub(" ", scope_text) if round_key else scope_text
-    if _UNSUPPORTED_OPPONENT_GROUP.search(round_stripped):
+    if _UNSUPPORTED_OPPONENT_GROUP.search(
+        round_stripped
+    ) or _OPPONENT_APPEARANCE_THRESHOLD.search(round_stripped):
         raise SemanticError(
             "unsupported_scope",
-            "Opponent splits cover all opponents in the sample and cannot filter opponents by conference, division, or tier.",
+            "Opponent splits cover all opponents in the sample and cannot filter opponents by conference, division, tier, or minimum appearances.",
         )
     if _UNSUPPORTED_STAT_THRESHOLD.search(
         scope_text
@@ -469,17 +612,23 @@ def _collect_explicit_seasons(question: str, default_season: str) -> list[str]:
             ) from exc
         collected.append(validated)
 
-    for match in re.finditer(r"\b(20\d{2})[-–/](20\d{2}|\d{2})\b(?![-/–]\d)", question):
+    for match in re.finditer(
+        r"\b((?:19|20)\d{2})[-–/]((?:19|20)\d{2}|\d{2})\b(?![-/–]\d)", question
+    ):
         start, end = match.groups()
         add_season(f"{start}-{end[-2:]}")
     for match in re.finditer(
-        r"\b(20\d{2})\s+(?:playoffs?|postseason)\b"
-        r"|\b(?:playoffs?|postseason)(?:\s+(?:of|in))?\s+(20\d{2})\b(?![-/–]\d)",
+        r"\b((?:19|20)\d{2})\s+(?:playoffs?|postseason)\b"
+        r"|\b(?:playoffs?|postseason)(?:\s+(?:of|in))?\s+((?:19|20)\d{2})\b(?![-/–]\d)",
         question,
         re.I,
     ):
         year = int(match[1] or match[2])
         add_season(f"{year - 1}-{year % 100:02}")
+    if legacy_year := re.search(r"\b(19\d{2})\b(?![-/–]\d)", question):
+        raise SemanticError(
+            "unsupported_coverage", f"Season {legacy_year[1]} is unavailable"
+        )
     if re.search(r"\b(?:last|previous|prior)\s+season\b", question, re.I):
         year = int(default_season[:4]) - 1
         add_season(f"{year}-{(year + 1) % 100:02}")
@@ -491,6 +640,7 @@ def _collect_explicit_seasons(question: str, default_season: str) -> list[str]:
 def opponent_split_query(question: str, season: str) -> Query:
     """Resolve scope before starting a governed evidence read."""
     question = question.partition(_METRIC_REPLY)[0].split("\nSelected player:", 1)[0]
+    question = _SLASH_DATE.sub(r"\1-\2-\3", question)
     if _LEAGUE_REFERENCE.search(question):
         raise SemanticError(
             "unsupported_scope",
@@ -520,21 +670,39 @@ def opponent_split_query(question: str, season: str) -> Query:
             "clarification_required",
             "Choose either the regular season or the playoffs.",
         )
+    if _MULTI_SEASON.search(question):
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits cover one NBA season at a time. Choose one season, an explicit date range, or a last-N-games window.",
+        )
+    intervals = literal_date_intervals(question)
+    interval_stripped = re.sub(
+        r"(?:\bfrom\s+)?" + ISO_INTERVAL_PATTERN, " ", question, flags=re.I
+    )
+    if _UNRESOLVED_RANGE.search(interval_stripped):
+        raise SemanticError(
+            "clarification_required",
+            "Use explicit YYYY-MM-DD dates with 'from YYYY-MM-DD through YYYY-MM-DD' or 'between YYYY-MM-DD and YYYY-MM-DD'.",
+        )
     if _UNSUPPORTED_SCOPE.search(question):
         raise SemanticError(
             "unsupported_scope",
             "Choose one season or playoff round, an explicit date range, or a last-N-games window.",
         )
-    _reject_unsupported_predicates(question, scope_text, round_key)
-    normalized_scope_text = _VENUE_APPEARANCES.sub(r"\1 games", scope_text)
+    normalized_scope_text = _normalize_venue_phrases(scope_text)
+    _reject_unsupported_predicates(question, normalized_scope_text, round_key)
     home, away = venue_mentions(normalized_scope_text)
     if home and away:
         raise SemanticError(
             "unsupported_scope",
             "Opponent splits support a single home or away filter.",
         )
+    if _UNRESOLVED_VENUE.search(_RESOLVED_VENUE.sub(" ", normalized_scope_text)):
+        raise SemanticError(
+            "clarification_required",
+            "Clarify the venue filter using 'at home' or 'on the road'.",
+        )
     scope = explicit_scope(normalized_scope_text)
-    intervals = literal_date_intervals(question)
     if len(intervals) > 1:
         raise SemanticError(
             "clarification_required", "Use one explicit date range or an as-of date."
@@ -640,7 +808,7 @@ def opponent_split_query(question: str, season: str) -> Query:
         remaining_time = re.sub(pattern, " ", remaining_time, flags=re.I)
     if re.search(
         r"\b(?:this|last|past|previous|prior|preceding|most recent|next|current)\s+"
-        r"(?:[\w-]+\s+){0,2}(?:days?|weeks?|months?|years?)\b"
+        r"(?:[\w-]+\s+){0,2}(?:days?|weeks?|months?|years?|seasons?)\b"
         r"|\bweek\s+(?:of|starting|beginning)\b",
         remaining_time,
         re.I,
@@ -755,8 +923,8 @@ def parse_opponent_splits(
             "Selected player does not match the opponent splits question.",
         )
     query = query or opponent_split_query(canonical_base, season)
-    filter_text = _VENUE_APPEARANCES.sub(
-        r"\1 games", re.sub(COLLECTIVE_MATCHUP, " ", canonical_base, flags=re.I)
+    filter_text = _normalize_venue_phrases(
+        re.sub(COLLECTIVE_MATCHUP, " ", canonical_base, flags=re.I)
     )
     filters = extract_game_filters(filter_text, [player]).query_fields
     # Uppercase stat shorthand can resemble a team code. MIN is a team code.
@@ -781,8 +949,8 @@ def parse_opponent_splits(
     reply_agg = _resolve_opponent_aggregation(metric_reply) if metric_reply else None
     base_agg = _resolve_opponent_aggregation(masked)
     aggregation = reply_agg or base_agg or "average"
-    remaining_metrics, keys, _ = _extract_catalog_metrics(metric_source)
-    if _UNSUPPORTED_METRIC_PHRASE.search(remaining_metrics):
+    _, keys, _, unsupported_metrics = _extract_metric_spans(metric_source)
+    if unsupported_metrics:
         raise SemanticError(
             "unsupported_scope",
             "Opponent splits support governed box-score, shooting, and per-36 metrics only.",
