@@ -142,10 +142,10 @@ def overview_scope(
         subgame_scope_message,
     )
 
-    if message := subgame_scope_message(question):
-        raise SemanticError("unsupported_scope", message)
     if message := round_scope_message(question, round_coverage=bool(playoff_round)):
         raise SemanticError("unsupported_scope", message)
+    if message := subgame_scope_message(question):
+        raise SemanticError("unsupported_coverage", message)
     if not re.search(MONTH_PATTERN, question, re.I):
         question = re.sub(
             r"\b((?:19|20)\d{2})\s+(playoffs?|postseason)\b",

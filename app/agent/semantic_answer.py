@@ -1272,6 +1272,12 @@ class SemanticAsk:
             (turn.publication_stat or turn.playoff_round)
             and turn.intent["kind"] == "quantity_aggregation"
         ):
+            if (
+                turn.intent["kind"] == "subgame_scope"
+                and semantic_shape(turn.question) == "overview"
+                and not round_scope_message(turn.question)
+            ):
+                turn.intent["status"] = "unsupported_coverage"
             raise SemanticError(
                 turn.intent["status"], turn.intent["message"] or "Unsupported question"
             )

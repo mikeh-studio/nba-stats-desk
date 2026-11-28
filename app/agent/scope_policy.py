@@ -225,7 +225,7 @@ _ROUND_PATTERN = re.compile(
 _NON_PLAYOFF_EVENT = re.compile(
     r"\b(?:nba[ -]cup|in[ -]season[ -]tournament|"
     r"g[ -]?league|d[ -]?league|wnba|ncaa|euro[ -]?league|olympics?|"
-    r"summer[ -]?league|fiba|big[ -]?3|play[ -]?in(?:[ -]+tournament)?|"
+    r"summer[ -]?league|fiba|big[ -]?3|play-?in|play in tournament|(?:the|nba) play in|"
     r"pre[ -]?season|all[ -]?star)\b",
     re.I,
 )
@@ -455,7 +455,7 @@ def question_scope(
         )
     if message := subgame_scope_message(question):
         return dict(
-            kind="unavailable_grain",
+            kind="subgame_scope",
             status="unsupported_scope",
             message=message,
         )
