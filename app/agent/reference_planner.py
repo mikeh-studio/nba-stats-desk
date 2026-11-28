@@ -112,6 +112,7 @@ class ReferenceProvider:
             scope_fields = {f.name for f in fields(api.Scope)}
             for specification in periods["queries"]:
                 query = dict(specification)
+                query.pop("playoff_round", None)
                 scope = api.Scope(
                     **{key: query.pop(key) for key in scope_fields if key in query}
                 )

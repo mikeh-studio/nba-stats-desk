@@ -222,7 +222,20 @@ _ROUND_PATTERN = re.compile(
     + r")\b",
     re.I,
 )
-_NON_PLAYOFF_EVENT = re.compile(r"\b(?:nba[ -]cup|in[ -]season[ -]tournament)\b", re.I)
+_NON_PLAYOFF_EVENT = re.compile(
+    r"\b(?:nba[ -]cup|in[ -]season[ -]tournament|"
+    r"g[ -]?league|d[ -]?league|wnba|ncaa|euro[ -]?league|olympics?|"
+    r"summer[ -]?league|fiba|big[ -]?3|play[ -]?in(?:[ -]+tournament)?|"
+    r"pre[ -]?season|all[ -]?star)\b",
+    re.I,
+)
+_SUBGAME_SCOPE = re.compile(
+    r"\b(?:q[1-4]|(?:(?:first|second|third|fourth|1st|2nd|3rd|4th|final|last|opening|early|late)[ -]+)?(?:quarters?|qtrs?)|"
+    r"(?:first|second|1st|2nd)[ -]+half|halves|halftime|half[ -]time|"
+    r"(?:first|second|third|fourth|1st|2nd|3rd|4th)[ -]+period|periods?[ -]+[1-4]|"
+    r"overtime|\d+ot|(?:in|during|for|only)[ -]+ot)\b",
+    re.I,
+)
 _SERIES_GAME = re.compile(
     r"\b(?:games?[ -](?:nos?\.\s+)?(?:#?\d+|one|two|three|four|five|six|seven)|"
     r"(?:first|second|third|fourth|fifth|sixth|seventh|final|last|opening|"
@@ -233,13 +246,13 @@ _SERIES_GAME = re.compile(
     re.I,
 )
 _QUALIFIED_ROUND_PREFIX = re.compile(
-    r"(?:\bnon[-–\s]+(?:(?:the|any|an?)\s+)?(?:20\d{2}(?:[-–/](?:20)?\d{2})?[-–\s]+)?|"
+    r"(?:\bnon[-–\s]+(?:(?:the|any|an?)\s+)?(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?[-–\s]+)?|"
     r"\b(?:before|after|through|until|since|prior to|leading up to|up to|"
     r"except(?: for)?|excluding|without(?: counting| including)?|"
     r"outside(?: of)?|other than|apart from|aside from|besides|barring|minus|"
     r"not(?:\s+(?:counting|including|just|only))?)\s+"
     r"(?:(?:playoff|postseason)\s+)?(?:games?\s+)?(?:(?:for|in|during|from|of)\s+)?(?:(?:the|any|an?|this|that|those|these)\s+)?"
-    r"(?:20\d{2}(?:[-–/](?:20)?\d{2})?\s+)?)$",
+    r"(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?\s+)?)$",
     re.I,
 )
 _QUALIFIED_ROUND_SUFFIX = re.compile(
@@ -252,11 +265,11 @@ _ROUND_OR_PHASE = (
     + r"|playoffs?|postseason)"
 )
 _ROUND_YEAR = re.compile(
-    r"(?<![-–/])\b(?P<leading>20\d{2})(?=\s+(?:nba\s+)?"
+    r"(?<![-–/])\b(?P<leading>(?:19|20)\d{2})(?=\)?\s+(?:nba\s+)?"
     + _ROUND_OR_PHASE
     + r"\b)|(?P<prefix>\b"
     + _ROUND_OR_PHASE
-    + r"(?:\s+(?:of|in)|,)?\s+)(?P<trailing>20\d{2})\b(?![-–/]\d)",
+    + r"(?:\s+(?:of|in)|,)?\s+\(?)(?P<trailing>(?:19|20)\d{2})\b(?![-–/]\d)",
     re.I,
 )
 
@@ -274,6 +287,7 @@ def requested_playoff_round(question: str) -> str | None:
         len(matches) != 1
         or _CONFERENCE_QUALIFIED_ROUND.search(question)
         or _NON_PLAYOFF_EVENT.search(question)
+        or _SUBGAME_SCOPE.search(question)
         or _SERIES_GAME.search(question)
     ):
         return None
@@ -301,13 +315,13 @@ def playoff_round_planning_question(question: str, *, season: str | None = None)
     if not requested_playoff_round(question):
         return question
     wording = re.sub(
-        r"\bplayoffs (?:of (?:the )?)?((?:20\d{2}-\d{2} )?playoffs?)\b",
+        r"\bplayoffs (?:of (?:the )?)?((?:(?:19|20)\d{2}-\d{2} )?playoffs?)\b",
         r"\1",
         _ROUND_PATTERN.sub("playoffs", question),
         flags=re.I,
     )
     wording = re.sub(
-        r"\bplayoffs(?:\s+(?:of|in)|,)?\s+(20\d{2}-\d{2})\b",
+        r"\bplayoffs(?:\s+(?:of|in)|,)?\s+\(?((?:19|20)\d{2}-\d{2})\)?",
         r"\1 playoffs",
         wording,
         flags=re.I,
@@ -318,7 +332,7 @@ def playoff_round_planning_question(question: str, *, season: str | None = None)
         wording,
         flags=re.I,
     )
-    if season and not re.search(r"\b20\d{2}\b", wording):
+    if season and not re.search(r"\b(?:19|20)\d{2}\b", wording):
         wording = re.sub(
             r"(?<!\()\bplayoffs\b", f"{season} playoffs", wording, count=1, flags=re.I
         )
@@ -327,6 +341,15 @@ def playoff_round_planning_question(question: str, *, season: str | None = None)
     ):
         wording = f"{match[1]} total points {match[2]}"
     return wording
+
+
+def subgame_scope_message(question: str) -> str | None:
+    if _SUBGAME_SCOPE.search(question):
+        return (
+            "Quarter, half, period, and overtime statistics are not supported by the connected "
+            "whole-game box scores. Ask for a whole-game or full-period statistic instead."
+        )
+    return None
 
 
 def round_scope_message(question: str, *, round_coverage: bool = False) -> str | None:
@@ -429,6 +452,12 @@ def question_scope(
             kind="negated_scope",
             status="clarification_required",
             message="Please state the intended aggregation and season phase affirmatively.",
+        )
+    if message := subgame_scope_message(question):
+        return dict(
+            kind="unavailable_grain",
+            status="unsupported_scope",
+            message=message,
         )
     if re.search(
         r"\bhow many (?:points|pts)\b", question, re.I

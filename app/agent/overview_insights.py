@@ -69,6 +69,13 @@ def peer_context(metric, phase):
 
 
 def baseline_label(scope):
+    if scope.get("baseline_playoff_round"):
+        from app.agent.semantics import PLAYOFF_ROUND_LABELS
+
+        return (
+            scope.get("comparison_label")
+            or PLAYOFF_ROUND_LABELS[scope["baseline_playoff_round"]]
+        )
     if scope.get("previous_start"):
         phases = " + ".join(scope.get("previous_phases", scope.get("phases", [])))
         return f"{phases.lower()} from {scope['previous_start']} through {scope['previous_end']}"

@@ -147,6 +147,14 @@ def test_round_year_normalization_and_planning_rewrite():
         normalize_playoff_round_year("points in the NBA Finals 2024")
         == "points in the NBA Finals 2023-24"
     )
+    assert (
+        normalize_playoff_round_year("points in the NBA Finals (2024)")
+        == "points in the NBA Finals (2023-24)"
+    )
+    assert (
+        normalize_playoff_round_year("points in the 1998 NBA Finals")
+        == "points in the 1997-98 NBA Finals"
+    )
     conference_q = "How many total points did Luka Doncic score in the 2024 Western Conference Finals?"
     assert requested_playoff_round(conference_q) is None
     assert round_scope_message(conference_q) is not None
@@ -436,6 +444,11 @@ def test_dispatch_withholds_unbacked_round_and_runs_participation_first():
         ),
         (
             "How many total points did Regular Player score in the NBA Finals 2024?",
+            "0042300401",
+            "nba_finals",
+        ),
+        (
+            "How many total points did Regular Player score in the NBA Finals (2024)?",
             "0042300401",
             "nba_finals",
         ),
@@ -1093,3 +1106,174 @@ def test_optional_previous_period_round_error_does_not_suppress_primary_overview
     assert pts["value"] == 24
     assert pts["change"] is None
     assert any("optional comparison is unavailable" in a for a in res["assumptions"])
+
+
+def test_1998_nba_finals_returns_unsupported_coverage_without_fallback():
+    ask, model, warehouse = ask_fixture(round_rows())
+    result = ask.answer(
+        "How many total points did Regular Player score in the 1998 NBA Finals?"
+    )
+    assert result["status"] == "unsupported_coverage"
+    assert not result["semantic_evidence"]
+    assert warehouse.calls == []
+    assert not model.calls
+
+
+def test_finals_vs_playoffs_comparison_binds_only_finals_operand():
+    from app.agent.semantic_answer import normalize_metric_plan_scope
+
+    ask, model, _ = ask_fixture(round_rows())
+
+    overview_playoffs_first = ask.answer(
+        "How did Regular Player perform in the playoffs compared with the 2024-25 NBA Finals?"
+    )
+    assert overview_playoffs_first["status"] == "ok", overview_playoffs_first["answer"]
+    pts_pf = next(
+        m
+        for m in overview_playoffs_first["semantic_evidence"]["metrics"]
+        if m["key"] == "pts"
+    )
+    assert pts_pf["value"] == pytest.approx(52.4)
+    assert pts_pf["previous"]["value"] == pytest.approx(99.0)
+    assert pts_pf["change"] == pytest.approx(52.4 - 99.0)
+
+    overview_finals_first = ask.answer(
+        "How did Regular Player perform in the 2024-25 NBA Finals compared with the playoffs?"
+    )
+    assert overview_finals_first["status"] == "ok", overview_finals_first["answer"]
+    pts_ff = next(
+        m
+        for m in overview_finals_first["semantic_evidence"]["metrics"]
+        if m["key"] == "pts"
+    )
+    assert pts_ff["value"] == pytest.approx(99.0)
+    assert pts_ff["previous"]["value"] == pytest.approx(52.4)
+    assert pts_ff["change"] == pytest.approx(99.0 - 52.4)
+
+    metrics_finals_vs_playoffs = ask.answer(
+        "Regular Player points per game in the 2025 NBA Finals vs playoffs"
+    )
+    assert metrics_finals_vs_playoffs["status"] == "ok", metrics_finals_vs_playoffs[
+        "answer"
+    ]
+    ev_fp = metrics_finals_vs_playoffs["semantic_evidence"]
+    assert ev_fp["current"]["scope"]["playoff_round"] == "nba_finals"
+    assert ev_fp["baseline"]["scope"]["playoff_round"] is None
+    assert ev_fp["current"]["rows"][0]["value"] == pytest.approx(99.0)
+    assert ev_fp["baseline"]["rows"][0]["value"] == pytest.approx(52.4)
+    assert ev_fp["difference"] == pytest.approx(46.6)
+    assert not model.calls
+
+    metrics_playoffs_vs_finals = ask.answer(
+        "Regular Player points per game in the playoffs compared with the 2024-25 NBA Finals"
+    )
+    assert metrics_playoffs_vs_finals["status"] == "ok", metrics_playoffs_vs_finals[
+        "answer"
+    ]
+    ev_pf = metrics_playoffs_vs_finals["semantic_evidence"]
+    assert ev_pf["current"]["scope"]["playoff_round"] is None
+    assert ev_pf["baseline"]["scope"]["playoff_round"] == "nba_finals"
+    assert ev_pf["current"]["rows"][0]["value"] == pytest.approx(52.4)
+    assert ev_pf["baseline"]["rows"][0]["value"] == pytest.approx(99.0)
+    assert ev_pf["difference"] == pytest.approx(-46.6)
+
+    raw_plan = {
+        "status": "compare",
+        "queries": [
+            {
+                "metric": "pts",
+                "season": "2024-25",
+                "season_type": "Playoffs",
+                "aggregation": "average",
+                "operation": "summary",
+                "player_name": "Regular Player",
+            },
+            {
+                "metric": "pts",
+                "season": "2024-25",
+                "season_type": "Playoffs",
+                "aggregation": "average",
+                "operation": "summary",
+                "player_name": "Regular Player",
+            },
+        ],
+    }
+    normalized = normalize_metric_plan_scope(
+        raw_plan,
+        metric_window={},
+        appearances=[],
+        question="2025 NBA Finals vs playoffs",
+        time_assumptions=[],
+        window_seasons=lambda s, e: ["2024-25"],
+        inherited={},
+        playoff_round="nba_finals",
+    )
+    assert normalized["queries"][0].get("playoff_round") == "nba_finals"
+    assert normalized["queries"][1].get("playoff_round") is None
+
+    preserved = normalize_metric_plan_scope(
+        {
+            "status": "compare",
+            "queries": [
+                {
+                    "metric": "pts",
+                    "season": "2024-25",
+                    "season_type": "Regular Season",
+                    "aggregation": "average",
+                    "operation": "summary",
+                    "player_name": "Regular Player",
+                },
+                {
+                    "metric": "pts",
+                    "season": "2024-25",
+                    "season_type": "Playoffs",
+                    "aggregation": "average",
+                    "operation": "summary",
+                    "player_name": "Regular Player",
+                    "playoff_round": "nba_finals",
+                },
+            ],
+        },
+        metric_window={},
+        appearances=[],
+        question="Regular Player points per game in regular season vs 2025 NBA Finals",
+        time_assumptions=[],
+        window_seasons=lambda s, e: ["2024-25"],
+        inherited={},
+        playoff_round="nba_finals",
+    )
+    assert preserved["queries"][0]["season_type"] == "Regular Season"
+    assert preserved["queries"][0].get("playoff_round") is None
+    assert preserved["queries"][1].get("playoff_round") == "nba_finals"
+
+    with pytest.raises(SemanticError):
+        normalize_metric_plan_scope(
+            {
+                "status": "compare",
+                "queries": [
+                    {
+                        "metric": "pts",
+                        "season": "2024-25",
+                        "season_type": "Playoffs",
+                        "aggregation": "average",
+                        "operation": "summary",
+                        "player_name": "Regular Player",
+                    },
+                    {
+                        "metric": "pts",
+                        "season": "2024-25",
+                        "season_type": "Playoffs",
+                        "aggregation": "average",
+                        "operation": "summary",
+                        "player_name": "Regular Player",
+                    },
+                ],
+            },
+            metric_window={},
+            appearances=[],
+            question="Regular Player points per game in the 2025 NBA Finals",
+            time_assumptions=[],
+            window_seasons=lambda s, e: ["2024-25"],
+            inherited={},
+            playoff_round="nba_finals",
+        )

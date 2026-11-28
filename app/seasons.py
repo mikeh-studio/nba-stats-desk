@@ -15,7 +15,9 @@ if TYPE_CHECKING:
 
 SEASON_FILE = Path(__file__).resolve().parents[1] / "season.yml"
 FIRST_ARCHIVE_SEASON = "2023-24"
-SEASON_TOKEN_RE = re.compile(r"\b(20\d{2})[-–/](20\d{2}|\d{2})\b(?![-/–]\d)")
+SEASON_TOKEN_RE = re.compile(
+    r"\b((?:19|20)\d{2})[-–/]((?:19|20)\d{2}|\d{2})\b(?![-/–]\d)"
+)
 
 
 def _season_label(start_year: int) -> str:

@@ -35,10 +35,17 @@ def requested_group(question):
     return groups[0] if len(groups) == 1 else None
 
 
+_BASELINE_ROUND_PHASE = (
+    r"(?:(?:19|20)\d{2}(?:[-–/](?:(?:19|20)?\d{2}))?\s+)?"
+    r"(?:(?:first|1st|opening)[ -](?:playoff[ -])?round|conference semi[ -]?finals|"
+    r"conference semis|(?:second|2nd)[ -](?:playoff[ -])?round|conference finals|"
+    r"(?:third|3rd)[ -](?:playoff[ -])?round|nba finals|finals|"
+    r"regular[ -]season|playoffs?|postseason)"
+)
 BASELINE_CLAUSE = re.compile(
     r"\b(?:(?:compared?|comparing)\s+(?:with|to|against)|v(?:s\.?|ersus))\s+"
     r"(?:(?:his|the|their)\s+)?"
-    r"(?P<period>(?:prior|previous|last)\s+season|regular[ -]season|playoffs?|postseason)\b"
+    r"(?P<period>(?:prior|previous|last)\s+season|" + _BASELINE_ROUND_PHASE + r")\b"
     r"(?:['’]s)?(?:\s+(?P<phase>regular[ -]season|playoffs?|postseason)\b)?",
     re.I,
 )
@@ -59,32 +66,47 @@ def _baseline_phases(baseline):
         return None
     period = baseline["period"].lower().replace("-", " ")
     phase = (baseline["phase"] or "").lower().replace("-", " ")
-    if period == "regular season" or phase == "regular season":
+    if "regular season" in period or phase == "regular season":
         return ["Regular Season"]
-    if period in ("playoff", "playoffs", "postseason") or phase in (
-        "playoff",
-        "playoffs",
-        "postseason",
+    if (
+        "playoff" in period
+        or "postseason" in period
+        or "finals" in period
+        or "round" in period
+        or "semis" in period
+        or phase in ("playoff", "playoffs", "postseason")
     ):
         return ["Playoffs"]
     return None
 
 
 def comparison_intent(question):
+    from app.agent.scope_policy import requested_playoff_round
+    from app.seasons import extract_seasons
+
     group = requested_group(question)
     baseline = BASELINE_CLAUSE.search(question)
     period = baseline["period"].lower().replace("-", " ") if baseline else ""
+    baseline_round = requested_playoff_round(baseline["period"]) if baseline else None
+    baseline_seasons = []
+    if baseline:
+        try:
+            baseline_seasons = extract_seasons(baseline["period"])
+        except ValueError:
+            baseline_seasons = []
     return {
         "requested_group": group,
         "requested_groups": requested_groups(question),
         "baseline_period": (
-            "same_season"
-            if period in ("regular season", "playoff", "playoffs", "postseason")
-            else "prior_season"
+            "prior_season"
+            if re.fullmatch(r"(?:prior|previous|last)\s+season", period)
+            else "same_season"
         )
         if baseline
         else None,
         "baseline_phases": _baseline_phases(baseline),
+        "baseline_playoff_round": baseline_round,
+        "baseline_season": baseline_seasons[0] if len(baseline_seasons) == 1 else None,
         "baseline_requested": bool(
             baseline
             or re.search(

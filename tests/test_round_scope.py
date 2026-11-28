@@ -84,6 +84,17 @@ def test_round_scope_withholds_before_warehouse_or_planner(scope):
         "in a do-or-die first round game",
         "in a closeout game",
         "in an elimination game",
+        "in Q4 of the 2025 NBA Finals",
+        "in the 4th quarter of the Finals",
+        "in the second half of the 2025 NBA Finals",
+        "in the 2025 G League Finals",
+        "in the WNBA Finals",
+        "in the NCAA Finals",
+        "in the EuroLeague Finals",
+        "in the Olympic Finals",
+        "in the Summer League Finals",
+        "in the FIBA Finals",
+        "in the BIG3 Finals",
     ],
 )
 def test_qualified_round_is_refused_on_governed_route(scope):
@@ -118,6 +129,41 @@ def test_qualified_round_is_refused_on_governed_route(scope):
 def test_round_guard_does_not_match_unrelated_final_usage(question):
     assert requested_playoff_round(question) is None
     assert round_scope_message(question) is None
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How many total points did Regular Player score in Q4 of the 2025 NBA Finals?",
+        "How many total points did Regular Player score in the second half of the 2025 NBA Finals?",
+        "How many total points did Regular Player score in the first half?",
+        "How many total points did Regular Player score in overtime?",
+        "How many total points did Regular Player score in the 2025 G League Finals?",
+        "How many total points did Regular Player score in the WNBA Finals?",
+    ],
+)
+def test_subgame_and_non_nba_finals_withhold_before_warehouse_or_planner(question):
+    def fail(*args, **kwargs):
+        pytest.fail(
+            "Unsupported sub-game or non-NBA scope must not load evidence or plan"
+        )
+
+    config = settings()
+    warehouse = SimpleNamespace(load=fail)
+    planner = SimpleNamespace(responses=SimpleNamespace(create=fail))
+    agent = StatsAgent(
+        config, SimpleNamespace(), client=planner, semantic_warehouse=warehouse
+    )
+    assert requested_playoff_round(question) is None
+    agent_result = agent.answer(question)
+    assert agent_result["status"] == "unsupported_scope"
+    assert not agent_result["semantic_evidence"]
+
+    semantic_result = SemanticAsk(config, warehouse).answer(
+        question, client=None, model="none"
+    )
+    assert semantic_result["status"] == "unsupported_scope"
+    assert not semantic_result["semantic_evidence"]
 
 
 def test_final_scope_json_and_stream_endpoints():
