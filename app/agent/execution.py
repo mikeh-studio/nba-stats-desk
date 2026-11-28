@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from functools import wraps
@@ -537,51 +537,42 @@ def acquire_timed_lock(lock, name, seconds=120):
 
 
 @contextmanager
-def optional_shadow_budget(seconds=15.0, *, acquire_warehouse=True):
-    """Isolate optional execution while accounting all spend in the request cap."""
+def optional_shadow_budget(
+    seconds=15.0, *, acquire_warehouse=True, acquire_bundle=False
+):
+    """Bound queueing and candidate work while accounting spend in the request cap."""
     policy = CURRENT.get()
     if policy is None:
         yield
         return
-    if policy.optional:
-        allowance = min(seconds, policy.remaining())
-        deadline = min(policy.deadline, monotonic() + allowance)
-    else:
-        allowance = min(seconds, policy.remaining() - 1.0)
-        if allowance <= 0:
-            raise ExecutionFailure("optional_timeout")
-        deadline = monotonic() + allowance
-    if not acquire_warehouse:
-        token = CURRENT.set(
-            replace(policy, deadline=deadline, retry_limit=0, optional=True)
-        )
-        try:
-            yield
-        finally:
-            CURRENT.reset(token)
-        return
-    acquire_timed_lock(policy.warehouse_lock, "warehouse_queue_wait")
-    child = None
-    token = None
+    reserve = 0.0 if policy.optional else 1.0
+    if policy.remaining() <= reserve:
+        raise ExecutionFailure("optional_timeout")
+    child = replace(
+        policy,
+        deadline=min(policy.deadline - reserve, monotonic() + seconds),
+        retry_limit=0,
+        optional=True,
+    )
+    token = CURRENT.set(child)
     try:
-        limit = warehouse_budget(50_000_000)
-        if deadline <= monotonic():
-            raise ExecutionFailure("optional_timeout")
-        child = replace(
-            policy,
-            deadline=deadline,
-            retry_limit=0,
-            optional=True,
-            warehouse_ledger={"bytes_used": 0},
-            warehouse_byte_limit=limit,
-        )
-        token = CURRENT.set(child)
-        yield
+        with ExitStack() as locks:
+            # Bundle selection can open a warehouse reader. All shadow callers
+            # that participate in this selection take the locks in that order.
+            if acquire_bundle:
+                acquire_timed_lock(child.bundle_lock, "serving_reference_wait")
+                locks.callback(child.bundle_lock.release)
+            if acquire_warehouse:
+                acquire_timed_lock(child.warehouse_lock, "warehouse_queue_wait")
+                locks.callback(child.warehouse_lock.release)
+                child.warehouse_byte_limit = warehouse_budget(50_000_000)
+                child.warehouse_ledger = {"bytes_used": 0}
+            try:
+                yield
+            finally:
+                if acquire_warehouse:
+                    policy.warehouse_ledger["bytes_used"] += child.warehouse_ledger[
+                        "bytes_used"
+                    ]
     finally:
-        if token is not None:
-            CURRENT.reset(token)
-        if child is not None:
-            policy.warehouse_ledger["bytes_used"] += child.warehouse_ledger[
-                "bytes_used"
-            ]
-        policy.warehouse_lock.release()
+        CURRENT.reset(token)
