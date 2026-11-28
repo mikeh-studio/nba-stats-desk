@@ -76,9 +76,43 @@ round_teams as (
     union distinct
     select season, round_number, away_team_abbr as team_abbr from round_games
 ),
+unclassified_playoff_teams as (
+    select season, home_team_abbr as team_abbr
+    from {{ ref('dim_game') }}
+    where season_type = 'Playoffs'
+      and (
+          playoff_round_number is null
+          or playoff_round_number not between 1 and 4
+          or playoff_round_name is null
+          or playoff_round_name != {{ playoff_round_name('playoff_round_number') }}
+      )
+    union distinct
+    select season, away_team_abbr as team_abbr
+    from {{ ref('dim_game') }}
+    where season_type = 'Playoffs'
+      and (
+          playoff_round_number is null
+          or playoff_round_number not between 1 and 4
+          or playoff_round_name is null
+          or playoff_round_name != {{ playoff_round_name('playoff_round_number') }}
+      )
+    union distinct
+    select p.season, p.team_abbr
+    from {{ ref('fct_player_game_stats') }} p
+    left join round_games g
+        on p.season = g.season and p.game_id = g.game_id
+    where p.season_type = 'Playoffs'
+      and g.game_id is null
+),
 round_team_counts as (
-    select season, round_number, count(*) as team_count
-    from round_teams
+    select
+        rt.season,
+        rt.round_number,
+        count(*) as team_count,
+        count(u.team_abbr) as unclassified_team_count
+    from round_teams rt
+    left join unclassified_playoff_teams u
+        on rt.season = u.season and rt.team_abbr = u.team_abbr
     group by 1, 2
 ),
 completed_rounds as (
@@ -88,9 +122,10 @@ completed_rounds as (
         on s.season = r.season
     join round_team_counts t
         on s.season = t.season and s.round_number = t.round_number
-    group by 1, 2, 3, t.team_count
+    group by 1, 2, 3, t.team_count, t.unclassified_team_count
     having count(*) = power(2, 4 - s.round_number)
        and t.team_count = 2 * count(*)
+       and t.unclassified_team_count = 0
        and sum(case when s.games between 4 and 7
             and s.team_a != s.team_b
             and s.games = s.dated_games
@@ -105,20 +140,50 @@ completed_rounds as (
             then 1 else 0 end) = count(*)
 ),
 invalid_nonparticipants as (
-    select distinct p.season, p.event_name, p.player_id
+    select p.season, p.event_name, p.player_id
     from participation p
     left join regular_seasons r
         on p.season = r.season
     left join completed_rounds c
         on p.season = c.season and p.event_name = c.event_name
-    left join {{ ref('dim_game') }} g
-        on p.season = g.season and p.event_name = g.playoff_round_name
-        and g.season_type = 'Playoffs'
     left join {{ ref('fct_player_game_stats') }} a
-        on g.season = a.season and g.game_id = a.game_id and p.player_id = a.player_id
+        on p.season = a.season
+       and p.player_id = a.player_id
+       and a.season_type in ('Regular Season', 'Playoffs')
+    left join round_games rg
+        on a.season = rg.season and a.game_id = rg.game_id
+    left join round_teams rt
+        on c.season = rt.season
+       and c.round_number = rt.round_number
+       and a.team_abbr = rt.team_abbr
     where not p.participated
-      and (a.player_id is not null or p.is_verified_complete_cohort is not true
-            or r.season is null or c.event_name is null)
+    group by
+        p.season,
+        p.event_name,
+        p.player_id,
+        p.is_verified_complete_cohort,
+        r.season,
+        c.event_name,
+        c.round_number
+    having p.is_verified_complete_cohort is not true
+        or r.season is null
+        or c.event_name is null
+        or sum(
+            case
+                when a.season_type = 'Regular Season'
+                  or rg.round_number < c.round_number
+                then 1 else 0
+            end
+        ) = 0
+        or sum(
+            case
+                when rt.team_abbr is not null
+                  or (a.player_id is not null and (a.team_abbr is null or trim(a.team_abbr) = ''))
+                  or rg.round_number = c.round_number
+                  or (a.season_type = 'Playoffs' and rg.round_number is null)
+                then 1 else 0
+            end
+        ) > 0
 ),
 invalid_participants as (
     select distinct p.season, p.event_name, p.player_id

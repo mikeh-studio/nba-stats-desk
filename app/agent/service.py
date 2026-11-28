@@ -252,6 +252,30 @@ class StatsAgent:
             },
         )
 
+    def _effective_source_policy(self) -> Any:
+        from app.agent.source_policy import resolve_source_policies
+
+        candidates = [getattr(self.repo, "source_policy", None)]
+        seen: set[int] = set()
+        queue = [
+            getattr(self, "semantic_warehouse", None),
+            getattr(self, "warehouse", None),
+            getattr(getattr(self, "semantic_agent", None), "warehouse", None),
+        ]
+        while queue:
+            node = queue.pop(0)
+            if node is None or id(node) in seen:
+                continue
+            seen.add(id(node))
+            policy = getattr(node, "source_policy", None)
+            if policy is not None:
+                candidates.append(policy)
+            for attr in ("source", "facts", "historical"):
+                child = getattr(node, attr, None)
+                if child is not None and id(child) not in seen:
+                    queue.append(child)
+        return resolve_source_policies(*candidates)
+
     @governed_request
     def answer(
         self,
@@ -432,7 +456,7 @@ class StatsAgent:
                 cleaned_question,
                 self.settings.season,
                 conversation_id,
-                source_policy=getattr(self.repo, "source_policy", None),
+                source_policy=self._effective_source_policy(),
             )
             if participation is not None and not publication_id:
                 if routing is not None:

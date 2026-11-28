@@ -833,3 +833,449 @@ def test_supported_round_spans_and_metric_aliases_precede_modifier_checks(
 def test_conference_qualified_round_deferred_to_scope_refusal(question, number):
     evidence = completed_evidence(number)
     assert answer_known_nonparticipation(question, SEASON, evidence=evidence) is None
+
+
+def test_curated_shortcut_uses_warehouse_source_policy_and_rejects_conflicts():
+    from app.agent.espn_dev_source import RetainedReviewSource
+    from app.agent.semantic_serving import SemanticWarehouse
+    from app.agent.semantic_source import ScopedSemanticSource
+    from app.agent.semantics import SemanticError
+    from app.agent.source_policy import SourcePolicy
+    from tests.test_scoped_source_policy import RELATION, CapturingClient
+
+    evidence = completed_evidence()
+    rows_2025 = [
+        {
+            **r,
+            "season": "2025-26",
+            "game_date": r["game_date"].replace("2025-", "2026-"),
+            "game_id": r["game_id"].replace("00424", "00425"),
+        }
+        for r in evidence.rows
+    ]
+    policy = SourcePolicy(
+        relations=(("2025-26", RELATION),),
+        phases=(REGULAR, PLAYOFFS),
+        snapshot_at="2026-06-30T12:00:00+00:00",
+        allowed_player_ids=frozenset({1}),
+        source_mode="retained_local_review",
+    )
+    source = RetainedReviewSource(
+        CapturingClient(rows=rows_2025),
+        project="test-project",
+        source_policy=policy,
+        max_rows=policy.max_rows,
+        maximum_bytes_billed=policy.maximum_bytes_billed,
+    )
+    warehouse = SemanticWarehouse(ScopedSemanticSource(source, policy.phases))
+    agent, model, _ = ask_fixture(rows_2025)
+    agent.semantic_agent.warehouse = warehouse
+
+    # Curry (201939) is outside the warehouse allowlist even though repo.source_policy is None.
+    denied = agent.answer(
+        "How many points did Stephen Curry score in the 2025-26 NBA Finals?"
+    )
+    assert denied["status"] == "not_found"
+    assert not model.calls
+
+    # Conflicting repo and warehouse policies must be rejected before curated lookup.
+    agent.repo.source_policy = replace(policy, allowed_player_ids=frozenset({201939}))
+    with pytest.raises(SemanticError) as exc:
+        agent.answer(
+            "How many points did Stephen Curry score in the 2025-26 NBA Finals?"
+        )
+    assert exc.value.code == "source_policy_denied"
+
+
+def test_source_policy_intersects_explicit_roster_and_checks_season_and_phase():
+    from app.agent.source_policy import SourcePolicy
+    from tests.test_scoped_source_policy import RELATION
+
+    [catalog] = load_participation_catalog()
+    evidence = completed_evidence()
+    [record] = derive_nonparticipation_records(evidence)
+    curry_roster = [
+        {"player_id": catalog["player_id"], "player_name": catalog["player_name"]},
+        {"player_id": 1, "player_name": "Avery Finch"},
+    ]
+
+    # Explicit roster cannot override policy.allowed_player_ids.
+    disallowed_id_policy = SourcePolicy(
+        relations=((SEASON, RELATION), ("2025-26", RELATION)),
+        phases=(REGULAR, PLAYOFFS),
+        snapshot_at="2026-06-30T12:00:00+00:00",
+        allowed_player_ids=frozenset({2}),
+        source_mode="retained_local_review",
+    )
+    assert (
+        answer_known_nonparticipation(
+            "Did Stephen Curry play in the 2025-26 NBA Finals?",
+            "2025-26",
+            players=curry_roster,
+            source_policy=disallowed_id_policy,
+        )
+        is None
+    )
+    assert (
+        answer_known_nonparticipation(
+            f"Did Avery Finch play in the {SEASON} NBA Finals?",
+            SEASON,
+            players=curry_roster,
+            programmatic_records=[record],
+            source_policy=disallowed_id_policy,
+        )
+        is None
+    )
+
+    # Disallowed season or disallowed Playoffs phase fails before curated and programmatic lookup.
+    wrong_season_policy = replace(
+        disallowed_id_policy,
+        relations=(("2023-24", RELATION),),
+        allowed_player_ids=frozenset({catalog["player_id"], 1}),
+    )
+    regular_only_policy = replace(
+        disallowed_id_policy,
+        phases=(REGULAR,),
+        allowed_player_ids=frozenset({catalog["player_id"], 1}),
+    )
+    for bad_policy in (wrong_season_policy, regular_only_policy):
+        assert (
+            answer_known_nonparticipation(
+                "Did Stephen Curry play in the 2025-26 NBA Finals?",
+                "2025-26",
+                source_policy=bad_policy,
+            )
+            is None
+        )
+        assert (
+            answer_known_nonparticipation(
+                f"Did Avery Finch play in the {SEASON} NBA Finals?",
+                SEASON,
+                players=curry_roster,
+                programmatic_records=[record],
+                source_policy=bad_policy,
+            )
+            is None
+        )
+
+
+def test_capture_retains_series_game_number_for_gap_detection():
+    from app.agent.espn_dev_source import RetainedReviewSource
+    from app.agent.semantic_source import snapshot_evidence
+    from app.agent.source_policy import SourcePolicy
+    from tests.test_scoped_source_policy import RELATION, CapturingClient
+
+    evidence = completed_evidence()
+    # Authoritative game numbers 1,3,4,5 with ID suffixes 1,2,3,4.
+    num_by_id = {
+        "0042400401": 1,
+        "0042400402": 3,
+        "0042400403": 4,
+        "0042400404": 5,
+    }
+    rows = [
+        {
+            **r,
+            "home_away": "HOME" if r["team_abbr"] == "ATL" else "AWAY",
+            "wl": r.get("wl") or r.get("game_result"),
+            "playoff_round": "NBA Finals" if r["season_type"] == PLAYOFFS else None,
+            "playoff_series_game_number": num_by_id.get(r["game_id"]),
+        }
+        for r in evidence.rows
+    ]
+    policy = SourcePolicy(
+        relations=((SEASON, RELATION),),
+        phases=(REGULAR, PLAYOFFS),
+        snapshot_at="2025-06-30T12:00:00+00:00",
+        allowed_player_ids=frozenset({1}),
+        source_mode="retained_local_review",
+    )
+    client = CapturingClient(rows=rows)
+    snapshot = RetainedReviewSource(
+        client,
+        project="test-project",
+        source_policy=policy,
+        max_rows=policy.max_rows,
+        maximum_bytes_billed=policy.maximum_bytes_billed,
+    ).capture_scoped([SEASON], [REGULAR, PLAYOFFS])
+    assert "playoff_series_game_number" in snapshot["capture"]["sql"]
+    captured_evidence = snapshot_evidence(snapshot)
+    assert derive_nonparticipation_records(captured_evidence) == []
+
+
+def test_unclassified_playoff_game_withholds_round_closure():
+    evidence = completed_evidence()
+    extra_game = [
+        {
+            **r,
+            "game_id": "unclassified-finals-5",
+            "game_date": "2025-06-06",
+            "playoff_round": None,
+        }
+        for r in evidence.rows
+        if r["game_id"] == "0042400404"
+    ]
+    assert (
+        derive_nonparticipation_records(
+            replace(evidence, rows=[*evidence.rows, *extra_game])
+        )
+        == []
+    )
+    # Also when unclassified playoff game is only in game_results.
+    assert (
+        derive_nonparticipation_records(
+            replace(
+                evidence,
+                game_results=[
+                    {
+                        "game_id": "unclassified-gr-5",
+                        "season": SEASON,
+                        "season_type": PLAYOFFS,
+                        "game_date": "2025-06-06",
+                        "home_team_abbr": "ATL",
+                        "away_team_abbr": "BOS",
+                        "home_score": 95,
+                        "away_score": 102,
+                    }
+                ],
+            )
+        )
+        == []
+    )
+
+
+def test_contradictory_official_game_results_blocks_clinch():
+    evidence = completed_evidence()
+    valid_game4 = {
+        "game_id": "0042400404",
+        "season": SEASON,
+        "season_type": PLAYOFFS,
+        "game_date": "2025-06-04",
+        "home_team_abbr": "ATL",
+        "away_team_abbr": "BOS",
+        "home_score": 108,
+        "away_score": 99,
+    }
+    assert [
+        r["player_id"]
+        for r in derive_nonparticipation_records(
+            replace(evidence, game_results=[valid_game4])
+        )
+    ] == [1]
+
+    for bad in (
+        {**valid_game4, "home_score": 95, "away_score": 102},
+        {**valid_game4, "game_date": "2025-06-05"},
+        {**valid_game4, "away_team_abbr": "NYK"},
+    ):
+        assert (
+            derive_nonparticipation_records(replace(evidence, game_results=[bad])) == []
+        )
+
+
+def test_partial_manifest_cannot_bypass_five_player_fallback_and_dnp_blocks():
+    evidence = completed_evidence()
+    two_per_team_rows = [
+        r
+        for r in evidence.rows
+        if r["season_type"] == REGULAR or r["player_id"] in {100, 101, 300, 301}
+    ]
+    one_per_team_manifest = [
+        {
+            "game_id": r["game_id"],
+            "player_id": r["player_id"],
+            "team_abbr": r["team_abbr"],
+            "played": True,
+        }
+        for r in two_per_team_rows
+        if r["season_type"] == PLAYOFFS and r["player_id"] in {100, 300}
+    ]
+    assert (
+        derive_nonparticipation_records(
+            replace(
+                evidence,
+                rows=two_per_team_rows,
+                game_participants=one_per_team_manifest,
+            )
+        )
+        == []
+    )
+
+    # Full manifest on full rows + DNP for Finch (player 1) on finalist BOS must withhold.
+    full_manifest = [
+        {
+            "game_id": r["game_id"],
+            "player_id": r["player_id"],
+            "team_abbr": r["team_abbr"],
+            "played": True,
+        }
+        for r in evidence.rows
+        if r["season_type"] == PLAYOFFS
+    ]
+    dnp_finalist = [
+        *full_manifest,
+        {
+            "game_id": "0042400401",
+            "player_id": 1,
+            "team_abbr": "BOS",
+            "played": False,
+        },
+    ]
+    assert (
+        derive_nonparticipation_records(
+            replace(evidence, game_participants=dnp_finalist)
+        )
+        == []
+    )
+
+    # DNP on non-finalist team (e.g. CHA in First Round / Regular Season) does not block.
+    dnp_nonfinalist = [
+        *full_manifest,
+        {
+            "game_id": "0042400101",
+            "player_id": 1,
+            "team_abbr": "CHA",
+            "played": False,
+        },
+    ]
+    assert [
+        r["player_id"]
+        for r in derive_nonparticipation_records(
+            replace(evidence, game_participants=dnp_nonfinalist)
+        )
+    ] == [1]
+
+
+@pytest.mark.parametrize(
+    "verb", ["participate in", "reach", "make", "appear in", "play in"]
+)
+def test_unique_surname_with_participation_verbs_through_stats_agent(verb):
+    evidence = completed_evidence()
+    agent, model, warehouse = ask_fixture(evidence.rows)
+    response = agent.answer(f"Did Finch {verb} the {SEASON} NBA Finals?")
+    assert response["status"] == "not_applicable", response["answer"]
+    assert "Avery Finch" in response["answer"]
+    assert not model.calls
+    assert warehouse.calls == [[SEASON]]
+
+
+def test_dbt_rejects_unclassified_playoff_game_and_false_negative_for_finalist_player():
+    event = PLAYOFF_ROUND_LABELS[PLAYOFF_ROUNDS[-1]]
+    model, integrity_test = _render_dbt_participation_sql()
+    with duckdb.connect(config={"threads": 1}) as db:
+        _create_dbt_participation_tables(db)
+        db.execute(
+            "insert into fct_player_game_stats values (?, 1, 'Avery Finch', 'NYK', ?, 'reg-1', '2025-04-01')",
+            [SEASON, REGULAR],
+        )
+        db.execute(
+            "insert into fct_player_game_stats values (?, 2, 'Blake Reed', 'BOS', ?, 'reg-2', '2025-04-01')",
+            [SEASON, REGULAR],
+        )
+        for n in range(1, 5):
+            game_id = f"004240040{n}"
+            game_date = f"2025-06-0{n}"
+            db.execute(
+                "insert into dim_game values (?, ?, ?, ?, 4, ?, ?, 'ATL', 'BOS', 'ATL')",
+                [SEASON, PLAYOFFS, game_id, game_date, event, n],
+            )
+            for slot in range(5):
+                db.execute(
+                    "insert into fct_player_game_stats values (?, ?, ?, 'ATL', ?, ?, ?)",
+                    [
+                        SEASON,
+                        100 + slot,
+                        f"Round Winner {slot}",
+                        PLAYOFFS,
+                        game_id,
+                        game_date,
+                    ],
+                )
+                db.execute(
+                    "insert into fct_player_game_stats values (?, ?, ?, 'BOS', ?, ?, ?)",
+                    [
+                        SEASON,
+                        300 + slot,
+                        f"Round Opponent {slot}",
+                        PLAYOFFS,
+                        game_id,
+                        game_date,
+                    ],
+                )
+
+        db.execute("create table fct_player_event_participation as " + model)
+        # Blake Reed (BOS, no Finals rows) must NOT get a false negative row.
+        assert db.execute(
+            "select player_id from fct_player_event_participation where not participated"
+        ).fetchall() == [(1,)]
+        assert db.execute(integrity_test).fetchall() == []
+
+        # Inserting a false negative for Blake Reed (BOS) or a player with no prior rows fails integrity test.
+        db.execute(
+            "insert into fct_player_event_participation values (?, ?, 2, 'Blake Reed', false, 'False negative.', true)",
+            [SEASON, event],
+        )
+        db.execute(
+            "insert into fct_player_event_participation values (?, ?, 999, 'Phantom Player', false, 'No prior.', true)",
+            [SEASON, event],
+        )
+        assert sorted(db.execute(integrity_test).fetchall()) == [
+            (SEASON, event, 2),
+            (SEASON, event, 999),
+        ]
+
+    # An unclassified playoff game for ATL/BOS withholds closure in dbt model too.
+    with duckdb.connect(config={"threads": 1}) as db:
+        _create_dbt_participation_tables(db)
+        db.execute(
+            "insert into fct_player_game_stats values (?, 1, 'Avery Finch', 'NYK', ?, 'reg-1', '2025-04-01')",
+            [SEASON, REGULAR],
+        )
+        for n in range(1, 5):
+            game_id = f"004240040{n}"
+            game_date = f"2025-06-0{n}"
+            db.execute(
+                "insert into dim_game values (?, ?, ?, ?, 4, ?, ?, 'ATL', 'BOS', 'ATL')",
+                [SEASON, PLAYOFFS, game_id, game_date, event, n],
+            )
+            for slot in range(5):
+                db.execute(
+                    "insert into fct_player_game_stats values (?, ?, ?, 'ATL', ?, ?, ?)",
+                    [
+                        SEASON,
+                        100 + slot,
+                        f"Round Winner {slot}",
+                        PLAYOFFS,
+                        game_id,
+                        game_date,
+                    ],
+                )
+                db.execute(
+                    "insert into fct_player_game_stats values (?, ?, ?, 'BOS', ?, ?, ?)",
+                    [
+                        SEASON,
+                        300 + slot,
+                        f"Round Opponent {slot}",
+                        PLAYOFFS,
+                        game_id,
+                        game_date,
+                    ],
+                )
+        db.execute(
+            "insert into dim_game values (?, ?, '0042400405', '2025-06-06', null, null, 5, 'ATL', 'BOS', 'BOS')",
+            [SEASON, PLAYOFFS],
+        )
+        db.execute("create table fct_player_event_participation as " + model)
+        assert (
+            db.execute(
+                "select * from fct_player_event_participation where not participated"
+            ).fetchall()
+            == []
+        )
+        assert (
+            db.execute(
+                "select * from fct_player_event_participation where is_verified_complete_cohort"
+            ).fetchall()
+            == []
+        )
+        assert db.execute(integrity_test).fetchall() == []

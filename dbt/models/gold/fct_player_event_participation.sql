@@ -72,9 +72,43 @@ round_teams as (
     union distinct
     select season, round_number, away_team_abbr as team_abbr from round_games
 ),
+unclassified_playoff_teams as (
+    select season, home_team_abbr as team_abbr
+    from {{ ref('dim_game') }}
+    where season_type = 'Playoffs'
+      and (
+          playoff_round_number is null
+          or playoff_round_number not between 1 and 4
+          or playoff_round_name is null
+          or playoff_round_name != {{ playoff_round_name('playoff_round_number') }}
+      )
+    union distinct
+    select season, away_team_abbr as team_abbr
+    from {{ ref('dim_game') }}
+    where season_type = 'Playoffs'
+      and (
+          playoff_round_number is null
+          or playoff_round_number not between 1 and 4
+          or playoff_round_name is null
+          or playoff_round_name != {{ playoff_round_name('playoff_round_number') }}
+      )
+    union distinct
+    select p.season, p.team_abbr
+    from {{ ref('fct_player_game_stats') }} p
+    left join round_games g
+        on p.season = g.season and p.game_id = g.game_id
+    where p.season_type = 'Playoffs'
+      and g.game_id is null
+),
 round_team_counts as (
-    select season, round_number, count(*) as team_count
-    from round_teams
+    select
+        rt.season,
+        rt.round_number,
+        count(*) as team_count,
+        count(u.team_abbr) as unclassified_team_count
+    from round_teams rt
+    left join unclassified_playoff_teams u
+        on rt.season = u.season and rt.team_abbr = u.team_abbr
     group by 1, 2
 ),
 completed_rounds as (
@@ -84,9 +118,10 @@ completed_rounds as (
         on s.season = r.season
     join round_team_counts t
         on s.season = t.season and s.round_number = t.round_number
-    group by 1, 2, 3, t.team_count
+    group by 1, 2, 3, t.team_count, t.unclassified_team_count
     having count(*) = power(2, 4 - s.round_number)
        and t.team_count = 2 * count(*)
+       and t.unclassified_team_count = 0
        and sum(case when s.games between 4 and 7
             and s.team_a != s.team_b
             and s.games = s.dated_games

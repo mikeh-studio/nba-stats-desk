@@ -3,7 +3,9 @@
 # Exclude question/scope words so prose cannot become a player-name candidate.
 CONTEXT_WORDS = frozenset(
     "how did does do has have had is was were he she his her they their it its "
-    "play played playing perform performed performing performance doing done "
+    "play played plays playing perform performed performing performance doing done "
+    "participate participates participated participating participation "
+    "reach reaches reached reaching make makes making appear appears appearing "
     "compare compares compared comparing with to and vs versus than who better "
     "last this current previous prior season seasons regular playoffs playoff "
     "postseason year years games game show me tell about points rebounds assists "

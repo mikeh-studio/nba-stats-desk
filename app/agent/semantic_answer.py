@@ -1837,6 +1837,13 @@ class SemanticAsk:
                     evidence=turn.evidence,
                     players=turn.players,
                     include_curated=turn.publication is None,
+                    source_policy=get_source_policy(
+                        getattr(
+                            getattr(self.warehouse, "source", None),
+                            "source_policy",
+                            None,
+                        )
+                    ),
                 )
                 if participation is not None:
                     turn.payload = participation

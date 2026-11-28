@@ -159,12 +159,68 @@ def _evidence_participants(evidence: Evidence) -> Sequence[Mapping[str, Any]]:
     return getattr(evidence, "participants", ())
 
 
+def _official_game_result_matches(
+    gr: Mapping[str, Any],
+    *,
+    season: str | None,
+    round_label: str | None,
+    game_date: date,
+    observed_teams: set[str],
+    winner: str,
+) -> bool:
+    if season is not None and gr.get("season") != season:
+        return False
+    if gr.get("season_type") != "Playoffs":
+        return False
+    if (
+        round_label is not None
+        and any(gr.get(f) is not None for f in ("playoff_round", "playoff_round_name"))
+        and row_playoff_round(gr) != round_label
+    ):
+        return False
+    try:
+        if _date(gr.get("game_date")) != game_date:
+            return False
+    except SemanticError:
+        return False
+    home = gr.get("home_team_abbr")
+    away = gr.get("away_team_abbr")
+    if (
+        not isinstance(home, str)
+        or not isinstance(away, str)
+        or not home
+        or not away
+        or home == away
+        or {home, away} != observed_teams
+    ):
+        return False
+    home_score = gr.get("home_score")
+    away_score = gr.get("away_score")
+    if (
+        type(home_score) is not int
+        or type(away_score) is not int
+        or home_score < 0
+        or away_score < 0
+        or home_score == away_score
+    ):
+        return False
+    score_winner = home if home_score > away_score else away
+    if (
+        gr.get("winning_team_abbr") is not None
+        and gr.get("winning_team_abbr") != score_winner
+    ):
+        return False
+    return score_winner == winner
+
+
 def _completed_round_teams(
     games: Mapping[str, list[Mapping[str, Any]]],
     expected_series: int,
     *,
     season: str | None = None,
+    round_label: str | None = None,
     game_participants: Sequence[Mapping[str, Any]] = (),
+    game_results: Sequence[Mapping[str, Any]] = (),
 ) -> set[str]:
     participants_by_game: dict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for item in game_participants:
@@ -174,6 +230,17 @@ def _completed_round_teams(
         gid = item.get("game_id")
         if isinstance(gid, str):
             participants_by_game[gid].append(item)
+
+    results_by_game: dict[str, Mapping[str, Any]] = {}
+    duplicate_result_games: set[str] = set()
+    for gr in game_results:
+        gid = gr.get("game_id")
+        if not isinstance(gid, str):
+            continue
+        if gid in results_by_game:
+            duplicate_result_games.add(gid)
+        else:
+            results_by_game[gid] = gr
 
     series: dict[tuple[str, str], list[tuple[date, int, str, str]]] = defaultdict(list)
     for game_id, rows in games.items():
@@ -204,6 +271,19 @@ def _completed_round_teams(
             or len(dates) != 1
         ):
             return set()
+        game_date = dates.pop()
+        winner = winners.pop()
+        if game_id in duplicate_result_games:
+            return set()
+        if game_id in results_by_game and not _official_game_result_matches(
+            results_by_game[game_id],
+            season=season,
+            round_label=round_label,
+            game_date=game_date,
+            observed_teams=observed_teams,
+            winner=winner,
+        ):
+            return set()
         game_number = _series_game_number(game_id, rows)
         if game_number is None:
             return set()
@@ -215,25 +295,27 @@ def _completed_round_teams(
                 pid = entry.get("player_id")
                 team = entry.get("team_abbr")
                 played = entry.get("played")
+                if (
+                    type(played) is not bool
+                    or type(pid) is not int
+                    or not isinstance(team, str)
+                ):
+                    return set()
                 if played is True:
-                    if (
-                        type(pid) is not int
-                        or not isinstance(team, str)
-                        or team not in observed_teams
-                    ):
+                    if team not in observed_teams:
                         return set()
                     expected_played.add((pid, team))
-                elif played is False and type(pid) is int and isinstance(team, str):
+                else:
                     expected_not_played.add((pid, team))
             if (
                 {team for _, team in expected_played} != observed_teams
-                or not expected_played <= observed_pairs
+                or expected_played != observed_pairs
                 or bool(expected_not_played & observed_pairs)
             ):
                 return set()
         elif any(len(observed_by_team[team]) < 5 for team in observed_teams):
             return set()
-        series[teams.pop()].append((dates.pop(), game_number, game_id, winners.pop()))
+        series[teams.pop()].append((game_date, game_number, game_id, winner))
 
     teams_in_round = {team for pair in series for team in pair}
     if len(series) != expected_series or len(teams_in_round) != 2 * expected_series:
@@ -280,8 +362,21 @@ def derive_nonparticipation_records(evidence: Evidence) -> list[dict[str, Any]]:
         dict
     )
     conflicting_rounds: set[tuple[str, str | None]] = set()
+    unclassified_playoff_teams: dict[str, set[str]] = defaultdict(set)
+    unattributable_playoff_seasons: set[str] = set()
     for (season, game_id), rows in playoff_games.items():
         labels = {row_playoff_round(row) for row in rows}
+        if None in labels:
+            game_teams = {
+                value.strip()
+                for row in rows
+                for field in ("team_abbr", "opponent_abbr")
+                if isinstance((value := row.get(field)), str) and value.strip()
+            }
+            if game_teams:
+                unclassified_playoff_teams[season].update(game_teams)
+            else:
+                unattributable_playoff_seasons.add(season)
         if len(labels) != 1:
             conflicting_rounds.update((season, label) for label in labels)
         elif (label := labels.pop()) is not None:
@@ -291,12 +386,19 @@ def derive_nonparticipation_records(evidence: Evidence) -> list[dict[str, Any]]:
         if gr.get("season_type") == "Playoffs":
             gr_season = gr.get("season")
             gr_label = row_playoff_round(gr)
-            if (
-                isinstance(gr_season, str)
-                and gr_label is not None
-                and (gr_season, gr.get("game_id")) not in playoff_games
-            ):
-                conflicting_rounds.add((gr_season, gr_label))
+            if isinstance(gr_season, str):
+                if gr_label is None:
+                    gr_teams = {
+                        value.strip()
+                        for field in ("home_team_abbr", "away_team_abbr")
+                        if isinstance((value := gr.get(field)), str) and value.strip()
+                    }
+                    if gr_teams:
+                        unclassified_playoff_teams[gr_season].update(gr_teams)
+                    else:
+                        unattributable_playoff_seasons.add(gr_season)
+                elif (gr_season, gr.get("game_id")) not in playoff_games:
+                    conflicting_rounds.add((gr_season, gr_label))
 
     participants = _evidence_participants(evidence)
     observed_seasons = {s for s, _ in season_players}
@@ -305,7 +407,8 @@ def derive_nonparticipation_records(evidence: Evidence) -> list[dict[str, Any]]:
     manifest_teams: dict[tuple[str, int], set[str]] = defaultdict(set)
     manifest_round_games: dict[tuple[str, int], set[str]] = defaultdict(set)
     for item in participants:
-        if item.get("played") is not True:
+        played = item.get("played")
+        if type(played) is not bool:
             continue
         pid = item.get("player_id")
         gid = item.get("game_id")
@@ -321,25 +424,34 @@ def derive_nonparticipation_records(evidence: Evidence) -> list[dict[str, Any]]:
             )
         if not isinstance(p_season, str):
             continue
-        if (p_season, gid, pid) not in observed_player_games:
-            missing_box_players[p_season].add(pid)
         team = item.get("team_abbr")
         if isinstance(team, str) and team.strip():
             manifest_teams[p_season, pid].add(team)
-        manifest_round_games[p_season, pid].add(gid)
+        if played is True:
+            if (p_season, gid, pid) not in observed_player_games:
+                missing_box_players[p_season].add(pid)
+            manifest_round_games[p_season, pid].add(gid)
+        elif (p_season, gid, pid) in observed_player_games:
+            missing_box_players[p_season].add(pid)
 
     records = []
     for (season, label), games in sorted(rounds.items()):
-        if season not in regular_seasons or (season, label) in conflicting_rounds:
+        if (
+            season not in regular_seasons
+            or season in unattributable_playoff_seasons
+            or (season, label) in conflicting_rounds
+        ):
             continue
         number = PLAYOFF_ROUNDS.index(label) + 1
         round_teams = _completed_round_teams(
             games,
             2 ** (4 - number),
             season=season,
+            round_label=label,
             game_participants=participants,
+            game_results=getattr(evidence, "game_results", ()),
         )
-        if not round_teams:
+        if not round_teams or (round_teams & unclassified_playoff_teams[season]):
             continue
         event = PLAYOFF_ROUND_LABELS[label]
         for (player_season, player_id), rows in sorted(season_players.items()):
@@ -473,8 +585,20 @@ def answer_known_nonparticipation(
         return None
     if len(seasons) != 1:
         return None
-    authorized_players = list(players) if players is not None else None
     policy = get_source_policy(source_policy)
+    if policy is not None and (
+        seasons[0] not in dict(policy.relations) or "Playoffs" not in policy.phases
+    ):
+        return None
+    authorized_players = (
+        [
+            p
+            for p in players
+            if policy is None or p.get("player_id") in policy.allowed_player_ids
+        ]
+        if players is not None
+        else None
+    )
     allowed_ids = (
         {p["player_id"] for p in authorized_players}
         if authorized_players is not None
