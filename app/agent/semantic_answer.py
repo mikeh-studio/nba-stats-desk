@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from time import monotonic
@@ -58,6 +59,7 @@ from app.agent.scope_policy import (
     split_kind,
 )
 from app.agent.semantic_serving import (
+    check_evidence_source_policy,
     fallback_notice,
     has_time_scope,
     load_available_season,
@@ -76,7 +78,7 @@ from app.agent.semantics import (
     playoff_round_seasons,
     run_query,
 )
-from app.agent.source_policy import get_source_policy
+from app.agent.source_policy import effective_source_policy, source_policy_scope
 from app.seasons import DEFAULT_SEASON, SEASON_TOKEN_RE, season_bounds
 
 if TYPE_CHECKING:
@@ -865,13 +867,27 @@ class _SemanticTurnState:
     publication_stat: Any = None
     publication_opened: bool = False
     game_question: Any = None
+    source_policy: Any = None
 
 
 class SemanticAsk:
-    def __init__(self, settings: Any, warehouse: Any, conversation_store: Any = None):
+    def __init__(
+        self,
+        settings: Any,
+        warehouse: Any,
+        conversation_store: Any = None,
+        *,
+        source_policy: Any = None,
+    ):
         self.settings = settings
         self.warehouse = warehouse
         self.store = conversation_store
+        self.source_policy = source_policy
+
+    def _effective_source_policy(self, explicit: Any = None) -> Any:
+        return effective_source_policy(
+            self.warehouse, policies=(self.source_policy, explicit)
+        )
 
     @name_matching_entrypoint
     def answer(
@@ -884,6 +900,7 @@ class SemanticAsk:
         selected_player: dict[str, Any] | None = None,
         trace: Any = None,
         progress_callback: Any = None,
+        source_policy: Any = None,
     ) -> dict[str, Any]:
         turn = _SemanticTurnState(
             original=question,
@@ -895,16 +912,25 @@ class SemanticAsk:
             trace=trace,
             progress_callback=progress_callback,
         )
-        if early_payload := self.precheck_semantic_route(turn):
-            return early_payload
         try:
-            served = self._load_evidence_and_players(turn)
-            if not served:
-                self._execute_semantic_branch(turn)
-            self._enrich_payload(turn)
-        except (PlayerNameError, SemanticError) as exc:
+            turn.source_policy = self._effective_source_policy(source_policy)
+        except SemanticError as exc:
             return self._finalize_payload(turn, error=exc)
-        return self._finalize_payload(turn)
+        with (
+            source_policy_scope(turn.source_policy)
+            if turn.source_policy is not None
+            else nullcontext()
+        ):
+            if early_payload := self.precheck_semantic_route(turn):
+                return early_payload
+            try:
+                served = self._load_evidence_and_players(turn)
+                if not served:
+                    self._execute_semantic_branch(turn)
+                self._enrich_payload(turn)
+            except (PlayerNameError, SemanticError) as exc:
+                return self._finalize_payload(turn, error=exc)
+            return self._finalize_payload(turn)
 
     def precheck_semantic_route(
         self, turn: _SemanticTurnState
@@ -917,21 +943,39 @@ class SemanticAsk:
         except (PlayerNameError, SemanticError) as exc:
             return self._finalize_payload(turn, error=exc)
 
-    def preview_route(self, question: str, conversation_id: str) -> dict[str, Any]:
+    def preview_route(
+        self,
+        question: str,
+        conversation_id: str,
+        *,
+        source_policy: Any = None,
+    ) -> dict[str, Any]:
         # Resolve pre-evidence routing for the offline route evaluator.
         turn = _SemanticTurnState(question, question, conversation_id=conversation_id)
-        if early_payload := self.precheck_semantic_route(turn):
-            return early_payload
-        if turn.playoff_round:
-            try:
-                self._load_evidence_and_players(turn)
-            except (PlayerNameError, SemanticError) as exc:
-                return self._finalize_payload(turn, error=exc)
-        assert turn.route_shape is not None
-        payload = {"status": "ok"} if turn.overview else {}
-        return route_hint(
-            payload, route=SEMANTIC_LABELS[turn.route_shape], source=turn.route_source
-        )
+        try:
+            turn.source_policy = self._effective_source_policy(source_policy)
+        except SemanticError as exc:
+            return self._finalize_payload(turn, error=exc)
+        with (
+            source_policy_scope(turn.source_policy)
+            if turn.source_policy is not None
+            else nullcontext()
+        ):
+            if early_payload := self.precheck_semantic_route(turn):
+                return early_payload
+            if turn.playoff_round:
+                try:
+                    if self._load_evidence_and_players(turn):
+                        return self._finalize_payload(turn)
+                except (PlayerNameError, SemanticError) as exc:
+                    return self._finalize_payload(turn, error=exc)
+            assert turn.route_shape is not None
+            payload = {"status": "ok"} if turn.overview else {}
+            return route_hint(
+                payload,
+                route=SEMANTIC_LABELS[turn.route_shape],
+                source=turn.route_source,
+            )
 
     def _prepare_turn_context(self, turn: _SemanticTurnState) -> None:
         original = question = turn.original
@@ -1311,9 +1355,7 @@ class SemanticAsk:
         )
         if turn.ranked and turn.ranked["queries"]:
             turn.seasons = [turn.ranked["queries"][0]["season"]]
-        source_policy = get_source_policy(
-            getattr(getattr(self.warehouse, "source", None), "source_policy", None)
-        )
+        source_policy = turn.source_policy
         if (
             source_policy is not None
             and turn.overview
@@ -1694,7 +1736,7 @@ class SemanticAsk:
                     "unsupported_scope", round_scope_message(turn.question) or str(exc)
                 ) from exc
             raise
-        return False
+        return bool(turn.payload)
 
     def _load_archive(self, turn: _SemanticTurnState) -> None:
         load_evidence = turn.load_evidence
@@ -1754,6 +1796,8 @@ class SemanticAsk:
                     # for the primary-only retry when the baseline is unavailable.
                     load_evidence = self.warehouse.facts.load
                 turn.snapshot, turn.evidence = load_evidence(primary_seasons)
+        if turn.evidence is not None and turn.source_policy is not None:
+            check_evidence_source_policy(turn.evidence, turn.source_policy)
         if turn.playoff_round:
             assert turn.evidence is not None
             turn.evidence.validate()
@@ -1787,6 +1831,24 @@ class SemanticAsk:
                     round_scope_message(turn.question)
                     or "Playoff-round coverage is unavailable.",
                 )
+        self._prepare_players(turn)
+        if turn.playoff_round:
+            from app.agent.participation import answer_known_nonparticipation
+
+            if len(turn.seasons) == 1:
+                participation = answer_known_nonparticipation(
+                    turn.question,
+                    turn.seasons[0],
+                    turn.conversation_id,
+                    evidence=turn.evidence,
+                    players=turn.players,
+                    include_curated=turn.publication is None,
+                    source_policy=turn.source_policy,
+                )
+                if participation is not None:
+                    turn.payload = participation
+                    turn.result = {"status": participation["status"]}
+                    return
             if (
                 turn.intent.get("kind") == "quantity_aggregation"
                 and not turn.publication_stat
@@ -1795,7 +1857,6 @@ class SemanticAsk:
                     "clarification_required",
                     turn.intent["message"] or "Specify the aggregation.",
                 )
-        self._prepare_players(turn)
 
     def _prepare_players(self, turn: _SemanticTurnState) -> None:
         evidence = turn.evidence
@@ -1805,6 +1866,13 @@ class SemanticAsk:
             if hasattr(self.warehouse, "players")
             else source_players(evidence)
         )
+        if turn.source_policy is not None:
+            check_evidence_source_policy(evidence, turn.source_policy)
+            turn.players = [
+                p
+                for p in turn.players
+                if p.get("player_id") in turn.source_policy.allowed_player_ids
+            ]
         if (
             turn.publication is None
             and not evidence.cohort_complete
@@ -2471,14 +2539,17 @@ class SemanticAsk:
                 "version": 1,
                 "kind": (overview_pending or {}).get("overview_clarification"),
             }
-        payload["agent_plan"] = {
-            "route": "governed_metrics",
-            "confidence": 1.0,
-            "needs_clarification": payload["status"] == "clarification_required",
-        }
-        if turn.route_shape is None:
-            turn.route_shape = semantic_shape(turn.request_question)
-        route_label = SEMANTIC_LABELS[turn.route_shape]
+        if payload.get("participation_evidence"):
+            route_label = "event_participation"
+        else:
+            payload["agent_plan"] = {
+                "route": "governed_metrics",
+                "confidence": 1.0,
+                "needs_clarification": payload["status"] == "clarification_required",
+            }
+            if turn.route_shape is None:
+                turn.route_shape = semantic_shape(turn.request_question)
+            route_label = SEMANTIC_LABELS[turn.route_shape]
         reason_code = (
             f"overview_{overview_pending['overview_clarification']}"
             if overview_pending and overview_pending.get("overview_clarification")
@@ -2567,7 +2638,7 @@ def try_published_three_point_leaders(
 
         if (
             agent.settings.season == DEFAULT_SEASON
-            and get_source_policy(getattr(agent.repo, "source_policy", None)) is None
+            and agent._effective_source_policy() is None
             and not keep_pending
             and asks_for_three_point_leaders(cleaned_question, DEFAULT_SEASON, context)
         ):

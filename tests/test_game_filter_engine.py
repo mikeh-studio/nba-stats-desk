@@ -234,6 +234,10 @@ def test_optional_source_projection_does_not_reference_absent_columns_directly()
             in sql
         )
     assert "JSON_VALUE(TO_JSON_STRING(fact), '$.wl') AS game_result" in sql
+    assert (
+        "CAST(JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_series_game_number') "
+        "AS INT64) AS playoff_series_game_number"
+    ) in sql
     assert "COUNT(*) OVER()" in sql and "LIMIT @row_limit" in sql
     assert "WHERE season = @season_0 AND season_type IN UNNEST(@phases)" in sql
     assert {"oreb", "dreb", "pf"} <= set(load_contract().metrics)

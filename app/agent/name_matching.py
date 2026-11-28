@@ -10,50 +10,10 @@ from dataclasses import dataclass, field
 from functools import wraps
 from typing import Any, NamedTuple
 
-from app.agent.player_resolver import normalize_player_text
-from app.agent.player_suggestions import (
-    _CONTEXT_WORDS,
-    _rank_matches,
-    resolve_player_name,
-)
+from app.agent.alias_builder import normalize_player_text, player_aliases_for_cohort
+from app.agent.name_vocabulary import SCOPE_WORDS as _SCOPE_WORDS
+from app.agent.player_suggestions import _rank_matches, resolve_player_name
 
-# Task vocabulary bounds name spans. Unknown prose remains for the route's scope
-# validator; this is not a general named-entity model or a permissive query parser.
-_SCOPE_WORDS = _CONTEXT_WORDS | frozenset(
-    """
-what which where when why are am will should let us we our your get find count
-many much number appearances appeared appearance log logs totals total rate rates
-percent percentage percentile percentiles ranking rankings rank ranked top bottom
-league nba baseline peer peers similar similarity most least best worst median
-career split splits home away road wins losses win loss won lost against opponent
-opponents teammate teammates without out absent absence missed miss sat sitting
-sidelined injury injured unavailable availability both together also only include
-exclude including excluding while not no yes same different higher lower more less
-shooting true effective field goal goals free throw throws three two made makes
-attempts attempts attempted turnovers minutes scoring rebounding usage efficiency
-per36 ppg rpg apg fg fga fgm ft fta ftm fg3a fg3m ts efg plus minus stat line
-breakdown descriptive research study studies adjusted unadjusted estimate impact
-effect significant significance statistically statistical reliable reliability
-uncertainty confidence interval causal cause pattern difference distribution
-fantasy score weighted proxy summarize analyze break down before after as improved improve trade
-over like resembles alike nearest trending beside besides other playmaking leads measure
-trend trends chart table plot rolling recent previous past next first second third
-fourth five ten all each every minimum maximum at least qualified eligible players
-january february march april may june july august september october november december
-monday tuesday wednesday thursday friday saturday sunday today yesterday tonight
-mvp rookie award awards defensive finals winner winners year defensive offense
-basketball regular post season postseason round conference eastern western cup
-boston celtics brooklyn nets new york knicks philadelphia sixers toronto raptors
-chicago bulls cleveland cavaliers detroit pistons indiana pacers milwaukee bucks
-atlanta hawks charlotte hornets miami heat orlando magic washington wizards
-denver nuggets minnesota timberwolves oklahoma city thunder portland trail blazers
-utah jazz golden state warriors los angeles clippers lakers phoenix suns sacramento
-kings dallas mavericks houston rockets memphis grizzlies orleans pelicans san antonio
-spurs selected clarification player use using compared played playing performing
-box scores there any game where scored blocked shots dunks dunk layups layup jumpers
-heaves putbacks floaters hooks corner catch pullup pullups
-""".split()
-)
 _WORD = re.compile(r"[^\W\d_]+(?:['’.-][^\W\d_]+)*", re.UNICODE)
 
 
@@ -152,13 +112,22 @@ def _spans(question, players):
                 exact.append((group[0].start(), group[0].start() + len(raw)))
     for player in players:
         for name in (player["player_name"], *player.get("aliases", [])):
-            if not name:
+            key = normalize_player_text(name)
+            if not key or key.isdigit() or key in _SCOPE_WORDS:
                 continue
             for m in re.finditer(
-                r"(?<!\w)" + re.escape(name) + r"(?!\w)", question, re.I
+                r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", question, re.I
             ):
                 exact.append((m.start(), m.end()))
     exact = sorted(set(exact), key=lambda s: (s[0], -(s[1] - s[0])))
+    # A surname inside a recognized full name cannot start a second span.
+    standalone = {
+        (a, b)
+        for a, b in exact
+        if not any(
+            start <= a and end >= b and (start, end) != (a, b) for start, end in exact
+        )
+    }
     # Don't accept a familiar short alias while discarding an unfamiliar
     # surname: "Jalen Zqxv" is not simply "Jalen".
     for left, right in zip(tokens, tokens[1:]):
@@ -169,7 +138,7 @@ def _spans(question, players):
         pair = (left.start(), right.end())
         if any(
             s in {(left.start(), left.end()), (right.start(), right.end())}
-            for s in exact
+            for s in standalone
         ) and not any(a <= pair[0] and b >= pair[1] for a, b in exact):
             exact.append(pair)
     exact = [
@@ -247,24 +216,7 @@ def prepare_names(
     restored = {
         normalize_player_text(choice["mention"]): choice for choice in restored_choices
     }
-    from app.agent.player_resolver import load_player_aliases
-
-    aliases = load_player_aliases()
-    roster = [
-        dict(
-            p,
-            aliases=sorted(
-                set(p.get("aliases", []))
-                | {
-                    a
-                    for a, target in aliases.items()
-                    if normalize_player_text(target)
-                    == normalize_player_text(p["player_name"])
-                }
-            ),
-        )
-        for p in players
-    ]
+    roster = player_aliases_for_cohort(players)
     for start, end in _spans(question, roster):
         raw = question[start:end]
         key = normalize_player_text(raw)
@@ -625,7 +577,7 @@ def longest_player_spans(
             hits.extend(
                 PlayerSpan(match.start(), match.end(), name, player)
                 for match in re.finditer(
-                    r"(?<!\w)" + re.escape(name) + r"(?!\w)", text, re.I
+                    r"(?<![\w-])" + re.escape(name) + r"(?![\w-])", text, re.I
                 )
             )
     if nonoverlapping:
@@ -653,7 +605,10 @@ def mask_player_tokens(text, players):
     question, players = prepare_names(text, players)
     hits = longest_player_spans(question, players)
     spans = {}
-    for start, end, _, player in hits:
+    for start, end, name, player in hits:
+        key = normalize_player_text(name)
+        if not key or key.isdigit() or key in _SCOPE_WORDS:
+            continue
         spans.setdefault((start, end), {})[player["player_id"]] = player
     if any(len(matches) != 1 for matches in spans.values()):
         raise SemanticError(

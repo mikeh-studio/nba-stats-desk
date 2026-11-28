@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Iterator, NoReturn
+from typing import Any, Iterable, Iterator, NoReturn
 
 from app.agent.semantics import COMPONENTS, OPTIONAL_COMPONENTS, PHASES, SemanticError
 from app.seasons import validate_season
@@ -44,6 +44,8 @@ def capture_sql(sources, phases=None):
             "JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round_source') AS playoff_round_source",
             "CAST(JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round_conflict') AS BOOL) AS playoff_round_conflict",
             "REGEXP_CONTAINS(TO_JSON_STRING(fact), r'\"playoff_round(?:_name)?\":') AS has_playoff_round_column",
+            "CAST(JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_series_game_number') "
+            "AS INT64) AS playoff_series_game_number",
         ]
     )
     selects = [
@@ -231,15 +233,43 @@ def configure_source_policy(policy: SourcePolicy | None) -> None:
     _CONFIGURED_SOURCE_POLICY = policy
 
 
-def get_source_policy(explicit: SourcePolicy | None = None) -> SourcePolicy | None:
+def resolve_source_policies(*explicit: SourcePolicy | None) -> SourcePolicy | None:
     candidates = [
         p
-        for p in (_CONFIGURED_SOURCE_POLICY, CURRENT_SOURCE_POLICY.get(), explicit)
+        for p in (_CONFIGURED_SOURCE_POLICY, CURRENT_SOURCE_POLICY.get(), *explicit)
         if p is not None
     ]
     if candidates and any(p != candidates[0] for p in candidates[1:]):
         denied("Conflicting trusted source policies")
     return candidates[0] if candidates else None
+
+
+def get_source_policy(explicit: SourcePolicy | None = None) -> SourcePolicy | None:
+    return resolve_source_policies(explicit)
+
+
+def effective_source_policy(
+    *owners: Any,
+    explicit: SourcePolicy | None = None,
+    policies: Iterable[SourcePolicy | None] = (),
+) -> SourcePolicy | None:
+    """Resolve the single active source policy across owners, wrappers, and scope."""
+    candidates: list[SourcePolicy | None] = [explicit, *policies]
+    seen: set[int] = set()
+    queue = list(owners)
+    while queue:
+        node = queue.pop(0)
+        if node is None or id(node) in seen:
+            continue
+        seen.add(id(node))
+        policy = getattr(node, "source_policy", None)
+        if policy is not None:
+            candidates.append(policy)
+        for attr in ("source", "facts", "historical"):
+            child = getattr(node, attr, None)
+            if child is not None and id(child) not in seen:
+                queue.append(child)
+    return resolve_source_policies(*candidates)
 
 
 @contextmanager

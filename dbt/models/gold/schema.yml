@@ -68,6 +68,38 @@ models:
                 values: ['W', 'L']
       - name: fantasy_points_simple
         tests: [not_null]
+  - name: fct_player_event_participation
+    description: >-
+      Verified playoff-round participation at grain (season, event_name, player_id).
+      An observed appearance establishes participation. Verified nonparticipation
+      requires independently verified participant coverage matching every round
+      game's observed player-team pairs and the final game of every expected series
+      to be the winner's fourth win. The player needs a regular-season or
+      earlier-round appearance and verified season teams outside the round.
+      Missing records leave participation unknown.
+    columns:
+      - name: season
+        tests: [not_null]
+      - name: event_name
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['First Round', 'Conference Semifinals', 'Conference Finals', 'NBA Finals']
+      - name: player_id
+        tests: [not_null]
+      - name: player_name
+        tests: [not_null]
+      - name: participated
+        tests: [not_null]
+      - name: reason
+        description: Why the appearance or verified nonparticipation was recorded.
+        tests: [not_null]
+      - name: is_verified_complete_cohort
+        description: >-
+          Every expected series ends in a clinch, with independently verified
+          participant coverage matching every round game's observed appearances.
+        tests: [not_null]
   - name: player_shot_location_profile
     columns:
       - name: player_id

@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-import re
-import unicodedata
-from functools import lru_cache
-from pathlib import Path
+from collections import defaultdict
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
 
+from app.agent.alias_builder import (
+    load_player_aliases as load_player_aliases,
+)
+from app.agent.alias_builder import (
+    normalize_player_text as normalize_player_text,
+)
+from app.agent.alias_builder import (
+    player_aliases_for_cohort,
+)
 from app.agent.execution import timed
 from app.repository import WarehouseRepository
-
-ALIAS_PATH = Path(__file__).with_name("player_aliases.yml")
 
 
 class PlayerCandidate(BaseModel):
@@ -33,26 +36,6 @@ class PlayerResolution(BaseModel):
     player: PlayerCandidate | None = None
     candidates: list[PlayerCandidate] = Field(default_factory=list)
     resolution_method: str | None = None
-
-
-def normalize_player_text(value: str) -> str:
-    text = unicodedata.normalize("NFKD", str(value or ""))
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    text = re.sub(r"[^a-zA-Z0-9]+", " ", text).strip().casefold()
-    return re.sub(r"\s+", " ", text)
-
-
-@lru_cache(maxsize=1)
-def load_player_aliases(path: str | Path = ALIAS_PATH) -> dict[str, str]:
-    with Path(path).open("r", encoding="utf-8") as handle:
-        loaded = yaml.safe_load(handle) or {}
-    aliases: dict[str, str] = {}
-    for canonical, values in (loaded.get("aliases") or {}).items():
-        canonical_norm = normalize_player_text(str(canonical))
-        aliases[canonical_norm] = str(canonical)
-        for alias in values or []:
-            aliases[normalize_player_text(str(alias))] = str(canonical)
-    return aliases
 
 
 def _to_int(value: Any) -> int | None:
@@ -96,7 +79,8 @@ class PlayerResolver:
         self.repo = repo
         # Retained constructor argument for configuration compatibility. Identity
         # decisions use the shared versioned policy, never a route-specific cutoff.
-        self.alias_map = alias_map or load_player_aliases()
+        self.alias_map = load_player_aliases() if alias_map is None else alias_map
+        self.alias_overrides = alias_map
 
     @timed("identity")
     def resolve(self, raw_name: str, *, limit: int = 5) -> PlayerResolution:
@@ -114,23 +98,22 @@ class PlayerResolver:
         for term in terms:
             rows.extend(self.repo.search_players(term, limit=1000))
         players = {}
+        names = defaultdict(set)
         for row in rows:
             if row.get("player_id") is None or not row.get("player_name"):
                 continue
-            player = dict(row)
-            canonical = normalize_player_text(player["player_name"])
-            player["aliases"] = sorted(
-                set(player.get("aliases", []))
-                | {
-                    alias
-                    for alias, target in self.alias_map.items()
-                    if normalize_player_text(target) == canonical
-                }
-            )
-            players[player["player_id"]] = player
-        result = record_resolution(
-            query, resolve_player_name(query, list(players.values()))
+            player_id = row["player_id"]
+            players[player_id] = dict(row)
+            names[player_id].add(row["player_name"])
+        for player_id, player in players.items():
+            if len(names[player_id]) > 1:
+                player["observed_names"] = tuple(
+                    sorted(names[player_id] - {player["player_name"]})
+                )
+        roster = player_aliases_for_cohort(
+            players.values(), overrides=self.alias_overrides
         )
+        result = record_resolution(query, resolve_player_name(query, roster))
         method = result.get("resolution", {}).get("method", "exact_or_alias")
         candidates = [
             _candidate_from_row(

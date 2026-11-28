@@ -359,10 +359,28 @@ membership and per-player date bounds. It is separate from published season
 profiles and does not imply playing-style similarity. Its returned score is not
 interchangeable with the season-profile score.
 
-`event_participation/1` carries explicit sourced reference records. Verified
-nonparticipation yields `not_applicable`, not an observed zero and not generic
-missing data. Catalog absence means unknown; round-specific statistics remain
-unsupported. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references).
+`event_participation/1` carries curated participation records with their original
+reason and source. `event_participation/2` can verify nonparticipation from a
+complete season cohort that covers the regular season and playoffs, with source,
+snapshot, and round-game IDs. Every observed round game needs an independent
+participant manifest that agrees with its player rows for both teams. Each
+expected series needs consecutive game numbers in date order and must end with
+the winner's fourth win. A source without a round's manifests leaves absence
+unverified.
+The player needs a regular-season or earlier-playoff
+appearance, and neither the player nor any recorded season team can have appeared
+in the round. Curated records take precedence for matching requests. Verified
+nonparticipation yields `not_applicable` with empty tables and charts. The gold
+`fct_player_event_participation` model also records observed participants at
+`(season, event_name, player_id)` grain. An absent record leaves participation
+unknown. See [Ask workspace](ask-workspace.md#governed-similarity-and-league-references).
+
+Player identities use accent and punctuation folding within the active source
+cohort. A surname or suffix-free full name becomes an alias only when it
+identifies one player across the cohort's observed name spellings. Generated
+single-token aliases require at least two letters and exclude Ask scope and
+metric words. Curated nicknames also require an
+unambiguous observed identity. Shared names retain identity clarification.
 
 Availability questions accept “how many points … average”; award lookups accept
 “Name the MVP winner” and “Who received MVP”. These wording variants preserve
