@@ -23,6 +23,7 @@ from app.agent.name_matching import (
     prepare_names,
 )
 from app.agent.overview_calendar import (
+    ISO_DATE_PATTERN,
     ISO_INTERVAL_PATTERN,
     MONTH_PATTERN,
     literal_date_intervals,
@@ -36,6 +37,7 @@ from app.agent.scope_policy import (
     explicit_metric_mentions,
     explicit_phase,
     explicit_scope,
+    normalize_playoff_round_year,
     requested_playoff_round,
     round_scope_message,
     split_kind,
@@ -52,7 +54,7 @@ from app.agent.semantics import (
     load_contract,
     select_query_rows,
 )
-from app.seasons import SEASON_TOKEN_RE, normalize_season, validate_season
+from app.seasons import SEASON_TOKEN_RE, SEASONS, normalize_season, validate_season
 
 VERSION = "opponent_splits/1"
 DEFAULT_METRICS = ("pts", "ts_pct", "fg_pct", "fg3_pct", "ast", "reb", "plus_minus")
@@ -94,6 +96,18 @@ _NEGATED_SCOPE = re.compile(
     re.I,
 )
 _SLASH_DATE = re.compile(r"\b(\d{4})/(\d{2})/(\d{2})\b")
+_STANDALONE_YEAR = r"(?<![\w/–-])(?:19|20)\d{2}(?![\w/–-])"
+_MONTH_WITH_YEAR = re.compile(MONTH_PATTERN + r"\.?\s+" + _STANDALONE_YEAR, re.I)
+_PLAYOFF_YEAR = re.compile(
+    rf"({_STANDALONE_YEAR})\s+(?:NBA\s+)?(?:playoffs?|post[ -]?season)\b"
+    rf"|\b(?:playoffs?|post[ -]?season)(?:\s+(?:of|in)|,)?\s+\(?({_STANDALONE_YEAR})\)?",
+    re.I,
+)
+_RELATIVE_CALENDAR = (
+    r"\b(?:(?:this|last|previous|past)\s+(?:month|week)"
+    r"|(?:this|last|previous|prior|current)\s+season"
+    r"|(?:last|past|preceding|most recent)\s+\d+\s+(?:(?:calendar\s+)?days?|months?))\b"
+)
 _UNRESOLVED_RANGE = re.compile(
     r"\bfrom\s+(?:(?!(?:\bfrom\b|\bbetween\b|[?!.])).)+?\s+"
     r"(?:through|until|to(?=\s+(?!(?:see|find|check|know|determine|evaluate"
@@ -316,6 +330,47 @@ _UNSUPPORTED_METRIC_PHRASE = re.compile(
     r"|shot\s+quality|expected\s+fg%|xfg%)\b",
     re.I,
 )
+_METRIC_SCOPE_CLAUSES = re.compile(
+    rf"(?:\bfrom\s+)?(?:{ISO_INTERVAL_PATTERN})"
+    rf"|\b(?:as[ -]of|week\s+(?:of|starting|beginning))\s+{ISO_DATE_PATTERN}"
+    rf"|{_MONTH_WITH_YEAR.pattern}|{_RELATIVE_CALENDAR}|{_PLAYOFF_YEAR.pattern}"
+    rf"|{SEASON_TOKEN_RE.pattern}|{_ROUND_PATTERN.pattern}|{COLLECTIVE_MATCHUP}"
+    r"|\b(?:regular[ -]season|playoffs?|post[ -]?season)\b",
+    re.I,
+)
+_REQUEST_FILLER = re.compile(
+    r"\b(?:player\d+|can|could|would|please|i|me|my|you|he|his|she|her|they|their"
+    r"|how|what|which|did|does|do|was|were|is|are|has|have|had|many|much|well"
+    r"|show|give|list|display|tell|let|see|get|report|summari[sz]e|analy[sz]e|break\s+down"
+    r"|play(?:ed|ing)?|perform(?:s|ed|ing|ance)?|struggl(?:e|ed|es|ing)|far(?:e|ed|es|ing)"
+    r"|match(?:ed|es|ing)?\s+up"
+    r"|score[ds]?|record(?:s|ed|ing)?|put\s+up|shoot|shot"
+    r"|overall|numbers?|statistics?|stats?|box[- ]scores?"
+    r"|toughest|hardest|easiest|best|worst|most"
+    r"|matchups?|opponents?|nba|teams?|splits?|breakdowns?"
+    r"|the|a|an|each|every|all|and|of|by|across|against|in|on|at|for|from|during|over"
+    r"|out|with|to|as|only|seasons?|appearances?|games?|contests?|table|chart)\b"
+    r"|['’]s\b",
+    re.I,
+)
+_METRIC_NOUN = re.compile(
+    r"\b(?:percent(?:age)?s?|pct|ratio|rate|attempts?|makes?|points?|shots?"
+    r"|scoring|shooting|assists?|rebounds?|steals?|blocks?|turnovers?|minutes?)\b|%",
+    re.I,
+)
+_FOLLOWUP_SCOPE_WORDS = re.compile(
+    rf"{_METRIC_SCOPE_CLAUSES.pattern}|{_RESOLVED_VENUE.pattern}"
+    rf"|{_LAST_GAMES.pattern}|{_STANDALONE_YEAR}"
+    r"|\b(?:what|which|who|when|where|why|vs\.?|versus|career|instead|home|away|road)\b",
+    re.I,
+)
+_PROPER_NAME = re.compile(r"(?<!\w)[A-Z][a-z]+(?:[-'][A-Z]?[a-z]+)?\s+[A-Z][a-z]+\b")
+_METRIC_CONNECTOR = re.compile(r"\b(?:from|off|in|on|with|via|through|per)\b", re.I)
+_METRIC_LIST_SEPARATOR = re.compile(r"\band\b|[,;&]", re.I)
+_APPEARANCE_COUNT = re.compile(
+    r"\b(?:how many|(?:the\s+)?number of)\s+(?:games|appearances)\b", re.I
+)
+_POINT_QUANTITY = re.compile(r"\bhow many (?:points|pts)\b", re.I)
 
 
 def _compile_metric_alias(alias: str) -> re.Pattern[str]:
@@ -524,6 +579,14 @@ def _extract_metric_spans(
     unsupported = [
         matched for _, _, kind, _, matched in selected if kind == "unsupported"
     ]
+    for left, right in zip(selected, selected[1:]):
+        if left[2] != "supported" or right[2] != "supported":
+            continue
+        connector = _AGGREGATION_WORDS.sub(" ", text[left[1] : right[0]])
+        if _METRIC_CONNECTOR.search(connector) and not _METRIC_LIST_SEPARATOR.search(
+            connector
+        ):
+            unsupported.append(text[left[0] : right[1]])
     for index, (start, _, kind, key, matched) in enumerate(selected):
         if (
             kind != "supported"
@@ -561,10 +624,27 @@ def _extract_metric_spans(
     )
 
 
-def _extract_catalog_metrics(text: str) -> tuple[str, set[str], list[str]]:
-    """Consume catalog metric aliases longest-non-overlapping first."""
-    remaining, keys, matched, _ = _extract_metric_spans(text)
-    return remaining, keys, matched
+def _metric_expression(question: str) -> str:
+    """Remove recognized scope clauses before interpreting a metric request."""
+    text = normalize_playoff_round_year(question)
+    text = _SLASH_DATE.sub(r"\1-\2-\3", text)
+    text = _LAST_GAMES.sub(" ", _normalize_venue_phrases(text))
+    text = _RESOLVED_VENUE.sub(" ", text)
+    text = _METRIC_SCOPE_CLAUSES.sub(" ", text)
+    return _APPEARANCE_COUNT.sub("games played", text)
+
+
+def _metric_residue(text: str) -> str:
+    text = _AGGREGATION_WORDS.sub(" ", text)
+    text = _REQUEST_FILLER.sub(" ", text)
+    return re.sub(r"[\s,;&?.!():\[\]'’_-]", "", text)
+
+
+def _has_other_subject(text: str) -> bool:
+    return any(
+        all(word.casefold() not in _SCOPE_WORDS for word in match[0].split())
+        for match in _PROPER_NAME.finditer(text)
+    )
 
 
 def _resolve_opponent_aggregation(text: str) -> str | None:
@@ -624,8 +704,19 @@ def opponent_splits_followup(
     ]
     for pattern in _UNSUPPORTED_AGGREGATION_PATTERNS:
         rest_clean = pattern.sub(" ", rest_clean)
-    leftover = re.sub(r"\b(?:and|of)\b|[\s,&/]", "", rest_clean, flags=re.I)
-    if not leftover and (keys or unsupported_metrics or unsupported_aggs):
+    leftover = _metric_residue(rest_clean)
+    requests_metric = bool(keys or unsupported_metrics or unsupported_aggs)
+    # Keep metric-only wording attached even if it names an unsupported metric.
+    # The parser validates the complete expression before returning any values.
+    qualified_metric = (
+        bool(leftover)
+        and (requests_metric or _METRIC_NOUN.search(metric_text))
+        and not _FOLLOWUP_SCOPE_WORDS.search(metric_text)
+        and not _OPPONENT_CUE.search(metric_text)
+        and not _has_other_subject(rest_clean)
+        and not re.search(r"\b\w+['’]s\b", metric_text)
+    )
+    if (not leftover and requests_metric) or qualified_metric:
         prior = previous
         if (
             scope
@@ -717,22 +808,24 @@ def _collect_explicit_seasons(question: str, default_season: str) -> list[str]:
             ) from exc
         collected.append(validated)
 
-    for match in re.finditer(
-        r"\b((?:19|20)\d{2})[-–/]((?:19|20)\d{2}|\d{2})\b(?![-/–]\d)", question
-    ):
+    for match in SEASON_TOKEN_RE.finditer(question):
         start, end = match.groups()
         add_season(start, end)
-    for match in re.finditer(
-        r"\b((?:19|20)\d{2})\s+(?:playoffs?|postseason)\b"
-        r"|\b(?:playoffs?|postseason)(?:\s+(?:of|in))?\s+((?:19|20)\d{2})\b(?![-/–]\d)",
-        question,
-        re.I,
-    ):
+    for match in _PLAYOFF_YEAR.finditer(question):
         year = int(match[1] or match[2])
         add_season(f"{year - 1}-{year % 100:02}")
-    if legacy_year := re.search(r"\b(19\d{2})\b(?![-/–]\d)", question):
+    remaining = _LAST_GAMES.sub(" ", question)
+    remaining = re.sub(_RELATIVE_CALENDAR, " ", remaining, flags=re.I)
+    remaining = _MONTH_WITH_YEAR.sub(" ", _PLAYOFF_YEAR.sub(" ", remaining))
+    if year_token := re.search(_STANDALONE_YEAR, remaining):
+        year = int(year_token[0])
+        if year < int(SEASONS[-1][:4]) or year > int(SEASONS[0][:4]) + 1:
+            raise SemanticError(
+                "unsupported_coverage", f"Year {year} is outside available NBA seasons."
+            )
         raise SemanticError(
-            "unsupported_coverage", f"Season {legacy_year[1]} is unavailable"
+            "clarification_required",
+            f"Specify the NBA season as YYYY-YY or give an explicit date range for {year}.",
         )
     if re.search(r"\b(?:last|previous|prior)\s+season\b", question, re.I):
         year = int(default_season[:4]) - 1
@@ -745,6 +838,7 @@ def _collect_explicit_seasons(question: str, default_season: str) -> list[str]:
 def opponent_split_query(question: str, season: str) -> Query:
     """Resolve scope before starting a governed evidence read."""
     question = question.partition(_METRIC_REPLY)[0].split("\nSelected player:", 1)[0]
+    question = normalize_playoff_round_year(question)
     question = _SLASH_DATE.sub(r"\1-\2-\3", question)
     if _NEGATED_SCOPE.search(question):
         raise SemanticError(
@@ -1063,15 +1157,19 @@ def parse_opponent_splits(
             "unsupported_scope",
             "Opponent splits support a single home or away filter.",
         )
-    metric_source = metric_reply or masked
+    metric_source = metric_reply or _metric_expression(masked)
     reply_agg = _resolve_opponent_aggregation(metric_reply) if metric_reply else None
     base_agg = _resolve_opponent_aggregation(masked)
     aggregation = reply_agg or base_agg or "average"
-    _, keys, _, unsupported_metrics = _extract_metric_spans(metric_source)
-    if unsupported_metrics:
+    rest, keys, _, unsupported_metrics = _extract_metric_spans(metric_source)
+    if unsupported_metrics or _metric_residue(rest) or (metric_reply and not keys):
         raise SemanticError(
             "unsupported_scope",
             "Opponent splits support governed box-score, shooting, and per-36 metrics only.",
+        )
+    if not metric_reply and not base_agg and _POINT_QUANTITY.search(metric_source):
+        raise SemanticError(
+            "clarification_required", "Do you mean total points or points per game?"
         )
     contract = load_contract()
     metrics = (

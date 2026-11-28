@@ -1195,11 +1195,12 @@ class SemanticAsk:
             )
         from app.agent.publication_ask_source import parse_publication_stat
 
+        initial_shape = semantic_shape(turn.question)
         open_publication = getattr(self.warehouse, "open_publication", None)
         turn.publication_stat = (
             parse_publication_stat(turn.question.partition("\nSelected player: ")[0])
             if open_publication
-            and semantic_shape(turn.question) != "opponent_splits"
+            and initial_shape != "opponent_splits"
             and not turn.inherited
             and not turn.award
             and (not turn.pending or turn.selected_player)
@@ -1235,12 +1236,16 @@ class SemanticAsk:
         if turn.award:
             turn.intent["kind"] = "award_lookup_then_performance"
         if turn.intent["status"] and not (
-            (turn.publication_stat or turn.playoff_round)
+            (
+                turn.publication_stat
+                or turn.playoff_round
+                or initial_shape == "opponent_splits"
+            )
             and turn.intent["kind"] == "quantity_aggregation"
         ):
             if (
                 turn.intent["kind"] == "subgame_scope"
-                and semantic_shape(turn.question) == "overview"
+                and initial_shape == "overview"
                 and not round_scope_message(turn.question)
             ):
                 turn.intent["status"] = "unsupported_coverage"
@@ -1256,7 +1261,6 @@ class SemanticAsk:
 
         turn.requested_comparison = comparison_intent(turn.question)
         turn.position_group = requested_group(turn.question)
-        initial_shape = semantic_shape(turn.question)
         turn.route_shape = turn.route_shape or initial_shape
         if turn.position_group and initial_shape != "overview":
             # A cohort constraint must not disappear in a scalar/league plan

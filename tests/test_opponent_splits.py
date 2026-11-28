@@ -500,6 +500,86 @@ def test_refuses_incompletely_supported_metric_requests(split_agent, metric):
 
 
 @pytest.mark.parametrize(
+    ("question", "followup"),
+    [
+        ("Show Avery Example's fast break points by opponent", "Fast Break Points"),
+        (
+            "Show Avery Example's points scored on fast breaks against each opponent",
+            "points scored on fast breaks",
+        ),
+        (
+            "How many points did Avery Example score in the paint against each team",
+            "points in the paint",
+        ),
+        ("Show Avery Example's paint points by opponent", "paint points"),
+        (
+            "Show Avery Example's points off turnovers by opponent",
+            "points off turnovers",
+        ),
+        (
+            "Show Avery Example's points scored from turnovers by opponent",
+            "points scored from turnovers",
+        ),
+        (
+            "Show Avery Example's rebounds and corner three percentage by opponent",
+            "rebounds and corner three percentage",
+        ),
+        (
+            "How did Avery Example shoot threes from the corners against every opponent",
+            "three-point percentage from the corners",
+        ),
+    ],
+)
+def test_validates_complete_metric_expression_on_initial_and_followup(
+    split_agent, question, followup
+):
+    initial = split_agent.answer(f"{question} in 2024-25?")
+    assert (
+        split_agent.answer(QUESTION, conversation_id="metric-scope")["status"] == "ok"
+    )
+    reply = split_agent.answer(
+        f"What about {followup}?", conversation_id="metric-scope"
+    )
+    assert reply["ask_route"]["source"] == "prior_route"
+    for result in (initial, reply):
+        assert result["status"] == "unsupported_scope", result
+        assert result["ask_route"]["route"] == "opponent_splits"
+        assert not result.get("opponent_splits")
+        assert not result["tables"]
+
+
+@pytest.mark.parametrize(
+    ("question", "keys"),
+    [
+        ("How did Avery Example fare against each team", list(DEFAULT_METRICS)),
+        (
+            "How well did Avery Example play against every opponent",
+            list(DEFAULT_METRICS),
+        ),
+        ("Show the toughest matchup for Avery Example", list(DEFAULT_METRICS)),
+        ("How many games did Avery Example play against each team", ["gp"]),
+        ("Show Avery Example's number of appearances by opponent", ["gp"]),
+        ("How many points did Avery Example average against each team", ["pts"]),
+    ],
+)
+def test_generic_question_defaults_and_explicit_metrics_still_resolve(
+    split_agent, question, keys
+):
+    result = split_agent.answer(f"{question} in 2024-25?")
+    assert result["status"] == "ok", result
+    assert result["opponent_splits"]["display_metrics"] == keys
+
+
+def test_an_unqualified_point_count_still_requires_aggregation(split_agent):
+    result = split_agent.answer(
+        "How many points did Avery Example score against each team in 2024-25?"
+    )
+    assert result["status"] == "clarification_required", result
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert "total points or points per game" in result["answer"]
+
+
+@pytest.mark.parametrize(
     ("metric", "keys"),
     [
         ("games played", ["gp"]),
@@ -1360,6 +1440,11 @@ def test_slash_date_ranges_normalize_and_unresolved_ranges_require_clarification
         "in 1999-2000",
         "in the 1998 playoffs",
         "in the 1999 season",
+        "in the 2016 season",
+        "for the season of 2016",
+        "for 2016",
+        "(2016)",
+        "in 2024-25 and 2016",
         "in the 2030-31 season",
     ],
 )
@@ -1369,6 +1454,39 @@ def test_unavailable_seasons_do_not_fall_back_to_selected_season(
     result = split_agent.answer(f"Show Avery Example's opponent splits {season_phrase}")
     assert result["status"] == "unsupported_coverage", (season_phrase, result)
     assert not result.get("opponent_splits")
+
+
+@pytest.mark.parametrize(
+    "phrase", ["in the 2025 season", "for the season of 2025", "for 2025", "(2025)"]
+)
+def test_bare_year_does_not_default_to_the_selected_season(split_agent, phrase):
+    result = split_agent.answer(f"Show Avery Example's opponent splits {phrase}")
+    assert result["status"] == "clarification_required", (phrase, result)
+    assert not result.get("opponent_splits")
+
+
+@pytest.mark.parametrize(
+    ("phrase", "phase", "window"),
+    [
+        ("in 2024-2025", "Regular Season", "season_to_date"),
+        ("in 2025 NBA Playoffs", "Playoffs", "season_to_date"),
+        ("in the post-season of 2025", "Playoffs", "season_to_date"),
+        ("in the 2025 Conference Semifinals", "Playoffs", "season_to_date"),
+        ("in Jan. 2025", "Regular Season", "date_range"),
+        ("from 2025/01/03 through 2025/01/05", "Regular Season", "date_range"),
+    ],
+)
+def test_years_in_resolved_date_and_season_expressions_are_preserved(
+    split_agent, phrase, phase, window
+):
+    result = split_agent.answer(f"Show Avery Example's opponent splits {phrase}")
+    assert result["status"] == "ok", (phrase, result)
+    scope = result["opponent_splits"]["scope"]
+    assert (scope["season"], scope["season_type"], scope["window"]) == (
+        SEASON,
+        phase,
+        window,
+    )
 
 
 @pytest.mark.parametrize(

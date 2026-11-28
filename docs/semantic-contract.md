@@ -303,6 +303,9 @@ season, the last N recorded appearances, and a home or away filter. Venue and
 phase filters apply before selecting the last N appearances. The route uses
 governed game-grain evidence from the selected warehouse, bundle or pinned
 publication. Metric-only follow-ups retain that player and scope.
+Specify an NBA season as `YYYY-YY` or give explicit dates for a calendar
+period. A standalone year in a season request needs clarification when its
+meaning is ambiguous.
 Use a numeric game count for recent windows, such as `last 3 games`. The
 answer discloses when fewer verified appearances are available in the
 requested scope.
@@ -312,7 +315,9 @@ require separate requests when combined with opponent splits.
 The `opponent_splits/1` evidence includes each opponent's appearance count and
 verified team W–L record, with unknown outcomes counted separately. The default
 view shows PTS, TS%, FG%, 3P%, AST, REB and plus-minus. Counting stats expose
-totals and per-game averages. Shooting ratios retain their summed inputs,
+totals and per-game averages. Explicit metric requests require a complete
+match to supported metrics. A qualifier such as “in the paint” requires
+its own connected statistic. Shooting ratios retain their summed inputs,
 numerator, denominator and valid-game counts. For example, TS% uses summed
 points divided by `2 × (sum(FGA) + 0.44 × sum(FTA))`. FG%, 3P% and FT% pool makes
 and attempts, and eFG% pools `FGM + 0.5 × 3PM` over FGA. Games missing a required

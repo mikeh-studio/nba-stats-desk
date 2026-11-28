@@ -73,6 +73,9 @@ test("opponent splits reports admit canonical metric labels and aliases", () => 
     "What about MPG?",
     "What about PTS per 36 minutes?",
     "What about OREB, DREB, and PF?",
+    "What about fast break points?",
+    "Points in the paint?",
+    "What about corner three percentage?",
   ]) {
     assert.equal(
       followupFitsReport(question, oppReport, "Which team did Avery Example struggle against most?"),
@@ -81,4 +84,6 @@ test("opponent splits reports admit canonical metric labels and aliases", () => 
     );
   }
   assert.equal(followupFitsReport("What about Blair Sample?", oppReport), false);
+  assert.equal(followupFitsReport("What about Blair Sample PPG?", oppReport), false);
+  assert.equal(followupFitsReport("What about Blair Sample's points?", oppReport), false);
 });

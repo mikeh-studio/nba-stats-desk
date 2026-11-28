@@ -21,6 +21,17 @@ const opponentSplitMetricWords = new Set((
   + "fantasy simple box score index proxy bsi weighted points created attributed 2 x2"
 ).split(/\s+/));
 
+function resemblesOpponentMetric(question, allowed) {
+  const text = String(question || "").trim().replace(
+    /^(?:and|what about|how about|show(?: me)?|compare|now)\s+/i, "",
+  );
+  // Let the server validate qualified metrics in the existing report scope.
+  if (!/\b(?:percent(?:age)?s?|pct|ratio|rate|attempts?|makes?|points?|shots?|scoring|shooting|assists?|rebounds?|steals?|blocks?|turnovers?|minutes?)\b|%/i.test(text)) return false;
+  if (/\b(?:what|which|who|when|where|why|season|playoffs?|postseason|home|away|road|vs|versus)\b|\b\d{4}\b|\b\w+['’]s\b/i.test(text)) return false;
+  const names = text.match(/\b[A-Z][a-z]+\s+[A-Z][a-z]+\b/g) || [];
+  return !names.some(name => tokens(name).every(word => !allowed.has(word)));
+}
+
 export function isFollowupReport(payload) {
   return Boolean(payload && (["ok", "clarification_required"].includes(payload.status) ||
     (payload.status == null && payload.availability_scope && payload.availability_evidence)));
@@ -53,5 +64,8 @@ export function followupFitsReport(question, payload, reportQuestion = "", sugge
     : [];
   const allowed = new Set([...words, ...metricTokens, ...tokens(reportQuestion), ...players.flatMap(p => tokens(p.player_name))]);
   const parts = tokens(question);
-  return parts.length > 0 && parts.every(word => allowed.has(word) || /^\d+$/.test(word));
+  return parts.length > 0 && (
+    parts.every(word => allowed.has(word) || /^\d+$/.test(word)) ||
+    (isOpponentSplits && resemblesOpponentMetric(question, allowed))
+  );
 }
