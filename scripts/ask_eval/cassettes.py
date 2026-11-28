@@ -168,6 +168,8 @@ def settings_binding(settings):
     from datetime import date
 
     values = asdict(settings)
+    # Keep the legacy hash for bare reference runs. Any non-default setting
+    # binds the effective mode and families, including serve inferred from a path.
     defaults = {
         "ask_deterministic_planning_enabled": False,
         "ask_formula_cache_enabled": False,

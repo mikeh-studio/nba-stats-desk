@@ -706,6 +706,64 @@ def test_concurrent_bundle_reads_share_the_request_pin(core_source, settings):
     assert reads == [None]
 
 
+@pytest.mark.parametrize(
+    "binding",
+    ["publication_id", "snapshot_id", "expires_at", "built_at", "source_timestamp"],
+)
+def test_core_bundle_cache_reuses_builds_and_tracks_authority(
+    core_source, settings, monkeypatch, binding
+):
+    active = core_source
+    reads = []
+    builds = []
+    build = AskDataBundle.from_core_publication
+
+    def read(publication_id):
+        reads.append(publication_id)
+        return active
+
+    def count_build(cls, source, **kwargs):
+        builds.append(source)
+        return build(source, **kwargs)
+
+    monkeypatch.setattr(
+        AskDataBundle, "from_core_publication", classmethod(count_build)
+    )
+    warehouse = AskBundleWarehouse(
+        SemanticWarehouse(SnapshotClient()), read, clock=lambda: NOW
+    )
+    expected = build(core_source, now=NOW)
+    with request_policy(settings, "openai"):
+        original = warehouse.open_bundle(now=NOW)
+        assert original.manifest == expected.manifest
+    with request_policy(settings, "openai"):
+        assert warehouse.open_bundle(now=NOW) is original
+    with request_policy(settings, "openai"):
+        with pytest.raises(SemanticError) as error:
+            warehouse.open_bundle(now=CORE_EXPIRY)
+        assert error.value.code == "invalid_evidence"
+    assert builds == [core_source]
+
+    if binding == "publication_id":
+        active = replace(active, status=dict(active.status, publication_id="core_b"))
+    elif binding == "snapshot_id":
+        active = replace(
+            active, evidence=replace(active.evidence, snapshot_id="core_v2")
+        )
+    else:
+        bound_times = dict(
+            expires_at=CORE_EXPIRY - timedelta(days=1),
+            built_at=NOW - timedelta(seconds=1),
+            source_timestamp=CAPTURE - timedelta(seconds=1),
+        )
+        active = replace(active, **{binding: bound_times[binding].isoformat()})
+    with request_policy(settings, "openai"):
+        refreshed = warehouse.open_bundle(now=NOW)
+        assert refreshed.manifest["bundle_id"] != original.manifest["bundle_id"]
+    assert builds == [core_source, active]
+    assert reads == [None] * 4
+
+
 def test_cold_build_crossing_expiry_is_neither_returned_nor_cached(
     core_source, settings, monkeypatch
 ):
@@ -852,13 +910,14 @@ def test_refreshing_warehouse_exposes_wire_bundle_and_keeps_core_separate(
 
 
 @pytest.mark.parametrize("shadow_first", [False, True])
+@pytest.mark.parametrize("rich", [False, True])
 def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
-    pilot_snapshot, settings, tmp_path, monkeypatch, shadow_first
+    pilot_snapshot, settings, tmp_path, monkeypatch, shadow_first, rich
 ):
-    from app.agent import ask_data_bundle
+    from app.agent import ask_data_bundle, execution
     from app.agent.serving_bigquery import BigQueryServingReader
 
-    publication = pilot(pilot_snapshot)
+    publication = pilot(pilot_snapshot, detail=rich)
     reference, records = wire(publication)
     path = tmp_path / "reference.json"
     path.write_text(json.dumps(asdict(reference)))
@@ -882,6 +941,7 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
         lambda: NOW,
         project=reference.project,
         mode="shadow",
+        families=("rich",) if rich else ("points",),
     )
     query = Query(metric="pts", aggregation="average", season=SEASON, player_id=1)
     with (
@@ -897,11 +957,18 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
 
         monkeypatch.setattr(serving_warehouse, "acquire_timed_lock", observe_lock)
         monkeypatch.setattr(ask_data_bundle, "acquire_timed_lock", observe_lock)
+        monkeypatch.setattr(execution, "acquire_timed_lock", observe_lock)
         _, evidence = warehouse.load([SEASON])
         shadow = warehouse.serving_shadow
-        reference_result = run_query(evidence, query)
+
+        def compare():
+            if rich:
+                shadow.compare_rich([SEASON])
+            else:
+                shadow.compare(query, run_query(evidence, query))
+
         first = (
-            pool.submit(copy_context().run, shadow.compare, query, reference_result)
+            pool.submit(copy_context().run, compare)
             if shadow_first
             else pool.submit(copy_context().run, warehouse.open_bundle)
         )
@@ -910,9 +977,7 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
             second = (
                 pool.submit(copy_context().run, warehouse.open_bundle)
                 if shadow_first
-                else pool.submit(
-                    copy_context().run, shadow.compare, query, reference_result
-                )
+                else pool.submit(copy_context().run, compare)
             )
             assert peer_waiting.wait(timeout=5)
         finally:
@@ -927,7 +992,43 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
     assert shadow.outcomes == [
         {"status": "match", "code": "capture_provenance_differs"}
     ]
-    assert len(client.calls) == 1
+    assert len(client.calls) == (2 if rich else 1)
+
+
+@pytest.mark.parametrize("contended", ["warehouse_lock", "bundle_lock"])
+def test_bundle_shadow_lock_wait_preserves_foreground_deadline(
+    core_source, settings, monkeypatch, contended
+):
+    from app.agent import execution
+    from app.agent.ask_data_bundle import record_bundle_shadow
+    from app.agent.observability import AgentTrace
+
+    clock, waits = [100.0], []
+    monkeypatch.setattr(execution, "monotonic", lambda: clock[0])
+
+    class ContendedLock:
+        def acquire(self, *, timeout):
+            waits.append(timeout)
+            clock[0] += timeout
+            return False
+
+        def release(self):
+            pytest.fail("Cannot release a lock that was never acquired")
+
+    def unexpected_candidate():
+        pytest.fail("Candidate read must wait for both locks")
+
+    trace = AgentTrace("shadow-contention", "", "fixture")
+    settings.agent_request_deadline_seconds = 2
+    with request_policy(settings, "openai", trace) as policy:
+        setattr(policy, contended, ContendedLock())
+        outcome = record_bundle_shadow(unexpected_candidate, core_source.evidence)
+        assert waits == [1.0]
+        assert policy.remaining() == 1.0
+        assert outcome == {"status": "error", "code": "request_timeout"}
+        assert trace.serving_shadow == [outcome]
+        assert execution.CURRENT.get() is policy
+        execution.checkpoint()
 
 
 def test_missing_wire_relation_fails_closed(pilot_snapshot, tmp_path):

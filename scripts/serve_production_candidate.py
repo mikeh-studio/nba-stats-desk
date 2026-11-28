@@ -49,6 +49,17 @@ def attach_publication(app, core, mode):
     from starlette.responses import JSONResponse
 
     workers = PublicationWorkers()
+    # The verified Core reader supplies the publication reference for this path.
+    # Off and shadow retain its governed fact execution for immediate rollback.
+    wire_mode = os.getenv("ASK_SERVING_MODE")
+    core_mode = os.getenv("ASK_PUBLICATION_SERVING_MODE") or wire_mode or "serve"
+    if core_mode not in {"off", "shadow", "serve"}:
+        raise ValueError("Publication serving mode must be off, shadow or serve")
+    if wire_mode in {"serve", "shadow"} and not os.getenv("ASK_SERVING_REFERENCE_PATH"):
+        # This launcher has a Core reader. Route the override to Core before
+        # the legacy app resolves its independent Wire settings.
+        os.environ["ASK_PUBLICATION_SERVING_MODE"] = core_mode
+        os.environ["ASK_SERVING_MODE"] = "off"
 
     async def publication(scope, receive, send):
         return await workers.serve(serve, scope, receive, send)
@@ -194,6 +205,7 @@ def attach_publication(app, core, mode):
     app.state.ask_publication_source = lambda publication_id: read_bounded(
         read_ask_publication, publication_id
     )
+    app.state.ask_publication_serving_mode = core_mode
     app.mount("/publication-core", publication)
     app.state.production_publication_enabled = True
 

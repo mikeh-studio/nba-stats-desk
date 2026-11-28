@@ -597,6 +597,9 @@ def _warehouse_repository(settings: Settings) -> WarehouseRepository:
         if getattr(app.state, "production_publication_enabled", False)
         else None
     )
+    repo.ask_publication_serving_mode = getattr(
+        app.state, "ask_publication_serving_mode", "off"
+    )
     return repo
 
 

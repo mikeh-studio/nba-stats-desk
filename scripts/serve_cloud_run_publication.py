@@ -2,6 +2,8 @@
 
 NBA_PUBLICATION_CONFIG is non-secret operator configuration; source policies,
 revocation registries and the mode switch are read from separately controlled GCS.
+The shared publication composition defaults Ask to bundle serving in production
+and honors the ASK_SERVING_MODE rollback overrides.
 """
 
 import json
