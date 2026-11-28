@@ -910,13 +910,14 @@ def test_refreshing_warehouse_exposes_wire_bundle_and_keeps_core_separate(
 
 
 @pytest.mark.parametrize("shadow_first", [False, True])
+@pytest.mark.parametrize("rich", [False, True])
 def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
-    pilot_snapshot, settings, tmp_path, monkeypatch, shadow_first
+    pilot_snapshot, settings, tmp_path, monkeypatch, shadow_first, rich
 ):
-    from app.agent import ask_data_bundle
+    from app.agent import ask_data_bundle, execution
     from app.agent.serving_bigquery import BigQueryServingReader
 
-    publication = pilot(pilot_snapshot)
+    publication = pilot(pilot_snapshot, detail=rich)
     reference, records = wire(publication)
     path = tmp_path / "reference.json"
     path.write_text(json.dumps(asdict(reference)))
@@ -940,6 +941,7 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
         lambda: NOW,
         project=reference.project,
         mode="shadow",
+        families=("rich",) if rich else ("points",),
     )
     query = Query(metric="pts", aggregation="average", season=SEASON, player_id=1)
     with (
@@ -955,11 +957,18 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
 
         monkeypatch.setattr(serving_warehouse, "acquire_timed_lock", observe_lock)
         monkeypatch.setattr(ask_data_bundle, "acquire_timed_lock", observe_lock)
+        monkeypatch.setattr(execution, "acquire_timed_lock", observe_lock)
         _, evidence = warehouse.load([SEASON])
         shadow = warehouse.serving_shadow
-        reference_result = run_query(evidence, query)
+
+        def compare():
+            if rich:
+                shadow.compare_rich([SEASON])
+            else:
+                shadow.compare(query, run_query(evidence, query))
+
         first = (
-            pool.submit(copy_context().run, shadow.compare, query, reference_result)
+            pool.submit(copy_context().run, compare)
             if shadow_first
             else pool.submit(copy_context().run, warehouse.open_bundle)
         )
@@ -968,9 +977,7 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
             second = (
                 pool.submit(copy_context().run, warehouse.open_bundle)
                 if shadow_first
-                else pool.submit(
-                    copy_context().run, shadow.compare, query, reference_result
-                )
+                else pool.submit(copy_context().run, compare)
             )
             assert peer_waiting.wait(timeout=5)
         finally:
@@ -985,7 +992,43 @@ def test_wire_open_bundle_and_lazy_shadow_share_lock_order(
     assert shadow.outcomes == [
         {"status": "match", "code": "capture_provenance_differs"}
     ]
-    assert len(client.calls) == 1
+    assert len(client.calls) == (2 if rich else 1)
+
+
+@pytest.mark.parametrize("contended", ["warehouse_lock", "bundle_lock"])
+def test_bundle_shadow_lock_wait_preserves_foreground_deadline(
+    core_source, settings, monkeypatch, contended
+):
+    from app.agent import execution
+    from app.agent.ask_data_bundle import record_bundle_shadow
+    from app.agent.observability import AgentTrace
+
+    clock, waits = [100.0], []
+    monkeypatch.setattr(execution, "monotonic", lambda: clock[0])
+
+    class ContendedLock:
+        def acquire(self, *, timeout):
+            waits.append(timeout)
+            clock[0] += timeout
+            return False
+
+        def release(self):
+            pytest.fail("Cannot release a lock that was never acquired")
+
+    def unexpected_candidate():
+        pytest.fail("Candidate read must wait for both locks")
+
+    trace = AgentTrace("shadow-contention", "", "fixture")
+    settings.agent_request_deadline_seconds = 2
+    with request_policy(settings, "openai", trace) as policy:
+        setattr(policy, contended, ContendedLock())
+        outcome = record_bundle_shadow(unexpected_candidate, core_source.evidence)
+        assert waits == [1.0]
+        assert policy.remaining() == 1.0
+        assert outcome == {"status": "error", "code": "request_timeout"}
+        assert trace.serving_shadow == [outcome]
+        assert execution.CURRENT.get() is policy
+        execution.checkpoint()
 
 
 def test_missing_wire_relation_fails_closed(pilot_snapshot, tmp_path):
