@@ -5,7 +5,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Any
 
+from app.agent.ask_data_bundle import AskBundleWarehouse
 from app.agent.semantics import Evidence, SemanticError, load_contract
+
+ProductionAskWarehouse = AskBundleWarehouse
 
 _STAT = r"total|per game|ratio|per 36"
 _DATES = r"(?: from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2}))?"
@@ -77,6 +80,10 @@ def parse_publication_stat(question: str) -> PublicationStatRequest | None:
 class PublicationAskSource:
     evidence: Evidence
     status: dict[str, Any]
+    # Private timing from the verified release. The public status shape stays stable.
+    source_timestamp: str | None = None
+    built_at: str | None = None
+    expires_at: str | None = None
 
     @property
     def season(self) -> str:
@@ -191,39 +198,3 @@ class PublicationAskSource:
                     "unsupported_coverage",
                     "This publication can verify player box scores. The complete league cohort required for this ranking or percentile is unavailable.",
                 )
-
-
-class ProductionAskWarehouse:
-    """Keep the ordinary historical warehouse alongside the publication reader."""
-
-    def __init__(self, historical, read_publication):
-        self.historical = historical
-        self.read_publication = read_publication
-
-    def __getattr__(self, key):
-        return getattr(self.historical, key)
-
-    def open_publication(self, publication_id=None):
-        try:
-            source = self.read_publication(publication_id)
-        except (ValueError, OSError, KeyError) as exc:
-            raise SemanticError(
-                "publication_unavailable",
-                "The authorized publication is unavailable. Try again when its verification is restored.",
-            ) from exc
-        if publication_id and (
-            source is None or source.publication_id != publication_id
-        ):
-            raise SemanticError(
-                "publication_unavailable",
-                "This conversation's publication is unavailable. Start a new analysis for the active publication.",
-            )
-        return source
-
-    def recheck_publication(self, source):
-        current = self.open_publication(source.publication_id)
-        if source.evidence.cohort_complete and not current.evidence.cohort_complete:
-            raise SemanticError(
-                "publication_unavailable",
-                "The publication's league coverage could not be reverified. Try again.",
-            )

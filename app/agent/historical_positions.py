@@ -7,6 +7,7 @@ checksums establish replay integrity, not publisher authenticity.
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import datetime
 
 MAPPING_VERSION = "position_groups/2"
@@ -27,9 +28,16 @@ LABELS = {"Guard": "guards", "Wing": "wings/forwards", "Big": "bigs/centers"}
 
 
 def digest(context):
+    def encode_mapping(value):
+        if isinstance(value, Mapping):
+            return dict(value)
+        raise TypeError(f"{type(value).__name__} is not JSON serializable")
+
     payload = {k: v for k, v in context.items() if k != "sha256"}
     return hashlib.sha256(
-        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), default=encode_mapping
+        ).encode()
     ).hexdigest()
 
 

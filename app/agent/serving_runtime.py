@@ -105,6 +105,7 @@ class PilotPublication:
         )
         metadata = dict(
             source=source.source,
+            source_timestamp=snapshot["source_timestamp"],
             model_built_at=source.model_built_at,
             data_through=[
                 (s, p, d) for (s, p), d in sorted(source.data_through.items())

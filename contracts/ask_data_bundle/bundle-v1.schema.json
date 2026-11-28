@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "bundle_id", "publication_id", "source_snapshot_id",
+    "scope", "freshness", "capabilities", "summary_digest", "facts_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "ask_data_bundle/1"},
+    "bundle_id": {"$ref": "#/$defs/sha256"},
+    "publication_id": {"type": "string", "minLength": 1},
+    "source_snapshot_id": {"type": "string", "minLength": 1},
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["seasons", "phases", "first", "last", "cohort_complete"],
+      "properties": {
+        "seasons": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}$"}
+        },
+        "phases": {
+          "type": "array", "minItems": 1, "uniqueItems": true,
+          "items": {"enum": ["Regular Season", "Playoffs"]}
+        },
+        "covered_scopes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["season", "phase", "data_through"],
+            "properties": {
+              "season": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}$"},
+              "phase": {"enum": ["Regular Season", "Playoffs"]},
+              "data_through": {"type": "string", "format": "date"}
+            }
+          }
+        },
+        "first": {"type": "string", "format": "date"},
+        "last": {"type": "string", "format": "date"},
+        "cohort_complete": {"type": "boolean"}
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["policy", "source_timestamp", "built_at", "expires_at"],
+      "properties": {
+        "policy": {"enum": ["dev_300s", "authority_backed"]},
+        "source_timestamp": {"type": "string", "format": "date-time"},
+        "built_at": {"type": "string", "format": "date-time"},
+        "expires_at": {"type": "string", "format": "date-time"}
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "points", "metrics", "rankings", "detail", "rich", "playoff_rounds",
+          "season_positions", "player_aliases", "event_participation"
+        ]
+      }
+    },
+    "summary_digest": {"$ref": "#/$defs/sha256"},
+    "facts_digest": {"$ref": "#/$defs/sha256"},
+    "auxiliary": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "playoff_rounds": {"$ref": "#/$defs/auxiliary_slot"},
+        "season_positions": {"$ref": "#/$defs/auxiliary_slot"},
+        "player_aliases": {"$ref": "#/$defs/auxiliary_slot"},
+        "event_participation": {"$ref": "#/$defs/auxiliary_slot"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[0-9a-f]{64}$"},
+    "auxiliary_slot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["digest", "record_count"],
+      "properties": {
+        "digest": {"$ref": "#/$defs/sha256"},
+        "record_count": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

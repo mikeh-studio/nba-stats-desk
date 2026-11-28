@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import datetime
 from threading import Lock
 from time import monotonic
 
+from app.agent.ask_data_bundle import AskBundleWarehouse, AskDataBundle
 from app.agent.execution import (
     CURRENT,
     ExecutionFailure,
@@ -18,7 +20,7 @@ from app.agent.execution import (
 )
 from app.agent.semantic_serving import players_from_rows
 from app.agent.semantics import PHASES, SemanticError
-from app.agent.serving_runtime import ServingShadow, scoped_source
+from app.agent.serving_runtime import PilotPublication, ServingShadow, scoped_source
 
 
 class CapabilityMiss(Exception):
@@ -401,15 +403,26 @@ class RefreshingServingWarehouse:
         self._last_shadow: ServingShadow | FailedShadow | None = None
 
     def _reference(self):
+        policy = CURRENT.get()
+        if policy is None:
+            return self._read_reference()
+        # Bundle reads already hold this reentrant lock. Routing must join the
+        # same critical section before it can read or set the reference pin.
+        acquire_timed_lock(policy.bundle_lock, "serving_reference_wait")
+        try:
+            state = policy.serving_state.setdefault(self, {})
+            if "reference" not in state:
+                state["reference"] = self._read_reference()
+            return state["reference"]
+        finally:
+            policy.bundle_lock.release()
+
+    def _read_reference(self):
         import json
         import stat
 
         from app.agent.serving_bigquery import ServingReference
 
-        policy = CURRENT.get()
-        state = policy.serving_state.setdefault(self, {}) if policy else None
-        if state is not None and "reference" in state:
-            return state["reference"]
         with stage("serving_reference"):
             try:
                 if not stat.S_ISREG(self.path.stat().st_mode):
@@ -426,8 +439,6 @@ class RefreshingServingWarehouse:
                 raise SemanticError(
                     "invalid_evidence", "Serving reference unavailable or invalid"
                 ) from exc
-        if state is not None:
-            state["reference"] = reference
         return reference
 
     def _select(self) -> ServingWarehouse:
@@ -440,6 +451,8 @@ class RefreshingServingWarehouse:
         reference = self._reference()
         acquire_timed_lock(self._lock, "serving_version_wait", 5)
         try:
+            if state is not None and "target" in state:
+                return state["target"]
             target = self._versions.get(reference)
             if target is None:
                 target = ServingWarehouse(
@@ -460,6 +473,28 @@ class RefreshingServingWarehouse:
             return target
         finally:
             self._lock.release()
+
+    def open_pilot_publication(self) -> PilotPublication:
+        cache = self._select().cache
+        core = cache.get()
+        if core.detail_digest is None:
+            return core
+        detail = cache.get(detail=True)
+        if (
+            detail.approval != core.approval
+            or detail.metadata_digest != core.metadata_digest
+            or detail.detail_digest != core.detail_digest
+            or detail.detail_json is None
+        ):
+            raise SemanticError(
+                "invalid_evidence", "Serving core and detail bindings differ"
+            )
+        return detail
+
+    def open_bundle(
+        self, publication_id: str | None = None, *, now: datetime | None = None
+    ) -> AskDataBundle:
+        return AskBundleWarehouse(self).open_bundle(publication_id, now=now)
 
     def _completed(self, seasons):
         from app.seasons import season_bounds
@@ -562,15 +597,28 @@ class LazyShadow:
                 raise SemanticError(
                     "shadow_retry_deferred", "Recent optional shadow failure"
                 )
-            with optional_shadow_budget(15.0):
-                target = (
-                    warehouse._select() if hasattr(warehouse, "_select") else warehouse
-                )
-                shadow = target.candidate_shadow(self.evidence)
-                shadow.compare(query, reference)
-                self.outcomes.extend(shadow.outcomes)
-                if shadow.outcomes and shadow.outcomes[-1]["status"] == "error":
-                    warehouse._shadow_failed_until = monotonic() + 2.0
+            # Match open_bundle()'s bundle_lock -> warehouse_lock order across
+            # reference selection and cold cache loading while keeping the
+            # optional deadline active across bundle_lock contention.
+            policy = CURRENT.get()
+            with optional_shadow_budget(15.0, acquire_warehouse=False):
+                if policy is not None:
+                    acquire_timed_lock(policy.bundle_lock, "serving_reference_wait")
+                try:
+                    with optional_shadow_budget(15.0):
+                        target = (
+                            warehouse._select()
+                            if hasattr(warehouse, "_select")
+                            else warehouse
+                        )
+                        shadow = target.candidate_shadow(self.evidence)
+                        shadow.compare(query, reference)
+                        self.outcomes.extend(shadow.outcomes)
+                        if shadow.outcomes and shadow.outcomes[-1]["status"] == "error":
+                            warehouse._shadow_failed_until = monotonic() + 2.0
+                finally:
+                    if policy is not None:
+                        policy.bundle_lock.release()
         except Exception as exc:
             warehouse._shadow_failed_until = monotonic() + 2.0
             failure = FailedShadow(

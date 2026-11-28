@@ -3,6 +3,7 @@
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 
 from app.agent.historical_positions import (
     GROUPS,
@@ -105,21 +106,23 @@ def validated_context(context):
     from a season label. Unapproved or malformed optional evidence fails closed.
     """
     if (
-        not isinstance(context, dict)
+        not isinstance(context, Mapping)
         or context.get("mapping_version") != MAPPING_VERSION
         or context.get("sha256") != digest(context)
     ):
         return {}, set()
     approved = context.get("approved_seasons", [])
-    if not isinstance(approved, list) or any(not season_valid(s) for s in approved):
+    if not isinstance(approved, (list, tuple)) or any(
+        not season_valid(s) for s in approved
+    ):
         return {}, set()
     records = context.get("records", [])
-    if not isinstance(records, list) or len(records) > 5000:
+    if not isinstance(records, (list, tuple)) or len(records) > 5000:
         return {}, set()
     result = {}
     seen = set()
     for r in records:
-        if not isinstance(r, dict):
+        if not isinstance(r, Mapping):
             return {}, set()
         key = (r.get("season"), r.get("player_id"))
         if not isinstance(key[0], str) or type(key[1]) is not int or key in seen:
@@ -250,7 +253,7 @@ def add_position_comparisons(metrics, grouped, player_id, scope, context, questi
             eligible_players=len(eligible),
             classified_players=sum(g is not None for g in mapped.values()),
             membership_policy="listed_positions_overlap",
-            evidence_id=context.get("sha256") if isinstance(context, dict) else None,
+            evidence_id=context.get("sha256") if isinstance(context, Mapping) else None,
             fallback_reason=reason,
             qualification=dict(min_games=minimum, complete_components=True),
             **stats,
