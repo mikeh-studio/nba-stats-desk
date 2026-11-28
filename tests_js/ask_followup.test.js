@@ -45,3 +45,40 @@ test("only usable reports and pending clarifications enable follow-ups", async (
     {availability_scope: {}, availability_evidence: {}}])
     assert.equal(isFollowupReport(payload), true);
 });
+
+test("opponent splits reports admit canonical metric labels and aliases", () => {
+  const oppReport = {
+    status: "ok",
+    ask_route: { route: "opponent_splits" },
+    conversation_context: {
+      analysis_type: "opponent_splits",
+      players: [{ player_id: 101, player_name: "Avery Example" }],
+    },
+    opponent_splits: {
+      version: "opponent_splits/1",
+      player: { player_id: 101, player_name: "Avery Example" },
+      metric_definitions: {
+        pts: { key: "pts", label: "PTS" },
+      },
+    },
+  };
+  for (const question of [
+    "What about 3P%?",
+    "What about FG%?",
+    "What about FT%?",
+    "What about TS%?",
+    "What about eFG%?",
+    "What about 3PA?",
+    "What about 3PA and PTS?",
+    "What about MPG?",
+    "What about PTS per 36 minutes?",
+    "What about OREB, DREB, and PF?",
+  ]) {
+    assert.equal(
+      followupFitsReport(question, oppReport, "Which team did Avery Example struggle against most?"),
+      true,
+      question,
+    );
+  }
+  assert.equal(followupFitsReport("What about Blair Sample?", oppReport), false);
+});

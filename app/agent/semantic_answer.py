@@ -1128,7 +1128,11 @@ class SemanticAsk:
 
             question = split_followup(question, context["split_question"])
         opponent_followup = (
-            opponent_splits_followup(question, context.get("opponent_splits_question"))
+            opponent_splits_followup(
+                question,
+                context.get("opponent_splits_question"),
+                scope=context.get("scope"),
+            )
             if not pending and not selected_player
             else None
         )
@@ -2012,9 +2016,14 @@ class SemanticAsk:
         if not turn.overview:
             restored_selection = (
                 turn.selected_player
-                if turn.publication is not None
-                and turn.publication_pin
-                and not turn.pending
+                if (
+                    (
+                        turn.publication is not None
+                        and turn.publication_pin
+                        and not turn.pending
+                    )
+                    or (turn.opponent_query is not None and not turn.pending)
+                )
                 else None
             )
             turn.question, turn.players = prepare_names(

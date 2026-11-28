@@ -872,3 +872,326 @@ def test_browser_only_recovery_restores_opponent_splits_and_revalidates(facts):
     finally:
         app.dependency_overrides.clear()
         app.dependency_overrides.update(old)
+
+
+@pytest.mark.parametrize(
+    "clause",
+    [
+        "on weekends",
+        "on weekdays",
+        "in weekday games",
+        "in games he started",
+        "in games she started",
+        "in games they started",
+        "when he started",
+        "in starts",
+        "off the bench",
+        "in Monday games",
+    ],
+)
+def test_unconsumed_game_selection_clauses_return_unsupported_scope(
+    split_agent, clause
+):
+    question = f"Show Avery Example's opponent splits {clause} in 2024-25"
+    result = split_agent.answer(question)
+    assert result["status"] == "unsupported_scope", (clause, result)
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert not result.get("opponent_splits")
+
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "Show Avery Example's maximum points by opponent in 2024-25",
+        "Show Avery Example's max points by opponent in 2024-25",
+        "Show Avery Example's highest points by opponent in 2024-25",
+        "Show Avery Example's minimum points by opponent in 2024-25",
+        "Show Avery Example's min points by opponent in 2024-25",
+        "Show Avery Example's lowest assists by opponent in 2024-25",
+        "Show Avery Example's median points by opponent in 2024-25",
+        "Show Avery Example's std points by opponent in 2024-25",
+        "Show Avery Example's assists and usage rate by opponent in 2024-25",
+        "Show Avery Example's usage rate by opponent in 2024-25",
+        "Show Avery Example's USG% by opponent in 2024-25",
+        "Show Avery Example's PER by opponent in 2024-25",
+        "Show Avery Example's BPM by opponent in 2024-25",
+        "Show Avery Example's VORP by opponent in 2024-25",
+        "Show Avery Example's win shares by opponent in 2024-25",
+        "Show Avery Example's WS by opponent in 2024-25",
+        "Show Avery Example's net rating by opponent in 2024-25",
+        "Show Avery Example's rebounds per 36 minutes by opponent in 2024-25",
+        "Show Avery Example's AST% by opponent in 2024-25",
+    ],
+)
+def test_unsupported_aggregations_and_metrics_return_unsupported_scope(
+    split_agent, question
+):
+    result = split_agent.answer(question)
+    assert result["status"] == "unsupported_scope", (question, result)
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert not result.get("opponent_splits")
+
+
+def test_unsupported_metric_or_aggregation_followup_stays_refused(split_agent):
+    first = split_agent.answer(QUESTION, conversation_id="unsup-followup")
+    assert first["status"] == "ok"
+    for followup in (
+        "What about usage rate?",
+        "What about assists and usage rate?",
+        "What about max points?",
+    ):
+        reply = split_agent.answer(followup, conversation_id="unsup-followup")
+        assert reply["status"] == "unsupported_scope", (followup, reply)
+        assert reply["ask_route"]["route"] == "opponent_splits"
+
+
+@pytest.mark.parametrize(
+    "calendar_clause",
+    [
+        "in the 2025 playoffs or 2024 playoffs",
+        "in 2024-25 or 2023-24",
+        "from 2025-01-03 through 2025-01-10 and last week",
+        "from 2025-01-03 through 2025-01-10 or last week",
+        "from 2025-01-03 through 2025-01-10 in January 2025",
+        "in 2024-25 last 2 games or last week",
+    ],
+)
+def test_competing_season_or_window_expressions_require_clarification(
+    split_agent, calendar_clause
+):
+    result = split_agent.answer(
+        f"Show Avery Example's opponent splits {calendar_clause}"
+    )
+    assert result["status"] == "clarification_required", (calendar_clause, result)
+    assert not result.get("opponent_splits")
+
+
+def test_per_game_metric_alias_followup_overrides_total_aggregation(facts, monkeypatch):
+    rows = [{**row, "min": 30} for row in facts.rows]
+    config = replace(settings(), ask_claim_enforcement="enforce")
+    repository = frozen_repository(config, {"rows": rows}, "complete")
+    agent = StatsAgent(
+        config, repository, conversation_store=InMemoryConversationStore()
+    )
+    monkeypatch.setattr(agent, "_get_client", lambda *a, **k: pytest.fail("No model"))
+    monkeypatch.setattr(
+        "app.agent.service.answer_legacy_repository",
+        lambda *a, **k: pytest.fail("No legacy"),
+    )
+
+    first = agent.answer(
+        "Show Avery Example's total points by opponent in 2024-25",
+        conversation_id="mpg-override",
+    )
+    assert first["status"] == "ok"
+    assert first["opponent_splits"]["aggregation"] == "total"
+
+    mpg = agent.answer("What about MPG?", conversation_id="mpg-override")
+    assert mpg["status"] == "ok", mpg
+    assert mpg["opponent_splits"]["aggregation"] == "average"
+    assert mpg["opponent_splits"]["display_metrics"] == ["min"]
+
+    still_avg = agent.answer("What about steals?", conversation_id="mpg-override")
+    assert still_avg["status"] == "ok", still_avg
+    assert still_avg["opponent_splits"]["aggregation"] == "average"
+
+
+def test_catalog_alias_longest_match_and_followup_conjunctions(facts, monkeypatch):
+    rows = [{**row, "min": 30} for row in facts.rows]
+    config = replace(settings(), ask_claim_enforcement="enforce")
+    repository = frozen_repository(config, {"rows": rows}, "complete")
+    agent = StatsAgent(
+        config, repository, conversation_store=InMemoryConversationStore()
+    )
+    monkeypatch.setattr(agent, "_get_client", lambda *a, **k: pytest.fail("No model"))
+    monkeypatch.setattr(
+        "app.agent.service.answer_legacy_repository",
+        lambda *a, **k: pytest.fail("No legacy"),
+    )
+
+    per36 = agent.answer(
+        "Show Avery Example's PTS per 36 minutes by opponent in 2024-25",
+        conversation_id="catalog-aliases",
+    )
+    assert per36["status"] == "ok", per36
+    assert per36["opponent_splits"]["display_metrics"] == ["pts_per36"]
+
+    multi = agent.answer("What about 3PA and PTS?", conversation_id="catalog-aliases")
+    assert multi["status"] == "ok", multi
+    assert multi["ask_route"]["route"] == "opponent_splits"
+    assert multi["ask_route"]["source"] == "prior_route"
+    assert multi["opponent_splits"]["display_metrics"] == ["pts", "fg3a"]
+
+
+def test_last_n_games_followup_preserves_resolved_as_of_when_new_games_arrive(
+    facts, monkeypatch
+):
+    from app.repository import BigQueryWarehouseRepository
+
+    current_rows = list(facts.rows)
+    config = replace(settings(), ask_claim_enforcement="enforce")
+
+    def load_evidence(seasons):
+        through = {
+            (SEASON, "Regular Season"): max(
+                r["game_date"]
+                for r in current_rows
+                if r["season_type"] == "Regular Season"
+            ),
+            (SEASON, "Playoffs"): "2025-05-10",
+        }
+        return (
+            {"capture": {}},
+            Evidence(
+                list(current_rows),
+                frozenset(through),
+                "fixture",
+                "fixture-v1",
+                through,
+                complete=True,
+            ),
+        )
+
+    repository = BigQueryWarehouseRepository(config, client=SimpleNamespace())
+    repository._governed_warehouse = SimpleNamespace(
+        load=load_evidence,
+        load_for_request=lambda seasons, *, rich=False: load_evidence(seasons),
+    )
+
+    agent = StatsAgent(
+        config, repository, conversation_store=InMemoryConversationStore()
+    )
+    monkeypatch.setattr(agent, "_get_client", lambda *a, **k: pytest.fail("No model"))
+    monkeypatch.setattr(
+        "app.agent.service.answer_legacy_repository",
+        lambda *a, **k: pytest.fail("No legacy"),
+    )
+
+    first = agent.answer(
+        "Show Avery Example's opponent splits in his last 2 games in 2024-25",
+        conversation_id="last2-asof",
+    )
+    assert first["status"] == "ok", first
+    assert first["opponent_splits"]["scope"]["as_of"] == "2025-01-12"
+    assert first["conversation_context"]["scope"]["as_of"] == "2025-01-12"
+    original_game_ids = sorted(
+        first["opponent_splits"]["baseline"]["metrics"]["pts"]["game_ids"]
+    )
+    assert original_game_ids == ["04", "05"]
+
+    # Simulate a newer game arriving after the first turn.
+    current_rows.append(
+        {
+            **facts.rows[0],
+            "game_id": "09",
+            "game_date": "2025-01-20",
+            "opponent_abbr": "CHI",
+            "pts": 40,
+        }
+    )
+
+    followup = agent.answer("What about FT%?", conversation_id="last2-asof")
+    assert followup["status"] == "ok", followup
+    assert followup["opponent_splits"]["scope"]["as_of"] == "2025-01-12"
+    assert (
+        sorted(followup["opponent_splits"]["baseline"]["metrics"]["ft_pct"]["game_ids"])
+        == original_game_ids
+    )
+
+
+def test_browser_recovery_requires_exact_player_id_agreement(facts):
+    from app import main as main_module
+    from app.main import app, get_agent_client, get_repository, get_settings
+    from app.repository import BigQueryWarehouseRepository
+    from fastapi.testclient import TestClient
+
+    jr_rows = [
+        {
+            **row,
+            "game_id": f"jr-{row['game_id']}",
+            "player_id": 202,
+            "player_name": "Avery Example Jr.",
+            "team_abbr": "MIA",
+        }
+        for row in facts.rows[:2]
+    ]
+    cfg = replace(
+        settings(SEASON), ask_claim_enforcement="enforce", agent_history_enabled=False
+    )
+    repo = BigQueryWarehouseRepository(cfg, client=SimpleNamespace())
+    repo._governed_warehouse = SimpleNamespace(
+        load=lambda seasons: (
+            {"capture": {}},
+            replace(facts, rows=[*facts.rows, *jr_rows]),
+        )
+    )
+    old = dict(app.dependency_overrides)
+    app.dependency_overrides.update(
+        {
+            get_settings: lambda: cfg,
+            get_repository: lambda: repo,
+            get_agent_client: lambda: object(),
+        }
+    )
+    main_module._season_conversation_store(SEASON)._conversations.clear()
+    try:
+        # Direct parser check: selected player_id must match resolved player_id.
+        with pytest.raises(SemanticError, match="Selected player does not match"):
+            parse_opponent_splits(
+                "Show Avery Example Jr.'s opponent splits in 2024-25",
+                [PLAYER, {"player_id": 202, "player_name": "Avery Example Jr."}],
+                SEASON,
+                player_id=101,
+            )
+
+        with TestClient(app) as client:
+            spoofed = {
+                "analysis_type": "opponent_splits",
+                "question": "Show Avery Example Jr.'s opponent splits in 2024-25",
+                "players": [{"player_id": 101, "player_name": "Avery Example"}],
+                "scope": {"season": SEASON, "as_of": "2025-01-12"},
+                "opponent_splits_question": "Show Avery Example Jr.'s opponent splits in 2024-25",
+            }
+            resp = client.post(
+                f"/api/agent/ask?season={SEASON}",
+                json={
+                    "question": "What about FT%?",
+                    "conversation_id": "jr-mismatch",
+                    "previous_context": spoofed,
+                },
+            )
+            assert resp.status_code == 400
+
+            # Browser-recovered relative window preserves original as_of cutoff.
+            prior_last2 = {
+                "analysis_type": "opponent_splits",
+                "question": "Show Avery Example's opponent splits in his last 2 games in 2024-25",
+                "players": [{"player_id": 101, "player_name": "Avery Example"}],
+                "scope": {
+                    "season": SEASON,
+                    "window": "last_n_games",
+                    "n": 2,
+                    "as_of": "2025-01-09",
+                },
+                "opponent_splits_question": "Show Avery Example's opponent splits in his last 2 games (2024-25) Regular Season",
+            }
+            recovered = client.post(
+                f"/api/agent/ask?season={SEASON}",
+                json={
+                    "question": "What about FT%?",
+                    "conversation_id": "browser-last2-asof",
+                    "previous_context": prior_last2,
+                },
+            )
+            assert recovered.status_code == 200, recovered.text
+            rec_payload = recovered.json()
+            assert rec_payload["status"] == "ok", rec_payload
+            assert rec_payload["opponent_splits"]["scope"]["as_of"] == "2025-01-09"
+            assert sorted(
+                rec_payload["opponent_splits"]["baseline"]["metrics"]["ft_pct"][
+                    "game_ids"
+                ]
+            ) == ["03", "04"]
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(old)

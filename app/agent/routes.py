@@ -55,7 +55,9 @@ class RouteContext:
     def opponent_followup(self):
         if self.question == self.routing_question:
             return opponent_splits_followup(
-                self.question, self.context.get("opponent_splits_question")
+                self.question,
+                self.context.get("opponent_splits_question"),
+                scope=self.context.get("scope"),
             )
         return None
 

@@ -7,6 +7,7 @@ from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
+from functools import lru_cache
 from math import isclose
 from statistics import mean, pstdev
 from typing import Any
@@ -15,7 +16,12 @@ from app.agent.award_lookup import wants_award
 from app.agent.catalog import load_semantic_catalog
 from app.agent.clock import today as semantic_today
 from app.agent.game_filters import extract_game_filters
-from app.agent.name_matching import mask_player_tokens, prepare_names
+from app.agent.name_matching import (
+    _SCOPE_WORDS,
+    longest_player_spans,
+    mask_player_tokens,
+    prepare_names,
+)
 from app.agent.overview_calendar import MONTH_PATTERN, literal_date_intervals
 from app.agent.payload import answer_payload
 from app.agent.player_comparison import comparison_sides
@@ -23,17 +29,15 @@ from app.agent.player_resolver import normalize_player_text
 from app.agent.scope_policy import (
     _ROUND_PATTERN,
     COLLECTIVE_MATCHUP,
-    explicit_aggregation,
     explicit_metric_mentions,
     explicit_phase,
     explicit_scope,
-    extract_metrics,
     requested_playoff_round,
     round_scope_message,
     split_kind,
     venue_mentions,
 )
-from app.agent.semantic_serving import requested_seasons, seasons_in_dates
+from app.agent.semantic_serving import seasons_in_dates
 from app.agent.semantics import (
     Evidence,
     Metric,
@@ -44,6 +48,7 @@ from app.agent.semantics import (
     load_contract,
     select_query_rows,
 )
+from app.seasons import validate_season
 
 VERSION = "opponent_splits/1"
 DEFAULT_METRICS = ("pts", "ts_pct", "fg_pct", "fg3_pct", "ast", "reb", "plus_minus")
@@ -127,29 +132,248 @@ _UNSUPPORTED_GAME_PREDICATE = re.compile(
     r"|in\s+team\s+(?:wins|losses)"
     r"|back[- ]to[- ]backs?|b2bs?|zero[- ]rest|no rest|well[- ]rested|rested games?"
     r"|on\s+(?:\d+|zero|no|one|two|three)\+?\s+days?(?:\s+of)?\s+rest"
-    r"|\d+\+?\s+days?(?:\s+of)?\s+rest"
+    r"|\d+\+?\s+days?(?:\s+of)?\s+rest|days?\s+off|rest\s+(?:advantage|disadvantage)"
     r"|second\s+night\s+of\s+a\s+back[- ]to[- ]back"
-    r"|as\s+a\s+starter|off\s+the\s+bench|bench\s+games?"
+    r"|weekends?|weekdays?|weeknights?|weekend\s+games?|weekday\s+games?"
+    r"|mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?"
+    r"|as\s+a\s+starter|as\s+a\s+reserve|off\s+the\s+bench|bench\s+(?:games?|appearances?|role)"
+    r"|reserve\s+(?:games?|appearances?)|sixth\s+man|starting\s+lineup"
+    r"|started|starters?|starts\s+only|in\s+starts|non[- ]starts"
     r"|when\s+(?:starting|coming\s+off\s+the\s+bench)"
-    r"|blowouts?|close\s+games?|garbage\s+time"
+    r"|(?:in\s+)?(?:the\s+)?games?\s+(?:that|where|when|he|she|they|with|without|played|started|missed|won|lost)"
+    r"|when\s+(?:he|she|they|the\s+team)"
+    r"|without\b"
+    r"|blowouts?|close\s+games?|garbage\s+time|clutch(?:\s+time)?|regulation\s+games?|\bot"
+    r"|national\s+tv|televised|primetime|christmas(?:\s+day)?|opening\s+(?:night|day)|mlk\s+day|all[- ]star(?:\s+break)?"
+    r"|foul\s+trouble|fouled\s+out|ejected|ejections?|minute\s+restriction|limited\s+minutes|heavy\s+minutes"
+    r"|one[- ]possession\s+games?|double[- ]digit\s+(?:wins?|losses?)"
     r"|(?:without|with)\s+(?:his|her|their|a|the)\s+teammates?"
-    r"|teammates?\s+(?:out|absent|injured|sidelined|inactive))\b",
+    r"|teammates?\s+(?:out|absent|injured|sidelined|inactive))\b"
+    r"|(?<!\bweek\s)\bstarting\b(?!\s+\d{4}-\d{2}-\d{2}\b)",
     re.I,
 )
 _UNSUPPORTED_SCOPE = re.compile(
-    r"\b(?:career|all[ -]time|excluding|except|head[ -]to[ -]head"
+    r"\b(?:career|all[ -]time|excluding|except|without|head[ -]to[ -]head"
     r"|(?:last|past|preceding) [\w-]+ weeks?|play[ -]in|preseason|playoff series|NBA Cup"
     r"|(?:in|during|for) (?:playoff )?game [1-7]"
     r"|today|yesterday|tonight|since|before|after|until)\b",
     re.I,
 )
+_PER_GAME_METRIC_REPLACEMENTS = {
+    "ppg": "points",
+    "rpg": "rebounds",
+    "apg": "assists",
+    "spg": "steals",
+    "bpg": "blocks",
+    "tpg": "turnovers",
+    "mpg": "minutes",
+}
+_PER_GAME_ALIASES = {
+    "ppg": "pts",
+    "rpg": "reb",
+    "apg": "ast",
+    "spg": "stl",
+    "bpg": "blk",
+    "tpg": "tov",
+    "mpg": "min",
+}
+_AGGREGATION_WORDS = re.compile(
+    r"\b(?:total|totals|sum|average|averages|averaging|mean|per[ -]game|a game"
+    r"|ppg|rpg|apg|spg|bpg|tpg|mpg)\b",
+    re.I,
+)
+_UNSUPPORTED_AGGREGATION_PATTERNS = (
+    re.compile(
+        r"\b(?:maximum|max|highest|minimum|lowest|median|std|stddev|stdev"
+        r"|standard\s+deviation|variance|percentile|percentiles|rank|ranking|mode|iqr)\b",
+        re.I,
+    ),
+    re.compile(
+        r"\bmin\s+(?:of\s+)?(?:points?|pts|rebounds?|reb|assists?|ast|steals?|stl"
+        r"|blocks?|blk|turnovers?|tov|minutes?|scoring|fg%|fg3%|3p%|ft%|ts%|efg%"
+        r"|plus[ -]minus|value|values|score)\b|\b(?:min/max|max/min)\b",
+        re.I,
+    ),
+)
+_UNSUPPORTED_METRIC_PHRASE = re.compile(
+    r"\busage(?:\s+(?:rate|percentage|pct))?\b|\busg%?"
+    r"|\bplayer\s+efficiency\s+rating\b"
+    r"|(?-i:\bPER\b)(?!\s*(?:36|100|48|game|min|appearance|opponent|team))"
+    r"|\bper\b(?=\s*(?:$|[,&?]|and\b|by\s+opponent\b))"
+    r"|\bbox\s+plus(?:[- ]|\s*/\s*)minus\b|\b[od]?bpm\b"
+    r"|\bvalue\s+over\s+replacement(?:\s+player)?\b|\bvorp\b"
+    r"|\bwin\s+shares?(?:\s+per\s+48)?\b|\b[od]?ws(?:/48)?\b"
+    r"|\b(?:net|offensive|defensive)\s+(?:rating|rtg)\b|\b[nod]rtg\b|\b(?:off|def)\s+rtg\b"
+    r"|\b(?:pace|player\s+impact\s+estimate|pie|game\s+score|gmsc)\b"
+    r"|\b(?:assist[- ]to[- ]turnover|ast/tov|a/to)(?:\s+ratio)?\b"
+    r"|\b(?:turnover|assist|rebound|offensive\s+rebound|defensive\s+rebound"
+    r"|steal|block|free\s+throw|three[- ]?point(?:er)?\s+attempt)\s+(?:rate|percentage|pct)\b"
+    r"|(?<!\w)(?:tov|ast|reb|oreb|dreb|orb|drb|stl|blk)%"
+    r"|\b(?:ftr|3par)\b"
+    r"|\bper[- ]?(?:100|48|36)\b"
+    r"|\b(?:fgm|ftm|field\s+goals?\s+made|free\s+throws?\s+made|2pm|2pa|2p%"
+    r"|two[- ]?pointers?|two[- ]?point\s+(?:percentage|percent|makes|made|attempts))\b"
+    r"|\b(?:raptor|epm|darko|dpm|estimated\s+plus[- ]minus|deflections?"
+    r"|screen\s+assists?|contested\s+shots?|potential\s+assists?|secondary\s+assists?"
+    r"|hockey\s+assists?|box[- ]?outs?|charges\s+drawn|rim\s+protection"
+    r"|shot\s+quality|expected\s+fg%|xfg%)\b",
+    re.I,
+)
+
+
+def _compile_metric_alias(alias: str) -> re.Pattern[str]:
+    cleaned = alias.strip()
+    if cleaned == "+/-":
+        return re.compile(r"(?<!\w)\+/-(?!\w)")
+    if cleaned == "points + assists * 2":
+        return re.compile(r"(?<!\w)points\s*\+\s*assists\s*\*\s*2(?!\w)", re.I)
+    parts = [re.escape(part) for part in re.split(r"[\s_-]+", cleaned) if part]
+    body = r"[\s_-]+".join(parts)
+    suffix = r"(?!\w)" if cleaned.endswith("%") else r"(?!\w|%)"
+    return re.compile(r"(?<!\w)" + body + suffix, re.I)
+
+
+@lru_cache(maxsize=1)
+def _metric_alias_patterns() -> tuple[tuple[re.Pattern[str], str], ...]:
+    fantasy_key = load_contract().default_fantasy_metric
+    aliases: list[tuple[str, str]] = []
+    for metric in load_semantic_catalog().list_metrics():
+        key = str(metric["key"])
+        for raw in (metric["key"], metric["label"], *metric.get("aliases", [])):
+            text = str(raw).strip()
+            if not text:
+                continue
+            target_key = (
+                fantasy_key
+                if text.casefold()
+                in {"fantasy", "fantasy points", "fantasy score", "fantasy scoring"}
+                else key
+            )
+            aliases.append((text, target_key))
+    extra_aliases: dict[str, tuple[str, ...]] = {
+        "pts_per36": (
+            "pts/36",
+            "points/36",
+            "points per 36 minutes",
+            "points per 36",
+            "pts per 36 minutes",
+            "pts per 36",
+            "pts per36",
+        ),
+        "ast_per36": (
+            "ast/36",
+            "assists/36",
+            "assists per 36 minutes",
+            "assists per 36",
+            "ast per 36 minutes",
+            "ast per 36",
+            "ast per36",
+        ),
+        "fg3_pct": (
+            "three point percent",
+            "3 point percentage",
+            "3 point percent",
+            "3pt percentage",
+            "3pt percent",
+            "3p%",
+        ),
+        "fg_pct": ("field goal percent", "fg%"),
+        "ft_pct": ("free throw percent", "ft%"),
+        "ts_pct": ("true shooting percent", "true shooting%", "ts%"),
+        "efg_pct": (
+            "effective field goal percent",
+            "effective field goal%",
+            "effective fg percent",
+            "effective fg%",
+            "efg%",
+        ),
+        "fg3a": ("three point attempts", "3-point attempts", "3pt attempts", "3pa"),
+        "fg3m": (
+            "three point makes",
+            "3-point makes",
+            "three point made",
+            "3-point made",
+            "3-pointers",
+            "three-pointers",
+            "threes",
+            "3pm",
+        ),
+        "plus_minus": ("+/-", "plus-minus", "plus/minus", "plus minus"),
+        "reb": ("rebounding", "rpg"),
+        "ast": ("apg",),
+        "stl": ("spg",),
+        "blk": ("bpg",),
+        "tov": ("tpg",),
+        "pts": ("ppg",),
+        "min": ("mpg",),
+    }
+    for key, items in extra_aliases.items():
+        for item in items:
+            aliases.append((item, key))
+    deduped = dict.fromkeys(aliases)
+    return tuple((_compile_metric_alias(raw), key) for raw, key in deduped)
+
+
+def _extract_catalog_metrics(text: str) -> tuple[str, set[str], list[str]]:
+    """Consume catalog metric aliases longest-non-overlapping first."""
+    candidates: list[tuple[int, int, str, str]] = []
+    for pattern, key in _metric_alias_patterns():
+        for match in pattern.finditer(text):
+            candidates.append((match.start(), match.end(), key, match.group(0)))
+    selected: list[tuple[int, int, str, str]] = []
+    for start, end, key, matched in sorted(
+        candidates, key=lambda item: (-(item[1] - item[0]), item[0])
+    ):
+        if not any(a < end and start < b for a, b, _, _ in selected):
+            selected.append((start, end, key, matched))
+    selected.sort(key=lambda item: item[0])
+    remaining = text
+    for start, end, _, _ in reversed(selected):
+        remaining = remaining[:start] + " " + remaining[end:]
+    return (
+        remaining,
+        {key for _, _, key, _ in selected},
+        [matched for _, _, _, matched in selected],
+    )
+
+
+def _resolve_opponent_aggregation(text: str) -> str | None:
+    """Resolve aggregation cues including per-game shorthand; reject unsupported ops."""
+    for pattern in _UNSUPPORTED_AGGREGATION_PATTERNS:
+        if pattern.search(text):
+            raise SemanticError(
+                "unsupported_scope",
+                "Opponent splits support per-game averages, totals, and pooled shooting ratios; maximum, minimum, median, and standard deviation are not supported.",
+            )
+    cleaned = re.sub(
+        r"\btotal\s+(?=rebounds?\s+(?:per[ -]game|a game)\b)", "", text, flags=re.I
+    )
+    total = bool(re.search(r"\b(?:total|totals|sum)\b", cleaned, re.I))
+    average = bool(
+        re.search(
+            r"\b(?:average|averages|averaging|mean|ppg|rpg|apg|spg|bpg|tpg|mpg"
+            r"|per[ -]game|a game)\b",
+            cleaned,
+            re.I,
+        )
+    )
+    if total and average:
+        raise SemanticError(
+            "clarification_required", "Choose totals or per-game averages"
+        )
+    return "total" if total else "average" if average else None
 
 
 def wants_opponent_splits(question: str) -> bool:
     return bool(_OPPONENT_CUE.search(question)) and not comparison_sides(question)
 
 
-def opponent_splits_followup(question: str, previous: str | None) -> str | None:
+def opponent_splits_followup(
+    question: str,
+    previous: str | None,
+    *,
+    scope: Mapping[str, Any] | None = None,
+) -> str | None:
     """Carry the previous split scope forward only for a metric-only reply."""
     if not previous or not wants_opponent_splits(previous):
         return None
@@ -159,27 +383,52 @@ def opponent_splits_followup(question: str, previous: str | None) -> str | None:
         question.strip(),
         flags=re.I,
     ).strip(" ?.!")
-    rest, extracted = extract_metrics(metric_text)
-    keys = explicit_metric_mentions(metric_text) | set(extracted)
-    rest_without_agg = re.sub(
-        r"\b(?:total|totals|sum|average|averages|averaging|mean|ppg"
-        r"|per[ -]game|a game)\b",
-        " ",
-        rest,
-        flags=re.I,
-    )
-    # Also recognize an exact catalog alias beyond the shared split grammar.
-    metric_labels = {
-        str(alias).casefold()
-        for metric in load_semantic_catalog().list_metrics()
-        if metric["key"] in keys
-        for alias in (metric["key"], metric["label"], *metric.get("aliases", []))
-    }
-    if keys and (
-        metric_text.casefold() in metric_labels
-        or not re.sub(r"\band\b|[\s,&/]", "", rest_without_agg, flags=re.I)
-    ):
-        return previous + _METRIC_REPLY + metric_text
+    if not metric_text:
+        return None
+    rest, keys, _ = _extract_catalog_metrics(metric_text)
+    rest_clean = _AGGREGATION_WORDS.sub(" ", rest)
+    unsupported_metrics = _UNSUPPORTED_METRIC_PHRASE.findall(rest_clean)
+    rest_after_unsupported = _UNSUPPORTED_METRIC_PHRASE.sub(" ", rest_clean)
+    unsupported_aggs = [
+        match.group(0)
+        for pattern in _UNSUPPORTED_AGGREGATION_PATTERNS
+        for match in pattern.finditer(rest_after_unsupported)
+    ]
+    for pattern in _UNSUPPORTED_AGGREGATION_PATTERNS:
+        rest_after_unsupported = pattern.sub(" ", rest_after_unsupported)
+    leftover = re.sub(r"\b(?:and|of)\b|[\s,&/]", "", rest_after_unsupported, flags=re.I)
+    if not leftover and (keys or unsupported_metrics or unsupported_aggs):
+        prior = previous
+        if (
+            scope
+            and scope.get("as_of")
+            and not re.search(r"\bas[ -]of\b", prior, re.I)
+            and (
+                _LAST_GAMES.search(prior)
+                or re.search(
+                    r"\b(?:last|past|preceding|most recent)\s+\d+\s+"
+                    r"(?:(?:calendar\s+)?days?|months?)\b",
+                    prior,
+                    re.I,
+                )
+            )
+        ):
+            prior = f"{prior} as of {scope['as_of']}"
+        if (
+            scope
+            and scope.get("start_date")
+            and scope.get("as_of")
+            and re.search(
+                r"\b(?:this|last|previous|past)\s+(?:month|week)\b", prior, re.I
+            )
+        ):
+            prior = re.sub(
+                r"\b(?:this|last|previous|past)\s+(?:month|week)\b",
+                f"from {scope['start_date']} through {scope['as_of']}",
+                prior,
+                flags=re.I,
+            )
+        return prior + _METRIC_REPLY + metric_text
     return None
 
 
@@ -205,6 +454,38 @@ def _reject_unsupported_predicates(
             "unsupported_scope",
             "Opponent splits support a single home or away filter.",
         )
+
+
+def _collect_explicit_seasons(question: str, default_season: str) -> list[str]:
+    """Collect and validate every season or playoff-year expression before picking one."""
+    collected: list[str] = []
+
+    def add_season(candidate: str) -> None:
+        try:
+            validated = validate_season(candidate)
+        except ValueError as exc:
+            raise SemanticError(
+                "unsupported_coverage", f"Season {candidate} is unavailable"
+            ) from exc
+        collected.append(validated)
+
+    for match in re.finditer(r"\b(20\d{2})[-–/](20\d{2}|\d{2})\b(?![-/–]\d)", question):
+        start, end = match.groups()
+        add_season(f"{start}-{end[-2:]}")
+    for match in re.finditer(
+        r"\b(20\d{2})\s+(?:playoffs?|postseason)\b"
+        r"|\b(?:playoffs?|postseason)(?:\s+(?:of|in))?\s+(20\d{2})\b(?![-/–]\d)",
+        question,
+        re.I,
+    ):
+        year = int(match[1] or match[2])
+        add_season(f"{year - 1}-{year % 100:02}")
+    if re.search(r"\b(?:last|previous|prior)\s+season\b", question, re.I):
+        year = int(default_season[:4]) - 1
+        add_season(f"{year}-{(year + 1) % 100:02}")
+    if re.search(r"\b(?:this|current)\s+season\b", question, re.I):
+        add_season(default_season)
+    return collected
 
 
 def opponent_split_query(question: str, season: str) -> Query:
@@ -300,15 +581,9 @@ def opponent_split_query(question: str, season: str) -> Query:
             "clarification_required", "Choose one end date for these splits."
         )
     months = re.findall(MONTH_PATTERN, scope_text, re.I)
-    if (
-        len(months) > 1
-        or (months and scope.get("window") != "date_range")
-        or (months and intervals)
-    ):
-        raise SemanticError(
-            "clarification_required",
-            "Choose one explicit date range or single calendar month for these splits.",
-        )
+    relative_calendar = re.findall(
+        r"\b(?:this|last|previous|past)\s+(?:month|week)\b", scope_text, re.I
+    )
     day_windows = re.findall(
         r"\b(?:last|past|preceding|most recent)\s+(\d+)\s+(?:calendar\s+)?days?\b",
         scope_text,
@@ -319,6 +594,30 @@ def opponent_split_query(question: str, season: str) -> Query:
         scope_text,
         re.I,
     )
+    last_game_matches = list(_LAST_GAMES.finditer(question))
+    window_count = (
+        len(intervals)
+        + len(week_dates)
+        + len(months)
+        + len(relative_calendar)
+        + len(day_windows)
+        + len(month_windows)
+        + len(last_game_matches)
+    )
+    if window_count > 1:
+        raise SemanticError(
+            "clarification_required",
+            "Choose one explicit date range or window for these splits.",
+        )
+    if (
+        len(months) > 1
+        or (months and scope.get("window") != "date_range")
+        or (months and intervals)
+    ):
+        raise SemanticError(
+            "clarification_required",
+            "Choose one explicit date range or single calendar month for these splits.",
+        )
     if len(day_windows) > 1 or (day_windows and scope.get("window") != "last_n_days"):
         raise SemanticError(
             "clarification_required", "Choose one window for these splits."
@@ -329,28 +628,36 @@ def opponent_split_query(question: str, season: str) -> Query:
         raise SemanticError(
             "clarification_required", "Choose one window for these splits."
         )
-    if scope.get("window") is None and re.search(
+    remaining_time = scope_text
+    for pattern in (
+        r"\b(?:last|past|preceding|most recent)\s+\d+\s+(?:calendar\s+)?days?\b",
+        r"\b(?:last|past|preceding|most recent)\s+\d+\s+months?\b",
+        r"\b(?:this|last|previous|past)\s+(?:month|week)\b",
+        r"\bweek\s+(?:of|starting|beginning)\s+\d{4}-\d{2}-\d{2}\b",
+        r"\b(?:this|last|previous|prior|current)\s+season\b",
+        _LAST_GAMES.pattern,
+    ):
+        remaining_time = re.sub(pattern, " ", remaining_time, flags=re.I)
+    if re.search(
         r"\b(?:this|last|past|previous|prior|preceding|most recent|next|current)\s+"
         r"(?:[\w-]+\s+){0,2}(?:days?|weeks?|months?|years?)\b"
         r"|\bweek\s+(?:of|starting|beginning)\b",
-        scope_text,
+        remaining_time,
         re.I,
     ):
         raise SemanticError(
             "clarification_required",
             "Choose one explicit date range, single calendar month, or numeric window for these splits.",
         )
-    named = re.search(r"\b20\d{2}[-–/]\d{2,4}\b(?![-/–]\d)", question)
-    if playoff_year := re.search(
-        r"\b(20\d{2})\s+(?:playoffs?|postseason)\b", question, re.I
-    ):
-        year = int(playoff_year[1])
-        question += f" {year - 1}-{year % 100:02}"
-        named = playoff_year
-    seasons = requested_seasons(question, season)
+    explicit_seasons = _collect_explicit_seasons(question, season)
+    if len(set(explicit_seasons)) > 1:
+        raise SemanticError(
+            "clarification_required", "Choose one NBA season for these splits."
+        )
+    seasons = [explicit_seasons[0]] if explicit_seasons else [validate_season(season)]
     if scope.get("window") == "date_range":
         dated_seasons = seasons_in_dates(scope["start_date"], scope["as_of"])
-        if len(dated_seasons) != 1 or (named and seasons != dated_seasons):
+        if len(dated_seasons) != 1 or (explicit_seasons and seasons != dated_seasons):
             raise SemanticError(
                 "clarification_required", "Choose dates within one matching NBA season."
             )
@@ -359,7 +666,7 @@ def opponent_split_query(question: str, season: str) -> Query:
         raise SemanticError(
             "clarification_required", "Choose one NBA season for these splits."
         )
-    if last_game_matches := list(_LAST_GAMES.finditer(question)):
+    if last_game_matches:
         parsed_windows = {
             (int(match[1]), (match[2] or "").lower()) for match in last_game_matches
         }
@@ -442,6 +749,11 @@ def parse_opponent_splits(
             "clarification_required", "Please name one player for the opponent splits."
         )
     player = next(iter(named.values()))
+    if player_id is not None and player["player_id"] != player_id:
+        raise SemanticError(
+            "unsupported_coverage",
+            "Selected player does not match the opponent splits question.",
+        )
     query = query or opponent_split_query(canonical_base, season)
     filter_text = _VENUE_APPEARANCES.sub(
         r"\1 games", re.sub(COLLECTIVE_MATCHUP, " ", canonical_base, flags=re.I)
@@ -465,17 +777,22 @@ def parse_opponent_splits(
             "unsupported_scope",
             "Opponent splits support a single home or away filter.",
         )
-    keys = explicit_metric_mentions(metric_reply or masked)
-    keys.update(extract_metrics(metric_reply or masked)[1])
+    metric_source = metric_reply or masked
+    reply_agg = _resolve_opponent_aggregation(metric_reply) if metric_reply else None
+    base_agg = _resolve_opponent_aggregation(masked)
+    aggregation = reply_agg or base_agg or "average"
+    remaining_metrics, keys, _ = _extract_catalog_metrics(metric_source)
+    if _UNSUPPORTED_METRIC_PHRASE.search(remaining_metrics):
+        raise SemanticError(
+            "unsupported_scope",
+            "Opponent splits support governed box-score, shooting, and per-36 metrics only.",
+        )
     contract = load_contract()
     metrics = (
         tuple(key for key in contract.metrics if key in keys)
         if keys
         else DEFAULT_METRICS
     )
-    reply_agg = explicit_aggregation(metric_reply) if metric_reply else None
-    base_agg = explicit_aggregation(masked)
-    aggregation = reply_agg or base_agg or "average"
     return OpponentSplitsRequest(
         replace(
             query,
@@ -702,19 +1019,44 @@ def answer_opponent_splits(
         prior_question += f" ({request.query.season})"
     if not request.query.playoff_round and not explicit_phase(prior_question):
         prior_question += f" {request.query.season_type}"
-    if explicit_aggregation(prior_question) != request.aggregation:
-        prior_question = " ".join(
-            re.sub(
-                r"\b(?:total|totals|sum|average|averaging|mean|ppg|per[ -]game|a game)\b",
-                " ",
-                prior_question,
-                flags=re.I,
-            ).split()
+    if (
+        request.query.window in {"last_n_games", "last_n_days", "last_n_months"}
+        and not request.query.as_of
+    ):
+        prior_question += f" as of {result['scope']['as_of']}"
+    if (
+        request.query.window == "date_range"
+        and request.query.start_date
+        and request.query.as_of
+        and re.search(
+            r"\b(?:this|last|previous|past)\s+(?:month|week)\b", prior_question, re.I
         )
+    ):
+        prior_question = re.sub(
+            r"\b(?:this|last|previous|past)\s+(?:month|week)\b",
+            f"from {request.query.start_date} through {request.query.as_of}",
+            prior_question,
+            flags=re.I,
+        )
+    if _resolve_opponent_aggregation(prior_question) != request.aggregation:
+        for alias, replacement in _PER_GAME_METRIC_REPLACEMENTS.items():
+            prior_question = re.sub(
+                rf"\b{alias}\b", replacement, prior_question, flags=re.I
+            )
+        prior_question = " ".join(_AGGREGATION_WORDS.sub(" ", prior_question).split())
         if request.aggregation == "total":
             prior_question += " total"
-        elif explicit_aggregation(prior_question) is not None:
+        elif _resolve_opponent_aggregation(prior_question) is not None:
             prior_question += " per game"
+    scope_context: dict[str, Any] = {
+        "season": request.query.season,
+        "window": request.query.window,
+        "as_of": result["scope"]["as_of"],
+    }
+    if request.query.n is not None:
+        scope_context["n"] = request.query.n
+    if request.query.start_date is not None:
+        scope_context["start_date"] = request.query.start_date
     payload = answer_payload(
         "",
         status="ok",
@@ -724,12 +1066,39 @@ def answer_opponent_splits(
         conversation_context={
             "analysis_type": "opponent_splits",
             "players": [request.player],
-            "scope": {"season": request.query.season},
+            "scope": scope_context,
             "opponent_splits_question": prior_question,
         },
     )
     opponent_splits_tables(payload)
     return payload
+
+
+def _matches_saved_player_exactly(opp_question: str, player: dict[str, Any]) -> bool:
+    spans = longest_player_spans(opp_question, [player], normalize_spaces=True)
+    if not spans:
+        return False
+    for span in spans:
+        trailing = opp_question[span.end :].lstrip()
+        if re.match(r"^(?:jr|sr|ii|iii|iv|v)\b", trailing, re.I):
+            continue
+        next_word = re.match(r"^([^\W\d_]+)", trailing)
+        if (
+            next_word
+            and next_word[1][0].isupper()
+            and normalize_player_text(next_word[1]) not in _SCOPE_WORDS
+        ):
+            continue
+        leading = opp_question[: span.start].rstrip()
+        prev_word = re.search(r"([^\W\d_]+)$", leading)
+        if (
+            prev_word
+            and prev_word[1][0].isupper()
+            and normalize_player_text(prev_word[1]) not in _SCOPE_WORDS
+        ):
+            continue
+        return True
+    return False
 
 
 def hydrate_opponent_splits_context(
@@ -756,11 +1125,47 @@ def hydrate_opponent_splits_context(
     player_name = str(player.get("player_name") or "").strip()
     if type(player_id) is not int or player_id < 1 or not player_name:
         raise ValueError("Invalid saved opponent splits player")
-    if normalize_player_text(player_name) not in normalize_player_text(opp_question):
+    if not _matches_saved_player_exactly(
+        opp_question, {"player_id": player_id, "player_name": player_name}
+    ):
         raise ValueError("Saved player does not match saved opponent splits question")
     scope = context.get("scope") or {}
     season = scope.get("season") or default_season
     query = opponent_split_query(opp_question, season)
     if scope.get("season") and query.season != scope["season"]:
         raise ValueError("Saved season does not match saved opponent splits question")
+    saved_as_of = scope.get("as_of")
+    if saved_as_of is not None:
+        as_of_str = str(saved_as_of)
+        as_of_date = date.fromisoformat(as_of_str)
+        if as_of_date > semantic_today():
+            raise ValueError("Saved as-of date is in the future")
+        if query.as_of and query.as_of != as_of_str:
+            raise ValueError(
+                "Saved as-of date does not match saved opponent splits question"
+            )
+        if (
+            query.window in {"last_n_games", "last_n_days", "last_n_months"}
+            and query.as_of is None
+        ):
+            opp_question = f"{opp_question} as of {as_of_str}"
+            query = opponent_split_query(opp_question, season)
+            context = {**context, "opponent_splits_question": opp_question}
+    saved_start = scope.get("start_date")
+    if (
+        saved_start is not None
+        and saved_as_of is not None
+        and query.window == "date_range"
+        and re.search(
+            r"\b(?:this|last|previous|past)\s+(?:month|week)\b", opp_question, re.I
+        )
+    ):
+        opp_question = re.sub(
+            r"\b(?:this|last|previous|past)\s+(?:month|week)\b",
+            f"from {saved_start} through {saved_as_of}",
+            opp_question,
+            flags=re.I,
+        )
+        opponent_split_query(opp_question, season)
+        context = {**context, "opponent_splits_question": opp_question}
     return dict(context, analysis_type="opponent_splits")

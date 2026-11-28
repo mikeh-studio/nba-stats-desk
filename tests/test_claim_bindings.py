@@ -766,5 +766,32 @@ def test_opponent_split_window_operand_uses_scope_window_unit(
     assert answer_claim["operands"][n_index] == ["n", expected_unit]
 
 
+def test_opponent_splits_route_requires_evidence_and_manifest_on_ok():
+    payload = {
+        "status": "ok",
+        "ask_route": {"route": "opponent_splits", "source": "deterministic"},
+        "answer": "Unverified opponent splits text.",
+        "tables": [],
+    }
+    report = validate(payload)
+    assert report["status"] == "invalid"
+    assert any(
+        "Opponent splits require complete claim bindings" in err["reason"]
+        for err in report["errors"]
+    )
+    enforced = finalize(payload, mode="enforce")
+    assert enforced["status"] == "error"
+    assert enforced["reason_code"] == "claim_binding_mismatch"
+
+    refusal = {
+        "status": "unsupported_scope",
+        "ask_route": {"route": "opponent_splits", "source": "deterministic"},
+        "answer": "Unsupported scope.",
+        "tables": [],
+    }
+    refusal_report = validate(refusal)
+    assert refusal_report["errors"] == []
+
+
 # Public orchestration tests use authored plans through the provider contract.
 pytestmark = pytest.mark.usefixtures("scripted_intelligence")

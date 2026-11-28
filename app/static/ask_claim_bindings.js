@@ -1092,21 +1092,56 @@ export function validateRenderedClaims(root, payload, session) {
       (sum, table) => sum + (table.rows?.length || 0),
       0,
     );
+    const totalCols = payload.tables.reduce(
+      (sum, table) => sum + (table.columns?.length || 0),
+      0,
+    );
+    const totalCells = payload.tables.reduce(
+      (sum, table) =>
+        sum + (table.columns?.length || 0) * (table.rows?.length || 0),
+      0,
+    );
     const structureValid =
       root.querySelectorAll("[data-opponent-split-table]").length ===
         payload.tables.length &&
       root.querySelectorAll("table").length === payload.tables.length &&
+      root.querySelectorAll("tr").length === payload.tables.length + totalRows &&
       root.querySelectorAll("tbody tr").length === totalRows &&
+      root.querySelectorAll("tfoot, tfoot tr").length === 0 &&
+      root.querySelectorAll("th").length === totalCols &&
+      root.querySelectorAll("td").length === totalCells &&
       payload.tables.every((table, ti) => {
         const panel = `[data-opponent-split-table="${ti}"]`;
         const colCount = table.columns?.length || 0;
         const rowCount = table.rows?.length || 0;
+        const tables = root.querySelectorAll(`${panel} table`);
+        if (tables.length !== 1) return false;
+        const tableNode = tables[0];
+        if (typeof tableNode?.querySelectorAll === "function") {
+          if (
+            tableNode.querySelectorAll("tr").length !== 1 + rowCount ||
+            tableNode.querySelectorAll("tfoot, tfoot tr").length !== 0 ||
+            tableNode.querySelectorAll("thead").length !== 1 ||
+            tableNode.querySelectorAll("tbody").length !== 1 ||
+            tableNode.querySelectorAll("th").length !== colCount ||
+            tableNode.querySelectorAll("td").length !== colCount * rowCount
+          ) {
+            return false;
+          }
+        }
         return (
-          root.querySelectorAll(`${panel} table`).length === 1 &&
+          root.querySelectorAll(`${panel} table tr`).length === 1 + rowCount &&
+          root.querySelectorAll(`${panel} tfoot, ${panel} tfoot tr`).length ===
+            0 &&
+          root.querySelectorAll(`${panel} thead`).length === 1 &&
+          root.querySelectorAll(`${panel} tbody`).length === 1 &&
           root.querySelectorAll(`${panel} thead tr`).length === 1 &&
           root.querySelectorAll(`${panel} thead th`).length === colCount &&
           root.querySelectorAll(`${panel} thead td`).length === 0 &&
           root.querySelectorAll(`${panel} tbody tr`).length === rowCount &&
+          root.querySelectorAll(`${panel} table th`).length === colCount &&
+          root.querySelectorAll(`${panel} table td`).length ===
+            colCount * rowCount &&
           table.rows.every(
             (_, ri) =>
               root.querySelectorAll(

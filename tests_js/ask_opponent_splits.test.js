@@ -55,7 +55,14 @@ test("opponent split claim selectors preserve table and cell coordinates", () =>
   assert.deepEqual(claim(2, 0, 4).source, ["opponent_splits", "toughest_opponent_games", 0, "game_result"]);
 });
 
-function validateTables(renderedPayload, { extraRow = false, extraCell = false, extraTable = false } = {}) {
+function validateTables(renderedPayload, {
+  extraRow = false,
+  extraCell = false,
+  extraTable = false,
+  extraTfootRow = false,
+  extraDirectTr = false,
+  extraThInTbody = false,
+} = {}) {
   const component = "opponent_splits";
   const evidence = prepareClaimEvidence(renderedPayload);
   const descriptors = claimSchema(evidence, component);
@@ -74,31 +81,55 @@ function validateTables(renderedPayload, { extraRow = false, extraCell = false, 
     });
   }
   const tables = renderedPayload.tables;
+  const totalBodyRows = tables.reduce((sum, table) => sum + table.rows.length, 0);
+  const totalCols = tables.reduce((sum, table) => sum + table.columns.length, 0);
+  const totalBodyCells = tables.reduce((sum, table) => sum + table.columns.length * table.rows.length, 0);
   counts.set("[data-opponent-split-table]", tables.length + (extraTable ? 1 : 0));
   counts.set("table", tables.length + (extraTable ? 1 : 0));
-  counts.set(
-    "tbody tr",
-    tables.reduce((sum, table) => sum + table.rows.length, 0) + (extraRow ? 1 : 0),
-  );
+  counts.set("tr", tables.length + totalBodyRows + (extraRow || extraTfootRow || extraDirectTr ? 1 : 0));
+  counts.set("tbody tr", totalBodyRows + (extraRow ? 1 : 0));
+  counts.set("tfoot, tfoot tr", extraTfootRow ? 1 : 0);
+  counts.set("th", totalCols + (extraThInTbody ? 1 : 0));
+  counts.set("td", totalBodyCells + (extraCell || extraTfootRow ? 1 : 0));
   tables.forEach((table, ti) => {
     const panel = `[data-opponent-split-table="${ti}"]`;
-    counts.set(`${panel} table`, 1);
+    const isZero = ti === 0;
+    const tableCounts = new Map([
+      ["tr", 1 + table.rows.length + (isZero && (extraRow || extraTfootRow || extraDirectTr) ? 1 : 0)],
+      ["tfoot, tfoot tr", isZero && extraTfootRow ? 1 : 0],
+      ["thead", 1],
+      ["tbody", 1],
+      ["th", table.columns.length + (isZero && extraThInTbody ? 1 : 0)],
+      ["td", table.columns.length * table.rows.length + (isZero && (extraCell || extraTfootRow) ? 1 : 0)],
+    ]);
+    counts.set(`${panel} table`, [{
+      querySelectorAll: selector => Array.from({ length: tableCounts.get(selector) ?? 0 }, () => ({})),
+    }]);
+    counts.set(`${panel} table tr`, tableCounts.get("tr"));
+    counts.set(`${panel} tfoot, ${panel} tfoot tr`, tableCounts.get("tfoot, tfoot tr"));
+    counts.set(`${panel} thead`, 1);
+    counts.set(`${panel} tbody`, 1);
     counts.set(`${panel} thead tr`, 1);
     counts.set(`${panel} thead th`, table.columns.length);
     counts.set(`${panel} thead td`, 0);
-    counts.set(`${panel} tbody tr`, table.rows.length + (extraRow && ti === 0 ? 1 : 0));
+    counts.set(`${panel} tbody tr`, table.rows.length + (isZero && extraRow ? 1 : 0));
+    counts.set(`${panel} table th`, tableCounts.get("th"));
+    counts.set(`${panel} table td`, tableCounts.get("td"));
     table.rows.forEach((_, ri) => {
       counts.set(
         `${panel} tbody tr:nth-child(${ri + 1}) td`,
-        table.columns.length + (extraCell && ti === 0 && ri === 0 ? 1 : 0),
+        table.columns.length + (extraCell && isZero && ri === 0 ? 1 : 0),
       );
-      counts.set(`${panel} tbody tr:nth-child(${ri + 1}) th`, 0);
+      counts.set(`${panel} tbody tr:nth-child(${ri + 1}) th`, extraThInTbody && isZero && ri === 0 ? 1 : 0);
     });
   });
   const root = {
     querySelectorAll: selector => {
       if (selector === "[data-ui-claim]") return [...nodes.values()];
-      if (counts.has(selector)) return Array.from({ length: counts.get(selector) }, () => ({}));
+      if (counts.has(selector)) {
+        const entry = counts.get(selector);
+        return Array.isArray(entry) ? entry : Array.from({ length: entry }, () => ({}));
+      }
       return nodes.has(selector) ? [nodes.get(selector)] : [];
     },
   };
@@ -126,8 +157,15 @@ test("opponent split validation rejects a corrupt Table 1 opponent cell", () => 
   assert.equal(report.errors[0].reason, "Rendered destination contradicts canonical evidence");
 });
 
-test("opponent split validation rejects extra unbound DOM rows, cells, or tables", () => {
-  for (const mutation of [{ extraRow: true }, { extraCell: true }, { extraTable: true }]) {
+test("opponent split validation rejects extra unbound DOM rows, cells, tfoot rows, or tables", () => {
+  for (const mutation of [
+    { extraRow: true },
+    { extraCell: true },
+    { extraTable: true },
+    { extraTfootRow: true },
+    { extraDirectTr: true },
+    { extraThInTbody: true },
+  ]) {
     const report = validateTables(payload, mutation);
     assert.equal(report.status, "invalid");
     assert.match(report.errors[0].reason, /table structure contradicts canonical evidence/i);

@@ -754,7 +754,16 @@ def validate(payload: dict) -> dict:
         if root in evidence:
             inventory(evidence[root], ["semantic_evidence", root])
     unbound_count = sum(counts.values())
-    if payload.get("opponent_splits") and (unbound_count or not claims):
+    is_ok_opponent_splits = (
+        payload.get("status") == "ok"
+        and (payload.get("ask_route") or {}).get("route") == "opponent_splits"
+    )
+    if (payload.get("opponent_splits") or is_ok_opponent_splits) and (
+        not payload.get("opponent_splits")
+        or manifest is None
+        or not claims
+        or unbound_count
+    ):
         errors.append(
             {
                 "destination": [],

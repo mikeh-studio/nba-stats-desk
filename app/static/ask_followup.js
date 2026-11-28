@@ -11,6 +11,15 @@ const words = new Set(("rebounding passing rating ratings plus minus pattern pat
 + "explanation detail details meaning means value values numbers number statistic statistics stat stats evidence source sources log logs coverage available missing qualify qualified qualification enough "
 + "up out off floor court win wins loss losses winning losing home away split splits include including exclude excluding besides except change use keep narrow focus highlight highest lowest best worst peak low high top bottom single start end per36 per100 true effective difference differences gap").split(/\s+/));
 const tokens = text => String(text || "").toLowerCase().match(/[\p{L}\p{N}]+/gu) || [];
+const opponentSplitMetricWords = new Set((
+  "gp games played game count pts points point ppg scoring reb rebounds rebound rbs boards rpg "
+  + "oreb offensive dreb defensive pf personal fouls foul ast assists assist playmaking apg "
+  + "stl steals steal spg blk blocks block blcks bpg tov turnovers turnover tos ball security tpg "
+  + "fg3m 3pm threes three pointers makes min minutes playing time mpg fga field goal goals attempts attempted "
+  + "fg3a 3pa 3pt fta free throw throws fg fg3 3p ft ts efg pct percentage true effective "
+  + "pts_per36 ast_per36 per36 36 plus minus plusminus impact net "
+  + "fantasy simple box score index proxy bsi weighted points created attributed 2 x2"
+).split(/\s+/));
 
 export function isFollowupReport(payload) {
   return Boolean(payload && (["ok", "clarification_required"].includes(payload.status) ||
@@ -26,8 +35,23 @@ export function followupFitsReport(question, payload, reportQuestion = "", sugge
   if (proposed && [...(payload.followups || []), ...suggestions].some(text => normalize(text) === proposed)) return true;
   const profiles = payload.player_profiles?.length ? payload.player_profiles : [payload.player_profile || payload.reference_player];
   const scopedPlayers = payload.conversation_context?.players;
-  const players = scopedPlayers?.length ? scopedPlayers : profiles.map(p => p?.player).filter(Boolean);
-  const allowed = new Set([...words, ...tokens(reportQuestion), ...players.flatMap(p => tokens(p.player_name))]);
+  const players = scopedPlayers?.length ? scopedPlayers : [payload.opponent_splits?.player, ...profiles.map(p => p?.player)].filter(Boolean);
+  const isOpponentSplits = Boolean(
+    payload.opponent_splits ||
+    payload.conversation_context?.analysis_type === "opponent_splits" ||
+    payload.ask_route?.route === "opponent_splits"
+  );
+  const metricTokens = isOpponentSplits
+    ? [
+        ...opponentSplitMetricWords,
+        ...Object.entries(payload.opponent_splits?.metric_definitions || {}).flatMap(([key, def]) => [
+          ...tokens(key),
+          ...tokens(def?.key),
+          ...tokens(def?.label),
+        ]),
+      ]
+    : [];
+  const allowed = new Set([...words, ...metricTokens, ...tokens(reportQuestion), ...players.flatMap(p => tokens(p.player_name))]);
   const parts = tokens(question);
   return parts.length > 0 && parts.every(word => allowed.has(word) || /^\d+$/.test(word));
 }
