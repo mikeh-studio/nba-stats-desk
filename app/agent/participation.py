@@ -246,7 +246,6 @@ def _completed_round_teams(
     for game_id, rows in games.items():
         teams = set()
         observed_teams = set()
-        observed_by_team: dict[str, set[int]] = defaultdict(set)
         observed_pairs: set[tuple[int, str]] = set()
         dates = set()
         winners = set()
@@ -256,7 +255,6 @@ def _completed_round_teams(
                 return set()
             teams.add(tuple(sorted((team, opponent))))
             observed_teams.add(team)
-            observed_by_team[team].add(row["player_id"])
             observed_pairs.add((row["player_id"], team))
             dates.add(_date(row["game_date"]))
             results = {row.get("game_result"), row.get("wl")} - {None}
@@ -288,32 +286,33 @@ def _completed_round_teams(
         if game_number is None:
             return set()
         manifest = participants_by_game.get(game_id)
-        if manifest:
-            expected_played: set[tuple[int, str]] = set()
-            expected_not_played: set[tuple[int, str]] = set()
-            for entry in manifest:
-                pid = entry.get("player_id")
-                team = entry.get("team_abbr")
-                played = entry.get("played")
-                if (
-                    type(played) is not bool
-                    or type(pid) is not int
-                    or not isinstance(team, str)
-                ):
-                    return set()
-                if played is True:
-                    if team not in observed_teams:
-                        return set()
-                    expected_played.add((pid, team))
-                else:
-                    expected_not_played.add((pid, team))
+        if not manifest:
+            return set()
+        expected_played: set[tuple[int, str]] = set()
+        expected_not_played: set[tuple[int, str]] = set()
+        for entry in manifest:
+            pid = entry.get("player_id")
+            team = entry.get("team_abbr")
+            played = entry.get("played")
             if (
-                {team for _, team in expected_played} != observed_teams
-                or expected_played != observed_pairs
-                or bool(expected_not_played & observed_pairs)
+                type(played) is not bool
+                or type(pid) is not int
+                or pid < 1
+                or not isinstance(team, str)
+                or not team.strip()
             ):
                 return set()
-        elif any(len(observed_by_team[team]) < 5 for team in observed_teams):
+            if played is True:
+                if team not in observed_teams:
+                    return set()
+                expected_played.add((pid, team))
+            else:
+                expected_not_played.add((pid, team))
+        if (
+            {team for _, team in expected_played} != observed_teams
+            or expected_played != observed_pairs
+            or bool(expected_not_played & observed_pairs)
+        ):
             return set()
         series[teams.pop()].append((game_date, game_number, game_id, winner))
 

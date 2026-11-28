@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from time import monotonic
 from typing import Any, Callable
 
@@ -74,7 +75,12 @@ class StatsAgent:
         if semantic_warehouse is None and isinstance(repo, BigQueryWarehouseRepository):
             semantic_warehouse = warehouse_for_repository(repo)
         self.semantic_agent = (
-            SemanticAsk(settings, semantic_warehouse, conversation_store)
+            SemanticAsk(
+                settings,
+                semantic_warehouse,
+                conversation_store,
+                source_policy=getattr(repo, "source_policy", None),
+            )
             if semantic_warehouse is not None
             else None
         )
@@ -253,28 +259,14 @@ class StatsAgent:
         )
 
     def _effective_source_policy(self) -> Any:
-        from app.agent.source_policy import resolve_source_policies
+        from app.agent.source_policy import effective_source_policy
 
-        candidates = [getattr(self.repo, "source_policy", None)]
-        seen: set[int] = set()
-        queue = [
+        return effective_source_policy(
+            self.repo,
             getattr(self, "semantic_warehouse", None),
             getattr(self, "warehouse", None),
-            getattr(getattr(self, "semantic_agent", None), "warehouse", None),
-        ]
-        while queue:
-            node = queue.pop(0)
-            if node is None or id(node) in seen:
-                continue
-            seen.add(id(node))
-            policy = getattr(node, "source_policy", None)
-            if policy is not None:
-                candidates.append(policy)
-            for attr in ("source", "facts", "historical"):
-                child = getattr(node, attr, None)
-                if child is not None and id(child) not in seen:
-                    queue.append(child)
-        return resolve_source_policies(*candidates)
+            getattr(self.semantic_agent, "warehouse", None),
+        )
 
     @governed_request
     def answer(
@@ -447,167 +439,191 @@ class StatsAgent:
         ):
             publication_id = publication_id or pending_route.publication_id
         from app.agent.award_lookup import wants_award
+        from app.agent.source_policy import source_policy_scope
 
-        participation = None
-        if not wants_award(cleaned_question) and round_scope_message(cleaned_question):
-            from app.agent.participation import answer_known_nonparticipation
-
-            participation = answer_known_nonparticipation(
-                cleaned_question,
-                self.settings.season,
-                conversation_id,
-                source_policy=self._effective_source_policy(),
-            )
-            if participation is not None and not publication_id:
-                if routing is not None:
-                    routing.update(route="event_participation", source="deterministic")
-                if trace:
-                    trace.set_plan(route="event_participation", confidence=1.0)
-                    trace.outcome = "not_applicable"
-                return route_hint(participation, route="event_participation")
-        route = select_route(route_context)
-        if routing is not None:
-            routing.update(
-                route=DISPATCH_LABELS.get(route.key, route.key),
-                source=dispatch_source(route_context, route),
-            )
-        if trace:
-            trace.set_plan(route=route.key, confidence=1.0)
-        if publication_id and (
-            participation is not None or route.handler != "semantic"
+        effective_policy = self._effective_source_policy()
+        with (
+            source_policy_scope(effective_policy)
+            if effective_policy is not None
+            else nullcontext()
         ):
+            participation = None
+            if not wants_award(cleaned_question) and round_scope_message(
+                cleaned_question
+            ):
+                from app.agent.participation import answer_known_nonparticipation
+
+                participation = answer_known_nonparticipation(
+                    cleaned_question,
+                    self.settings.season,
+                    conversation_id,
+                    source_policy=effective_policy,
+                )
+                if participation is not None and not publication_id:
+                    if routing is not None:
+                        routing.update(
+                            route="event_participation", source="deterministic"
+                        )
+                    if trace:
+                        trace.set_plan(route="event_participation", confidence=1.0)
+                        trace.outcome = "not_applicable"
+                    return route_hint(participation, route="event_participation")
+            route = select_route(route_context)
+            if routing is not None:
+                routing.update(
+                    route=DISPATCH_LABELS.get(route.key, route.key),
+                    source=dispatch_source(route_context, route),
+                )
             if trace:
-                trace.outcome = "unsupported_scope"
-            return answer_payload(
-                "Start a separate analysis for a question that uses a different source.",
-                status="unsupported_scope",
-                conversation_id=conversation_id,
-            )
-        if route.handler == "scope_refusal":
-            if trace:
-                trace.outcome = "unsupported_scope"
-                trace.error_type = "unsupported_scope"
-            return route_hint(
-                answer_payload(
-                    round_scope_message(route_context.routing_question)
-                    or "Unsupported scope",
+                trace.set_plan(route=route.key, confidence=1.0)
+            if publication_id and (
+                participation is not None or route.handler != "semantic"
+            ):
+                if trace:
+                    trace.outcome = "unsupported_scope"
+                return answer_payload(
+                    "Start a separate analysis for a question that uses a different source.",
                     status="unsupported_scope",
                     conversation_id=conversation_id,
-                ),
-                reason_code="unsupported_round",
-            )
-        if route.handler == "appearances":
-            return answer_appearances(
-                self, cleaned_question, route_context.context, conversation_id, trace
-            )
-        if route.handler == "availability":
-            return answer_availability(self, cleaned_question, conversation_id, trace)
-        if route.handler == "research":
-            return answer_research(
-                self,
-                cleaned_question,
-                provider_name,
-                selected_model,
-                conversation_id,
-                trace,
-            )
-        if route.handler == "reference":
-            try:
-                return answer_reference(
+                )
+            if route.handler == "scope_refusal":
+                if trace:
+                    trace.outcome = "unsupported_scope"
+                    trace.error_type = "unsupported_scope"
+                return route_hint(
+                    answer_payload(
+                        round_scope_message(route_context.routing_question)
+                        or "Unsupported scope",
+                        status="unsupported_scope",
+                        conversation_id=conversation_id,
+                    ),
+                    reason_code="unsupported_round",
+                )
+            if route.handler == "appearances":
+                return answer_appearances(
                     self,
                     cleaned_question,
-                    route.key,
+                    route_context.context,
                     conversation_id,
                     trace,
-                    selected_player,
-                    route_context=route_context,
                 )
-            except PlayerNameError:
-                raise
-            except Exception as exc:
-                raise AgentExecutionError("Governed reference request failed") from exc
-        if route.handler == "teammate_study":
-            try:
-                payload = answer_study(
+            if route.handler == "availability":
+                return answer_availability(
+                    self, cleaned_question, conversation_id, trace
+                )
+            if route.handler == "research":
+                return answer_research(
                     self,
-                    route_context.study_question,
+                    cleaned_question,
                     provider_name,
                     selected_model,
+                    conversation_id,
                     trace,
                 )
-                payload["conversation_id"] = conversation_id
-                if trace:
-                    trace.outcome = payload["study_status"]
-                if conversation_id and self.conversation_store:
-                    self.conversation_store.append_turn(
+            if route.handler == "reference":
+                try:
+                    return answer_reference(
+                        self,
+                        cleaned_question,
+                        route.key,
                         conversation_id,
-                        question=cleaned_question,
-                        answer=payload["answer"],
-                        max_turns=self.settings.agent_conversation_max_turns,
-                        context={
-                            "teammate_study": payload["study_status"] == "answered",
-                            "route": "teammate_study_v1",
-                        },
+                        trace,
+                        selected_player,
+                        route_context=route_context,
                     )
-                return payload
-            except PlayerNameError:
-                raise
-            except Exception as exc:
-                raise AgentExecutionError("Teammate study request failed") from exc
-        if route.handler == "semantic":
-            try:
-                assert self.semantic_agent is not None
-                from app.agent.semantic_answer import try_published_three_point_leaders
-
-                if (
-                    route.key != "playoff_round"
-                    and (
-                        payload := try_published_three_point_leaders(
-                            self,
-                            cleaned_question,
-                            route_context.context,
-                            conversation_id,
-                            runtime=runtime,
-                            selected_player=selected_player,
-                            keep_pending=keep_pending,
-                        )
-                    )
-                    is not None
-                ):
-                    return payload
-                payload = self.semantic_agent.answer(
-                    cleaned_question,
-                    client=self._get_client(provider_name)
-                    if intelligence.descriptor.requires_model
-                    else None,
-                    model=selected_model,
-                    conversation_id=conversation_id,
-                    selected_player=selected_player,
-                    trace=trace,
-                    progress_callback=progress_callback,
-                )
-                return payload
-            except (ValueError, PlayerNameError):
-                raise
-            except Exception as exc:
-                if (
-                    isinstance(exc, ExecutionFailure)
-                    and exc.code == "provider_unavailable"
-                ):
+                except PlayerNameError:
                     raise
-                raise AgentExecutionError("Governed analytics request failed") from exc
+                except Exception as exc:
+                    raise AgentExecutionError(
+                        "Governed reference request failed"
+                    ) from exc
+            if route.handler == "teammate_study":
+                try:
+                    payload = answer_study(
+                        self,
+                        route_context.study_question,
+                        provider_name,
+                        selected_model,
+                        trace,
+                    )
+                    payload["conversation_id"] = conversation_id
+                    if trace:
+                        trace.outcome = payload["study_status"]
+                    if conversation_id and self.conversation_store:
+                        self.conversation_store.append_turn(
+                            conversation_id,
+                            question=cleaned_question,
+                            answer=payload["answer"],
+                            max_turns=self.settings.agent_conversation_max_turns,
+                            context={
+                                "teammate_study": payload["study_status"] == "answered",
+                                "route": "teammate_study_v1",
+                            },
+                        )
+                    return payload
+                except PlayerNameError:
+                    raise
+                except Exception as exc:
+                    raise AgentExecutionError("Teammate study request failed") from exc
+            if route.handler == "semantic":
+                try:
+                    assert self.semantic_agent is not None
+                    from app.agent.semantic_answer import (
+                        try_published_three_point_leaders,
+                    )
 
-        if not legacy_available():
-            raise AgentDisabledError("Legacy repository analytics are unavailable.")
-        return answer_legacy_repository(
-            self,
-            cleaned_question,
-            conversation_id=conversation_id,
-            trace=trace,
-            progress_callback=progress_callback,
-            selected_player=selected_player,
-            provider_name=provider_name,
-            selected_model=selected_model,
-            abandoned_pending_route=abandoned_pending_route,
-            build_query_plan=build_query_plan,
-        )
+                    if (
+                        route.key != "playoff_round"
+                        and (
+                            payload := try_published_three_point_leaders(
+                                self,
+                                cleaned_question,
+                                route_context.context,
+                                conversation_id,
+                                runtime=runtime,
+                                selected_player=selected_player,
+                                keep_pending=keep_pending,
+                            )
+                        )
+                        is not None
+                    ):
+                        return payload
+                    payload = self.semantic_agent.answer(
+                        cleaned_question,
+                        client=self._get_client(provider_name)
+                        if intelligence.descriptor.requires_model
+                        else None,
+                        model=selected_model,
+                        conversation_id=conversation_id,
+                        selected_player=selected_player,
+                        trace=trace,
+                        progress_callback=progress_callback,
+                        source_policy=effective_policy,
+                    )
+                    return payload
+                except (ValueError, PlayerNameError):
+                    raise
+                except Exception as exc:
+                    if (
+                        isinstance(exc, ExecutionFailure)
+                        and exc.code == "provider_unavailable"
+                    ):
+                        raise
+                    raise AgentExecutionError(
+                        "Governed analytics request failed"
+                    ) from exc
+
+            if not legacy_available():
+                raise AgentDisabledError("Legacy repository analytics are unavailable.")
+            return answer_legacy_repository(
+                self,
+                cleaned_question,
+                conversation_id=conversation_id,
+                trace=trace,
+                progress_callback=progress_callback,
+                selected_player=selected_player,
+                provider_name=provider_name,
+                selected_model=selected_model,
+                abandoned_pending_route=abandoned_pending_route,
+                build_query_plan=build_query_plan,
+            )

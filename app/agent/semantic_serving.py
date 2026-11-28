@@ -192,7 +192,7 @@ class SemanticWarehouse:
         return snapshot, evidence
 
 
-def source_players(evidence: Evidence, *, source_policy=None) -> list[dict[str, Any]]:
+def check_evidence_source_policy(evidence: Evidence, source_policy: Any = None) -> Any:
     policy = get_source_policy(source_policy)
     if policy is not None:
         if not evidence.complete or not set(evidence.source.split(", ")) <= {
@@ -203,6 +203,11 @@ def source_players(evidence: Evidence, *, source_policy=None) -> list[dict[str, 
             (s, p) for s, _ in policy.relations for p in policy.phases
         }:
             denied("Identity evidence is outside the approved source scope")
+    return policy
+
+
+def source_players(evidence: Evidence, *, source_policy=None) -> list[dict[str, Any]]:
+    policy = check_evidence_source_policy(evidence, source_policy)
     return players_from_rows(evidence.rows, source_policy=policy)
 
 
