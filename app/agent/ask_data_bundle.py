@@ -647,10 +647,11 @@ class AskBundleWarehouse:
         now: datetime | None = None,
         state: dict[str, Any] | None = None,
     ) -> AskDataBundle:
+        authority_clock = self._clock or self._utc_now
         if state is not None and (pinned := state.get("bundle")) is not None:
-            validate_bundle_manifest(
-                pinned.manifest, now=now if now is not None else self._utc_now()
-            )
+            if now is not None:
+                validate_bundle_manifest(pinned.manifest, now=now)
+            validate_bundle_manifest(pinned.manifest, now=authority_clock())
             return pinned
         key = (
             source.publication_id,
@@ -666,11 +667,11 @@ class AskBundleWarehouse:
                 "freshness"
             ):
                 bundle = AskDataBundle.from_core_publication(
-                    source, now=now if now is not None else self._utc_now()
+                    source, now=now if now is not None else authority_clock()
                 )
-            validate_bundle_manifest(
-                bundle.manifest, now=now if now is not None else self._utc_now()
-            )
+            if now is not None:
+                validate_bundle_manifest(bundle.manifest, now=now)
+            validate_bundle_manifest(bundle.manifest, now=authority_clock())
             checkpoint()
             self._core_bundles[key] = bundle
             self._core_bundles.move_to_end(key)
@@ -739,8 +740,7 @@ class AskBundleWarehouse:
                     )
                 bundle = self._core_bundle(
                     source,
-                    now=now if now is not None else authority_clock(),
-                    state=state,
+                    now=now,
                 )
             else:
                 read_pilot = getattr(self.historical, "open_pilot_publication", None)

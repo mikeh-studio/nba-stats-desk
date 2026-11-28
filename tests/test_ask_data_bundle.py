@@ -729,7 +729,9 @@ def test_core_bundle_cache_reuses_builds_and_tracks_authority(
     monkeypatch.setattr(
         AskDataBundle, "from_core_publication", classmethod(count_build)
     )
-    warehouse = AskBundleWarehouse(SemanticWarehouse(SnapshotClient()), read)
+    warehouse = AskBundleWarehouse(
+        SemanticWarehouse(SnapshotClient()), read, clock=lambda: NOW
+    )
     expected = build(core_source, now=NOW)
     with request_policy(settings, "openai"):
         original = warehouse.open_bundle(now=NOW)
