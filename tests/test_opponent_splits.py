@@ -422,6 +422,27 @@ def test_stats_agent_answers_collective_versus_phrase(split_agent):
     assert result["claim_validation"]["status"] == "complete"
 
 
+def test_programmatic_alias_preserves_opponent_split_identity_and_claims(
+    facts, monkeypatch
+):
+    name = "Alperen Şengün"
+    alias = "Sengun"
+    rows = [{**row, "player_name": name} for row in facts.rows]
+    agent = split_agent.__wrapped__(replace(facts, rows=rows), monkeypatch)
+    result = agent.answer(
+        f"Show the toughest matchup for {alias} in 2024-25", conversation_id="alias"
+    )
+    assert result["status"] == "ok", result
+    assert result["ask_route"]["route"] == "opponent_splits"
+    assert result["opponent_splits"]["player"]["player_name"] == name
+    assert result["claim_validation"]["status"] == "complete"
+    reply = agent.answer("What about 3PA?", conversation_id="alias")
+    assert reply["status"] == "ok", reply
+    assert reply["opponent_splits"]["player"] == result["opponent_splits"]["player"]
+    assert reply["opponent_splits"]["display_metrics"] == ["fg3a"]
+    assert reply["claim_validation"]["status"] == "complete"
+
+
 def test_stats_agent_answers_home_filter_before_collective_versus_phrase(
     facts, split_agent
 ):

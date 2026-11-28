@@ -2,10 +2,12 @@
 
 import json
 from copy import deepcopy
+from functools import partial
 
 import pytest
 from app import main
 from app.agent import research_ask
+from app.agent.alias_builder import player_aliases_for_cohort
 from app.agent.conversation import InMemoryConversationStore
 from app.research import ResearchQuery
 from tests.test_api import _test_settings, build_client
@@ -333,8 +335,8 @@ def test_evidence_alias_and_existing_breakdown_default(
 ):
     client, planner, _, _ = setup
     monkeypatch.setattr(
-        "app.agent.semantic_serving.load_player_aliases",
-        lambda: {"morgan": "Morgan Fiction"},
+        "app.agent.semantic_serving.player_aliases_for_cohort",
+        partial(player_aliases_for_cohort, overrides={"morgan": "Morgan Fiction"}),
     )
     planner.result = {**plan(phase=raw_phase), "kind": "descriptive"}
     payload = request(client, "Research Morgan points at home in 2025-26", transport)

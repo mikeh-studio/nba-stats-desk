@@ -9,9 +9,9 @@ from threading import Lock
 from time import monotonic
 from typing import Any, Protocol
 
+from app.agent.alias_builder import player_aliases_for_cohort
 from app.agent.clock import today as semantic_today
 from app.agent.execution import record_data_read, timed
-from app.agent.player_resolver import load_player_aliases, normalize_player_text
 from app.agent.semantic_source import (
     BigQuerySemanticSource,
     ScopedSemanticSource,
@@ -192,7 +192,7 @@ class SemanticWarehouse:
         return snapshot, evidence
 
 
-def source_players(evidence: Evidence, *, source_policy=None) -> list[dict[str, Any]]:
+def check_evidence_source_policy(evidence: Evidence, source_policy: Any = None) -> Any:
     policy = get_source_policy(source_policy)
     if policy is not None:
         if not evidence.complete or not set(evidence.source.split(", ")) <= {
@@ -203,6 +203,11 @@ def source_players(evidence: Evidence, *, source_policy=None) -> list[dict[str, 
             (s, p) for s, _ in policy.relations for p in policy.phases
         }:
             denied("Identity evidence is outside the approved source scope")
+    return policy
+
+
+def source_players(evidence: Evidence, *, source_policy=None) -> list[dict[str, Any]]:
+    policy = check_evidence_source_policy(evidence, source_policy)
     return players_from_rows(evidence.rows, source_policy=policy)
 
 
@@ -244,18 +249,13 @@ def players_from_rows(rows, *, source_policy=None) -> list[dict[str, Any]]:
                 latest_teams.get(row["player_id"], ("", "")),
                 (str(row.get("game_date") or ""), team),
             )
-    aliases = load_player_aliases()
     for player in players.values():
+        if len(player["aliases"]) > 1:
+            player["observed_names"] = tuple(
+                sorted(player["aliases"] - {player["player_name"]})
+            )
         player["team_abbr"] = latest_teams.get(player["player_id"], ("", ""))[1] or None
-        canonical = {normalize_player_text(n) for n in player["aliases"]}
-        player["aliases"].update(
-            alias
-            for alias, name in aliases.items()
-            if normalize_player_text(name) in canonical
-        )
-        player["aliases"].add(normalize_player_text(player["player_name"]))
-        player["aliases"] = sorted(player["aliases"])
-    return list(players.values())
+    return player_aliases_for_cohort(players.values())
 
 
 _factory_lock = Lock()

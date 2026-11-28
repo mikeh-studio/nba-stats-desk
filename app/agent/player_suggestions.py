@@ -3,29 +3,12 @@
 import re
 from difflib import SequenceMatcher
 
-from app.agent.player_resolver import normalize_player_text
-
-# Exclude question/scope words so prose cannot become a player-name candidate.
-_CONTEXT_WORDS = frozenset(
-    "how did does do has have had is was were he she his her they their it its "
-    "play played playing perform performed performing performance doing done "
-    "compare compares compared comparing with to and vs versus than who better "
-    "last this current previous prior season seasons regular playoffs playoff "
-    "postseason year years games game show me tell about points rebounds assists "
-    "steals blocks stats statistics average averaged per in on at of the a an "
-    "for from through between during since until please overview summary "
-    "can could would you give review an analysis of among guards wings centers forwards "
-    "scoring rebounding playmaking shooting efficiency fare been assist rebound steal block "
-    "three threes leaders leader christmas day".split()
+from app.agent.alias_builder import (
+    name_base,
+    normalize_player_text,
+    observed_player_names,
 )
-
-
-_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
-
-
-def name_base(name):
-    parts = normalize_player_text(name).split()
-    return " ".join(parts[:-1] if len(parts) > 2 and parts[-1] in _SUFFIXES else parts)
+from app.agent.name_vocabulary import CONTEXT_WORDS as _CONTEXT_WORDS
 
 
 def suggestion_prompt(players):
@@ -146,22 +129,7 @@ def match_player_name(question, players):
             player["player_name"]
         ) and matched != normalize_player_text(player["player_name"])
         if (minor or suffix_match) and score >= 0.9 and margin >= 0.08:
-            return {
-                "status": "ok",
-                "matches": [player],
-                "notice": (
-                    f"Using {player['player_name']} for ‘{matched}’."
-                    if suffix_match
-                    else f"Using {player['player_name']} for the minor misspelling ‘{matched}’."
-                ),
-                "resolution": {
-                    "policy": "player_name_match/1",
-                    "method": "name_suffix" if suffix_match else "minor_typo",
-                    "input_name": matched,
-                    "player_id": player["player_id"],
-                    "player_name": player["player_name"],
-                },
-            }
+            return _corrected_name(player, matched, suffix_match=suffix_match)
         return {
             "status": "clarification_required",
             "matches": [p for _, p, _, _ in ranked[:5]],
@@ -178,6 +146,25 @@ def match_player_name(question, players):
     }
 
 
+def _corrected_name(player, matched, *, suffix_match):
+    return {
+        "status": "ok",
+        "matches": [player],
+        "notice": (
+            f"Using {player['player_name']} for ‘{matched}’."
+            if suffix_match
+            else f"Using {player['player_name']} for the minor misspelling ‘{matched}’."
+        ),
+        "resolution": {
+            "policy": "player_name_match/1",
+            "method": "name_suffix" if suffix_match else "minor_typo",
+            "input_name": matched,
+            "player_id": player["player_id"],
+            "player_name": player["player_name"],
+        },
+    }
+
+
 def resolve_player_name(name, players):
     """Exact canonical/curated aliases first; rank every credible ID otherwise."""
     key = normalize_player_text(name)
@@ -191,21 +178,29 @@ def resolve_player_name(name, players):
     # A suffix-free exact name must not hide a same-base suffixed identity.
     if key and name_base(key) == key:
         variants = {
-            p["player_id"]: p for p in players if name_base(p["player_name"]) == key
+            p["player_id"]: p
+            for p in players
+            if any(name_base(spelling) == key for spelling in observed_player_names(p))
         }
-        if matches:
+        if matches or len(variants) > 1:
             matches.update(variants)
+    # Shared exact surnames must clarify even when a surname is too short
+    # for fuzzy suggestions. Existing one-word aliases also honor name tokens.
+    if key and " " not in key:
+        tokens = {
+            p["player_id"]: p
+            for p in players
+            if any(key in name_base(name).split() for name in observed_player_names(p))
+        }
+        if matches or len(tokens) > 1:
+            matches.update(tokens)
     if matches:
-        # An explicit one-word alias must not hide another player with that
-        # same first/last name (e.g. a roster containing several Jalens).
-        if len(key.split()) == 1:
-            matches.update(
-                {
-                    p["player_id"]: p
-                    for p in players
-                    if key in normalize_player_text(p["player_name"]).split()
-                }
-            )
+        if len(matches) == 1:
+            player = next(iter(matches.values()))
+            if key == name_base(player["player_name"]) and key != normalize_player_text(
+                player["player_name"]
+            ):
+                return _corrected_name(player, key, suffix_match=True)
         result = {
             "status": "ok" if len(matches) == 1 else "clarification_required",
             "matches": [matches[k] for k in sorted(matches)],
