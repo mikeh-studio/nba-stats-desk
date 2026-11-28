@@ -71,6 +71,10 @@ game_round_inputs as (
 game_rounds as (
     select
         game_id,
+        explicit_playoff_round_number,
+        explicit_playoff_series_id,
+        explicit_playoff_series_game_number,
+        has_round_conflict as playoff_round_conflict,
         {{ playoff_round_resolved_columns(
             'game_id',
             'round_season_type',
@@ -92,6 +96,10 @@ select
     s.scheduled_start_utc,
     s.ingested_at_utc,
     s.source_updated_at_utc,
+    r.explicit_playoff_round_number,
+    r.explicit_playoff_series_id,
+    r.explicit_playoff_series_game_number,
+    r.playoff_round_conflict,
     {% for field in playoff_round_columns() %}
     r.{{ field }}{% if not loop.last %},{% endif %}
     {% endfor %}
@@ -109,6 +117,10 @@ select
     cast(null as timestamp) as scheduled_start_utc,
     cast(null as timestamp) as ingested_at_utc,
     cast(null as timestamp) as source_updated_at_utc,
+    cast(null as {{ int64_type() }}) as explicit_playoff_round_number,
+    cast(null as {{ varchar_type() }}) as explicit_playoff_series_id,
+    cast(null as {{ int64_type() }}) as explicit_playoff_series_game_number,
+    cast(null as {{ bool_type() }}) as playoff_round_conflict,
     {{ playoff_round_fields("cast(null as " ~ varchar_type() ~ ")", "'Regular Season'") }}
 from (select 1 as _empty_source)
 where 1 = 0

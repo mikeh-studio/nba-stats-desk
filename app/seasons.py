@@ -15,10 +15,32 @@ if TYPE_CHECKING:
 
 SEASON_FILE = Path(__file__).resolve().parents[1] / "season.yml"
 FIRST_ARCHIVE_SEASON = "2023-24"
+SEASON_TOKEN_RE = re.compile(r"\b(20\d{2})[-–/](20\d{2}|\d{2})\b(?![-/–]\d)")
 
 
 def _season_label(start_year: int) -> str:
     return f"{start_year}-{(start_year + 1) % 100:02d}"
+
+
+def normalize_season(start_year: str, end_year: str) -> str:
+    """Normalize 2- or 4-digit ending year into a validated canonical season."""
+    start = int(start_year)
+    expected = (start + 1) % 100
+    if len(end_year) == 4 and int(end_year) != start + 1:
+        raise ValueError(f"Unsupported season: {start_year}-{end_year}")
+    if len(end_year) == 2 and int(end_year) != expected:
+        raise ValueError(f"Unsupported season: {start_year}-{end_year}")
+    return validate_season(f"{start_year}-{expected:02d}")
+
+
+def extract_seasons(text: str) -> list[str]:
+    """Extract distinct canonical seasons from 2- or 4-digit season mentions."""
+    seasons: list[str] = []
+    for match in SEASON_TOKEN_RE.finditer(text):
+        season = normalize_season(*match.groups())
+        if season not in seasons:
+            seasons.append(season)
+    return seasons
 
 
 def _load_default_season(path: Path = SEASON_FILE) -> str:

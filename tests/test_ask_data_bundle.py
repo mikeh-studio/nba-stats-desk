@@ -1110,3 +1110,70 @@ def test_lazy_shadow_starts_optional_deadline_before_bundle_lock(
         shadow.compare(query, reference_result)
         assert observed_deadlines == []
         assert shadow.outcomes[-1] == {"status": "error", "code": "optional_timeout"}
+
+
+def test_bundle_post_init_validates_auxiliary_slots_against_manifest(core_source):
+    from app.agent.ask_data_bundle import _json_value
+    from tests.test_overview_positions import fixture as position_fixture
+    from tests.test_playoff_rounds_and_positions import (
+        position_context,
+        season_positions,
+    )
+
+    _, legacy = position_fixture()
+    context = position_context(season_positions(legacy))
+    bundle = AskDataBundle.from_core_publication(
+        core_source, now=NOW, metrics=["pts"], season_positions=context
+    )
+    records = list(bundle.auxiliary["season_positions"])
+    slot = dict(bundle.manifest["auxiliary"]["season_positions"])
+
+    def seal(manifest):
+        updated = _json_value(manifest)
+        updated.pop("bundle_id", None)
+        updated["bundle_id"] = digest(updated)
+        return updated
+
+    with pytest.raises(ValueError, match="differ from manifest"):
+        AskDataBundle(
+            bundle.manifest, bundle.summaries, bundle.evidence, bundle.provenance, {}
+        )
+    with pytest.raises(ValueError, match="record_count"):
+        AskDataBundle(
+            seal(
+                {
+                    **bundle.manifest,
+                    "auxiliary": {"season_positions": {**slot, "record_count": 99}},
+                }
+            ),
+            bundle.summaries,
+            bundle.evidence,
+            bundle.provenance,
+            {"season_positions": records},
+        )
+    with pytest.raises(ValueError, match="digest"):
+        AskDataBundle(
+            seal(
+                {
+                    **bundle.manifest,
+                    "auxiliary": {"season_positions": {**slot, "digest": "a" * 64}},
+                }
+            ),
+            bundle.summaries,
+            bundle.evidence,
+            bundle.provenance,
+            {"season_positions": records},
+        )
+    plain_manifest = dict(bundle.manifest)
+    plain_manifest.pop("auxiliary")
+    plain_manifest["capabilities"] = [
+        c for c in plain_manifest["capabilities"] if c != "season_positions"
+    ]
+    with pytest.raises(ValueError, match="differ from manifest"):
+        AskDataBundle(
+            seal(plain_manifest),
+            bundle.summaries,
+            bundle.evidence,
+            bundle.provenance,
+            {"season_positions": records},
+        )

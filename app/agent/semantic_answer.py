@@ -1111,7 +1111,12 @@ class SemanticAsk:
         if not turn.publication_opened or turn.publication is None:
             turn.publication_stat = None
 
-        turn.playoff_round = requested_playoff_round(turn.question)
+        ranked_round = (
+            turn.ranked["queries"][0].get("playoff_round")
+            if turn.ranked and turn.ranked.get("queries")
+            else None
+        )
+        turn.playoff_round = requested_playoff_round(turn.question) or ranked_round
         turn.intent = question_scope(
             turn.question, round_coverage=bool(turn.playoff_round)
         )
@@ -1187,12 +1192,18 @@ class SemanticAsk:
         round_scope = (
             {"playoff_round": turn.playoff_round} if turn.playoff_round else {}
         )
+        inherited_seasons = turn.inherited.get("seasons") or []
+        overview_season = (
+            inherited_seasons[0]
+            if len(inherited_seasons) == 1 and not has_time_scope(turn.original)
+            else self.settings.season
+        )
         turn.overview = (
-            comparison_scope(turn.question, self.settings.season, **round_scope)
+            comparison_scope(turn.question, overview_season, **round_scope)
             if turn.comparison
             else overview_scope(
                 turn.question,
-                self.settings.season,
+                overview_season,
                 comparison=turn.requested_comparison,
                 **round_scope,
             )

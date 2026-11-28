@@ -41,6 +41,9 @@ def capture_sql(sources, phases=None):
             "JSON_VALUE(TO_JSON_STRING(fact), '$.wl') AS game_result",
             "COALESCE(JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round'), "
             "JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round_name')) AS playoff_round",
+            "JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round_source') AS playoff_round_source",
+            "CAST(JSON_VALUE(TO_JSON_STRING(fact), '$.playoff_round_conflict') AS BOOL) AS playoff_round_conflict",
+            "REGEXP_CONTAINS(TO_JSON_STRING(fact), r'\"playoff_round(?:_name)?\":') AS has_playoff_round_column",
         ]
     )
     selects = [

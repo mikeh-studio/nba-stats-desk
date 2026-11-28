@@ -181,6 +181,8 @@ _ROUND_CUES = re.compile(
     r"\b(?:finals|(?:nba|conference) final|the final(?!\s+(?:\d+|score|games?))|"
     r"championship series|semi[ -]?finals?|conference semis|"
     r"(?:finals|series|game|round|playoff)[ -]openers?|opening[ -]games?|"
+    r"(?:close[- ]?out|elimination|deciding|clinching|must[- ]win|do[- ]or[- ]die)(?:[ -]+games?)?|"
+    r"clinchers?|"
     r"(?:first|second|third|1st|2nd|3rd|early|earlier|opening|final)[ -](?:playoff[ -])?rounds?"
     + _DRAFT_ROUND_SUFFIX
     + r"|round[ -](?:one|two|three|[1-4]))\b",
@@ -225,16 +227,19 @@ _SERIES_GAME = re.compile(
     r"\b(?:games?[ -](?:nos?\.\s+)?(?:#?\d+|one|two|three|four|five|six|seven)|"
     r"(?:first|second|third|fourth|fifth|sixth|seventh|final|last|opening|"
     r"\d+(?:st|nd|rd|th))[ -](?:(?:one|two|three|four|five|six|seven|\d+|few)[ -])?games?|"
-    r"(?:(?:finals|series|game|round|playoff)[ -])?openers?|opening[ -]games?)\b",
+    r"(?:(?:finals|series|game|round|playoff)[ -])?openers?|opening[ -]games?|"
+    r"(?:close[- ]?out|elimination|deciding|clinching|must[- ]win|do[- ]or[- ]die)(?:[ -]+games?)?|"
+    r"clinchers?)\b",
     re.I,
 )
 _QUALIFIED_ROUND_PREFIX = re.compile(
+    r"(?:\bnon[-–\s]+(?:(?:the|any|an?)\s+)?(?:20\d{2}(?:[-–/](?:20)?\d{2})?[-–\s]+)?|"
     r"\b(?:before|after|through|until|since|prior to|leading up to|up to|"
     r"except(?: for)?|excluding|without(?: counting| including)?|"
     r"outside(?: of)?|other than|apart from|aside from|besides|barring|minus|"
-    r"not(?:\s+(?:counting|including))?)\s+"
-    r"(?:games?\s+)?(?:(?:for|in|during|from|of)\s+)?(?:the\s+)?"
-    r"(?:20\d{2}(?:[-–/](?:20)?\d{2})?\s+)?$",
+    r"not(?:\s+(?:counting|including|just|only))?)\s+"
+    r"(?:(?:playoff|postseason)\s+)?(?:games?\s+)?(?:(?:for|in|during|from|of)\s+)?(?:(?:the|any|an?|this|that|those|these)\s+)?"
+    r"(?:20\d{2}(?:[-–/](?:20)?\d{2})?\s+)?)$",
     re.I,
 )
 _QUALIFIED_ROUND_SUFFIX = re.compile(

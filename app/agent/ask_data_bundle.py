@@ -351,6 +351,36 @@ class AskDataBundle:
                             "invalid_evidence",
                             "Bundle evidence data_through falls outside manifest bounds",
                         )
+        declared_slots = self.manifest.get("auxiliary")
+        if declared_slots is None:
+            declared_slots = {}
+        elif not isinstance(declared_slots, Mapping):
+            raise ValueError("Bundle auxiliary manifest must be a mapping")
+        if set(self.auxiliary) != set(declared_slots):
+            raise ValueError("Bundle auxiliary slots differ from manifest")
+        if (
+            "season_positions" in (self.manifest.get("capabilities") or ())
+            and "season_positions" not in declared_slots
+        ):
+            raise ValueError(
+                "Bundle season_positions capability requires auxiliary slot"
+            )
+        for slot, metadata in declared_slots.items():
+            records = self.auxiliary.get(slot)
+            if not isinstance(records, (list, tuple)):
+                raise ValueError(f"Bundle auxiliary slot {slot} must be a sequence")
+            if (
+                not isinstance(metadata, Mapping)
+                or type(metadata.get("record_count")) is not int
+                or metadata.get("record_count") != len(records)
+            ):
+                raise ValueError(
+                    f"Bundle auxiliary slot {slot} record_count differs from payload"
+                )
+            if metadata.get("digest") != digest(_json_value(records)):
+                raise ValueError(
+                    f"Bundle auxiliary slot {slot} digest differs from payload"
+                )
 
     @classmethod
     def _build(

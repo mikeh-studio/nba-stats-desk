@@ -374,8 +374,14 @@ def resolve_followup(
 
             if wants_overview(resolved):
                 resolved += f" {scope['season']} as of {end}"
-        elif continues_analysis and inherited_round and scope.get("season"):
-            inherited["seasons"] = [scope["season"]]
+        elif continues_analysis and (
+            inherited_round
+            or scope.get("season")
+            or len(scope.get("seasons") or []) == 1
+        ):
+            season = scope.get("season") or (scope.get("seasons") or [None])[0]
+            if season:
+                inherited["seasons"] = [season]
     if (
         not requested_playoff_round(question)
         and not round_scope_message(question)

@@ -36,9 +36,9 @@ def requested_group(question):
 
 
 BASELINE_CLAUSE = re.compile(
-    r"\b(?:compared?|comparing)\s+(?:with|to|against)\s+"
+    r"\b(?:(?:compared?|comparing)\s+(?:with|to|against)|v(?:s\.?|ersus))\s+"
     r"(?:(?:his|the|their)\s+)?"
-    r"(?P<period>(?:prior|previous|last)\s+season|regular[ -]season)\b"
+    r"(?P<period>(?:prior|previous|last)\s+season|regular[ -]season|playoffs?|postseason)\b"
     r"(?:['’]s)?(?:\s+(?P<phase>regular[ -]season|playoffs?|postseason)\b)?",
     re.I,
 )
@@ -54,29 +54,37 @@ def strip_peer_clause(question):
     )
 
 
+def _baseline_phases(baseline):
+    if not baseline:
+        return None
+    period = baseline["period"].lower().replace("-", " ")
+    phase = (baseline["phase"] or "").lower().replace("-", " ")
+    if period == "regular season" or phase == "regular season":
+        return ["Regular Season"]
+    if period in ("playoff", "playoffs", "postseason") or phase in (
+        "playoff",
+        "playoffs",
+        "postseason",
+    ):
+        return ["Playoffs"]
+    return None
+
+
 def comparison_intent(question):
     group = requested_group(question)
-    baseline = BASELINE_CLAUSE.search(question) if group else None
+    baseline = BASELINE_CLAUSE.search(question)
+    period = baseline["period"].lower().replace("-", " ") if baseline else ""
     return {
         "requested_group": group,
         "requested_groups": requested_groups(question),
         "baseline_period": (
             "same_season"
-            if baseline["period"].lower().replace("-", " ") == "regular season"
+            if period in ("regular season", "playoff", "playoffs", "postseason")
             else "prior_season"
         )
         if baseline
         else None,
-        "baseline_phases": (
-            ["Regular Season"]
-            if baseline["period"].lower().replace("-", " ") == "regular season"
-            or (baseline["phase"] or "").lower().replace("-", " ") == "regular season"
-            else ["Playoffs"]
-            if baseline["phase"]
-            else None
-        )
-        if baseline
-        else None,
+        "baseline_phases": _baseline_phases(baseline),
         "baseline_requested": bool(
             baseline
             or re.search(

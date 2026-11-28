@@ -383,6 +383,7 @@ def league_leader_plan(question: str, selected_season: str) -> dict[str, Any] | 
 def conversation_leader_plan(question, context, selected_season):
     """Resolve a complete leaderboard intent against the last successful population."""
     from app.agent.game_filters import filter_scope
+    from app.agent.semantics import PLAYOFF_ROUND_LABELS
     from app.seasons import SEASONS
 
     scope = context.get("scope") or {}
@@ -401,6 +402,7 @@ def conversation_leader_plan(question, context, selected_season):
     filters = filter_scope(scope)
     team = filters.pop("team_abbr", None)
     previous_phases = scope.get("phases") or [scope.get("season_type")]
+    prior_round = scope.get("playoff_round")
     has_window = scope.get("window") not in (None, "season_to_date") or scope.get(
         "start"
     )
@@ -416,11 +418,33 @@ def conversation_leader_plan(question, context, selected_season):
         }
     if (
         not period
+        and not re.search(r"\b(?:playoffs|regular season)\b", question, re.I)
+        and prior_round is not None
+        and (prior_round not in PLAYOFF_ROUND_LABELS or previous_phases != ["Playoffs"])
+    ):
+        return {
+            "status": "clarification_required",
+            "queries": [],
+            "model_calls": 0,
+            "message": "Select a canonical playoff round within Playoffs scope.",
+        }
+    if (
+        not period
         and previous_phases == ["Playoffs"]
         and not re.search(r"\b(?:playoffs|regular season)\b", question, re.I)
     ):
         plan = league_leader_plan(question.rstrip("?.! ") + " in the playoffs", season)
+        if plan and prior_round is not None:
+            plan["queries"][0]["playoff_round"] = prior_round
+            metric = plan["queries"][0]["metric"]
+            plan["message"] = (
+                f"League leaders in {LEADER_LABELS[metric]} per game, "
+                f"{season} {PLAYOFF_ROUND_LABELS[prior_round]}."
+            )
     if team:
         plan["queries"][0]["team_abbr"] = team
-        plan["message"] = f"Ranking qualifying players for {team}."
+        round_key = plan["queries"][0].get("playoff_round")
+        plan["message"] = f"Ranking qualifying players for {team}" + (
+            f" in the {PLAYOFF_ROUND_LABELS[round_key]}." if round_key else "."
+        )
     return plan

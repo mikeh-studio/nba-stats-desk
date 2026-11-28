@@ -174,25 +174,22 @@ schedule_rounds as (
     select
         game_id,
         case
-            when count(distinct playoff_round_number) = 1
-                and count(playoff_round_number) = count(*)
-            then min(playoff_round_number)
+            when count(distinct explicit_playoff_round_number) = 1
+            then min(explicit_playoff_round_number)
         end as sched_round_number,
         case
-            when count(distinct playoff_series_id) = 1
-                and count(playoff_series_id) = count(*)
-            then min(playoff_series_id)
+            when count(distinct explicit_playoff_series_id) = 1
+            then min(explicit_playoff_series_id)
         end as sched_series_id,
         case
-            when count(distinct playoff_series_game_number) = 1
-                and count(playoff_series_game_number) = count(*)
-            then min(playoff_series_game_number)
+            when count(distinct explicit_playoff_series_game_number) = 1
+            then min(explicit_playoff_series_game_number)
         end as sched_series_game_number,
         (
-            count(distinct playoff_round_number) > 1
-            or count(distinct playoff_series_id) > 1
-            or count(distinct playoff_series_game_number) > 1
-            or count(playoff_round_number) != count(*)
+            max(case when coalesce(playoff_round_conflict, false) then 1 else 0 end) = 1
+            or count(distinct explicit_playoff_round_number) > 1
+            or count(distinct explicit_playoff_series_id) > 1
+            or count(distinct explicit_playoff_series_game_number) > 1
         ) as has_sched_conflict
     from {{ ref('stg_schedule_clean') }}
     group by 1
@@ -236,7 +233,7 @@ game_rounds as (
             'coalesce(l.log_round_number, s.sched_round_number)',
             'coalesce(l.log_series_id, s.sched_series_id)',
             'coalesce(l.log_series_game_number, s.sched_series_game_number)',
-            '(l.has_log_conflict or coalesce(s.has_sched_conflict, false))'
+            '(l.has_log_conflict or coalesce(s.has_sched_conflict, false) or (l.log_round_number is not null and s.sched_round_number is not null and l.log_round_number != s.sched_round_number) or (l.log_series_id is not null and s.sched_series_id is not null and l.log_series_id != s.sched_series_id) or (l.log_series_game_number is not null and s.sched_series_game_number is not null and l.log_series_game_number != s.sched_series_game_number))'
         ) }}
     from log_round_inputs l
     left join schedule_rounds s on l.game_id = s.game_id

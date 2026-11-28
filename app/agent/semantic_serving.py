@@ -19,7 +19,13 @@ from app.agent.semantic_source import (
 )
 from app.agent.semantics import Evidence, SemanticError
 from app.agent.source_policy import denied, get_source_policy
-from app.seasons import DEFAULT_SEASON, SEASONS, season_bounds, validate_season
+from app.seasons import (
+    DEFAULT_SEASON,
+    SEASONS,
+    extract_seasons,
+    season_bounds,
+    validate_season,
+)
 
 
 def has_time_scope(question: str) -> bool:
@@ -74,18 +80,10 @@ def load_available_season(loader, candidates):
 
 
 def requested_seasons(question: str, selected: str) -> list[str]:
-    seasons = []
-    for match in re.finditer(r"\b(20\d{2})[-–/](20\d{2}|\d{2})\b(?![-/–]\d)", question):
-        start, end = match.groups()
-        season = f"{start}-{end[-2:]}"
-        try:
-            validate_season(season)
-        except ValueError as exc:
-            raise SemanticError(
-                "unsupported_coverage", f"Season {season} is unavailable"
-            ) from exc
-        if season not in seasons:
-            seasons.append(season)
+    try:
+        seasons = extract_seasons(question)
+    except ValueError as exc:
+        raise SemanticError("unsupported_coverage", str(exc)) from exc
     if not seasons and re.search(r"\b(?:last|previous|prior) season\b", question, re.I):
         year = int(selected[:4]) - 1
         previous = f"{year}-{str(year + 1)[-2:]}"

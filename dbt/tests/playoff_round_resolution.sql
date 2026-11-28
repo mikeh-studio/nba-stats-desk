@@ -1,21 +1,22 @@
 with examples as (
     select 'explicit number wins' as test_case, '0042400401' as game_id,
         1 as playoff_round_number, 'Conference Semifinals' as playoff_round_name,
-        1 as expected_number, 'First Round' as expected_name
+        1 as expected_number, 'First Round' as expected_name, 'explicit' as expected_source
     union all
     select 'explicit name wins', '0042400401', null, 'conference_semifinals',
-        2, 'Conference Semifinals'
+        2, 'Conference Semifinals', 'explicit'
     union all
     select 'game ID supplies fallback', '0042400301', null, 'Unknown',
-        3, 'Conference Finals'
+        3, 'Conference Finals', 'game_id'
     union all
-    select 'noncanonical ID has no round', '0052400101', 1, 'First Round', null, null
+    select 'noncanonical ID has no round', '0052400101', 1, 'First Round', null, null, 'none'
 ),
 resolved as (
     select
         test_case,
         expected_number,
         expected_name,
+        expected_source,
         {{ playoff_round_fields(
             'game_id', "'Playoffs'", source_columns=['playoff_round_number', 'playoff_round_name']
         ) }}
@@ -25,19 +26,19 @@ game_examples as (
     select 'agreed explicit round across rows' as test_case, '0042400101' as game_id,
         1 as playoff_round_number, 'First Round' as playoff_round_name,
         '004240010' as playoff_series_id, 1 as playoff_series_game_number,
-        1 as expected_number, 'First Round' as expected_name
+        1 as expected_number, 'First Round' as expected_name, 'explicit' as expected_source
     union all
     select 'agreed explicit round across rows', '0042400101',
         null, null, null, null,
-        1, 'First Round'
+        1, 'First Round', 'explicit'
     union all
     select 'conflicting explicit round across rows', '0042400102',
         1, 'First Round', '004240010', 2,
-        null, null
+        null, null, 'conflict'
     union all
     select 'conflicting explicit round across rows', '0042400102',
         2, 'Conference Semifinals', '004240010', 2,
-        null, null
+        null, null, 'conflict'
 ),
 game_inputs as (
     select
@@ -45,6 +46,7 @@ game_inputs as (
         game_id,
         expected_number,
         expected_name,
+        expected_source,
         {{ playoff_round_explicit_inputs([
             'playoff_round_number',
             'playoff_round_name',
@@ -59,6 +61,7 @@ game_aggregated as (
         game_id,
         min(expected_number) as expected_number,
         min(expected_name) as expected_name,
+        min(expected_source) as expected_source,
         case when count(distinct explicit_playoff_round_number) = 1 then min(explicit_playoff_round_number) end as agreed_round,
         case when count(distinct explicit_playoff_series_id) = 1 then min(explicit_playoff_series_id) end as agreed_series_id,
         case when count(distinct explicit_playoff_series_game_number) = 1 then min(explicit_playoff_series_game_number) end as agreed_series_game_number,
@@ -76,6 +79,7 @@ game_resolved as (
         test_case,
         expected_number,
         expected_name,
+        expected_source,
         {{ playoff_round_resolved_columns(
             'game_id',
             "'Playoffs'",
@@ -90,8 +94,10 @@ select test_case, expected_number, expected_name, playoff_round_number, playoff_
 from resolved
 where playoff_round_number is distinct from expected_number
     or playoff_round_name is distinct from expected_name
+    or playoff_round_source is distinct from expected_source
 union all
 select test_case, expected_number, expected_name, playoff_round_number, playoff_round_name
 from game_resolved
 where playoff_round_number is distinct from expected_number
     or playoff_round_name is distinct from expected_name
+    or playoff_round_source is distinct from expected_source

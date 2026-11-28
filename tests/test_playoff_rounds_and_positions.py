@@ -342,7 +342,7 @@ def test_incomplete_peer_round_withholds_cohort_claims_and_overview_percentiles(
     assert overview["semantic_evidence"]["metrics"][0]["percentile"] is None
 
 
-def ask_fixture(rows, *, claim_mode="enforce"):
+def ask_fixture(rows, *, claim_mode="enforce", conversation_store=None):
     config = replace(settings(), ask_claim_enforcement=claim_mode)
     warehouse = Warehouse()
     warehouse.rows = rows
@@ -353,7 +353,13 @@ def ask_fixture(rows, *, claim_mode="enforce"):
     model = Model(season_type=PLAYOFFS, aggregation="total")
     repo = SimpleNamespace(settings=config, _governed_warehouse=warehouse)
     return (
-        StatsAgent(config, repo, client=model, semantic_warehouse=warehouse),
+        StatsAgent(
+            config,
+            repo,
+            client=model,
+            conversation_store=conversation_store,
+            semantic_warehouse=warehouse,
+        ),
         model,
         warehouse,
     )
@@ -819,3 +825,271 @@ def test_landing_contracts_do_not_widen_game_logs_or_schedule():
         *schedule.columns,
         "GAME_TIME_UTC",
     ]
+
+
+def test_historical_round_followup_overview_uses_inherited_season():
+    rows = round_rows()
+    rows.append(
+        dict(
+            rows[1],
+            season="2023-24",
+            game_id="0042300101",
+            game_date="2024-04-20",
+            pts=25,
+        )
+    )
+    rows.append(
+        dict(
+            rows[1],
+            season="2023-24",
+            game_id="0042300401",
+            game_date="2024-06-09",
+            pts=40,
+        )
+    )
+    ask, _, warehouse = ask_fixture(
+        rows, conversation_store=InMemoryConversationStore()
+    )
+    warehouse.coverage.append(("2023-24", PLAYOFFS, "2024-06-09"))
+    first = ask.answer(
+        "How many total points did Regular Player score in the 2023-24 first round?",
+        conversation_id="hist-round-followup",
+    )
+    assert first["status"] == "ok", first["answer"]
+    assert first["semantic_evidence"]["rows"][0]["value"] == 25
+    warehouse.calls.clear()
+
+    followup = ask.answer(
+        "How did he perform?",
+        conversation_id="hist-round-followup",
+    )
+    assert followup["status"] == "ok", followup["answer"]
+    assert followup["ask_route"]["route"] == "player_overview"
+    assert warehouse.calls == [["2023-24"]]
+    assert followup["semantic_evidence"]["scope"]["seasons"] == ["2023-24"]
+    assert followup["semantic_evidence"]["scope"]["playoff_round"] == "first_round"
+    assert followup["semantic_evidence"]["game_ids"] == ["0042300101"]
+
+    warehouse.calls.clear()
+    explicit_new = ask.answer(
+        "How did he perform in 2024-25?",
+        conversation_id="hist-round-followup",
+    )
+    assert explicit_new["status"] == "ok", explicit_new["answer"]
+    assert warehouse.calls == [["2024-25"]]
+    assert explicit_new["semantic_evidence"]["scope"]["seasons"] == ["2024-25"]
+
+
+def test_leaderboard_followup_carries_playoff_round_and_revalidates():
+    rows = [dict(row, home_away="HOME") for row in round_rows()]
+    rows.extend(
+        [
+            dict(
+                rows[1],
+                player_id=2,
+                player_name="Another Player",
+                team_abbr="NYK",
+                opponent_abbr="BOS",
+                game_id="0042400101",
+                game_date="2025-04-19",
+                pts=35,
+            ),
+            dict(
+                rows[1],
+                player_id=2,
+                player_name="Another Player",
+                team_abbr="NYK",
+                opponent_abbr="BOS",
+                game_id="0042400102",
+                game_date="2025-04-20",
+                pts=35,
+            ),
+            dict(
+                rows[1],
+                player_id=2,
+                player_name="Another Player",
+                team_abbr="NYK",
+                opponent_abbr="BOS",
+                game_id="0042400402",
+                game_date="2025-06-08",
+                pts=90,
+            ),
+        ]
+    )
+    ask, _, warehouse = ask_fixture(
+        rows, conversation_store=InMemoryConversationStore()
+    )
+    first = ask.answer(
+        "How many total points did Regular Player score in the 2024-25 first round?",
+        conversation_id="round-leader-chat",
+    )
+    assert first["status"] == "ok"
+    leaders = ask.answer("Who leads in points?", conversation_id="round-leader-chat")
+    assert leaders["status"] == "ok", leaders["answer"]
+    assert leaders["semantic_evidence"]["scope"]["playoff_round"] == "first_round"
+    assert leaders["semantic_evidence"]["scope"]["season_type"] == PLAYOFFS
+    # First-round average for Another Player is 35.0, not 62.5 across all playoffs.
+    assert leaders["semantic_evidence"]["rows"][0]["player_id"] == 2
+    assert leaders["semantic_evidence"]["rows"][0]["value"] == 35
+
+    # Coverage revalidation fails closed if round metadata disappears before follow-up.
+    warehouse.rows = [{**rows[1], "game_id": "unmapped"}]
+    unbacked = ask.answer("Who leads in points?", conversation_id="round-leader-chat")
+    assert unbacked["status"] == "unsupported_scope"
+
+
+def test_conflict_withheld_rows_do_not_reconstruct_round_from_game_id():
+    from app.agent.semantics import row_playoff_round
+    from app.agent.source_policy import capture_sql
+
+    sql = capture_sql(["test-project.nba_gold.fct_player_game_stats"], [PLAYOFFS])
+    assert "playoff_round_source" in sql
+    assert "playoff_round_conflict" in sql
+    assert "has_playoff_round_column" in sql
+
+    assert (
+        row_playoff_round(
+            {
+                "season_type": PLAYOFFS,
+                "game_id": "0042400101",
+                "playoff_round": None,
+                "playoff_round_source": "conflict",
+            }
+        )
+        is None
+    )
+    assert (
+        row_playoff_round(
+            {
+                "season_type": PLAYOFFS,
+                "game_id": "0042400101",
+                "playoff_round": None,
+                "playoff_round_conflict": True,
+            }
+        )
+        is None
+    )
+    assert (
+        row_playoff_round(
+            {
+                "season_type": PLAYOFFS,
+                "game_id": "0042400101",
+                "playoff_round": None,
+                "has_playoff_round_column": True,
+            }
+        )
+        is None
+    )
+    # Legacy schema without round column still allows canonical game_id fallback.
+    assert (
+        row_playoff_round(
+            {
+                "season_type": PLAYOFFS,
+                "game_id": "0042400101",
+                "playoff_round": None,
+                "has_playoff_round_column": False,
+            }
+        )
+        == "first_round"
+    )
+
+
+def test_round_plus_venue_excludes_other_rounds_and_flags_unknown_peer_venue():
+    rows = [
+        {**round_rows()[1], "home_away": "HOME", "pts": 20},
+        # Finals row for target player lacks venue; must not block first_round+HOME.
+        {**round_rows()[-1], "home_away": None, "pts": 99},
+        # Peer in first_round has unknown venue; must mark cohort_complete=False.
+        {
+            **round_rows()[1],
+            "player_id": 2,
+            "player_name": "Peer Player",
+            "game_id": "0042400102",
+            "home_away": None,
+            "pts": 30,
+        },
+    ]
+    result = run_query(
+        round_evidence(rows),
+        Query(
+            "pts",
+            SEASON,
+            "average",
+            season_type=PLAYOFFS,
+            player_id=1,
+            home_away="HOME",
+            playoff_round="first_round",
+        ),
+    )
+    assert result["status"] == "ok"
+    assert result["rows"][0]["value"] == 20
+    assert result["cohort_complete"] is False
+    assert result["rows"][0]["rank"] is None
+    assert result["rows"][0]["percentile"] is None
+
+
+def test_round_overview_explicit_playoffs_baseline_and_long_season_formats():
+    rows = round_rows()
+    rows.append(
+        dict(
+            rows[1],
+            season="2023-24",
+            game_id="0042300101",
+            game_date="2024-04-20",
+            pts=18,
+        )
+    )
+    ask, _, warehouse = ask_fixture(rows)
+    warehouse.coverage.append(("2023-24", PLAYOFFS, "2024-06-09"))
+
+    for wording in ("compared to the playoffs", "vs the playoffs"):
+        result = ask.answer(
+            f"How did Regular Player perform in the 2024-25 first round {wording}?"
+        )
+        assert result["status"] == "ok", result["answer"]
+        ev = result["semantic_evidence"]
+        assert ev["scope"]["previous_phases"] == [PLAYOFFS]
+        pts = next(m for m in ev["metrics"] if m["key"] == "pts")
+        # 2024-25 first_round avg = (12+30)/2 = 21.0; all Playoffs avg = (12+30+50+71+99)/5 = 52.4
+        assert pts["value"] == pytest.approx(21.0)
+        assert pts["previous"]["value"] == pytest.approx(52.4)
+        assert pts["change"] == pytest.approx(21.0 - 52.4)
+
+    for long_season in ("2023/2024", "2023-2024"):
+        warehouse.calls.clear()
+        res = ask.answer(
+            f"How did Regular Player perform in the {long_season} first round?"
+        )
+        assert res["status"] == "ok", res["answer"]
+        assert warehouse.calls == [["2023-24"]]
+        assert res["semantic_evidence"]["scope"]["seasons"] == ["2023-24"]
+        assert res["semantic_evidence"]["game_ids"] == ["0042300101"]
+
+
+def test_optional_previous_period_round_error_does_not_suppress_primary_overview():
+    rows = [
+        {
+            **round_rows()[1],
+            "game_id": "unmapped",
+            "game_date": "2025-04-18",
+            "pts": 10,
+        },
+        {
+            **round_rows()[1],
+            "game_id": "0042400102",
+            "game_date": "2025-04-21",
+            "pts": 24,
+        },
+    ]
+    ask, _, _ = ask_fixture(rows)
+    res = ask.answer(
+        "How did Regular Player perform in the 2024-25 first round from 2025-04-20 through 2025-04-25?"
+    )
+    assert res["status"] == "ok", res["answer"]
+    ev = res["semantic_evidence"]
+    assert ev["game_ids"] == ["0042400102"]
+    assert ev["scope"]["baseline_coverage_available"] is False
+    pts = next(m for m in ev["metrics"] if m["key"] == "pts")
+    assert pts["value"] == 24
+    assert pts["change"] is None
+    assert any("optional comparison is unavailable" in a for a in res["assumptions"])

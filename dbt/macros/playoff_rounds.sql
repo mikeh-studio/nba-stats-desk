@@ -3,7 +3,8 @@
         'playoff_round_number',
         'playoff_round_name',
         'playoff_series_id',
-        'playoff_series_game_number'
+        'playoff_series_game_number',
+        'playoff_round_source'
     ]) }}
 {% endmacro %}
 
@@ -28,7 +29,12 @@
 {%- endmacro %}
 
 {% macro playoff_round_fields(game_id, season_type, source_columns=[], source_prefix='', schedule_prefix='') -%}
-    {% set fields = playoff_round_columns() %}
+    {% set fields = [
+        'playoff_round_number',
+        'playoff_round_name',
+        'playoff_series_id',
+        'playoff_series_game_number'
+    ] %}
     {% set explicit = {} %}
     {% for field in fields %}
         {% set column = source_prefix ~ field %}
@@ -51,6 +57,7 @@
     {% if schedule_prefix %}
         {% do round_inputs.append(schedule_prefix ~ 'playoff_round_number') %}
     {% endif %}
+    {% set explicit_round_expr = 'coalesce(' ~ (round_inputs | join(', ')) ~ ')' if round_inputs | length > 1 else (round_inputs[0] if round_inputs else 'null') %}
     {% do round_inputs.append('cast(substr(' ~ game_id ~ ', 8, 1) as ' ~ int64_type() ~ ')') %}
     {% set round_number = 'coalesce(' ~ (round_inputs | join(', ')) ~ ')' if round_inputs | length > 1 else round_inputs[0] %}
     {% set defaults = [
@@ -74,8 +81,14 @@
                 {{ defaults[loop.index0] }}
             )
         {% endif %}
-    end as {{ field }}{% if not loop.last %},{% endif %}
+    end as {{ field }},
     {% endfor %}
+    case
+        when {{ season_type }} is distinct from 'Playoffs' then 'none'
+        when not {{ regex_contains(game_id, "'^004[0-9]{2}00[1-4][0-9][1-7]$'") }} then 'none'
+        when ({{ explicit_round_expr }}) is not null then 'explicit'
+        else 'game_id'
+    end as playoff_round_source
 {%- endmacro %}
 
 {% macro playoff_round_explicit_inputs(source_columns=[], source_prefix='') -%}
@@ -118,13 +131,23 @@
 {% macro playoff_round_resolved_columns(game_id, season_type, round_expr, series_id_expr, series_game_expr, conflict_expr='false') -%}
     {% set fallback_round = 'cast(substr(' ~ game_id ~ ', 8, 1) as ' ~ int64_type() ~ ')' %}
     {% set resolved_round = 'coalesce(' ~ round_expr ~ ', ' ~ fallback_round ~ ')' %}
-    {% set is_valid_playoff = (
+    {% set is_canonical_playoff = (
         season_type ~ " = 'Playoffs' and "
         ~ regex_contains(game_id, "'^004[0-9]{2}00[1-4][0-9][1-7]$'")
+    ) %}
+    {% set is_valid_playoff = (
+        is_canonical_playoff
         ~ " and not coalesce(" ~ conflict_expr ~ ", false)"
     ) %}
     case when {{ is_valid_playoff }} then {{ resolved_round }} end as playoff_round_number,
     case when {{ is_valid_playoff }} then {{ playoff_round_name(resolved_round) }} end as playoff_round_name,
     case when {{ is_valid_playoff }} then coalesce({{ series_id_expr }}, substr({{ game_id }}, 1, 9)) end as playoff_series_id,
-    case when {{ is_valid_playoff }} then coalesce({{ series_game_expr }}, cast(substr({{ game_id }}, 10, 1) as {{ int64_type() }})) end as playoff_series_game_number
+    case when {{ is_valid_playoff }} then coalesce({{ series_game_expr }}, cast(substr({{ game_id }}, 10, 1) as {{ int64_type() }})) end as playoff_series_game_number,
+    case
+        when {{ season_type }} is distinct from 'Playoffs' then 'none'
+        when coalesce({{ conflict_expr }}, false) then 'conflict'
+        when not ({{ is_canonical_playoff }}) then 'none'
+        when ({{ round_expr }}) is not null then 'explicit'
+        else 'game_id'
+    end as playoff_round_source
 {%- endmacro %}

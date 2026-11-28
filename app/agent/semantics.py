@@ -56,14 +56,22 @@ def playoff_round_from_game_id(game_id: object) -> str | None:
 def row_playoff_round(row: Mapping[str, Any]) -> str | None:
     if row.get("season_type") != "Playoffs":
         return None
+    if row.get("playoff_round_conflict") is True:
+        return None
+    source = row.get("playoff_round_source")
+    if isinstance(source, str) and source.strip().casefold() in {"conflict", "none"}:
+        return None
     for field in ("playoff_round", "playoff_round_name"):
         value = row.get(field)
-        if isinstance(value, str):
-            value = value.strip().casefold()
-            if value in PLAYOFF_ROUNDS:
-                return value
-            if value in _PLAYOFF_ROUND_KEYS:
-                return _PLAYOFF_ROUND_KEYS[value]
+        if isinstance(value, str) and value.strip():
+            normalized = value.strip().casefold()
+            if normalized in PLAYOFF_ROUNDS:
+                return normalized
+            if normalized in _PLAYOFF_ROUND_KEYS:
+                return _PLAYOFF_ROUND_KEYS[normalized]
+            return None
+    if row.get("has_playoff_round_column") is True:
+        return None
     return playoff_round_from_game_id(row.get("game_id"))
 
 
@@ -524,10 +532,19 @@ def _matches_stat_filter(row: Mapping[str, Any], predicate: dict[str, Any]) -> b
     )
 
 
+def _valid_filter_field(row: Mapping[str, Any], field: str) -> bool:
+    value = _game_result(row) if field == "game_result" else row.get(field)
+    if field in ("team_abbr", "opponent_abbr"):
+        return isinstance(value, str) and bool(re.fullmatch(r"[A-Z]{2,4}", value))
+    if field == "home_away":
+        return value in ("HOME", "AWAY")
+    return value in ("W", "L")
+
+
 def _apply_game_filters_with_status(
     rows: Sequence[Mapping[str, Any]], query: Query
 ) -> tuple[list[Mapping[str, Any]], bool]:
-    """Apply validated predicates, then round filters, tracking peer completeness."""
+    """Apply round exclusions, then validated predicates, tracking peer completeness."""
     fields = (
         ("team_abbr", query.team_abbr),
         ("opponent_abbr", query.opponent_abbr),
@@ -540,26 +557,31 @@ def _apply_game_filters_with_status(
         if query.player_id is not None and query.operation in ("summary", "game_log")
         else None
     )
+    if query.playoff_round is None:
+        candidate_rows: list[tuple[Mapping[str, Any], str | None]] = [
+            (row, None) for row in rows
+        ]
+    else:
+        candidate_rows = []
+        for row in rows:
+            if row["season_type"] != "Playoffs":
+                continue
+            round_key = row_playoff_round(row)
+            if round_key is not None and round_key != query.playoff_round:
+                continue
+            candidate_rows.append((row, round_key))
+    cohort_complete = True
     if not requested_fields and query.weekdays is None and query.stat_filters is None:
-        selected = list(rows)
+        selected_with_rounds = candidate_rows
     else:
         relevant = (
-            rows
+            [row for row, _ in candidate_rows]
             if player_scope is None
-            else [row for row in rows if row["player_id"] == player_scope]
+            else [row for row, _ in candidate_rows if row["player_id"] == player_scope]
         )
         for row in relevant:
             for field, _ in requested_fields:
-                value = _game_result(row) if field == "game_result" else row.get(field)
-                if field in ("team_abbr", "opponent_abbr"):
-                    valid = isinstance(value, str) and bool(
-                        re.fullmatch(r"[A-Z]{2,4}", value)
-                    )
-                elif field == "home_away":
-                    valid = value in ("HOME", "AWAY")
-                else:
-                    valid = value in ("W", "L")
-                if not valid:
+                if not _valid_filter_field(row, field):
                     label = "Home/away" if field == "home_away" else field
                     raise SemanticError(
                         "incomplete_evidence",
@@ -571,8 +593,17 @@ def _apply_game_filters_with_status(
                         "incomplete_evidence",
                         f"{predicate['component']} filter component is missing for games in this scope",
                     )
-        selected = []
-        for row in rows:
+        selected_with_rounds = []
+        for row, round_key in candidate_rows:
+            if player_scope is not None and row["player_id"] != player_scope:
+                if any(
+                    not _valid_filter_field(row, field) for field, _ in requested_fields
+                ) or any(
+                    _number(row.get(predicate["component"])) is None
+                    for predicate in query.stat_filters or []
+                ):
+                    cohort_complete = False
+                    continue
             matches = True
             for field, requested in requested_fields:
                 value = _game_result(row) if field == "game_result" else row.get(field)
@@ -591,13 +622,11 @@ def _apply_game_filters_with_status(
                 for predicate in query.stat_filters or []
             ):
                 continue
-            selected.append(row)
+            selected_with_rounds.append((row, round_key))
     if query.playoff_round is None:
-        return selected, True
+        return [row for row, _ in selected_with_rounds], cohort_complete
     round_rows = []
-    cohort_complete = True
-    for row in selected:
-        round_key = row_playoff_round(row)
+    for row, round_key in selected_with_rounds:
         if round_key is None and row["season_type"] == "Playoffs":
             if player_scope is None or row["player_id"] == player_scope:
                 raise SemanticError(
